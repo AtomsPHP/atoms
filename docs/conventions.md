@@ -227,8 +227,10 @@ sha256}]}}`), `methods` (list of `{atom_type, class, methods: [...]}`), `jobs`
 (list of `{class, params: [...]}`), `shared` (list of `{class, properties:
 [{name, type}]}`), `toolchain` (`{core_version, php, extensions: [...],
 scoper_prefix}`), `content_hash` (sha256 of the bundle tarball, hex).
-`manifest_hash` anywhere = sha256 of the canonical JSON encoding
-(sorted keys, no whitespace) of the manifest **without** the `content_hash` key.
+`manifest_hash` anywhere = sha256 of the canonical JSON encoding of the
+manifest **without** the `content_hash` key: keys recursively sorted
+(lists keep order), no whitespace, encoded with
+`JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE`.
 Type strings in the manifest use PHP type syntax (`string`, `?int`,
 `App\Atoms\Shared\PlayerSnapshot`, `list<string>` for PHPDoc-refined arrays).
 
