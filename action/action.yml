@@ -1,0 +1,72 @@
+name: Atoms Deploy
+description: Deploy an Atoms bundle to the Atoms platform
+inputs:
+  environment:
+    description: Deployment environment (staging, production, etc.)
+    required: true
+  api-key:
+    description: API key for authentication (optional if using OIDC)
+    required: false
+    default: ''
+  endpoint:
+    description: Platform API endpoint
+    required: false
+    default: 'https://api.atoms.cloud'
+  working-directory:
+    description: Working directory containing atoms.json
+    required: false
+    default: '.'
+  bundle:
+    description: Path to a prebuilt bundle (optional; if omitted, builds locally)
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Set up PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.3'
+        extensions: pdo_sqlite, curl
+
+    - name: Install Atoms CLI
+      shell: bash
+      run: |
+        composer global require atoms/cli --no-interaction
+        echo "$(composer global config bin-dir --absolute)" >> "$GITHUB_PATH"
+
+    - name: Exchange OIDC token for API key
+      if: ${{ inputs.api-key == '' }}
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const token = await core.getIDToken('atoms.cloud');
+          const response = await fetch('${{ inputs.endpoint }}/v1/oidc/token-exchange', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(`OIDC exchange failed: ${data.error || response.statusText}`);
+          }
+          core.setSecret(data.token);
+          core.exportVariable('ATOMS_API_KEY', data.token);
+
+    - name: Set API key from input
+      if: ${{ inputs.api-key != '' }}
+      shell: bash
+      run: |
+        echo "::add-mask::${{ inputs.api-key }}"
+        echo "ATOMS_API_KEY=${{ inputs.api-key }}" >> "$GITHUB_ENV"
+
+    - name: Deploy
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        ATOMS_API_KEY: ${{ env.ATOMS_API_KEY }}
+      run: |
+        atoms deploy --env "${{ inputs.environment }}" ${{ inputs.bundle != '' && format('--bundle "{0}"', inputs.bundle) || '' }}

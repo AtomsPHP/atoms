@@ -37,3 +37,36 @@ composer install
 composer test
 composer stan
 ```
+
+## CI/CD
+
+### GitHub Actions
+
+The monorepo includes a CI workflow (`.github/workflows/ci.yml`) that runs on every push to main and pull request:
+
+- **Tests** (`composer test`) across PHP 8.3 and 8.4
+- **Static analysis** (`composer stan`) for all packages
+- **Lint** (`composer validate`) for root and each package
+
+### Deploy Action
+
+Use the first-party deploy action to deploy Atoms to the platform:
+
+```yaml
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # required for OIDC token exchange
+    steps:
+      - uses: actions/checkout@v4
+      - uses: AtomsPHP/atoms-framework/action@v1
+        with:
+          environment: production
+```
+
+The action supports OIDC token exchange (recommended) or API key authentication. See `action/README.md` for full documentation and examples.
+
+### Error Codes
+
+Every error carries a stable code (`ATOMS-E###`) for IDE integration, tooling, and agent automation. See `docs/errors.md` for the complete catalog.
