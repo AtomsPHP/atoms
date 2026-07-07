@@ -7,10 +7,22 @@
     "keywords": ["atoms", "laravel"],
     "require": {
         "php": "^8.3",
+        "ext-sodium": "*",
         "atoms/client": "^0.1",
+        "guzzlehttp/psr7": "^2.7",
+        "illuminate/bus": "^11.0 || ^12.0",
         "illuminate/console": "^11.0 || ^12.0",
         "illuminate/contracts": "^11.0 || ^12.0",
-        "illuminate/support": "^11.0 || ^12.0"
+        "illuminate/http": "^11.0 || ^12.0",
+        "illuminate/support": "^11.0 || ^12.0",
+        "psr/http-client": "^1.0",
+        "psr/http-message": "^1.1 || ^2.0",
+        "psr/log": "^2.0 || ^3.0",
+        "symfony/process": "^6.4 || ^7.0"
+    },
+    "suggest": {
+        "guzzlehttp/guzzle": "Default PSR-18 HTTP client used when the host app does not bind its own.",
+        "atoms/cli": "Provides the `atoms` binary the Artisan wrapper commands (atoms:deploy, make:atom, ...) shell out to."
     },
     "autoload": {
         "psr-4": {
