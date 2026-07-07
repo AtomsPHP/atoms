@@ -1,0 +1,11 @@
+parameters:
+    level: 6
+    paths:
+        - packages/core/src
+        - packages/client/src
+        - packages/laravel/src
+        - packages/symfony/src
+        - packages/testing/src
+        - packages/phpstan-rules/src
+        - packages/cli/src
+    treatPhpDocTypesAsCertain: false

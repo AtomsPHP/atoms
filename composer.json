@@ -1,0 +1,65 @@
+{
+    "name": "atoms/framework",
+    "description": "Atoms framework monorepo: the customer-facing SDK packages, build toolchain, and adapters for the Atoms platform.",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3"
+    },
+    "require-dev": {
+        "atoms/cli": "^0.1",
+        "atoms/client": "^0.1",
+        "atoms/core": "^0.1",
+        "atoms/laravel": "^0.1",
+        "atoms/phpstan-rules": "^0.1",
+        "atoms/symfony": "^0.1",
+        "atoms/testing": "^0.1",
+        "guzzlehttp/psr7": "^2.7",
+        "humbug/php-scoper": "^0.18.15",
+        "orchestra/testbench": "^9.0 || ^10.0",
+        "phpstan/phpstan": "^2.0",
+        "phpunit/phpunit": "^11.5",
+        "symfony/messenger": "^7.0"
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "/tmp/claude-0/-home-user/b6d9152b-8477-589a-b70e-3bf7f8a1fb7c/scratchpad/phpstan-dist",
+            "options": {
+                "symlink": false,
+                "versions": {
+                    "phpstan/phpstan": "2.2.5"
+                }
+            }
+        },
+        {
+            "type": "path",
+            "url": "packages/*",
+            "options": {
+                "symlink": true
+            }
+        }
+    ],
+    "autoload-dev": {
+        "psr-4": {
+            "Atoms\\Core\\Tests\\": "packages/core/tests/",
+            "Atoms\\Client\\Tests\\": "packages/client/tests/",
+            "Atoms\\Laravel\\Tests\\": "packages/laravel/tests/",
+            "Atoms\\Symfony\\Tests\\": "packages/symfony/tests/",
+            "Atoms\\Testing\\Tests\\": "packages/testing/tests/",
+            "Atoms\\PHPStan\\Tests\\": "packages/phpstan-rules/tests/",
+            "Atoms\\Cli\\Tests\\": "packages/cli/tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "stan": "phpstan analyse --memory-limit=1G"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "phpstan/extension-installer": false
+        }
+    },
+    "prefer-stable": true
+}

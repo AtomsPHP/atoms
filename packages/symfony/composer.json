@@ -1,0 +1,32 @@
+{
+    "name": "atoms/symfony",
+    "description": "Symfony bundle for Atoms (Phase 1 internal skeleton — a layering test, not yet a supported product).",
+    "version": "0.1.0",
+    "license": "MIT",
+    "type": "symfony-bundle",
+    "keywords": ["atoms", "symfony"],
+    "require": {
+        "php": "^8.3",
+        "atoms/client": "^0.1",
+        "symfony/config": "^6.4 || ^7.0",
+        "symfony/dependency-injection": "^6.4 || ^7.0",
+        "symfony/http-kernel": "^6.4 || ^7.0"
+    },
+    "suggest": {
+        "symfony/messenger": "Routes AtomJob callbacks through Messenger",
+        "psr/http-message-bridge": "Mount the PSR-15 CallbackKernel as a controller"
+    },
+    "autoload": {
+        "psr-4": {
+            "Atoms\\Symfony\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Atoms\\Symfony\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

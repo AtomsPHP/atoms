@@ -1,0 +1,38 @@
+{
+    "name": "atoms/laravel",
+    "description": "Laravel adapter for Atoms: service provider, facade, callback route, queue bridge, Artisan wrappers.",
+    "version": "0.1.0",
+    "license": "MIT",
+    "type": "library",
+    "keywords": ["atoms", "laravel"],
+    "require": {
+        "php": "^8.3",
+        "atoms/client": "^0.1",
+        "illuminate/console": "^11.0 || ^12.0",
+        "illuminate/contracts": "^11.0 || ^12.0",
+        "illuminate/support": "^11.0 || ^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Atoms\\Laravel\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Atoms\\Laravel\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Atoms\\Laravel\\AtomsServiceProvider"
+            ],
+            "aliases": {
+                "Atoms": "Atoms\\Laravel\\Facades\\Atoms"
+            }
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

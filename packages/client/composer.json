@@ -1,0 +1,32 @@
+{
+    "name": "atoms/client",
+    "description": "Framework-agnostic monolith-side SDK for Atoms: RPC stub proxies, callback kernel, manifest loader.",
+    "version": "0.1.0",
+    "license": "MIT",
+    "type": "library",
+    "keywords": ["atoms", "sdk", "rpc"],
+    "require": {
+        "php": "^8.3",
+        "ext-sodium": "*",
+        "atoms/core": "^0.1",
+        "psr/http-client": "^1.0",
+        "psr/http-factory": "^1.0",
+        "psr/http-message": "^1.1 || ^2.0",
+        "psr/http-server-handler": "^1.0",
+        "psr/http-server-middleware": "^1.0",
+        "psr/log": "^2.0 || ^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Atoms\\Client\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Atoms\\Client\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}
