@@ -13,8 +13,10 @@
         "symfony/http-kernel": "^6.4 || ^7.0"
     },
     "suggest": {
-        "symfony/messenger": "Routes AtomJob callbacks through Messenger",
-        "psr/http-message-bridge": "Mount the PSR-15 CallbackKernel as a controller"
+        "symfony/messenger": "Routes AtomJob callbacks through Messenger (MessengerQueueBridge); without it, NullQueueBridge throws on first use",
+        "symfony/console": "Registers the atoms:deploy / atoms:rollback / atoms:list console wrappers",
+        "guzzlehttp/psr7": "Default PSR-17 factory, and the (bridge-free) PSR-7 conversion used by CallbackController",
+        "guzzlehttp/guzzle": "Default PSR-18 client used when no atoms.http_client / ClientInterface service is configured"
     },
     "autoload": {
         "psr-4": {
