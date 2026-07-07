@@ -1,0 +1,44 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Atoms\PHPStan\Rules;
+
+use Atoms\PHPStan\BoundaryReferenceInspector;
+use Atoms\PHPStan\WorldClassifier;
+use PhpParser\Node;
+use PhpParser\Node\Expr\Instanceof_;
+use PHPStan\Analyser\Scope;
+use PHPStan\Rules\Rule;
+use PHPStan\Rules\RuleError;
+
+/**
+ * Flags `$x instanceof SomeClass` inside WORLD_A/SHARED code when SomeClass
+ * is not a legal boundary reference (docs/conventions.md, ATOMS-E010/E012/E014/E015).
+ *
+ * @implements Rule<Instanceof_>
+ */
+final class BoundaryInstanceofRule implements Rule
+{
+    use BoundaryReferenceCheckTrait;
+
+    public function __construct(
+        private readonly WorldClassifier $classifier,
+        private readonly BoundaryReferenceInspector $inspector,
+    ) {
+    }
+
+    public function getNodeType(): string
+    {
+        return Instanceof_::class;
+    }
+
+    /**
+     * @param Instanceof_ $node
+     * @return list<RuleError>
+     */
+    public function processNode(Node $node, Scope $scope): array
+    {
+        return $this->checkClassNameNode($node->class, $scope, $node->getStartLine(), 'atoms.boundary.instanceof');
+    }
+}
