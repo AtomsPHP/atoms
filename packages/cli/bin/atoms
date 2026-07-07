@@ -1,0 +1,30 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Atoms\Cli\Application;
+
+// Discover the Composer autoloader whether the CLI runs from its own vendor,
+// from the monorepo root vendor, or from a consuming project's vendor.
+(static function (): void {
+    $candidates = [
+        __DIR__ . '/../vendor/autoload.php',       // standalone package install
+        __DIR__ . '/../../../autoload.php',         // installed under a project's vendor/
+        __DIR__ . '/../../../../vendor/autoload.php', // monorepo root vendor
+        getcwd() . '/vendor/autoload.php',          // current project
+    ];
+
+    foreach ($candidates as $candidate) {
+        if (is_file($candidate)) {
+            require $candidate;
+
+            return;
+        }
+    }
+
+    fwrite(STDERR, "Could not locate the Composer autoloader. Run `composer install`.\n");
+    exit(1);
+})();
+
+exit((new Application())->run());

@@ -1,0 +1,25 @@
+{
+    "$comment": "Beta allowlist for atoms-composer.json (integration-plan.md §10 Q2). Each entry maps a Composer package to the PSR-4 namespace prefixes it ships. The build classifier treats a symbol as vendor-approved only when its namespace matches a prefix here AND the package is declared in the project's atoms-composer.json require.",
+    "packages": [
+        { "name": "illuminate/database", "namespaces": ["Illuminate\\Database\\"] },
+        { "name": "illuminate/collections", "namespaces": ["Illuminate\\Support\\"] },
+        { "name": "ramsey/uuid", "namespaces": ["Ramsey\\Uuid\\"] },
+        { "name": "nesbot/carbon", "namespaces": ["Carbon\\"] },
+        { "name": "brick/math", "namespaces": ["Brick\\Math\\"] },
+        { "name": "symfony/uid", "namespaces": ["Symfony\\Component\\Uid\\"] },
+        { "name": "league/csv", "namespaces": ["League\\Csv\\"] },
+        { "name": "moneyphp/money", "namespaces": ["Money\\"] },
+        { "name": "doctrine/inflector", "namespaces": ["Doctrine\\Inflector\\"] },
+        { "name": "dragonmantank/cron-expression", "namespaces": ["Cron\\"] },
+        { "name": "hashids/hashids", "namespaces": ["Hashids\\"] },
+        { "name": "nette/utils", "namespaces": ["Nette\\Utils\\", "Nette\\"] },
+        { "name": "myclabs/deep-copy", "namespaces": ["DeepCopy\\"] },
+        { "name": "cocur/slugify", "namespaces": ["Cocur\\Slugify\\"] },
+        { "name": "egulias/email-validator", "namespaces": ["Egulias\\EmailValidator\\"] },
+        { "name": "fakerphp/faker", "namespaces": ["Faker\\"] },
+        { "name": "phpseclib/phpseclib", "namespaces": ["phpseclib3\\"] },
+        { "name": "spatie/period", "namespaces": ["Spatie\\Period\\"] },
+        { "name": "azjezz/psl", "namespaces": ["Psl\\"] },
+        { "name": "webmozart/assert", "namespaces": ["Webmozart\\Assert\\"] }
+    ]
+}

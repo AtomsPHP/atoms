@@ -1,0 +1,22 @@
+{
+    "$comment": "PHP extensions bundled into the Atoms runtime image. A built-in symbol whose defining extension is not on this list is a build error (ATOMS-E019). Compared case-insensitively against ReflectionClass/ReflectionFunction::getExtensionName().",
+    "extensions": [
+        "core",
+        "standard",
+        "pcre",
+        "json",
+        "mbstring",
+        "pdo",
+        "pdo_sqlite",
+        "hash",
+        "ctype",
+        "date",
+        "spl",
+        "random",
+        "filter",
+        "sockets",
+        "pcntl",
+        "posix",
+        "uv"
+    ]
+}

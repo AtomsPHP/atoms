@@ -1,0 +1,16 @@
+{
+    "project": "acme-games",
+    "paths": {
+        "atoms": "app/Atoms",
+        "shared": "app/Atoms/Shared"
+    },
+    "php": "8.3",
+    "environments": {
+        "production": { "endpoint": "https://api.atoms.cloud", "region": "iad" },
+        "staging": { "endpoint": "https://staging.atoms.cloud", "region": "iad" }
+    },
+    "callback_url": {
+        "production": "https://acme.example.com",
+        "staging": "https://staging.acme.example.com"
+    }
+}
