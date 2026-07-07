@@ -77,14 +77,10 @@ final class MigrationSet implements \IteratorAggregate, \Countable
             if ($extension === 'sql') {
                 $byVersion[$version] = new MigrationEntry($version, $name, $sha256, $contents, null);
             } else {
-                $migration = require $file;
-                if (!$migration instanceof Migration) {
-                    throw new AtomsError(
-                        ErrorCode::MigrationNumberingConflict,
-                        "Migration {$basename} must return an instance of Atoms\\Migrations\\Migration.",
-                    );
-                }
-                $byVersion[$version] = new MigrationEntry($version, $name, $sha256, null, $migration);
+                // Deliberately NOT loaded here: builds/validation must never
+                // execute customer code. The file is require'd lazily by
+                // MigrationEntry::migration() at apply time.
+                $byVersion[$version] = new MigrationEntry($version, $name, $sha256, null, $file);
             }
         }
 

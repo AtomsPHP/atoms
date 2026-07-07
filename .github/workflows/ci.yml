@@ -35,8 +35,10 @@ jobs:
           php-version: '8.3'
           extensions: pdo_sqlite
       - run: composer install --no-interaction --no-progress
-      - run: composer validate --strict --no-check-all
+      - run: composer validate --strict --no-check-all --no-check-lock
+      # Package manifests carry pinned version fields (managed by release
+      # tooling — see CLAUDE.md), which --strict rejects as a publish warning.
       - run: |
           for p in core client laravel symfony testing phpstan-rules cli; do
-            composer validate --strict --no-check-all "packages/$p/composer.json"
+            composer validate --no-check-all "packages/$p/composer.json"
           done

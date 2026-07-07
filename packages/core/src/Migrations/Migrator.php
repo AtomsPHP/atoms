@@ -38,7 +38,7 @@ final class Migrator
                 if ($entry->isSql()) {
                     $pdo->exec((string) $entry->sql);
                 } else {
-                    $entry->migration?->up($db);
+                    $entry->migration()?->up($db);
                 }
 
                 // user_version is stored in the DB header and is transactional.

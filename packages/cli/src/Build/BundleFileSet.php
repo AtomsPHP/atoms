@@ -98,6 +98,8 @@ final class BundleFileSet
 
     public function scoperPrefix(): string
     {
-        return 'AtomsScoped\\' . substr($this->treeHash(), 0, 8);
+        // Leading "V" keeps the segment a valid PHP namespace even when the
+        // hash prefix starts with a digit.
+        return 'AtomsScoped\\V' . substr($this->treeHash(), 0, 8);
     }
 }

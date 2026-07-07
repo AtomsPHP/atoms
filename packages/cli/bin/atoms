@@ -11,7 +11,7 @@ use Atoms\Cli\Application;
     $candidates = [
         __DIR__ . '/../vendor/autoload.php',       // standalone package install
         __DIR__ . '/../../../autoload.php',         // installed under a project's vendor/
-        __DIR__ . '/../../../../vendor/autoload.php', // monorepo root vendor
+        __DIR__ . '/../../../vendor/autoload.php',  // monorepo root vendor
         getcwd() . '/vendor/autoload.php',          // current project
     ];
 

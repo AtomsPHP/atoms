@@ -24,16 +24,6 @@
     "repositories": [
         {
             "type": "path",
-            "url": "/tmp/claude-0/-home-user/b6d9152b-8477-589a-b70e-3bf7f8a1fb7c/scratchpad/phpstan-dist",
-            "options": {
-                "symlink": false,
-                "versions": {
-                    "phpstan/phpstan": "2.2.5"
-                }
-            }
-        },
-        {
-            "type": "path",
             "url": "packages/*",
             "options": {
                 "symlink": true
@@ -48,7 +38,8 @@
             "Atoms\\Symfony\\Tests\\": "packages/symfony/tests/",
             "Atoms\\Testing\\Tests\\": "packages/testing/tests/",
             "Atoms\\PHPStan\\Tests\\": "packages/phpstan-rules/tests/",
-            "Atoms\\Cli\\Tests\\": "packages/cli/tests/"
+            "Atoms\\Cli\\Tests\\": "packages/cli/tests/",
+            "Atoms\\Tests\\Integration\\": "tests/Integration/"
         }
     },
     "scripts": {
