@@ -82,7 +82,7 @@ final class BundleBridgeTest extends TestCase
         self::rmrf($outDir);
     }
 
-    public function testTranslatorRefusesAManifestPairedWithTheWrongBundle(): void
+    public function testTranslatorRefusesAnArchiveWhoseContentsDoNotMatchTheManifest(): void
     {
         $repo = \dirname(__DIR__, 2);
         $node = (new \Symfony\Component\Process\ExecutableFinder())->find('node');
@@ -93,9 +93,20 @@ final class BundleBridgeTest extends TestCase
         $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
         $built = (new Builder())->build(AtomsJson::load($repo . '/' . self::FIXTURE . '/atoms.json'), $outDir, fast: true);
 
-        // Same bytes, a name that no longer matches the manifest's content_hash.
-        $renamed = $outDir . '/bundle-0000000000000000000000000000000000000000000000000000000000000000.tar.gz';
-        copy($built->bundlePath, $renamed);
+        // Tamper with the CONTENTS and keep the original, correct filename —
+        // the attack a filename comparison cannot see. `GameR00m` is the same
+        // length as `GameRoom`, so every tar header offset and size stays
+        // valid and the archive is still structurally readable.
+        $tar = (string) gzdecode((string) file_get_contents($built->bundlePath));
+        $tampered = str_replace('GameRoom', 'GameR00m', $tar);
+        self::assertNotSame($tar, $tampered, 'the fixture must contain the string being tampered with');
+
+        $gz = (string) gzencode($tampered, 9);
+        $gz = substr_replace($gz, "\0\0\0\0", 4, 4);
+        $gz = substr_replace($gz, "\x03", 9, 1);
+
+        $renamed = $built->bundlePath;
+        file_put_contents($renamed, $gz);
 
         $process = new \Symfony\Component\Process\Process(
             [

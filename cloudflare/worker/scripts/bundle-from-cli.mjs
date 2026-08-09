@@ -35,6 +35,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -227,19 +228,27 @@ function main() {
 	const cli = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
 	const manifest = hostManifest(cli);
 
-	const appFiles = {};
-	for (const [name, contents] of readTar(zlib.gunzipSync(fs.readFileSync(bundlePath)))) {
-		appFiles[path.posix.join(APP_PREFIX, name)] = contents;
+	const tar = zlib.gunzipSync(fs.readFileSync(bundlePath));
+
+	// The manifest's content_hash is the sha256 of the UNCOMPRESSED tar, which
+	// is how `Atoms\Cli\Build\BundleWriter` computes it. Recompute it here
+	// rather than trusting the filename: a filename comparison only catches a
+	// mispaired archive, and renaming an altered archive to the expected name
+	// defeats it entirely. This is the check that makes "content-addressed"
+	// mean something at the point the bundle is consumed.
+	if (cli.content_hash) {
+		const actual = crypto.createHash('sha256').update(tar).digest('hex');
+		if (actual !== cli.content_hash) {
+			throw new Error(
+				`bundle content hash ${actual} does not match the manifest's content_hash ` +
+					`${cli.content_hash} — the manifest and the archive are not a matching pair`
+			);
+		}
 	}
 
-	// The content hash names the archive, so verifying it is one comparison and
-	// catches a manifest paired with the wrong bundle — a mistake that would
-	// otherwise deploy silently and fail at activation.
-	const expected = `bundle-${cli.content_hash}.tar.gz`;
-	if (cli.content_hash && path.basename(bundlePath) !== expected) {
-		throw new Error(
-			`manifest content_hash expects ${expected}, but the bundle given is ${path.basename(bundlePath)}`
-		);
+	const appFiles = {};
+	for (const [name, contents] of readTar(tar)) {
+		appFiles[path.posix.join(APP_PREFIX, name)] = contents;
 	}
 
 	for (const [type, entry] of Object.entries(manifest.atoms)) {

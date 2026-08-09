@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Build;
 
+use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCatalog;
+use Atoms\Errors\ErrorCode;
+
 /**
  * A minimal, deterministic ustar tar writer. PharData is deliberately avoided —
  * it stamps timestamps and orders entries non-deterministically. Every header
@@ -74,7 +78,23 @@ final class TarWriter
     }
 
     /**
+     * Split a path across ustar's `prefix` (155 bytes) and `name` (100 bytes)
+     * fields, which together address a path as `prefix . "/" . name`.
+     *
+     * This used to truncate when it could not split, and the truncated entry
+     * went into the archive under a name the manifest did not agree with — a
+     * bundle that is invalid by construction, produced by a build that
+     * reported success. Nothing downstream could recover the real path, so
+     * the only honest options are to encode it or to refuse it, and refusing
+     * is the one that does not invent a tar extension the reader does not
+     * implement.
+     *
+     * The old code also split at the last `/` within the first 155 bytes
+     * without checking what remained: a path with a long tail split "cleanly"
+     * and then lost bytes in the 100-byte name field anyway.
+     *
      * @return array{0: string, 1: string} [prefix, name]
+     * @throws AtomsError E078 when the path cannot be represented
      */
     private static function splitName(string $name): array
     {
@@ -82,13 +102,28 @@ final class TarWriter
             return ['', $name];
         }
 
-        $split = strrpos(substr($name, 0, 155), '/');
-        if ($split === false) {
-            // Cannot split cleanly; truncate the name field (best effort).
-            return ['', substr($name, 0, 100)];
+        // Scan right-to-left from the prefix limit for a separator that leaves
+        // a representable name; the first one found gives the shortest tail.
+        for ($i = min(\strlen($name) - 1, 155); $i > 0; $i--) {
+            if ($name[$i] !== '/') {
+                continue;
+            }
+
+            $prefix = substr($name, 0, $i);
+            $tail = substr($name, $i + 1);
+
+            if (\strlen($tail) <= 100) {
+                return [$prefix, $tail];
+            }
         }
 
-        return [substr($name, 0, $split), substr($name, $split + 1)];
+        throw new AtomsError(
+            ErrorCode::BundlePathTooLong,
+            ErrorCatalog::format(ErrorCode::BundlePathTooLong, [
+                'path' => $name,
+                'bytes' => (string) \strlen($name),
+            ]),
+        );
     }
 
     private static function field(string $value, int $length): string

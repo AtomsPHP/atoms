@@ -344,6 +344,14 @@
             "fix": "Pick a different key. $this->config() resolves through the Worker's ATOMS_CONFIG_ENV_PREFIX allowlist, and a name outside it — or on its deny list — reads back as null with no error.",
             "severity": "error",
             "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E078",
+            "title": "Bundle path too long for the archive format",
+            "message": "{path} is {bytes} bytes and cannot be stored in the bundle archive.",
+            "fix": "The bundle is a ustar tar: a path needs a \"/\" positioned so the tail is at most 100 bytes and the head at most 155. Shorten the class or directory name.",
+            "severity": "error",
+            "phase": "build"
         }
     ]
 }
