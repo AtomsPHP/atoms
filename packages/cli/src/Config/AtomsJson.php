@@ -176,7 +176,7 @@ final class AtomsJson
 
     /**
      * @param mixed $value
-     * @return array<string, array{endpoint: string, region: string}>
+     * @return array<string, Environment>
      */
     private static function parseEnvironments(mixed $value): array
     {

@@ -115,17 +115,12 @@ final class ProcessWrangler implements Wrangler
      */
     private function childEnv(CloudflareTarget $target): array
     {
-        $env = [];
-        foreach (getenv() as $name => $value) {
-            if (\is_string($name) && \is_string($value)) {
-                $env[$name] = $value;
-            }
-        }
+        $env = getenv();
 
         // Atoms is scripted; Wrangler's interactive prompts and telemetry pings
         // have no one to answer them.
-        $env['CI'] = $env['CI'] ?? 'true';
-        $env['WRANGLER_SEND_METRICS'] = $env['WRANGLER_SEND_METRICS'] ?? 'false';
+        $env['CI'] ??= 'true';
+        $env['WRANGLER_SEND_METRICS'] ??= 'false';
 
         return [...$env, ...$target->credentialEnv()];
     }

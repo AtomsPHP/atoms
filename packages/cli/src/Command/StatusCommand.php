@@ -106,7 +106,6 @@ final class StatusCommand extends AbstractCommand
      */
     private static function field(array $source, string ...$path): ?string
     {
-        /** @var mixed $value */
         $value = $source;
         foreach ($path as $key) {
             if (!\is_array($value) || !\array_key_exists($key, $value)) {
