@@ -111,13 +111,123 @@ final class WorkerConfigTest extends TestCase
         self::assertSame('P_', WorkerConfig::fromWorkerDir($dir)->configEnvPrefix);
     }
 
-    public function testUnparseableConfigFallsBackToTheDocumentedDefaults(): void
+    /**
+     * A config that exists but will not parse must be loud. Falling back to the
+     * default prefix would hand back exactly the silent breakage this class
+     * removes — and a BOM, which Wrangler itself tolerates, is enough to
+     * trigger it.
+     */
+    public function testUnparseableConfigIsReportedRatherThanDefaulted(): void
     {
-        $dir = $this->workerDir('{ this is not json at all ');
+        $config = WorkerConfig::fromWorkerDir($this->workerDir('{ this is not json at all '));
+
+        self::assertNotNull($config->parseError);
+
+        $bom = WorkerConfig::fromWorkerDir(
+            $this->workerDir("\u{FEFF}" . '{"vars":{"ATOMS_CONFIG_ENV_PREFIX":"MYAPP_"}}'),
+        );
+        self::assertTrue(
+            $bom->parseError !== null || $bom->configEnvPrefix === 'MYAPP_',
+            'a BOM must either parse correctly or be reported — never silently yield the default prefix',
+        );
+    }
+
+    /**
+     * `config.js` falls back to the DEFAULT deny list when the variable is
+     * blank, so modelling blank as "deny nothing" would let the CLI bless a
+     * write to ATOMS_APP_KEY — the Worker's own bearer secret.
+     */
+    public function testABlankDenyListMeansTheDefaultsNotAnEmptyList(): void
+    {
+        foreach (['', ' ', "\u{00A0}"] as $blank) {
+            $config = WorkerConfig::fromWorkerDir($this->workerDir(
+                json_encode(['vars' => ['ATOMS_CONFIG_ENV_DENY_KEYS' => $blank]], JSON_THROW_ON_ERROR),
+            ));
+
+            self::assertSame(WorkerConfig::DEFAULT_DENY_KEYS, $config->configEnvDenyKeys);
+            self::assertFalse($config->isReadable('ATOMS_APP_KEY'));
+            self::assertNotNull($config->keyRefusalReason('app key'));
+        }
+    }
+
+    /**
+     * `config.js` requires `typeof v === 'string'`; a JSON number in `vars` is
+     * ignored there, so coercing it here would compute a prefix nothing uses.
+     */
+    public function testNonStringVarsAreIgnoredExactlyAsTheWorkerIgnoresThem(): void
+    {
+        foreach (['{"vars":{"ATOMS_CONFIG_ENV_PREFIX":5}}', '{"vars":{"ATOMS_CONFIG_ENV_PREFIX":true}}'] as $json) {
+            self::assertSame('ATOMS_CONFIG_', WorkerConfig::fromWorkerDir($this->workerDir($json))->configEnvPrefix);
+        }
+    }
+
+    /**
+     * Carrying the prefix is not enough: no key normalizes onto
+     * `ATOMS_CONFIG_foo` or `ATOMS_CONFIG_A__B`, so the Worker resolves both to
+     * null and neither may be reported readable.
+     */
+    public function testPrefixCarriersThatNoKeyNormalizesOntoAreNotReadable(): void
+    {
+        $config = WorkerConfig::fromWorkerDir($this->workerDir('{"vars":{}}'));
+
+        self::assertFalse($config->isReadable('ATOMS_CONFIG_foo'));
+        self::assertFalse($config->isReadable('ATOMS_CONFIG_A__B'));
+        self::assertTrue($config->isReadable('ATOMS_CONFIG_A_B'));
+    }
+
+    /**
+     * PHP uppercases byte-wise, the Worker's JavaScript uppercases by Unicode:
+     * "straße" is STRA_E here and STRASSE there. Refuse rather than store a
+     * name that will never be read.
+     */
+    public function testNonAsciiKeysAreRefusedBecauseTheTwoLanguagesDisagree(): void
+    {
+        $config = WorkerConfig::fromWorkerDir($this->workerDir('{"vars":{}}'));
+
+        foreach (['straße', "\u{FB01}le", "\u{0131}d"] as $key) {
+            self::assertNotNull($config->keyRefusalReason($key), "{$key} must be refused");
+        }
+
+        self::assertNull($config->keyRefusalReason('PAYMENTS_API_KEY'));
+        self::assertNull($config->keyRefusalReason('payments.api.key'));
+    }
+
+    /**
+     * A comma before a brace inside a string value is data, not a trailing
+     * comma. A hand-written stripper got this wrong by rewriting the whole
+     * document; the parser must not.
+     */
+    public function testACommaBeforeABraceInsideAStringIsNotATrailingComma(): void
+    {
+        $dir = $this->workerDir('{"vars":{"ATOMS_CONFIG_ENV_KEYS":"A, ]","ATOMS_CONFIG_ENV_PREFIX":"P_"}}');
 
         $config = WorkerConfig::fromWorkerDir($dir);
 
-        self::assertSame('ATOMS_CONFIG_', $config->configEnvPrefix);
+        self::assertSame('P_', $config->configEnvPrefix);
+        self::assertSame(['A', ']'], $config->configEnvKeys, 'the Worker splits this value on commas; so must we');
+    }
+
+    public function testTomlReadsOnlyTheVarsTableAndBothStringForms(): void
+    {
+        $dir = $this->freshDir();
+
+        // A per-environment table is not what `atoms deploy --name` deploys.
+        file_put_contents($dir . '/wrangler.toml', "name = 'w'
+[env.staging.vars]
+ATOMS_CONFIG_ENV_PREFIX = \"STAGING_\"
+");
+        self::assertSame('ATOMS_CONFIG_', WorkerConfig::fromWorkerDir($dir)->configEnvPrefix);
+
+        // TOML literal strings are single-quoted.
+        file_put_contents($dir . '/wrangler.toml', "[vars]
+ATOMS_CONFIG_ENV_PREFIX = 'MYAPP_'
+");
+        self::assertSame('MYAPP_', WorkerConfig::fromWorkerDir($dir)->configEnvPrefix);
+
+        // Inline-table syntax is not understood, and says so.
+        file_put_contents($dir . '/wrangler.toml', "vars = { ATOMS_CONFIG_ENV_PREFIX = \"X_\" }
+");
+        self::assertNotNull(WorkerConfig::fromWorkerDir($dir)->parseError);
     }
 
     public function testExactKeysAreReadableWithoutThePrefix(): void

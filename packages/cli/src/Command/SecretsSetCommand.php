@@ -77,9 +77,19 @@ final class SecretsSetCommand extends AbstractCommand
             // stores a secret the Atom can never read, with no error anywhere.
             $target->assertWorkerDir();
             $worker = WorkerConfig::fromWorkerDir($target->workerDir);
+
+            if ($worker->parseError !== null) {
+                throw new AtomsError(
+                    ErrorCode::WorkerDirectoryInvalid,
+                    ErrorCatalog::format(ErrorCode::WorkerDirectoryInvalid, [
+                        'environment' => $env,
+                        'reason' => $worker->parseError,
+                    ]),
+                );
+            }
             $workerName = $worker->workerNameFor($key);
 
-            $unreadable = $worker->unreadableReason($workerName);
+            $unreadable = $worker->keyRefusalReason($key);
             if ($unreadable !== null) {
                 throw new AtomsError(
                     ErrorCode::SecretNotReadable,
@@ -105,6 +115,10 @@ final class SecretsSetCommand extends AbstractCommand
         $output->writeln('<info>✓ Set ' . $key . ' for ' . $env . '.</info>');
         $output->writeln('  worker secret: ' . $workerName);
         $output->writeln('  read it with:  $this->config(' . var_export($key, true) . ')');
+        // Name the source, so a prefix read from the wrong place is visible
+        // rather than something the user has to take on trust.
+        $output->writeln('  prefix:        ' . $worker->configEnvPrefix
+            . ($worker->source === null ? ' (default; no wrangler config read)' : ' (from ' . $worker->source . ')'));
 
         return self::SUCCESS;
     }

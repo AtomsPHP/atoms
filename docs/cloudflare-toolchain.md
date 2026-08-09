@@ -157,21 +157,41 @@ override in `wrangler.jsonc`'s `vars` — as can the two companion variables
 override, a name the Worker never looks up, and nothing anywhere would say so.
 
 So `Atoms\Cli\Cloudflare\WorkerConfig` reads all three out of the Worker
-project the deploy is going to use — the CLI already knows that directory, and
-it is the only place the truth exists. Only top-level `vars` are read;
-Wrangler's per-environment `env.<name>.vars` sections are ignored on purpose,
-because `atoms deploy` selects the Worker with `--name` and never passes `-e`,
-so those sections do not apply to what it deploys. When there is no readable
-config, the documented defaults apply — the same fallback the Worker itself
-makes for an absent variable.
+project the deploy is going to use. Only top-level `vars` are read; Wrangler's
+per-environment `env.<name>.vars` sections are ignored on purpose, because
+`atoms deploy` selects the Worker with `--name` and never passes `-e`, so those
+sections do not apply to what it deploys. Parsing goes through
+`colinodell/json5`, because Wrangler's config is JSON with comments and trailing
+commas and a hand-written stripper that is subtly wrong reintroduces the very
+bug this removes.
+
+**This is better than assuming, and it is not authoritative.** The Worker's real
+`env` is whatever the last deploy of that Worker name established, which a
+working-tree file cannot see: the prefix could have been set as a secret rather
+than a var, or the live Worker deployed from another branch, another machine, or
+with `wrangler deploy -e`. So `atoms secrets:set` prints the prefix it resolved
+and the file it came from, making a mismatch visible rather than something to
+take on trust.
+
+A config file that is absent falls back to the documented defaults, the same
+fallback the Worker makes for an absent variable. A config file that exists but
+will not parse is an **error**, not a fallback — defaulting there would be
+indistinguishable from "no override configured", which is exactly the silent
+failure being removed.
 
 This also lets both commands be honest about names that can never work.
 `atoms secrets:set` refuses with **ATOMS-E077** when the resolved name is on the
-deny list, or is one of the three variables that configure the allowlist itself
-— `atoms secrets:set ENV_PREFIX` would not store a value, it would change how
-every other key resolves. `atoms secrets:list` classifies against the same
-config, so a secret is reported readable only if that Worker would really
-resolve it.
+deny list; when it is one of the three variables that configure the allowlist
+itself (`atoms secrets:set ENV_PREFIX` would not store a value, it would change
+how every other key resolves); or when the key contains non-ASCII characters,
+because PHP uppercases byte-wise and the Worker's JavaScript uppercases by
+Unicode — `straße` becomes `STRA_E` here and `STRASSE` there, so the name
+written would not be the name read.
+
+`atoms secrets:list` classifies against the same config, and requires a name to
+round-trip through the transform rather than merely carry the prefix: no key
+normalizes onto `ATOMS_CONFIG_foo` or `ATOMS_CONFIG_A__B`, so the Worker
+resolves both to null and neither is reported readable.
 
 Both commands therefore require a usable Worker directory (E076), as `deploy`
 already did. Reporting readability without reading the config would mean

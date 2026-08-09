@@ -9,6 +9,8 @@ use Atoms\Cli\Cloudflare\SecretName;
 use Atoms\Cli\Cloudflare\Wrangler;
 use Atoms\Cli\Cloudflare\WorkerConfig;
 use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCatalog;
+use Atoms\Errors\ErrorCode;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -59,6 +61,16 @@ final class SecretsListCommand extends AbstractCommand
 
             $target->assertWorkerDir();
             $worker = WorkerConfig::fromWorkerDir($target->workerDir);
+
+            if ($worker->parseError !== null) {
+                throw new AtomsError(
+                    ErrorCode::WorkerDirectoryInvalid,
+                    ErrorCatalog::format(ErrorCode::WorkerDirectoryInvalid, [
+                        'environment' => $env,
+                        'reason' => $worker->parseError,
+                    ]),
+                );
+            }
 
             $result = $this->wrangler->listSecrets($target);
             if (!$result->ok()) {
