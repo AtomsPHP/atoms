@@ -5,9 +5,10 @@ the fixture application, and the documentation.
 
 Three things in this tree are not covered by it:
 
-  - `worker/php/atoms-core/` — verbatim copies of the `atoms/core` package from
-    AtomsPHP/atoms-framework. Also MIT, but Atoms' grant for them lives with
-    that package rather than here. See that directory's VENDORED-FROM.md.
+  - `worker/php/atoms-core/` — verbatim copies of the `atoms/core` package,
+    which since 2026-08-08 lives in this same repository at packages/core.
+    Also MIT, but Atoms' grant for them is the repository-root LICENSE rather
+    than this file. See that directory's VENDORED-FROM.md.
 
   - The PHP/WebAssembly runtime, which is GPL-2.0-or-later and is not in this
     repository at all — `npm ci` fetches it from WordPress Playground's own npm

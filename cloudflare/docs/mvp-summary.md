@@ -1,8 +1,15 @@
 # Atoms-on-Cloudflare MVP — what was built and how it maps to prior work
 
 **Date:** 2026-08-04
-**Where:** `atoms-core`, branch `cloudflare-mvp`, everything under `cloudflare/` (uncommitted)
-**Live:** `https://atoms-mvp-conformance.dabernathy89.workers.dev` (worker `atoms-mvp-conformance`, your Cloudflare account, bearer-auth protected)
+**Where:** `AtomsPHP/atoms`, everything under `cloudflare/`
+
+> **Note, 2026-08-08.** This is a dated summary of the MVP as it stood on
+> 2026-08-04, kept for the mapping in "How this maps to prior work" below. Two
+> things have changed since and are corrected inline: the tree is committed and
+> now lives in the public monorepo `AtomsPHP/atoms` rather than on an
+> uncommitted `cloudflare-mvp` branch of the private `atoms-core` repo, and the
+> php-wasm runtime is no longer carried in `worker/vendor/`. The measured
+> figures below are unchanged.
 
 ## What was built
 
@@ -13,13 +20,13 @@ transactions, migrations, lifecycle, and lossless 64-bit integers — validated
 by a 12-check conformance suite that passes both locally under `wrangler dev`
 and against the real deployed Worker.
 
-| Piece | Path (under `atoms-core/cloudflare/`) | What it does |
+| Piece | Path (under `cloudflare/`) | What it does |
 |---|---|---|
 | Binding spec | `docs/mvp-spec.md` | Pins the PHP↔JS wire protocol, DO lifecycle, routes, envelopes, bundle format, conformance checks. Has a **measured-deviations appendix** — read it before trusting assumptions about the platform. |
 | Worker (JS host) | `worker/src/` | `index.js` router (`POST /invoke/:type/:id/:method`, healthz, gated debug, bearer auth); `atom-do.js` the one generic `AtomDurableObject` (activation gate, turn mutex, poisoned-residency recovery); `php-host.js` the Asyncify door dispatcher (`!` sync / `~` park); `bridge.js` SQL + transaction state machine + PRAGMA emulation + reserved-table enforcement; `int64.js` codec; `config.js` env-derived settings (no inline capacity constants). |
 | PHP guest runtime | `worker/php/runtime/` | The `Atoms\Cf\` prelude: host doors, persistent turn loop (`bootstrap.php`), `BridgeDatabase` (implements `Atoms\Database` over `ctx.storage.sql`), hardened `AtomsPDO` shim, `CfAtomContext`, int64 codec, named-param rewriter, migrations glob shim. |
-| Verbatim ABI | `worker/php/atoms-core/` | 22 files **byte-identical** to `atoms-framework/packages/core/src` (diff-verified, hashes in `VENDORED-FROM.md`): `Atom`, `AtomContext`, `LifecycleInvoker`, `Database`, `Migrations/*`, `Serialization/*`, etc. |
-| Pinned runtime artifact | `worker/vendor/` | WordPress Playground PHP 8.3 Asyncify build (64-bit ints) carried from the spike. JSPI deliberately dropped — synchronous guest re-entry inside `transactionSync` is Asyncify-only. |
+| Verbatim ABI | `worker/php/atoms-core/` | 22 files **byte-identical** to `packages/core/src` (diff-verified, hashes in `VENDORED-FROM.md`): `Atom`, `AtomContext`, `LifecycleInvoker`, `Database`, `Migrations/*`, `Serialization/*`, etc. |
+| Pinned runtime artifact | *(not in the repo — staged into `worker/.php-wasm/`)* | WordPress Playground PHP 8.3 Asyncify build (64-bit ints). Originally carried in `worker/vendor/`; since the 2026-08-08 licensing work `npm ci` fetches it from `@php-wasm/web-8-3` and `scripts/prepare-runtime.mjs` stages and hash-verifies it into a gitignored directory, so no GPL binary is committed. JSPI deliberately dropped — synchronous guest re-entry inside `transactionSync` is Asyncify-only. |
 | Fixture app | `worker/fixtures/counter/` | `Counter` and `Vault` Atoms + migrations: warm-residency state, lifecycle rows, tx commit/rollback, int64 matrix, PDO usage — the conformance subject. |
 | Bundle builder | `worker/scripts/build-bundle.mjs` | Deterministic assembly of runtime + ABI + fixture into `src/bundle.generated.js` (bundle format v0; stand-in for the future `atoms build`). |
 | Conformance | `worker/test/` | 12 checks (envelope, warm residency, isolation, migrations, tx commit/rollback, exception recovery, int64, reserved tables, turn serialization, eviction/wake) against any base URL; `measure-remote.mjs` for latencies; results in `test/results/remote.json`. |
@@ -81,7 +88,7 @@ questions on Cloudflare (isolate memory, active-object density, real commit
 latency) are answered by `test/measure-remote.mjs` + the production plan's
 phase-6 remote conformance, not by that harness.
 
-### `atoms-framework/` (customer SDK) → unchanged, and proven portable
+### The customer SDK (`packages/`, then a separate repo) → unchanged, and proven portable
 
 This is the payoff of the frozen-ABI discipline: `packages/core` runs
 **verbatim** inside the guest — the MVP vendored it byte-identical and the

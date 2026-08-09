@@ -4,13 +4,13 @@ Two directories, with very different rules:
 
 | Directory | What it is | Rule |
 |---|---|---|
-| `atoms-core/` | Verbatim copies of `atoms-framework/packages/core/src` (+ `resources/errors.json`) | **Never edit.** See `atoms-core/VENDORED-FROM.md` |
+| `atoms-core/` | Verbatim copies of `packages/core/src` (+ `resources/errors.json`), from the repository root | **Never edit.** See `atoms-core/VENDORED-FROM.md` |
 | `runtime/` | The `Atoms\Cf\` prelude — the platform side of the guest | Owned here |
 
 The whole point of the MVP is that the first column runs *unmodified*: the
 customer ABI, `Atoms\Migrations\Migrator` and `Atoms\Serialization\Serializer`
-inside a Durable Object are the same code as on the Fly platform. Nothing in
-`atoms-core/` was patched to make that work.
+inside a Durable Object are the same code the `atoms/core` package ships to
+customers. Nothing in `atoms-core/` was patched to make that work.
 
 ---
 

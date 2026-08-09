@@ -1,23 +1,43 @@
 # Vendored: the `atoms/core` package
 
-These files are **verbatim copies** from the customer SDK monorepo
-`AtomsPHP/atoms-framework`, and are the reason the Cloudflare MVP can claim the
-real ABI runs inside the guest.
+These files are **verbatim copies** of the `atoms/core` package, and are the
+reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 
 | | |
 |---|---|
-| Upstream | `atoms-framework/packages/core` |
+| Upstream | `packages/core` — **in this repository**, since 2026-08-08 |
 | Source of `*.php` | `packages/core/src/…` (same relative tree) |
 | Source of `resources/errors.json` | `packages/core/resources/errors.json` |
-| Vendored on | 2026-08-04 |
-| Licence | MIT — Atoms' own code, same as the rest of `atoms-framework` |
+| Vendored on | 2026-08-04 (from the then-separate `AtomsPHP/atoms-framework`) |
+| Re-verified | 2026-08-08, on the move into `AtomsPHP/atoms` — all 22 files byte-identical to `packages/core`, and all digests below unchanged |
+| Licence | MIT — Atoms' own code, same as `packages/core` itself |
+
+Upstream used to be a different repository, which is why this copy exists at
+all: the guest needed the ABI and could not `composer require` it. Since the
+2026-08-08 monorepo migration, upstream is a sibling directory. That does not
+make the copy redundant — the guest still loads PHP source from MEMFS, not from
+a composer install — but it does mean drift is now a plain in-repo diff:
+
+```sh
+# From the repository root. Silence is a pass. Driven from the vendored side
+# because `packages/core/src` legitimately holds more than the guest needs —
+# see "One deliberate omission" below.
+for f in $(cd cloudflare/worker/php/atoms-core && find . -name '*.php' | sed 's|^\./||'); do
+    cmp "packages/core/src/$f" "cloudflare/worker/php/atoms-core/$f" || echo "DRIFT: $f"
+done
+cmp packages/core/resources/errors.json \
+    cloudflare/worker/php/atoms-core/resources/errors.json
+```
 
 These files carry no SPDX headers, and must not be given any: a header is an
 edit, and the rule below is that they are never edited. Their licence is the
 `atoms/core` package's own, declared in that package's `composer.json`. They
 are the one tree under `cloudflare/` that is neither Atoms-authored-here nor
-third-party — and they are worth distinguishing from `../../vendor/`, which is
-GPL and is a genuinely foreign artifact. Nothing here is linked into the
+third-party — and they are worth distinguishing from the php-wasm runtime,
+which is GPL and is a genuinely foreign artifact (and which is no longer
+carried in the repository at all: `npm ci` fetches it and
+`scripts/prepare-runtime.mjs` stages it into a gitignored
+`worker/.php-wasm/`). Nothing here is linked into the
 WebAssembly binary; it is PHP source carried into the guest and interpreted.
 
 ## Never edit in place

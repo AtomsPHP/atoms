@@ -1,6 +1,6 @@
 # Atoms-on-Cloudflare MVP specification
 
-**Status:** binding for the MVP implementation under `atoms-core/cloudflare/`.
+**Status:** binding for the MVP implementation under `cloudflare/`.
 **Parent:** `spikes/do-php/production-plan.md` (direction),
 `spikes/do-php/phase2-do/` (proven mechanism, reference implementation).
 
@@ -19,10 +19,14 @@ never silent no-ops.
 
 ## Runtime artifact
 
-The pinned artifact is `worker/vendor/php_8_3.asyncify.{js,wasm}` (WordPress
-Playground PHP 8.3 build, 64-bit ints, Asyncify, carried over from the spike;
-the vendor JS already contains the one required patch
-`Module['Asyncify'] = Asyncify;`). JSPI is not shipped — the transaction seam
+The pinned artifact is `php_8_3.asyncify.{js,wasm}` (WordPress Playground PHP
+8.3 build, 64-bit ints, Asyncify). It is **not in the repository**: since the
+2026-08-08 licensing work `npm ci` installs `@php-wasm/web-8-3@3.1.48` and
+`worker/scripts/prepare-runtime.mjs` stages both files into a gitignored
+`worker/.php-wasm/`, verifying their upstream sizes and SHA-256 digests and
+applying the one required patch `Module['Asyncify'] = Asyncify;` to the glue.
+(The MVP as originally built carried them committed under `worker/vendor/`;
+that is what changed, not the artifact.) JSPI is not shipped — the transaction seam
 requires synchronous guest re-entry, which only Asyncify provides. Boot uses
 `@php-wasm/universal`'s `loadPHPRuntime` with an `instantiateWasm` hook that
 (a) hands Wrangler's precompiled wasm module to Emscripten and (b) replaces the
@@ -155,14 +159,15 @@ cloudflare/worker/
     runtime/        # Atoms\Cf\* prelude: host_sync/host_park, bootstrap loop,
                     # BridgeDatabase, AtomsPDO, CfAtomContext, int64 codec,
                     # dispatcher, error envelope
-    atoms-core/     # verbatim copies from atoms-framework/packages/core/src:
+    atoms-core/     # verbatim copies from packages/core/src (repo root):
                     # Atom.php, Runtime/{AtomContext,LifecycleInvoker}.php,
                     # Database.php, Migrations/*, Serialization/*, Websocket/*,
                     # AtomJob.php, AtomMethods.php (+ whatever they require)
   fixtures/
     counter/        # fixture "customer app": manifest.json + Atom classes
                     #   + migrations
-  vendor/           # php_8_3.asyncify.{js,wasm}  (pinned)
+  .php-wasm/        # php_8_3.asyncify.{js,wasm}  (pinned; staged by
+                    #   scripts/prepare-runtime.mjs, gitignored, never committed)
   scripts/          # build-bundle.mjs (assemble fixtures into bundle.json)
   test/             # conformance suite (node, hits a running worker URL)
   wrangler.jsonc
@@ -174,7 +179,7 @@ cloudflare/worker/
 - `POST /invoke/:type/:id/:method` body `{"args":[...]}` →
   `200 {"result":..., "atom":{"type":...,"id":...}}` or
   `4xx/5xx {"error":{"code","message","retryable"}}`. Mirrors the existing
-  platform invoke contract (`atoms-framework/docs/platform/api-contract.md`)
+  platform invoke contract (`docs/platform/api-contract.md`)
   minus the `/v1/{customer}` prefix — single-tenant Worker.
 - `GET /healthz` → `{"ok":true}` (no DO touch).
 - `GET /debug/:type/:id/info` → residency info (constructions, turns, php

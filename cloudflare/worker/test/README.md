@@ -24,7 +24,7 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 ### Start the worker
 
 ```bash
-cd /Users/danielabernathy/Documents/sites/atoms/atoms-core/cloudflare/worker
+cd cloudflare/worker
 npx wrangler dev
 ```
 
@@ -35,7 +35,7 @@ This starts the worker on `http://localhost:8787` by default.
 In another terminal:
 
 ```bash
-cd /Users/danielabernathy/Documents/sites/atoms/atoms-core/cloudflare/worker
+cd cloudflare/worker
 
 # Against local dev server
 ATOMS_BASE_URL=http://localhost:8787 node test/conformance.mjs
@@ -52,7 +52,7 @@ ATOMS_BASE_URL=http://localhost:8787 ATOMS_EVICTION_WAIT_MS=5000 node test/confo
 ### Deploy the worker
 
 ```bash
-cd /Users/danielabernathy/Documents/sites/atoms/atoms-core/cloudflare/worker
+cd cloudflare/worker
 
 # Bundle the fixture app, then publish
 node scripts/build-bundle.mjs
@@ -139,7 +139,7 @@ Both are defined in `fixtures/counter/manifest.json` and bundled into the worker
 The fixture app is bundled at build time:
 
 ```bash
-cd /Users/danielabernathy/Documents/sites/atoms/atoms-core/cloudflare/worker
+cd cloudflare/worker
 node scripts/build-bundle.mjs fixtures/counter src/bundle.generated.js
 ```
 
