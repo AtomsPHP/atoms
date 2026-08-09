@@ -30,9 +30,9 @@ Deploy needs a Worker project directory (`worker_dir` in atoms.json, default
 `.atoms/worker`) with `npm ci` already run in it — Atoms runs the Wrangler it
 finds there and never downloads one. Missing: ATOMS-E073.
 
-`atoms secrets:set STRIPE_KEY` stores the Worker secret `ATOMS_CONFIG_STRIPE_KEY`,
+`atoms secrets:set PAYMENTS_API_KEY` stores the Worker secret `ATOMS_CONFIG_PAYMENTS_API_KEY`,
 because that is the name the Worker's config allowlist resolves
-`$this->config('STRIPE_KEY')` to.
+`$this->config('PAYMENTS_API_KEY')` to.
 
 ## Deploy ordering (expand/contract)
 

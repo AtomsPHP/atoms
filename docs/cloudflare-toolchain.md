@@ -134,11 +134,11 @@ developer with no Cloudflare account can still work.
 
 ### Secrets carry a prefix, because the Worker's allowlist does
 
-`atoms secrets:set STRIPE_KEY` stores a Worker secret named
-**`ATOMS_CONFIG_STRIPE_KEY`**.
+`atoms secrets:set PAYMENTS_API_KEY` stores a Worker secret named
+**`ATOMS_CONFIG_PAYMENTS_API_KEY`**.
 
-This is not decoration. `$this->config('STRIPE_KEY')` inside an Atom resolves
-through the host's allowlist in `worker/src/bridge.js`:
+This is not decoration. `$this->config('PAYMENTS_API_KEY')` inside an Atom
+resolves through the host's allowlist in `worker/src/bridge.js`:
 
 ```js
 const normalized = configEnvPrefix + key.toUpperCase().replace(/[^A-Z0-9]+/g, '_');

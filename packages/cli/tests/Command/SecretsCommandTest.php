@@ -35,7 +35,7 @@ final class SecretsCommandTest extends TestCase
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
             '--api-token' => 'cf-token',
-            'key' => 'STRIPE_KEY',
+            'key' => 'PAYMENTS_API_KEY',
             'value' => 'sk_live_xyz',
         ]);
 
@@ -43,21 +43,21 @@ final class SecretsCommandTest extends TestCase
 
         $call = $wrangler->lastCall('putSecret');
         self::assertNotNull($call);
-        self::assertSame('ATOMS_CONFIG_STRIPE_KEY', $call['args']['key']);
+        self::assertSame('ATOMS_CONFIG_PAYMENTS_API_KEY', $call['args']['key']);
         self::assertSame('sk_live_xyz', $call['args']['value']);
 
         $display = $tester->getDisplay();
-        self::assertStringContainsString('ATOMS_CONFIG_STRIPE_KEY', $display);
-        self::assertStringContainsString("\$this->config('STRIPE_KEY')", $display);
+        self::assertStringContainsString('ATOMS_CONFIG_PAYMENTS_API_KEY', $display);
+        self::assertStringContainsString("\$this->config('PAYMENTS_API_KEY')", $display);
         self::assertStringNotContainsString('sk_live_xyz', $display, 'the value must never be echoed');
     }
 
     public function testSetNormalisesKeysTheSameWayTheWorkerDoes(): void
     {
         // bridge.js: configEnvPrefix + key.toUpperCase().replace(/[^A-Z0-9]+/g, '_')
-        self::assertSame('ATOMS_CONFIG_STRIPE_KEY', SecretName::toWorker('stripe.key'));
+        self::assertSame('ATOMS_CONFIG_PAYMENTS_API_KEY', SecretName::toWorker('payments.api.key'));
         self::assertSame('ATOMS_CONFIG_A_B', SecretName::toWorker('a---b'));
-        self::assertSame('STRIPE_KEY', SecretName::toKey('ATOMS_CONFIG_STRIPE_KEY'));
+        self::assertSame('PAYMENTS_API_KEY', SecretName::toKey('ATOMS_CONFIG_PAYMENTS_API_KEY'));
         self::assertNull(SecretName::toKey('SOME_OPERATIONAL_SECRET'));
     }
 
@@ -70,7 +70,7 @@ final class SecretsCommandTest extends TestCase
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
             '--api-token' => 'cf-token',
-            'key' => 'STRIPE_KEY',
+            'key' => 'PAYMENTS_API_KEY',
             'value' => '',
         ]);
 
@@ -82,7 +82,7 @@ final class SecretsCommandTest extends TestCase
     {
         $wrangler = new FakeWrangler();
         $wrangler->listSecretsResult = FakeWrangler::ok(['secret', 'list'], json_encode([
-            ['name' => 'ATOMS_CONFIG_STRIPE_KEY', 'type' => 'secret_text'],
+            ['name' => 'ATOMS_CONFIG_PAYMENTS_API_KEY', 'type' => 'secret_text'],
             ['name' => 'ATOMS_APP_KEY', 'type' => 'secret_text'],
         ], JSON_THROW_ON_ERROR));
 
@@ -96,7 +96,7 @@ final class SecretsCommandTest extends TestCase
         $display = $tester->getDisplay();
         self::assertSame(0, $exit, $display);
         self::assertStringContainsString('Readable from Atom code', $display);
-        self::assertStringContainsString('- STRIPE_KEY', $display);
+        self::assertStringContainsString('- PAYMENTS_API_KEY', $display);
         self::assertStringContainsString('not readable from Atom code', $display);
         self::assertStringContainsString('- ATOMS_APP_KEY', $display);
     }

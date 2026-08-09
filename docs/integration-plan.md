@@ -229,7 +229,7 @@ That's the guaranteed surface. Query-builder ergonomics come from `illuminate/da
 
 ### 4.5 Config and secrets
 
-Atoms cannot read the monolith's `.env`, and nothing in the current docs says how an Atom gets an API key (relevant the moment requirements Open Question 3 — outbound network — resolves to "yes", and already relevant for per-environment tuning values). Mechanism: `atoms secrets set STRIPE_KEY --env production` stores platform-side, injected into the Machine at code-bundle load, surfaced via `$this->config()`. Non-secret config can live in `atoms.json` under an `atom_config` key, baked into the bundle. `env()` inside an Atom is a boundary error pointing here.
+Atoms cannot read the monolith's `.env`, and nothing in the current docs says how an Atom gets an API key (relevant the moment requirements Open Question 3 — outbound network — resolves to "yes", and already relevant for per-environment tuning values). Mechanism: `atoms secrets set PAYMENTS_API_KEY --env production` stores platform-side, injected into the Machine at code-bundle load, surfaced via `$this->config()`. Non-secret config can live in `atoms.json` under an `atom_config` key, baked into the bundle. `env()` inside an Atom is a boundary error pointing here.
 
 ---
 

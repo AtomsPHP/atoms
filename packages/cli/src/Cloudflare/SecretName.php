@@ -7,9 +7,9 @@ namespace Atoms\Cli\Cloudflare;
 /**
  * Map between the key an Atom asks for and the Worker secret that answers it.
  *
- * `$this->config('STRIPE_KEY')` inside an Atom does not read a Worker variable
- * called `STRIPE_KEY`. The host resolves it through an allowlist built from a
- * prefix — `cloudflare/worker/src/bridge.js`, `config.get`:
+ * `$this->config('PAYMENTS_API_KEY')` inside an Atom does not read a Worker
+ * variable called `PAYMENTS_API_KEY`. The host resolves it through an allowlist
+ * built from a prefix — `cloudflare/worker/src/bridge.js`, `config.get`:
  *
  *     const normalized = configEnvPrefix + key.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
  *
@@ -17,7 +17,8 @@ namespace Atoms\Cli\Cloudflare;
  * the bare name is simply invisible to the Atom that needs it — silently, since
  * `config.get` answers null for an unknown key rather than erroring.
  *
- * So `atoms secrets:set STRIPE_KEY` stores `ATOMS_CONFIG_STRIPE_KEY`, and
+ * So `atoms secrets:set PAYMENTS_API_KEY` stores
+ * `ATOMS_CONFIG_PAYMENTS_API_KEY`, and
  * `atoms secrets:list` presents the Atom-facing name. The transformation is
  * duplicated from JavaScript into PHP here; the two must move together, which
  * is why the source line above is quoted rather than paraphrased.

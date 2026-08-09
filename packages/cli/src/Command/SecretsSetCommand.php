@@ -35,7 +35,7 @@ final class SecretsSetCommand extends AbstractCommand
     protected function configure(): void
     {
         parent::configure();
-        $this->addArgument('key', InputArgument::REQUIRED, 'Secret name, e.g. STRIPE_KEY');
+        $this->addArgument('key', InputArgument::REQUIRED, 'Secret name, e.g. PAYMENTS_API_KEY');
         $this->addArgument('value', InputArgument::OPTIONAL, 'Secret value (read from STDIN when omitted)');
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment');
         $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
