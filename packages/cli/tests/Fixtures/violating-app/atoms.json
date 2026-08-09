@@ -1,0 +1,11 @@
+{
+    "project": "bad-app",
+    "paths": {
+        "atoms": "app/Atoms",
+        "shared": "app/Atoms/Shared"
+    },
+    "php": "8.3",
+    "environments": {
+        "production": { "endpoint": "https://api.atoms.cloud", "region": "iad" }
+    }
+}

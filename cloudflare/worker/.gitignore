@@ -1,0 +1,14 @@
+node_modules/
+.wrangler/
+dist/
+
+# Written by the CI worker job (and by anyone reproducing it locally) when it
+# backgrounds `wrangler dev` and polls /healthz.
+wrangler.log
+wrangler.pid
+
+# The php-wasm runtime is fetched from npm and staged here by
+# scripts/prepare-runtime.mjs. Never commit it: the point of staging rather
+# than vendoring is that this repository does not redistribute Playground's
+# GPL-licensed PHP binary.
+.php-wasm/

@@ -1,0 +1,28 @@
+{
+    "name": "atoms/core",
+    "description": "The Atoms runtime ABI: everything an Atom class can touch. Zero framework dependencies.",
+    "version": "0.1.0",
+    "license": "MIT",
+    "type": "library",
+    "keywords": ["atoms", "actors", "runtime"],
+    "require": {
+        "php": "^8.3",
+        "ext-pdo": "*"
+    },
+    "suggest": {
+        "ext-pdo_sqlite": "Required to use Atoms\\Sqlite\\SqliteDatabase and run migrations locally"
+    },
+    "autoload": {
+        "psr-4": {
+            "Atoms\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Atoms\\Core\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

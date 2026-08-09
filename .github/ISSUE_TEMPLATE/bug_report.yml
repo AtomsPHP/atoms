@@ -1,0 +1,109 @@
+name: Bug report
+description: Something in Atoms behaves differently from how it is documented or intended.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Atoms is pre-1.0 and unpublished, so "this API changed" is expected
+        rather than a bug — see CONTRIBUTING.md. If you have found a security
+        problem, do not file it here: see SECURITY.md for private reporting.
+
+        Two things that are not bugs: `app()`, `dispatch()`, `broadcast()`,
+        WebSockets and alarms throw `AtomsNotSupported` in the Worker runtime
+        by design, and `cloudflare/docs/mvp-spec.md` has an appendix of
+        measured platform deviations that may already explain what you are
+        seeing.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The observed behaviour, with the exact error output if there was any.
+      placeholder: |
+        Invoking Counter::increment() returned an atom_exception envelope with ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: >
+        The smallest Atom, test, or sequence of commands that shows the problem.
+        A trimmed-down Atom class plus the call that triggers it is ideal. Paste
+        code inline in a fenced block; a link to a repository is fine too.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which part of the stack
+      options:
+        - atoms/core
+        - atoms/client
+        - atoms/laravel
+        - atoms/symfony
+        - atoms/testing
+        - atoms/phpstan-rules
+        - atoms/cli
+        - Cloudflare Worker runtime
+        - deploy Action
+        - not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it reproduce
+      description: >
+        The Worker suite runs locally with `cd cloudflare/worker && npx wrangler dev`.
+        Local-only and deployed-only failures usually have different causes.
+      options:
+        - Locally under `wrangler dev`
+        - Only when deployed to Cloudflare
+        - Both
+        - Not applicable (PHP packages only)
+        - Have not tried the other one
+    validations:
+      required: true
+
+  - type: input
+    id: error-code
+    attributes:
+      label: Error code
+      description: The `ATOMS-E###` code, if the failure carried one.
+      placeholder: ATOMS-E042
+
+  - type: input
+    id: php-version
+    attributes:
+      label: PHP version
+      description: Output of `php -v` on the machine that showed the problem. PHP 8.3 is the floor.
+      placeholder: "8.3.12"
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: The commit of this repository you are on (`git rev-parse --short HEAD`).
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: >
+        Framework and version if relevant (Laravel, Symfony), whether
+        `composer test` and the conformance suite pass on your checkout, and
+        anything you already ruled out.

@@ -1,0 +1,57 @@
+name: Feature request
+description: Propose a change to what Atoms does.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem before the solution. The best proposals here have
+        been ones where the problem was clear enough that the solution turned
+        out to be something nobody had suggested yet.
+
+        Some things are settled and not reopened in an issue: the frozen
+        `atoms/core` ABI, the package layering, and the append-only error
+        catalog. See CONTRIBUTING.md.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and where does Atoms get in the way?
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried
+      description: >
+        The workaround you are using now, or the approaches you ruled out and
+        why. This is usually the most useful field.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which part of the stack
+      options:
+        - atoms/core
+        - atoms/client
+        - atoms/laravel
+        - atoms/symfony
+        - atoms/testing
+        - atoms/phpstan-rules
+        - atoms/cli
+        - Cloudflare Worker runtime
+        - deploy Action
+        - docs
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: A solution, if you have one in mind
+      description: Optional. Sketches are fine; so is leaving this empty.

@@ -1,0 +1,223 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Atoms\Cli\Config;
+
+use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCatalog;
+use Atoms\Errors\ErrorCode;
+
+/**
+ * The repo-root toolchain anchor (integration-plan.md §1). Parsed and validated;
+ * every structural problem surfaces as ATOMS-E070 with the catalog fix line.
+ *
+ * @phpstan-type Environment array{endpoint: string, region: string}
+ */
+final class AtomsJson
+{
+    /**
+     * @param array<string, Environment> $environments
+     * @param array<string, string>      $callbackUrls
+     * @param array<string, mixed>       $atomConfig
+     */
+    private function __construct(
+        public readonly string $rootDir,
+        public readonly string $project,
+        public readonly string $atomsPath,
+        public readonly string $sharedPath,
+        public readonly string $php,
+        public readonly array $environments,
+        public readonly array $callbackUrls,
+        public readonly array $atomConfig,
+    ) {
+    }
+
+    /**
+     * Absolute path to the Atoms source directory.
+     */
+    public function atomsDir(): string
+    {
+        return $this->rootDir . '/' . $this->atomsPath;
+    }
+
+    public function sharedDir(): string
+    {
+        return $this->rootDir . '/' . $this->sharedPath;
+    }
+
+    /**
+     * @return Environment
+     * @throws AtomsError E070 when the environment is not configured
+     */
+    public function environment(string $name): array
+    {
+        if (!isset($this->environments[$name])) {
+            throw new AtomsError(
+                ErrorCode::AtomsJsonInvalid,
+                ErrorCatalog::format(ErrorCode::AtomsJsonInvalid, [
+                    'reason' => "environment '{$name}' is not defined under \"environments\"",
+                ]),
+            );
+        }
+
+        return $this->environments[$name];
+    }
+
+    /**
+     * Walk up from $startDir until an atoms.json is found; load and validate it.
+     *
+     * @throws AtomsError E070 when no atoms.json is found or it is invalid
+     */
+    public static function locate(string $startDir): self
+    {
+        $dir = rtrim($startDir, '/');
+        $dir = $dir === '' ? '/' : $dir;
+
+        while (true) {
+            $candidate = $dir . '/atoms.json';
+            if (is_file($candidate)) {
+                return self::load($candidate);
+            }
+
+            $parent = \dirname($dir);
+            if ($parent === $dir) {
+                break;
+            }
+            $dir = $parent;
+        }
+
+        throw new AtomsError(
+            ErrorCode::AtomsJsonInvalid,
+            ErrorCatalog::format(ErrorCode::AtomsJsonInvalid, [
+                'reason' => 'no atoms.json found in this directory or any parent',
+            ]),
+        );
+    }
+
+    /**
+     * @throws AtomsError E070
+     */
+    public static function load(string $path): self
+    {
+        $raw = @file_get_contents($path);
+        if ($raw === false) {
+            throw self::invalid("could not read {$path}");
+        }
+
+        try {
+            /** @var mixed $decoded */
+            $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw self::invalid('invalid JSON: ' . $e->getMessage());
+        }
+
+        if (!\is_array($decoded)) {
+            throw self::invalid('top-level value must be a JSON object');
+        }
+
+        $rootDir = \dirname($path);
+
+        $project = self::requireString($decoded, 'project');
+
+        $paths = $decoded['paths'] ?? null;
+        if (!\is_array($paths)) {
+            throw self::invalid('"paths" must be an object with an "atoms" key');
+        }
+        $atomsPath = self::requireString($paths, 'paths.atoms', 'atoms');
+        $sharedPath = isset($paths['shared'])
+            ? self::requireString($paths, 'paths.shared', 'shared')
+            : rtrim($atomsPath, '/') . '/Shared';
+
+        $php = isset($decoded['php']) ? self::requireString($decoded, 'php') : '8.3';
+
+        $environments = self::parseEnvironments($decoded['environments'] ?? null);
+
+        $callbackUrls = [];
+        if (isset($decoded['callback_url'])) {
+            if (!\is_array($decoded['callback_url'])) {
+                throw self::invalid('"callback_url" must be an object of environment => url');
+            }
+            foreach ($decoded['callback_url'] as $env => $url) {
+                if (!\is_string($env) || !\is_string($url)) {
+                    throw self::invalid('"callback_url" entries must be strings');
+                }
+                $callbackUrls[$env] = $url;
+            }
+        }
+
+        $atomConfig = [];
+        if (isset($decoded['atom_config'])) {
+            if (!\is_array($decoded['atom_config'])) {
+                throw self::invalid('"atom_config" must be an object');
+            }
+            /** @var array<string, mixed> $atomConfig */
+            $atomConfig = $decoded['atom_config'];
+        }
+
+        return new self(
+            rootDir: $rootDir,
+            project: $project,
+            atomsPath: trim($atomsPath, '/'),
+            sharedPath: trim($sharedPath, '/'),
+            php: $php,
+            environments: $environments,
+            callbackUrls: $callbackUrls,
+            atomConfig: $atomConfig,
+        );
+    }
+
+    /**
+     * @param mixed $value
+     * @return array<string, array{endpoint: string, region: string}>
+     */
+    private static function parseEnvironments(mixed $value): array
+    {
+        if ($value === null) {
+            return [];
+        }
+        if (!\is_array($value)) {
+            throw self::invalid('"environments" must be an object');
+        }
+
+        $out = [];
+        foreach ($value as $name => $env) {
+            if (!\is_string($name) || !\is_array($env)) {
+                throw self::invalid('each environment must be an object keyed by name');
+            }
+            $endpoint = $env['endpoint'] ?? null;
+            $region = $env['region'] ?? null;
+            if (!\is_string($endpoint) || $endpoint === '') {
+                throw self::invalid("environment '{$name}' is missing a string \"endpoint\"");
+            }
+            if (!\is_string($region)) {
+                $region = '';
+            }
+            $out[$name] = ['endpoint' => rtrim($endpoint, '/'), 'region' => $region];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param array<mixed> $source
+     */
+    private static function requireString(array $source, string $label, ?string $key = null): string
+    {
+        $key ??= $label;
+        $value = $source[$key] ?? null;
+        if (!\is_string($value) || $value === '') {
+            throw self::invalid("\"{$label}\" must be a non-empty string");
+        }
+
+        return $value;
+    }
+
+    private static function invalid(string $reason): AtomsError
+    {
+        return new AtomsError(
+            ErrorCode::AtomsJsonInvalid,
+            ErrorCatalog::format(ErrorCode::AtomsJsonInvalid, ['reason' => $reason]),
+        );
+    }
+}

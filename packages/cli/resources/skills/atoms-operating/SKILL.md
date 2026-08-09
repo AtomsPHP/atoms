@@ -1,0 +1,55 @@
+---
+name: atoms-operating
+description: Operate Atoms deployments in this repo — the validate→build→diff→deploy loop, expand/contract deploy ordering, rollback, and reading version-skew errors. Use when deploying, rolling back, or diagnosing a deploy.
+---
+
+# Operating Atoms
+
+The CLI is a standalone binary (`atoms`) driven by `atoms.json`. It never boots
+your app, so a broken monolith never blocks a deploy.
+
+## The core loop
+
+```sh
+atoms validate                 # stages 1–3+5: static boundary/contract/migration checks. Seconds, no network. The PR gate.
+atoms build [--fast] [--out D] # deterministic, content-addressed bundle + manifest. --fast skips php-scoper.
+atoms diff [--against M]       # label each manifest change additive / contracting / breaking vs a saved manifest.
+atoms deploy --env X [--bundle B]  # build (unless --bundle) and upload. The platform re-validates; it cannot fail for a reason validate wouldn't have caught locally.
+atoms status --env X           # retained versions + current.
+atoms rollback --env X [version]   # flip the version pointer (previous by default).
+atoms secrets:set KEY --env X  # platform-side secret, read in the Atom via $this->config(). [experimental]
+```
+
+Credentials: `ATOMS_API_KEY` (or `--api-key`). In CI, prefer OIDC via the deploy
+action over a long-lived key.
+
+## Deploy ordering (expand/contract)
+
+The monolith and the Atom fleet deploy on different schedules — version skew is
+permanent, not an edge case. `atoms diff` labels every change:
+
+- **additive** (new Atom type / new method) → **deploy Atoms first**, then the
+  monolith that calls them.
+- **contracting** (removed type/method) → **deploy the monolith first** (stop
+  calling it), then the Atoms.
+- **breaking** (changed signature) → treat as contract+expand: add the new
+  method alongside the old, migrate callers, then remove the old.
+
+Schema follows the same discipline: migrations are append-only and each must be
+backward-compatible one version, because a **code** rollback does **not** roll
+back **schema**.
+
+## Reading skew errors
+
+- `ATOMS-E040` (manifest hash mismatch) — the monolith was built against a
+  different manifest than is deployed. Run `atoms diff` and fix deploy order.
+- `ATOMS-E041` (method not in deployed version) — the monolith is ahead; deploy
+  the Atoms first for additive changes.
+- `ATOMS-E042` (bundle rejected) — the platform re-validation failed; `atoms
+  validate` locally reproduces it exactly.
+
+## This project's environments
+
+<!-- atoms:generated -->
+{{ENVIRONMENTS}}
+<!-- /atoms:generated -->

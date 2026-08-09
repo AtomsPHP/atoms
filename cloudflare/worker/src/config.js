@@ -1,0 +1,187 @@
+/**
+ * Env-derived settings, resolved in exactly one place.
+ *
+ * Workspace rule: no capacity constants in code. Every TTL, cap, deadline,
+ * limit and poll interval below comes from an environment variable with a
+ * default resolved here; nothing else in `src/` may hardcode one.
+ *
+ * Everything is a string in `env` (Wrangler `vars` and secrets are strings),
+ * so each getter coerces and falls back to the documented default when the
+ * variable is absent or unparseable.
+ */
+
+/** @typedef {Record<string, unknown>} Env */
+
+/**
+ * @typedef {object} AtomsConfig
+ * @property {string}   appKey                Bearer key; empty string = auth disabled.
+ * @property {boolean}  debugEndpoints        Enable `GET /debug/:type/:id/info`.
+ * @property {number}   maxRequestBytes       Reject invoke bodies larger than this.
+ * @property {number}   maxAtomIdBytes        Reject atom ids longer than this.
+ * @property {number}   maxJsonDepth          Reject invoke args nested deeper than this (the guest's json_decode has a depth limit of its own).
+ * @property {number}   activationTimeoutMs   Wall-clock budget for the activation gate.
+ * @property {number}   activationPollMs      Sleep between polls while waiting for the first park.
+ * @property {number}   activationMaxPolls    Hard spin cap for the same wait.
+ * @property {number}   parkWaitTimeoutMs     Budget for waiting on a park that has not arrived synchronously.
+ * @property {number}   maxParkStepsPerTurn   Park ops serviced in one turn before the turn is declared runaway.
+ * @property {number}   maxTxParkSteps        Park ops serviced inside one open transaction before it is declared runaway.
+ * @property {'error'|'tag'|'float'} sqlUnsafeInteger What to do when DO SQL returns an integral double wider than 2^53-1, which may be a lossy INTEGER or an exact REAL.
+ * @property {number}   sqlMaxRows            Row cap for a single `sql.exec` in `rows` mode.
+ * @property {number}   sqlMaxBindings        Binding cap for a single `sql.exec`.
+ * @property {number}   logMaxFieldBytes      Truncation cap for a single logged field.
+ * @property {string}   logLevel              Minimum level emitted by the `log` op.
+ * @property {string}   configEnvPrefix       Env prefix that forms the `config.get` allowlist.
+ * @property {string[]} configEnvKeys         Extra exact env names readable through `config.get`.
+ * @property {string[]} configEnvDenyKeys     Names never readable through `config.get`, whatever else says.
+ * @property {string}   bootstrapPath         Guest path of the PHP bootstrap script.
+ * @property {string}   bootPayloadPath       Guest path the boot payload JSON is written to.
+ * @property {string}   runtimeDir            Guest directory holding the `Atoms\\Cf` prelude.
+ * @property {string}   coreDir               Guest directory holding the verbatim atoms/core sources.
+ * @property {string[]} guestDirs             Directories created in MEMFS before files are written.
+ * @property {number}   bundleFormat          Bundle format version this host understands.
+ */
+
+/** Levels understood by the `log` sync op, lowest first. */
+export const LOG_LEVELS = ['debug', 'info', 'notice', 'warning', 'error'];
+
+/** Table that holds host-owned runtime metadata inside the DO's SQLite. */
+export const META_TABLE = '__atoms_meta';
+
+/** Prefix reserved for host-owned tables; customer SQL touching it is rejected. */
+export const RESERVED_TABLE_PREFIX = '__atoms_';
+
+/** Meta keys the host itself owns. */
+export const META_KEYS = {
+	type: 'atom_type',
+	id: 'atom_id',
+	userVersion: 'user_version',
+	constructions: 'constructions',
+	bundleFormat: 'bundle_format',
+	abiPhp: 'abi_php',
+	createdAt: 'created_at',
+};
+
+/**
+ * @param {Env} env
+ * @param {string} name
+ * @param {string} dflt
+ * @returns {string}
+ */
+function str(env, name, dflt) {
+	const v = env[name];
+	return typeof v === 'string' && v.length > 0 ? v : dflt;
+}
+
+/**
+ * @param {Env} env
+ * @param {string} name
+ * @param {number} dflt
+ * @returns {number}
+ */
+function int(env, name, dflt) {
+	const v = env[name];
+	if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+	if (typeof v !== 'string' || v.trim() === '') return dflt;
+	const n = Number(v);
+	return Number.isFinite(n) ? Math.trunc(n) : dflt;
+}
+
+/**
+ * @param {Env} env
+ * @param {string} name
+ * @param {boolean} dflt
+ * @returns {boolean}
+ */
+function bool(env, name, dflt) {
+	const v = env[name];
+	if (typeof v === 'boolean') return v;
+	if (typeof v !== 'string' || v.trim() === '') return dflt;
+	const s = v.trim().toLowerCase();
+	if (s === '1' || s === 'true' || s === 'yes' || s === 'on') return true;
+	if (s === '0' || s === 'false' || s === 'no' || s === 'off') return false;
+	return dflt;
+}
+
+/**
+ * @param {Env} env
+ * @param {string} name
+ * @param {string[]} dflt
+ * @returns {string[]}
+ */
+function list(env, name, dflt) {
+	const v = env[name];
+	if (typeof v !== 'string' || v.trim() === '') return dflt;
+	return v
+		.split(',')
+		.map((s) => s.trim())
+		.filter((s) => s.length > 0);
+}
+
+/**
+ * `ATOMS_SQL_UNSAFE_INTEGER`, normalized. Anything unrecognised falls back to
+ * the refusing default rather than to a permissive one.
+ *
+ * @param {string} raw
+ * @returns {'error'|'tag'|'float'}
+ */
+function unsafeIntegerPolicy(raw) {
+	const v = raw.trim().toLowerCase();
+	return v === 'tag' || v === 'float' ? v : 'error';
+}
+
+/**
+ * Resolve the whole configuration for one Worker/DO invocation.
+ *
+ * @param {Env} env
+ * @returns {AtomsConfig}
+ */
+export function loadConfig(env) {
+	const level = str(env, 'ATOMS_LOG_LEVEL', 'info').toLowerCase();
+
+	return {
+		appKey: str(env, 'ATOMS_APP_KEY', ''),
+		debugEndpoints: bool(env, 'ATOMS_DEBUG_ENDPOINTS', false),
+
+		maxRequestBytes: int(env, 'ATOMS_MAX_REQUEST_BYTES', 1024 * 1024),
+		maxAtomIdBytes: int(env, 'ATOMS_MAX_ATOM_ID_BYTES', 256),
+		maxJsonDepth: int(env, 'ATOMS_MAX_JSON_DEPTH', 64),
+
+		activationTimeoutMs: int(env, 'ATOMS_ACTIVATION_TIMEOUT_MS', 20000),
+		activationPollMs: int(env, 'ATOMS_ACTIVATION_POLL_MS', 0),
+		activationMaxPolls: int(env, 'ATOMS_ACTIVATION_MAX_POLLS', 200000),
+
+		parkWaitTimeoutMs: int(env, 'ATOMS_PARK_WAIT_TIMEOUT_MS', 20000),
+		maxParkStepsPerTurn: int(env, 'ATOMS_MAX_PARK_STEPS_PER_TURN', 100000),
+		maxTxParkSteps: int(env, 'ATOMS_MAX_TX_PARK_STEPS', 1000),
+
+		sqlUnsafeInteger: unsafeIntegerPolicy(str(env, 'ATOMS_SQL_UNSAFE_INTEGER', 'error')),
+		sqlMaxRows: int(env, 'ATOMS_SQL_MAX_ROWS', 100000),
+		sqlMaxBindings: int(env, 'ATOMS_SQL_MAX_BINDINGS', 1000),
+
+		logMaxFieldBytes: int(env, 'ATOMS_LOG_MAX_FIELD_BYTES', 4096),
+		logLevel: LOG_LEVELS.includes(level) ? level : 'info',
+
+		configEnvPrefix: str(env, 'ATOMS_CONFIG_ENV_PREFIX', 'ATOMS_CONFIG_'),
+		configEnvKeys: list(env, 'ATOMS_CONFIG_ENV_KEYS', []),
+		configEnvDenyKeys: list(env, 'ATOMS_CONFIG_ENV_DENY_KEYS', [
+			'ATOMS_APP_KEY',
+			'ATOMS_CONFIG_ENV_KEYS',
+			'ATOMS_CONFIG_ENV_DENY_KEYS',
+		]),
+
+		bootstrapPath: str(env, 'ATOMS_BOOTSTRAP_PATH', '/atoms/runtime/bootstrap.php'),
+		bootPayloadPath: str(env, 'ATOMS_BOOT_PAYLOAD_PATH', '/atoms/boot.json'),
+		runtimeDir: str(env, 'ATOMS_RUNTIME_DIR', '/atoms/runtime'),
+		coreDir: str(env, 'ATOMS_CORE_DIR', '/atoms/core/src'),
+		guestDirs: list(env, 'ATOMS_GUEST_DIRS', [
+			'/atoms',
+			'/atoms/runtime',
+			'/atoms/core',
+			'/atoms/core/src',
+			'/atoms/core/resources',
+			'/app',
+		]),
+
+		bundleFormat: int(env, 'ATOMS_BUNDLE_FORMAT', 0),
+	};
+}

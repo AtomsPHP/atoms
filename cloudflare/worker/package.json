@@ -1,0 +1,23 @@
+{
+  "name": "atoms-mvp-conformance",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Atoms-on-Cloudflare MVP: one generic AtomDurableObject hosting a parked PHP loop.",
+  "license": "GPL-2.0-or-later",
+  "dependencies": {
+    "@php-wasm/universal": "3.1.48",
+    "@php-wasm/web-8-3": "3.1.48"
+  },
+  "devDependencies": {
+    "wrangler": "4.118.0"
+  },
+  "scripts": {
+    "prepare": "node scripts/prepare-runtime.mjs --if-installed",
+    "prepare-runtime": "node scripts/prepare-runtime.mjs",
+    "bundle": "node scripts/build-bundle.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node test/conformance.mjs"
+  }
+}

@@ -1,0 +1,7 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/AtomsPHP/atoms/discussions
+    about: >
+      For usage questions, design discussion, and anything not yet shaped like
+      a bug or a concrete proposal, open a discussion instead of an issue.

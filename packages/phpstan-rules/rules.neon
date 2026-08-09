@@ -1,0 +1,35 @@
+parametersSchema:
+	atoms: structure([
+		atomsPaths: listOf(string())
+		sharedPaths: listOf(string())
+		allowedNamespaces: listOf(string())
+	])
+
+parameters:
+	atoms:
+		atomsPaths:
+			- app/Atoms
+		sharedPaths:
+			- app/Atoms/Shared
+		allowedNamespaces: []
+
+services:
+	-
+		class: Atoms\PHPStan\AtomsRulesConfig
+		arguments:
+			atomsPaths: %atoms.atomsPaths%
+			sharedPaths: %atoms.sharedPaths%
+			allowedNamespaces: %atoms.allowedNamespaces%
+
+	- Atoms\PHPStan\WorldClassifier
+	- Atoms\PHPStan\BoundaryReferenceInspector
+
+rules:
+	- Atoms\PHPStan\Rules\BoundaryFunctionCallRule
+	- Atoms\PHPStan\Rules\BoundaryNewRule
+	- Atoms\PHPStan\Rules\BoundaryStaticCallRule
+	- Atoms\PHPStan\Rules\BoundaryClassConstRule
+	- Atoms\PHPStan\Rules\BoundaryInstanceofRule
+	- Atoms\PHPStan\Rules\BoundarySignatureRule
+	- Atoms\PHPStan\Rules\PayloadHydratabilityRule
+	- Atoms\PHPStan\Rules\AtomCallSiteRule

@@ -1,0 +1,9 @@
+/vendor/
+/composer.lock
+/.phpunit.cache/
+/.phpstan-cache/
+/packages/*/vendor/
+/packages/*/composer.lock
+/.atoms/
+*.phar
+.DS_Store
