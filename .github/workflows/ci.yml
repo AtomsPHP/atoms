@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   tests:
     runs-on: ubuntu-latest
@@ -42,3 +45,141 @@ jobs:
           for p in core client laravel symfony testing phpstan-rules cli; do
             composer validate --no-check-all "packages/$p/composer.json"
           done
+
+      # cloudflare/worker/php/atoms-core/ is a verbatim copy of packages/core —
+      # the guest loads PHP source out of MEMFS and cannot composer-require it.
+      # The MVP's central claim is that the real ABI runs unmodified inside the
+      # Durable Object, and that claim is only true while the copy is identical.
+      # Before the 2026-08-08 migration the two lived in different repositories
+      # and this could not be checked in one clone; now it can, so it is. Driven
+      # from the vendored side because packages/core/src legitimately holds more
+      # than the guest needs (see that directory's VENDORED-FROM.md).
+      - name: atoms/core ABI copy has not drifted
+        run: |
+          status=0
+          for f in $(cd cloudflare/worker/php/atoms-core && find . -name '*.php' | sed 's|^\./||'); do
+            cmp "packages/core/src/$f" "cloudflare/worker/php/atoms-core/$f" || status=1
+          done
+          cmp packages/core/resources/errors.json \
+              cloudflare/worker/php/atoms-core/resources/errors.json || status=1
+          if [ "$status" -ne 0 ]; then
+            echo "::error::cloudflare/worker/php/atoms-core/ has drifted from packages/core."
+            echo "Fix packages/core and re-vendor; never edit the copy in place."
+          fi
+          exit "$status"
+
+  # The Cloudflare Worker half: build it, run it locally under workerd, and put
+  # the twelve-check conformance suite through it. Everything here is local —
+  # `wrangler dev` needs no Cloudflare account, API token or login, and nothing
+  # in this job deploys. Do not add credentials or `--remote` to make it
+  # "work"; if it stops working, something in the worker broke.
+  worker:
+    runs-on: ubuntu-latest
+    # Check 12 waits out a real Durable Object eviction (~12.5s), so the suite
+    # is minutes, not seconds. Ten minutes leaves room for a slow runner while
+    # still failing a wedged `wrangler dev` instead of burning an hour on it.
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: cloudflare/worker
+    env:
+      CI: 'true'
+      # Wrangler asks about telemetry the first time it runs somewhere new;
+      # a CI runner is always somewhere new.
+      WRANGLER_SEND_METRICS: 'false'
+      # Must stay in step with `dev.port` in wrangler.jsonc — the port is
+      # passed to wrangler and spliced into ATOMS_BASE_URL from this one place
+      # so the server and the suite cannot drift apart.
+      WORKER_PORT: '8787'
+    steps:
+      - uses: actions/checkout@v4
+
+      # Wrangler 4.x wants a current Node; 22 is what the worker is developed
+      # against. The lockfile lives under cloudflare/worker, not at the repo
+      # root, so the npm cache has to be pointed at it explicitly.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cloudflare/worker/package-lock.json
+
+      - name: Install worker dependencies
+        run: npm ci
+
+      # The PHP runtime is fetched from npm and staged into .php-wasm/ rather
+      # than committed, so a clean checkout has no interpreter until this runs.
+      # The `prepare` lifecycle hook is `--if-installed` gated (it has to be, so
+      # that `npm install --package-lock-only` does not explode), which means it
+      # can legitimately skip; invoking the ungated script here makes staging
+      # unconditional and loud.
+      #
+      # prepare-runtime.mjs also verifies the size and SHA-256 of the upstream
+      # wasm and glue against the pinned values, and locates the Asyncify patch
+      # anchor. That check is a large part of why this job exists: it is the
+      # only automatic detector for an interpreter being swapped underneath us
+      # or for the patch site moving upstream. Never pass a flag that softens
+      # or skips it — a mismatch here is a real finding, not CI noise.
+      - name: Stage the pinned php-wasm runtime
+        run: npm run prepare-runtime
+
+      - name: Bundle the fixture app
+        run: npm run bundle
+
+      # Backgrounded with its output on disk, so the log survives the step and
+      # can be printed whatever happens later.
+      - name: Start wrangler dev
+        run: |
+          npx wrangler dev --port "$WORKER_PORT" --ip 127.0.0.1 > wrangler.log 2>&1 &
+          echo $! > wrangler.pid
+
+      # Poll rather than sleep. Startup here is dominated by workerd compiling
+      # an 18MB wasm module, which is exactly the kind of cost that varies with
+      # runner load: a fixed sleep is either a flake or wasted minutes, and
+      # picking between those is not a tradeoff worth having. /healthz is the
+      # right probe because it answers without touching a Durable Object, so a
+      # 200 means the worker module actually loaded.
+      #
+      # The liveness check inside the loop matters: when wrangler dies on
+      # startup (a bad binding, a missing .php-wasm/) the port simply never
+      # opens, and without it the job would sit here until the timeout instead
+      # of reporting the real error.
+      - name: Wait for the worker to come up
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${WORKER_PORT}/healthz" > /dev/null 2>&1; then
+              echo "worker answered /healthz after ~$((i * 2))s"
+              exit 0
+            fi
+            if ! kill -0 "$(cat wrangler.pid)" 2>/dev/null; then
+              echo "::error::wrangler dev exited before serving /healthz"
+              cat wrangler.log
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::worker never served /healthz within 120s"
+          cat wrangler.log
+          exit 1
+
+      # ATOMS_APP_KEY is deliberately unset: with no key, bearer auth is off,
+      # which is the local posture the suite expects. ATOMS_DEBUG_ENDPOINTS=1,
+      # which checks 5/10/12 need, is a var in wrangler.jsonc and so is already
+      # in the worker's env.
+      #
+      # ATOMS_EVICTION_WAIT_MS is left at its 12500ms default on purpose. That
+      # number is how long a Durable Object actually takes to be evicted
+      # locally; shortening it does not make check 12 faster, it makes it
+      # assert nothing — the check fails itself if `constructions` did not
+      # increase, so a too-short wait reads as a red build with a confusing
+      # message. Pay the twelve seconds.
+      - name: Run the conformance suite
+        run: npm test
+        env:
+          ATOMS_BASE_URL: http://127.0.0.1:${{ env.WORKER_PORT }}
+
+      # Unconditional: when a check fails, the interesting half of the story is
+      # on the worker's side of the connection, and the runner is gone after
+      # the job ends.
+      - name: Wrangler log
+        if: always()
+        run: cat wrangler.log || true

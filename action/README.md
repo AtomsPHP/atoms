@@ -2,12 +2,20 @@
 
 A GitHub Actions composite action for deploying Atoms bundles to the Atoms platform. Supports both API key and OIDC token exchange authentication.
 
+> **Superseded, 2026-08-08.** This action targets the Fly-era hosted platform
+> (`api.atoms.cloud`, OIDC token exchange, per-customer projects), which Atoms
+> no longer runs. On Cloudflare you deploy a Worker to your own account with
+> Wrangler, and there is no platform API to authenticate against. The action is
+> kept here because re-pointing it at Wrangler is planned work, not because it
+> works today. Nothing below has been retargeted; no `v1` tag exists on this
+> repository. Treat every command in this file as describing the old platform.
+
 ## Usage
 
 ### With OIDC (recommended)
 
 ```yaml
-- uses: AtomsPHP/atoms-framework/action@v1
+- uses: AtomsPHP/atoms/action@v1
   with:
     environment: production
     permissions:
@@ -19,7 +27,7 @@ OIDC automatically exchanges your GitHub Actions identity token for a short-live
 ### With API Key
 
 ```yaml
-- uses: AtomsPHP/atoms-framework/action@v1
+- uses: AtomsPHP/atoms/action@v1
   with:
     environment: production
     api-key: ${{ secrets.ATOMS_API_KEY }}
@@ -80,7 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms-framework/action@v1
+      - uses: AtomsPHP/atoms/action@v1
         with:
           environment: production
 ```
@@ -90,7 +98,7 @@ jobs:
 ```yaml
 - uses: actions/checkout@v4
 - run: atoms build --output my-bundle.tar.gz
-- uses: AtomsPHP/atoms-framework/action@v1
+- uses: AtomsPHP/atoms/action@v1
   with:
     environment: production
     bundle: my-bundle.tar.gz
@@ -110,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms-framework/action@v1
+      - uses: AtomsPHP/atoms/action@v1
         with:
           environment: staging
 ```
