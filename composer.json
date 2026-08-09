@@ -43,7 +43,7 @@
         }
     },
     "scripts": {
-        "test": "phpunit",
+        "test": "@php -d memory_limit=1G vendor/bin/phpunit",
         "stan": "phpstan analyse --memory-limit=1G"
     },
     "config": {

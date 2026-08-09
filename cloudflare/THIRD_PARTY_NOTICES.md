@@ -3,9 +3,10 @@
 This file is hand-authored. It covers what a Worker built from this directory
 contains, with the evidence for each component, and it says where the evidence
 runs out. It is deliberately not presented as a complete software bill of
-materials: a generated, audited SBOM is
-`atoms-cloudflare-oss-plan-2026-08-05.md` §3's Tier 2 work, and pretending an
-incomplete inventory is a complete one would be worse than admitting the gap.
+materials: a generated, audited SBOM is deferred work, planned as an output of
+a future owned build rather than as archaeology over this one, and pretending
+an incomplete inventory is a complete one would be worse than admitting the
+gap.
 
 **Atoms does not distribute the runtime.** The interpreter is fetched from
 Playground's npm package at install time and staged into a gitignored
@@ -265,9 +266,9 @@ Arguments that might dissolve it, none of which have been evaluated here:
   link the pieces of OpenSSL the clause attaches to.
 
 The practical fix, if the incompatibility is real, is upstream: build without
-OpenSSL, or against a version under Apache-2.0, which is what
-`atoms-cloudflare-oss-plan-2026-08-05.md` M5 contemplates anyway. That is a
-build change, not a licensing change.
+OpenSSL, or against a version under Apache-2.0. Both are on the table for a
+future owned php-wasm build, which is planned work. That is a build change,
+not a licensing change.
 
 This entry is also the reason the withdrawn argument at the top of this file
 mattered. Treating the notice gap as harmless is precisely what would have let

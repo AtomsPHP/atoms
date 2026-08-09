@@ -1,11 +1,9 @@
 {
 	"measured_at": "2026-08-05T03:16:07.653Z",
-	"base_url": "https://atoms-mvp-conformance.dabernathy89.workers.dev",
+	"base_url": "<redacted: a maintainer's personal workers.dev deployment>",
 	"worker": "atoms-mvp-conformance",
 	"deployment": {
-		"deployment_id": "896627c3-aa03-458e-8732-241772e32dc7",
-		"version_id": "3a43c001-1f17-42a0-b945-c67d6c5822cd",
-		"deployed_at": "2026-08-05T03:12:30.800861Z"
+		"note": "Deployment, version and account identifiers were removed on 2026-08-08 when this tree moved into a repository intended to be public. They identified one maintainer's Cloudflare account and a specific deployed Worker; nothing in the measurements below depends on them. Re-measure with test/measure-remote.mjs against your own deployment."
 	},
 	"method": {
 		"note": "client-observed end-to-end latency, including the client round trip to the Cloudflare edge; the guest clock does not advance inside a turn on deployed workerd",

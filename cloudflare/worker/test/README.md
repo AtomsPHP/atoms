@@ -121,7 +121,7 @@ there is no in-guest timing to report instead. The script fails loudly rather
 than timing an error response, and warns if `constructions` did not increment,
 which would mean the "wake" number is really a warm turn.
 
-Measured 2026-08-05 against version `3a43c001` from a US client:
+Measured 2026-08-05 against a deployed Worker from a US client:
 cold activation ~740ms median (593–1033ms, n=5), warm turn ~59ms median
 (51–96ms, n=20), post-hibernation wake ~604ms after 16s idle.
 

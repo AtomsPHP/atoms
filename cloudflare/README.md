@@ -96,7 +96,8 @@ of paths to file contents is still much better characterised as application
 data than as linked program code, and no application text is turned into
 executable JavaScript statements. Moving the bundle to a Worker asset binding
 would make the separation obvious on inspection rather than on argument, and
-`atoms-cloudflare-oss-plan-2026-08-05.md` schedules that for M3.
+that change is planned. It is an ergonomics and bundle-size change that
+happens to sharpen the licensing story, not a fix the licensing story needs.
 
 The practical consequence: you may assemble, modify, deploy and run this
 Worker in your own Cloudflare account without publishing anything. Deploying
@@ -128,22 +129,31 @@ fails the build rather than going unnoticed. Licence texts are not shipped
 here; `THIRD_PARTY_NOTICES.md` names each licence by SPDX identifier and links
 the authoritative text.
 
-### The one thing still standing between this and publication
+### The history hazard, and how it was resolved
 
-Most of what used to be on this list came from redistributing the binary, and
-stopped applying when we stopped. What remains is not a licensing argument but
-a fact about git.
+Recorded because it was the last thing standing between this tree and
+publication, and because the way it was avoided is not visible from the files.
 
-**The binary is still in this repository's history.** It was committed on
-`cloudflare-mvp` before it was removed, so `git clone` of a published repo
-still delivers it — and that is distribution, whatever the working tree
-contains. Deleting a file does not unpublish it.
+When this tree lived in the private `atoms-core` repository, the binary was
+gone from the working tree but **still reachable in that repository's
+history** — committed before it was removed. `git clone` delivers history, not
+the tip, so publishing that repository would have distributed the binary and
+re-attached every obligation described above. Deleting a file does not
+unpublish it.
 
-`atoms-cloudflare-oss-plan-2026-08-05.md` M0 establishes the public monorepo.
-**That repository must start from fresh or squashed history.** If it imports
-this history wholesale, every obligation described above comes back and the
-staging work buys nothing. This is the constraint to carry into M0; it is
-cheap to honour and silent to violate.
+**That did not happen, and cannot now.** On 2026-08-08 this tree was moved into
+`AtomsPHP/atoms` as files rather than as commits — a `git archive` of the
+source tip, extracted into a repository that never had `atoms-core` as a git
+remote. None of that history exists here to be reached. Verified on a fresh
+clone: no blob over 5MB, and no blob whose content SHA-256 is
+`eca478d2…f1c98`.
+
+The constraint that produced this is worth keeping in mind rather than
+retiring, because it is cheap to honour and silent to violate: **never graft
+`atoms-core`'s history onto this repository**, and never commit the runtime
+binary. The second half is enforced — `worker/.gitignore` covers
+`.php-wasm/`, and `scripts/prepare-runtime.mjs` stages the artifact there
+rather than anywhere tracked.
 
 ### Open questions about what the runtime contains
 

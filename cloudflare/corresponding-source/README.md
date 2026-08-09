@@ -32,20 +32,28 @@ It is also the groundwork for M5. An owned php-wasm build has to know
 what the current one actually contains and how it was assembled, and the
 survey below is that, done once.
 
-## The one way this could still land on Atoms
+## The one way this could have landed on Atoms, and did not
 
-The binary is out of the working tree, but it **remains in this
-repository's git history**: it was committed on `cloudflare-mvp` before
-it was removed, and `git clone` of a published repository delivers the
-history, not just the tip. That is distribution. Deleting a file does not
-unpublish it.
+Written in the past tense as of 2026-08-08, because the hazard was real
+and is now closed.
 
-`atoms-cloudflare-oss-plan-2026-08-05.md` M0 establishes the public
-monorepo, and **that repository must start from fresh or squashed
-history**. If it imports this history wholesale, §3 attaches to Atoms
-after all and the removal buys nothing. It is cheap to honour and silent
-to violate, which is why it is written down here as well as in
-`../README.md`.
+While this tree lived in the private `atoms-core` repository, the binary
+was out of the working tree but **still reachable in that repository's
+history** — committed before it was removed. `git clone` of a published
+repository delivers the history, not just the tip, so publishing it would
+have been distribution and §3 would have attached to Atoms after all.
+Deleting a file does not unpublish it.
+
+The move into `AtomsPHP/atoms` therefore carried this tree as **files,
+not commits**: a `git archive` of the source tip, extracted into a
+repository that never had `atoms-core` as a git remote, so none of that
+history exists here to reach. Confirmed on a fresh clone — no blob over
+5MB, and no blob whose content SHA-256 matches the one recorded below.
+
+The rule that follows is permanent and cheap: **never graft
+`atoms-core`'s history onto this repository, and never commit the
+binary.** `../worker/.gitignore` and `../worker/scripts/prepare-runtime.mjs`
+enforce the second half.
 
 ## Which binary this corresponds to
 
