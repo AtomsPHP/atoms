@@ -1,4 +1,23 @@
-# Public API Contract — v1 (frozen for the `laravel/atoms` SDK)
+# Public API Contract — v1 (RETIRED — historical record)
+
+> **Retired 2026-08-09 (M3). Nothing implements this contract any more.**
+>
+> This described the HTTP surface of the hosted, multi-tenant Fly-era platform:
+> a `/v1/{customer}` prefix, an anycast edge, platform-issued
+> `atoms_v1_…` API keys, and Atoms-operated deploy/rollback/secrets endpoints.
+> That platform is superseded and none of it is deployed.
+>
+> `atoms/client` and `atoms/cli` used to implement it, which is why this file
+> was normative for them. They no longer do: the client calls the Worker's
+> single-tenant `POST /invoke/{type}/{id}/{method}` with no prefix, and the CLI
+> deploys by driving the user's own Wrangler. **The current contract is
+> `docs/cloudflare-toolchain.md`, with the wire protocol itself in
+> `cloudflare/docs/mvp-spec.md`.**
+>
+> Kept because the error taxonomy, retry semantics and callback-signing scheme
+> below were carried forward largely intact, and because the reasoning is worth
+> not losing. Read it as history. Do not cite it as the transport, and do not
+> implement anything new against it.
 
 This document freezes the customer-facing HTTP contract the SDK consumes.
 Breaking changes require a new version prefix (`/v2/...`); additive changes

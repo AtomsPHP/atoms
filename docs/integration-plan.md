@@ -4,6 +4,21 @@
 **Scope:** Everything that lives in the customer's codebase and the seam between it and the platform: the SDK packages, the code-extraction pipeline, the callback surface, local development, testing, CI/CD, and agent tooling.
 **Inputs:** the project's internal requirements, overview, app-integration and platform design documents.
 
+> **Read as design rationale, not as current direction (noted 2026-08-09, M3).**
+> Why there are seven packages, the two-worlds model, the closure-walk
+> extraction pipeline and the callback surface are all still exactly right, and
+> that is what this document is kept for.
+>
+> Everything it says about *where an Atom runs and how it gets there* is
+> superseded. It describes the hosted Fly-era platform: a Docker runtime image
+> for local development (§6.2), OIDC token exchange for CI credentials (§7.2),
+> and Atoms-operated deploy endpoints. Atoms now deploys into the user's own
+> Cloudflare account by driving their own Wrangler, and runs as PHP-in-Wasm
+> inside a Durable Object. The superseding documents are
+> `docs/cloudflare-toolchain.md` (deploy, auth, bundles) and
+> `cloudflare/docs/mvp-spec.md` (the runtime itself). Individual corrections
+> are marked inline below.
+
 ---
 
 ## 0. Headline calls
@@ -247,7 +262,7 @@ composer require laravel/atoms
 php artisan atoms:install     # writes atoms.json, config/atoms.php, registers callback route,
                               # adds phpstan-rules to the project's phpstan.neon, offers ai:install (§8)
 php artisan make:atom GameRoom --with-methods --with-migration --websocket
-atoms local                   # Docker runtime up; SDK auto-detects and routes locally
+atoms dev                     # Worker up locally under `wrangler dev` (was: `atoms local`, a Docker runtime)
 # ... write code, tests pass ...
 atoms deploy --env staging
 ```
@@ -255,6 +270,14 @@ atoms deploy --env staging
 `make:atom` scaffolds the full two-world layout from §2 — the directory shape *is* the mental model, so the generator is a teaching tool.
 
 ### 6.2 Local development runtime
+
+> **Superseded (M3).** `atoms local` is gone, and with it the Docker image and
+> the state-inspection UI. `atoms dev` builds the bundle, stages it into the
+> Worker project and runs `wrangler dev` — the real runtime, locally, with no
+> Cloudflare account. The callback loopback described below is plumbed but
+> inert until M2 implements `Atom::app()`. The paragraph is kept because the
+> *requirements* it states (real runtime, fast rebuild, callbacks reaching the
+> host app) are the ones `atoms dev` still has to meet.
 
 `atoms local` runs the **real Amp runtime image** (same Docker image the platform boots, local-mode flag) with `app/Atoms` bind-mounted and a file-watcher that hot-drains and re-activates Atoms on change. It performs the real build pipeline in `--fast` mode (skip scoper) so boundary violations surface on save, not on deploy. Callbacks loop back to the host app (`host.docker.internal`, configured from `atoms.json`). A `--platform-parity` flag runs the full pipeline including scoper for pre-deploy confidence. Includes a local state-inspection UI (browse each Atom's SQLite) — the dashboard's little sibling.
 
@@ -292,6 +315,15 @@ A first-party GitHub Action and GitLab CI template:
   with:
     environment: production
 ```
+
+> **Superseded (M3).** There is no Atoms-operated token endpoint to exchange
+> an OIDC token *at*, so the exchange is gone. The Action takes the user's own
+> `cloudflare-api-token` and `cloudflare-account-id` and passes them to
+> Wrangler. The reasoning below still identifies the right risk — a long-lived
+> credential in CI — and the answer is now a Cloudflare API token scoped to one
+> account with Workers Scripts:Edit, rotated by the user. Cloudflare supports
+> OIDC federation for its own API; wiring the Action to it is a real future
+> improvement, and it is not something Atoms would broker.
 
 Auth via **OIDC token exchange** (the CI provider's identity token swapped for a short-lived deploy token scoped to one project+environment) rather than long-lived API keys in CI secrets — table stakes in 2026, and it means a leaked CI log never contains a credential that works tomorrow.
 

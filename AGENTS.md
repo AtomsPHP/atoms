@@ -19,7 +19,7 @@ parked inside a SQLite-backed Durable Object.
 |---|---|---|
 | `packages/` | The seven MIT PHP packages: `atoms/{core,client,laravel,symfony,testing,phpstan-rules,cli}` | `docs/conventions.md` (normative) |
 | `cloudflare/` | The Worker runtime: `worker/` (host JS, `Atoms\Cf\` guest prelude, fixtures, conformance suite), `docs/` (MVP spec + summary), `corresponding-source/`, the licence files | `cloudflare/README.md`, `cloudflare/docs/mvp-spec.md` |
-| `docs/` | Framework docs: `conventions.md`, `integration-plan.md`, `two-worlds.md`, `errors.md`, `platform/api-contract.md` | — |
+| `docs/` | Framework docs: `conventions.md`, `cloudflare-toolchain.md`, `integration-plan.md`, `two-worlds.md`, `errors.md`, `platform/api-contract.md` (retired) | — |
 | `action/` | The deploy GitHub Action (composite) | `action/README.md` |
 | `tests/` | Cross-package integration tests (`Atoms\Tests\Integration\`) | `docs/conventions.md` |
 
@@ -48,12 +48,15 @@ not direction.
    wire protocol, DO lifecycle, routes, envelopes, bundle format, and an
    appendix of **measured** platform deviations. Read the appendix before
    assuming anything about workerd.
-4. `docs/platform/api-contract.md` — the Fly-era platform HTTP contract v1
-   (`/v1/{customer}/invoke/...`, Fly anycast edge, platform error envelope).
-   `atoms/client` and `atoms/cli` still implement it, so it is normative *for
-   them*, but it describes the superseded platform: the Worker serves
-   `/invoke/{type}/{id}/{method}` single-tenant, with no `/v1/{customer}`
-   prefix. Do not cite it as the current transport without that caveat.
+4. `docs/cloudflare-toolchain.md` — **normative** for how the two halves meet:
+   the runtime auth decision (`atoms/client` calls the Worker's prefixless,
+   single-tenant `/invoke/...`), how a PHP CLI drives a pinned Wrangler, and
+   the bundle bridge between `atoms build` and the Worker. M4 inherits all
+   three decisions, so read it before changing any of them.
+5. `docs/platform/api-contract.md` — **retired**, history only. It is the
+   Fly-era platform HTTP contract v1 (`/v1/{customer}/invoke/...`, anycast
+   edge, Atoms-issued API keys). Nothing implements it since M3. Do not cite
+   it as the transport.
 
 ## Hard rules — the PHP packages
 
@@ -74,6 +77,11 @@ not direction.
 - **Builds are pure functions of the repo.** `atoms build` must be
   deterministic (byte-identical bundles from identical trees) and must never
   execute customer code.
+- **The CLI never fetches a toolchain, and never holds a credential.**
+  `deploy`/`status`/`rollback`/`secrets` run a Wrangler that is already on the
+  machine — never `npx`, which would defeat the pin in the Worker project's
+  lockfile. Cloudflare credentials go into the Wrangler child process's
+  environment and nowhere else: no file, no log, no echo.
 - Package versions are pinned `0.1.0` and managed by release tooling — don't
   hand-edit them. Root `composer.json` wires the packages via path
   repositories; one root `composer install`, one root `vendor/`.
@@ -137,11 +145,13 @@ composer test                        # all test suites
 composer test -- --testsuite=core    # one package's suite
 composer stan                        # phpstan across all packages/*/src
 packages/cli/bin/atoms               # run the CLI from source
+packages/cli/bin/atoms dev           # build + `wrangler dev`; no Cloudflare account needed
 
 # Cloudflare Worker — from cloudflare/worker
 npm ci                               # installs deps and stages .php-wasm/
 npm run prepare-runtime              # stage the runtime unconditionally
-npm run bundle                       # build src/bundle.generated.js
+npm run bundle                       # build src/bundle.generated.js from the conformance fixture
+npm run bundle:cli -- B M src/bundle.generated.js   # ...or from an `atoms build` bundle + manifest
 npx wrangler dev                     # serves on 127.0.0.1:8787 (wrangler.jsonc)
 ATOMS_BASE_URL=http://127.0.0.1:8787 node test/conformance.mjs
 ```
