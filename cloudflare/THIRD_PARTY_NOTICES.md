@@ -324,7 +324,7 @@ more row in this table and turned out to be a possible blocker.
 ## What is *not* third-party
 
 `worker/php/atoms-core/` is not covered by this file. Those are verbatim
-copies of the `atoms/core` package from `AtomsPHP/atoms-framework`, which is
+copies of the `atoms/core` package from `packages/core`, which is
 Atoms' own MIT-licensed code; see `worker/php/atoms-core/VENDORED-FROM.md`.
 They are carried into the guest as interpreted data and are not linked into
 the WebAssembly binary.

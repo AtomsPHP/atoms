@@ -8,7 +8,7 @@ reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 | Upstream | `packages/core` — **in this repository**, since 2026-08-08 |
 | Source of `*.php` | `packages/core/src/…` (same relative tree) |
 | Source of `resources/errors.json` | `packages/core/resources/errors.json` |
-| Vendored on | 2026-08-04 (from the then-separate `AtomsPHP/atoms-framework`) |
+| Vendored on | 2026-08-04 (from the then-separate framework repository) |
 | Re-verified | 2026-08-08, on the move into `AtomsPHP/atoms` — all 22 files byte-identical to `packages/core`, and all digests below unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 

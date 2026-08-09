@@ -18,8 +18,9 @@ Playground's own npm package and `scripts/prepare-runtime.mjs` stages it into
 a gitignored `worker/.php-wasm/`, verifying its hash first. That is a
 licensing decision as much as a size one — see below.
 
-This is the Cloudflare track. It has nothing to do with `router/`,
-`control-plane/` or `runtime/`, which are the Fly-era platform and are frozen.
+This is the Cloudflare track, and it is the only runtime Atoms targets. An
+earlier platform preceded it; that work is frozen and is not in this
+repository.
 
 ## Running it
 
@@ -75,7 +76,7 @@ noise without adding information. One file does carry a licence declaration:
 `worker/package.json` says `GPL-2.0-or-later`, because a package manifest
 describes the package as assembled, and that is the GPL Worker.
 
-The seven PHP framework packages in `AtomsPHP/atoms-framework` are MIT for the
+The seven PHP framework packages under `packages/` are MIT for the
 same reason, and the copies of the `atoms/core` package under
 `worker/php/atoms-core/` are MIT too — under that package's own grant, since
 they are verbatim and are never edited here.
@@ -134,23 +135,21 @@ the authoritative text.
 Recorded because it was the last thing standing between this tree and
 publication, and because the way it was avoided is not visible from the files.
 
-When this tree lived in the private `atoms-core` repository, the binary was
-gone from the working tree but **still reachable in that repository's
-history** — committed before it was removed. `git clone` delivers history, not
-the tip, so publishing that repository would have distributed the binary and
-re-attached every obligation described above. Deleting a file does not
-unpublish it.
+In the repository this tree was developed in, the binary was gone from the
+working tree but **still reachable in that repository's history** — committed
+before it was removed. `git clone` delivers history, not the tip, so publishing
+that repository would have distributed the binary and re-attached every
+obligation described above. Deleting a file does not unpublish it.
 
-**That did not happen, and cannot now.** On 2026-08-08 this tree was moved into
-`AtomsPHP/atoms` as files rather than as commits — a `git archive` of the
-source tip, extracted into a repository that never had `atoms-core` as a git
-remote. None of that history exists here to be reached. Verified on a fresh
-clone: no blob over 5MB, and no blob whose content SHA-256 is
-`eca478d2…f1c98`.
+**That did not happen, and cannot now.** On 2026-08-08 this tree was moved here
+as files rather than as commits — a `git archive` of the source tip, extracted
+into a repository that never had the old one as a git remote. None of that
+history exists here to be reached. Verified on a fresh clone: no blob over 5MB,
+and no blob whose content SHA-256 is `eca478d2…f1c98`.
 
-The constraint that produced this is worth keeping in mind rather than
-retiring, because it is cheap to honour and silent to violate: **never graft
-`atoms-core`'s history onto this repository**, and never commit the runtime
+The constraint that produced this is worth keeping rather than retiring,
+because it is cheap to honour and silent to violate: **never graft that
+predecessor history onto this repository**, and never commit the runtime
 binary. The second half is enforced — `worker/.gitignore` covers
 `.php-wasm/`, and `scripts/prepare-runtime.mjs` stages the artifact there
 rather than anywhere tracked.

@@ -13,9 +13,8 @@ use Psr\Http\Message\RequestFactoryInterface;
 /**
  * Acquires short-lived WebSocket connection tickets from the platform.
  *
- * EXPERIMENTAL — Phase 2. WebSocket ticketing is not part of the frozen v1
- * control-plane contract yet (the platform ticket endpoint is unimplemented in
- * Phase 1). The shape here mirrors the intended `POST /v1/{customer}/tickets/...`
+ * EXPERIMENTAL. WebSocket ticketing is not part of the frozen v1 platform
+ * contract yet, and no platform implements the ticket endpoint. The shape here mirrors the intended `POST /v1/{customer}/tickets/...`
  * request/response and may change; do not depend on it in production.
  */
 final class TicketClient

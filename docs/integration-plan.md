@@ -2,7 +2,7 @@
 
 **Status:** Proposal v1 — July 2026
 **Scope:** Everything that lives in the customer's codebase and the seam between it and the platform: the SDK packages, the code-extraction pipeline, the callback surface, local development, testing, CI/CD, and agent tooling.
-**Inputs:** atoms-requirements.md (v4), atoms-overview.md, atoms-app-integration.md, atoms-control-plane-design.md.
+**Inputs:** the project's internal requirements, overview, app-integration and platform design documents.
 
 ---
 
@@ -297,7 +297,7 @@ Auth via **OIDC token exchange** (the CI provider's identity token swapped for a
 
 ### 7.3 Environments and ordering
 
-Environments are first-class platform objects (`staging`, `production`, arbitrary names); the SDK selects per app-environment via config. Ephemeral per-PR environments (`atoms deploy --env pr-123 --ttl 72h`) are cheap on the platform side given stopped-Machine economics (control-plane doc §1.8) — schedule for Phase 2; they turn "review this Atom change" from a thought experiment into a URL.
+Environments are first-class platform objects (`staging`, `production`, arbitrary names); the SDK selects per app-environment via config. Ephemeral per-PR environments (`atoms deploy --env pr-123 --ttl 72h`) are cheap on the platform side given stopped-Machine economics — schedule for Phase 2; they turn "review this Atom change" from a thought experiment into a URL.
 
 Deploy *ordering* between the monolith and Atoms is a doc-and-tooling problem: additive Atom changes deploy Atoms-first; contractions deploy monolith-first. `atoms diff` labels each manifest change **additive / contracting / breaking** so the pipeline (or an agent) can enforce ordering mechanically.
 
@@ -321,7 +321,7 @@ Writes into the repo (and regenerates on `atoms deploy`, keeping a marker so han
 │                                 #   the boundary rules AS THE AGENT WILL HIT THEM — full
 │                                 #   ATOMS-E* catalog with fixes; migration rules; turn/
 │                                 #   reentrancy hazards (A→B→A deadlock, app() head-of-line
-│                                 #   blocking from the control-plane doc §9.8)
+│                                 #   blocking)
 ├── atoms-testing/SKILL.md        # AtomHarness patterns; Atoms::fake(); what NOT to mock
 ├── atoms-operating/SKILL.md      # CLI reference; validate→build→diff→deploy loop; expand/
 │                                 #   contract; rollback; reading skew errors
@@ -359,7 +359,7 @@ Mostly consolidating decisions implied elsewhere, plus gaps:
 2. **`atoms-composer.json` policy** — allowlist curated by us vs. open-with-static-analysis? Beta: curated allowlist (start ~20 packages: illuminate/database, ramsey/uuid, nesbot/carbon, brick/math, etc.); loosen with data.
 3. **Monorepo/multi-app layouts** — one `atoms.json` per Laravel app assumed; monorepos with several apps sharing Atom types need a story (probably: Atoms as an internal Composer package, which the closure walk already supports).
 4. **Symfony timing** — skeleton bundle in Phase 1 as a layering test (§5.3); when does it become a supported product? Proposal: public alpha alongside platform Phase 3.
-5. **WebSocket client SDKs** (JS/mobile) — resume tokens and message-ID dedupe from the control-plane drain protocol land in the *client* SDKs; that's a sibling plan this document deliberately excludes, but the ticket/resume contract must be co-designed with §5.1.
+5. **WebSocket client SDKs** (JS/mobile) — resume tokens and message-ID dedupe from the platform drain protocol land in the *client* SDKs; that's a sibling plan this document deliberately excludes, but the ticket/resume contract must be co-designed with §5.1.
 6. **`laravel/atoms` naming** — the `laravel/` vendor prefix implies first-party Laravel stewardship; if this is Atoms-the-company's package, `atoms/laravel` keeps the door open for `atoms/symfony` to be a peer, not an afterthought. Branding call, needed before beta.
 ---
 

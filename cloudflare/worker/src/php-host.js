@@ -7,7 +7,7 @@
 /**
  * PHP-in-workerd host shim.
  *
- * Ported from `spikes/do-php/phase2-do/src/php-host.js` (proven mechanism), with
+ * Ported from the pre-MVP Durable-Object spike's host (proven mechanism), with
  * the JSPI engine dropped: JSPI cannot express either door (see below), and the
  * MVP ships Asyncify only.
  *
@@ -206,7 +206,7 @@ export function guestMemoryBytes(php) {
  * The payload is a single JSON line inside a nowdoc, so nothing in it can
  * terminate the heredoc or be interpolated. `require`, never concatenate: every
  * verbatim atoms/core file opens with `declare(strict_types=1)`, which must be
- * the first statement of its own file (phase2-do/FINDINGS.md §7).
+ * the first statement of its own file, as the spike established.
  *
  * @param {unknown} payload
  * @param {string} bootstrapPath guest path of the runtime bootstrap script

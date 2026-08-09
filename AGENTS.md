@@ -23,16 +23,19 @@ parked inside a SQLite-backed Durable Object.
 | `action/` | The deploy GitHub Action (composite) | `action/README.md` |
 | `tests/` | Cross-package integration tests (`Atoms\Tests\Integration\`) | `docs/conventions.md` |
 
-Assembled 2026-08-08. The framework half was imported **with** its full
-history from `AtomsPHP/atoms-framework`. `cloudflare/` was imported
-**without** history from the private `AtomsPHP/atoms-core` repo — deliberately:
-that history contains the GPL php-wasm binary that was once committed there,
-and importing it would republish it. Do not graft that history in.
+Assembled 2026-08-08 from two predecessor repositories, under deliberately
+different rules. The framework half was imported **with** its full history.
+`cloudflare/` was imported **without** history, as files rather than commits:
+the repository it came from has a GPL php-wasm binary reachable in its history,
+and `git clone` delivers history rather than the tip, so inheriting it would
+have republished the binary. **Never graft that history on**, however
+convenient it looks.
 
-The Fly-era platform (`router/`, `control-plane/`, `runtime/`) is **not in this
-repository**. It stays frozen in the private `atoms-core` repo, and Cloudflare
-supplies what most of it existed to provide. Treat references to it in older
-documents as history, not direction.
+An earlier, differently-shaped platform preceded the Cloudflare runtime — an
+edge router, a central control plane, a durability bus, a process-per-Atom
+runtime. None of it is in this repository, and Cloudflare supplies most of what
+it existed to provide. Treat references to it in older documents as history,
+not direction.
 
 ## Read before non-trivial work
 

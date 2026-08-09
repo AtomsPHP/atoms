@@ -1,15 +1,13 @@
-# Atoms-on-Cloudflare MVP — what was built and how it maps to prior work
+# Atoms-on-Cloudflare MVP — what was built
 
 **Date:** 2026-08-04
 **Where:** `AtomsPHP/atoms`, everything under `cloudflare/`
 
 > **Note, 2026-08-08.** This is a dated summary of the MVP as it stood on
-> 2026-08-04, kept for the mapping in "How this maps to prior work" below. Two
-> things have changed since and are corrected inline: the tree is committed and
-> now lives in the public monorepo `AtomsPHP/atoms` rather than on an
-> uncommitted `cloudflare-mvp` branch of the private `atoms-core` repo, and the
-> php-wasm runtime is no longer carried in `worker/vendor/`. The measured
-> figures below are unchanged.
+> 2026-08-04. Two things have changed since and are corrected inline: the tree
+> now lives here, in `AtomsPHP/atoms`, rather than in the repository it was
+> built in, and the php-wasm runtime is no longer carried in `worker/vendor/`.
+> The measured figures below are unchanged.
 
 ## What was built
 
@@ -33,7 +31,7 @@ and against the real deployed Worker.
 
 **Measured on real Durable Objects:** cold activation ~740ms median, warm turn
 ~59ms median, post-hibernation wake ~604ms; 7.1MB gzipped upload (Workers Paid
-required, as the production plan predicted).
+required).
 
 **Explicitly stubbed (typed `AtomsNotSupported`, never silent):** `app()`,
 `dispatch()`, `broadcast()`, WebSockets, alarms.
@@ -45,83 +43,34 @@ speaks no BigInt (wide-int writes are inlined exactly; reads >2^53 are refused
 as `int64_precision` unless `CAST(... AS TEXT)`); `GLOB_BRACE` doesn't exist in
 this php-wasm build (migration discovery is shimmed).
 
-## How prior projects map onto it
+## How prior work maps onto it
 
-The strategic shift: Cloudflare now supplies placement, single-activation
-routing, durability, hibernation, and scaling — the things most of the old
-platform existed to provide. What survives is the product surface: PHP
-execution, the frozen ABI, framework semantics, and deployment ergonomics.
+The MVP replaced an earlier platform of a very different shape: an edge
+router, a central control plane, a message-bus durability layer and a
+process-per-Atom runtime. Cloudflare supplies what most of that existed to
+provide — placement, single-activation routing, durability, hibernation and
+scaling — so what survives is the product surface: PHP execution, the frozen
+ABI, framework semantics and deployment ergonomics.
 
-### `atoms-core/router/` (Go edge router) → mostly absorbed by Cloudflare
+The component-by-component mapping is internal history about systems that are
+not in this repository, and is kept with the project's internal records rather
+than here. One part of it is worth stating publicly, because it is a claim
+about code that *is* here:
 
-| Router responsibility | Where it went |
-|---|---|
-| Edge routing, invoke endpoint | `worker/src/index.js` (~200 lines of JS; same `/invoke/{type}/{id}/{method}` + `{"args":[...]}` wire shape, minus the `/v1/{customer}` prefix — single-tenant Worker) |
-| Single-activation guarantee, placement | Durable Object identity (`idFromName(type\nid)`) — Cloudflare's problem now |
-| Turn-based concurrency | DO event delivery + the turn mutex in `atom-do.js` |
-| Machine contract, seam tests | Superseded; the contract is now `docs/mvp-spec.md`, enforced by the conformance suite |
-
-### `atoms-core/control-plane/` (Laravel Directory, Build/Deploy, atomsctl) → eliminated
-
-Directory leases and epochs (fencing) → DO single-instance semantics.
-Central Build/Deploy service and S3 bundle store → immutable Worker versions
-deployed by the customer's own Wrangler. Platform API keys/OIDC → customer's
-own Cloudflare API token. `atomsctl` fleet ops → Wrangler/Cloudflare
-operations. Nothing from the control plane sits in the request or deploy path.
-
-### `atoms-core/runtime/` (Track R, Amp v3 process) → re-expressed as the DO-resident PHP loop
-
-The Amp process's job — one resident PHP object per Atom, activation,
-turn dispatch, durability — is now `worker/php/runtime/bootstrap.php` parked
-inside one `php.run()` per residency. Its design decisions carried over
-directly: `onActivation()` on every activation after migrations,
-best-effort deactivation, turn output released only after durable success
-(the DO output gate provides this), and the `RuntimeAtomContext` shape
-(`CfAtomContext` is its Cloudflare sibling). Its NATS WAL-shipping phase 2
-is **gone entirely** — DO SQLite is already durable, so there is no shipper,
-no compactor, no per-customer NATS accounts, no tombstone cold-deletion job.
-
-### `mvp-load-test/` (density + NATS durability benchmark) → retired as a validation vehicle
-
-It existed to prove the Fly density/durability economics. The equivalent
-questions on Cloudflare (isolate memory, active-object density, real commit
-latency) are answered by `test/measure-remote.mjs` + the production plan's
-phase-6 remote conformance, not by that harness.
-
-### The customer SDK (`packages/`, then a separate repo) → unchanged, and proven portable
+### The customer SDK (`packages/`) → unchanged, and proven portable
 
 This is the payoff of the frozen-ABI discipline: `packages/core` runs
 **verbatim** inside the guest — the MVP vendored it byte-identical and the
 real `Migrator`, `Serializer`, and `LifecycleInvoker` all work unmodified on
-php-wasm (one namespaced `glob()` shim outside their files). Customer Atoms
-written for the Fly platform are source-compatible. Still pending on this
+php-wasm (one namespaced `glob()` shim outside their files). Atoms written
+against the ABI are source-compatible across hosts. Still pending on this
 side (post-MVP): pointing `packages/cli` (`atoms build/deploy/status`) and the
 GitHub Action at Wrangler + customer Cloudflare credentials, and the
 `packages/client` direct-to-Worker endpoint/auth story.
 
-### `spikes/` → consumed
+## What's next
 
-`spikes/wasm-php/` established PHP-in-Wasm viability and the interpreter tax;
-`spikes/do-php/` (phases 1–3) discovered the door/park mechanism, the
-`transactionSync` re-entry trick, and the Asyncify-only constraint. The MVP
-ported `phase2-do`'s `php-host.js`, PDO shim, and loop shape nearly verbatim,
-then hardened them. The spikes are discovery artifacts now; the production
-plan (`spikes/do-php/production-plan.md`) remains the direction authority.
-
-### Legacy status
-
-Per the production plan: `router/`, `control-plane/`, `runtime/`, and the NATS
-deploy code are **frozen, not deleted** — they stay as historical comparison
-until the Cloudflare beta passes its end-to-end gates, then get archived
-through normal git history. The pre-monorepo `atoms-router/` and
-`atoms-control-plane/` checkouts were already legacy before the pivot. The
-workspace root `CLAUDE.md` still describes the Fly-era status and needs
-updating once the pivot is formally recorded in an architecture decision.
-
-## What's next (per the production plan)
-
-1. Phase 0 closeout: record the pivot as an ADR in `internal-docs/`, freeze the old path formally.
-2. Owned php-wasm build (hermetic, reproducible, trimmed extensions) replacing the Playground artifact.
-3. Native `pdo_atoms` driver + host ABI as compiled imports — this is also what genuinely fixes the int64-read limitation.
-4. Lifecycle completion: WebSockets (Hibernation API), alarms, `app()`/`dispatch()`/`broadcast()`.
-5. Customer toolchain: `atoms build/dev/deploy/status/rollback/secrets` over Wrangler; GitHub Action on Cloudflare credentials.
+1. Owned php-wasm build (hermetic, reproducible, trimmed extensions) replacing the Playground artifact.
+2. Native `pdo_atoms` driver + host ABI as compiled imports — this is also what genuinely fixes the int64-read limitation.
+3. Lifecycle completion: WebSockets (Hibernation API), alarms, `app()`/`dispatch()`/`broadcast()`.
+4. Customer toolchain: `atoms build/dev/deploy/status/rollback/secrets` over Wrangler; GitHub Action on Cloudflare credentials.

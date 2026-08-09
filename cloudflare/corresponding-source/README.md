@@ -37,22 +37,21 @@ survey below is that, done once.
 Written in the past tense as of 2026-08-08, because the hazard was real
 and is now closed.
 
-While this tree lived in the private `atoms-core` repository, the binary
-was out of the working tree but **still reachable in that repository's
-history** — committed before it was removed. `git clone` of a published
-repository delivers the history, not just the tip, so publishing it would
-have been distribution and §3 would have attached to Atoms after all.
-Deleting a file does not unpublish it.
+In the repository this tree was developed in, the binary was out of the
+working tree but **still reachable in that repository's history** —
+committed before it was removed. `git clone` of a published repository
+delivers the history, not just the tip, so publishing it would have been
+distribution and §3 would have attached to Atoms after all. Deleting a
+file does not unpublish it.
 
-The move into `AtomsPHP/atoms` therefore carried this tree as **files,
-not commits**: a `git archive` of the source tip, extracted into a
-repository that never had `atoms-core` as a git remote, so none of that
-history exists here to reach. Confirmed on a fresh clone — no blob over
-5MB, and no blob whose content SHA-256 matches the one recorded below.
+The move here therefore carried this tree as **files, not commits**: a
+`git archive` of the source tip, extracted into a repository that never
+had the old one as a git remote, so none of that history exists here to
+reach. Confirmed on a fresh clone — no blob over 5MB, and no blob whose
+content SHA-256 matches the one recorded below.
 
-The rule that follows is permanent and cheap: **never graft
-`atoms-core`'s history onto this repository, and never commit the
-binary.** `../worker/.gitignore` and `../worker/scripts/prepare-runtime.mjs`
+The rule that follows is permanent and cheap: **never graft that
+predecessor history onto this repository, and never commit the binary.** `../worker/.gitignore` and `../worker/scripts/prepare-runtime.mjs`
 enforce the second half.
 
 ## Which binary this corresponds to

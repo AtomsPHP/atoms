@@ -1,8 +1,9 @@
 # Atoms-on-Cloudflare MVP specification
 
 **Status:** binding for the MVP implementation under `cloudflare/`.
-**Parent:** `spikes/do-php/production-plan.md` (direction),
-`spikes/do-php/phase2-do/` (proven mechanism, reference implementation).
+**Parent:** the pre-MVP Durable-Object spikes, which established the direction
+and the proven mechanism this implementation ports. Those are internal and are
+not in this repository.
 
 ## Scope
 
@@ -31,7 +32,7 @@ requires synchronous guest re-entry, which only Asyncify provides. Boot uses
 `@php-wasm/universal`'s `loadPHPRuntime` with an `instantiateWasm` hook that
 (a) hands Wrangler's precompiled wasm module to Emscripten and (b) replaces the
 `env.__asyncjs__js_module_onMessage` import with the tagged dispatcher below.
-Port `phase2-do/src/php-host.js` nearly verbatim.
+Ported from the spike's host nearly verbatim.
 
 ## PHP↔JS protocol
 

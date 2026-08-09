@@ -66,8 +66,8 @@ Rules for the composed script:
   raw newline, so the closing identifier can never collide with the payload.
 - **`require`, never concatenate.** Every file in `atoms-core/` begins with
   `declare(strict_types=1)`, which must be the first statement *of its file*.
-  Concatenating them is the exact fatal the spike hit
-  (`phase2-do/FINDINGS.md` §7). Nothing under `runtime/` declares
+  Concatenating them is the exact fatal the pre-MVP spike hit. Nothing under
+  `runtime/` declares
   `strict_types`, precisely so the composed entry stays safe to build.
 - Do not add `declare(strict_types=1)` to the entry script either.
 

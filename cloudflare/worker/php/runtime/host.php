@@ -21,7 +21,7 @@
  *
  * NOTE: no `declare(strict_types=1)` anywhere under runtime/. A declare() must
  * be the very first statement of a file, and these files may be composed by the
- * host; the spike hit hard fatals on exactly this (phase2-do/FINDINGS.md §7).
+ * host; the pre-MVP spike hit hard fatals on exactly this.
  * The verbatim atoms-core files keep their own declare() and are therefore only
  * ever `require`d, never concatenated.
  */

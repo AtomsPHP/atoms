@@ -4,20 +4,20 @@
  * The guest entry point: one activation, then the parked turn loop.
  *
  * `php.run()` is a REQUEST — classes, constants and globals are torn down when
- * it returns (phase2-do/FINDINGS.md §1). An Atom whose state lives in PHP
+ * it returns — established by the pre-MVP spike. An Atom whose state lives in PHP
  * memory therefore cannot be one `php.run()` per turn. Everything below happens
  * inside ONE `php.run()` that does not return until the host asks for shutdown:
  * the guest parks itself on the `turn.await` door between turns and the host
  * resumes it with the next envelope, so the PHP stack — and with it the Atom
  * object and all its in-memory state — is never unwound. Shape ported from
- * `phase2-do/php/loop.php`.
+ * the spike's loop.
  *
  * Load order, and the composed entry script the JS host must run, are
  * documented in ../README.md.
  *
  * No declare(strict_types=1) — a declare() must be the very first statement of
  * a file and this one is `require`d from a host-composed script; the spike hit
- * hard fatals on exactly this (FINDINGS.md §7). The verbatim atoms-core files
+ * hard fatals on exactly this. The verbatim atoms-core files
  * keep their own declare() because they are only ever `require`d, one file each.
  */
 
