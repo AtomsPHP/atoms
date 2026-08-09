@@ -13,9 +13,11 @@ use Psr\Http\Message\RequestFactoryInterface;
 /**
  * Acquires short-lived WebSocket connection tickets from the platform.
  *
- * EXPERIMENTAL. WebSocket ticketing is not part of the frozen v1 platform
- * contract yet, and no platform implements the ticket endpoint. The shape here mirrors the intended `POST /v1/{customer}/tickets/...`
- * request/response and may change; do not depend on it in production.
+ * EXPERIMENTAL. WebSocket ticketing is not part of the settled contract yet,
+ * and no runtime implements the ticket endpoint — the Cloudflare Worker stubs
+ * WebSockets entirely. The shape here mirrors the intended
+ * `POST /tickets/{type}/{id}` request/response and may change; do not depend on
+ * it in production.
  */
 final class TicketClient
 {
@@ -32,16 +34,19 @@ final class TicketClient
     public function acquire(string $type, string $id): string
     {
         $uri = sprintf(
-            '%s/v1/%s/tickets/%s/%s',
+            '%s/tickets/%s/%s',
             $this->config->baseUrl(),
-            rawurlencode($this->config->customer),
             rawurlencode($type),
             rawurlencode($id),
         );
 
         $request = $this->requestFactory->createRequest('POST', $uri)
-            ->withHeader('Authorization', 'Bearer ' . $this->config->apiKey)
             ->withHeader('Accept', 'application/json');
+
+        // See AtomsConfig::$apiKey: null means "auth is deliberately off".
+        if ($this->config->apiKey !== null) {
+            $request = $request->withHeader('Authorization', 'Bearer ' . $this->config->apiKey);
+        }
 
         try {
             $response = $this->http->sendRequest($request);

@@ -35,8 +35,7 @@ final class AtomsClientTest extends TestCase
 
         $factory = new HttpFactory();
         $config = AtomsConfig::fromArray($configOverrides + [
-            'endpoint' => 'https://edge.atoms.test/',
-            'customer' => 'acme',
+            'endpoint' => 'https://atoms.example.workers.dev/',
             'apiKey' => 'atoms_v1_secret',
             'maxAttempts' => 3,
             'backoffBaseMs' => 50,
@@ -73,7 +72,7 @@ final class AtomsClientTest extends TestCase
 
         $req = $this->http->lastRequest();
         self::assertSame('POST', $req->getMethod());
-        self::assertSame('https://edge.atoms.test/v1/acme/invoke/GameRoom/g-1/ping', (string) $req->getUri());
+        self::assertSame('https://atoms.example.workers.dev/invoke/GameRoom/g-1/ping', (string) $req->getUri());
         self::assertSame('Bearer atoms_v1_secret', $req->getHeaderLine('Authorization'));
         self::assertSame('application/json', $req->getHeaderLine('Content-Type'));
         self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $req->getHeaderLine('Idempotency-Key'));
@@ -279,7 +278,7 @@ final class AtomsClientTest extends TestCase
 
         $req = $this->http->lastRequest();
         self::assertSame('DELETE', $req->getMethod());
-        self::assertSame('https://edge.atoms.test/v1/acme/atoms/GameRoom/g-1', (string) $req->getUri());
+        self::assertSame('https://atoms.example.workers.dev/atoms/GameRoom/g-1', (string) $req->getUri());
     }
 
     public function testDestroyIdempotentFalse(): void
@@ -304,7 +303,7 @@ final class AtomsClientTest extends TestCase
         self::assertSame(7, $snapshot->score);
 
         // Wire type is the class basename.
-        self::assertSame('https://edge.atoms.test/v1/acme/invoke/GameRoom/g-1/snapshot', (string) $this->http->lastRequest()->getUri());
+        self::assertSame('https://atoms.example.workers.dev/invoke/GameRoom/g-1/snapshot', (string) $this->http->lastRequest()->getUri());
     }
 
     public function testProxyScalarReturnPassThrough(): void
@@ -314,6 +313,49 @@ final class AtomsClientTest extends TestCase
 
         $proxy = $client->get(GameRoom::class, 'g-1');
         self::assertSame('pong', $proxy->ping());
+    }
+
+    public function testRealApiKeyIsSentAsABearerCredential(): void
+    {
+        $client = $this->client(['apiKey' => 'atoms_v1_real']);
+        $this->http->queueJson(200, ['result' => 'pong']);
+
+        $client->call('GameRoom', 'g-1', 'ping');
+
+        self::assertSame('Bearer atoms_v1_real', $this->http->lastRequest()->getHeaderLine('Authorization'));
+    }
+
+    /**
+     * A Worker deployed with ATOMS_APP_KEY unset disables its bearer check
+     * entirely. A null api key is how the client says "that is deliberate":
+     * no Authorization header at all, not an empty one.
+     */
+    public function testNullApiKeySendsNoAuthorizationHeader(): void
+    {
+        $client = $this->client(['apiKey' => null]);
+        $this->http->queueJson(200, ['result' => 'pong']);
+
+        $client->call('GameRoom', 'g-1', 'ping');
+
+        $req = $this->http->lastRequest();
+        self::assertFalse($req->hasHeader('Authorization'));
+        self::assertSame('', $req->getHeaderLine('Authorization'));
+        // Everything else still goes out as normal.
+        self::assertSame('https://atoms.example.workers.dev/invoke/GameRoom/g-1/ping', (string) $req->getUri());
+        self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $req->getHeaderLine('Idempotency-Key'));
+    }
+
+    /**
+     * An empty api key is a misconfiguration (an env var that resolved to
+     * empty), not a posture — it must never reach the wire as
+     * "Authorization: Bearer ".
+     */
+    public function testEmptyApiKeyThrowsAtConstructionRatherThanShippingAnEmptyBearer(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/empty string/');
+
+        $this->client(['apiKey' => '']);
     }
 
     public function testManifestHashHeaderSentWhenLoaded(): void

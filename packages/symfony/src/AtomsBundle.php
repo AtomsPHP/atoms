@@ -43,10 +43,9 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
  * layering is wrong — fix the layering, not this file (docs/conventions.md).
  *
  * @phpstan-type AtomsBundleConfig array{
- *     project: string,
  *     environment: string,
  *     endpoint: string,
- *     api_key: string,
+ *     api_key: string|null,
  *     timeout: float,
  *     max_attempts: int,
  *     platform_public_key: string|null,
@@ -79,14 +78,16 @@ final class AtomsBundle extends AbstractBundle
     {
         $definition->rootNode()
             ->children()
-                ->scalarNode('project')
+                ->scalarNode('environment')->defaultValue('production')->end()
+                ->scalarNode('endpoint')
                     ->isRequired()
                     ->cannotBeEmpty()
-                    ->info('Project/customer slug, as in atoms.json ("project") and the platform HTTP contract ({customer}).')
+                    ->info('Base URL of your deployed Atoms Worker, e.g. https://atoms.<your-subdomain>.workers.dev (or http://127.0.0.1:8787 under `wrangler dev`).')
                 ->end()
-                ->scalarNode('environment')->defaultValue('production')->end()
-                ->scalarNode('endpoint')->isRequired()->cannotBeEmpty()->info('Platform base URL, e.g. https://edge.atoms.cloud.')->end()
-                ->scalarNode('api_key')->isRequired()->cannotBeEmpty()->end()
+                ->scalarNode('api_key')
+                    ->defaultNull()
+                    ->info('Bearer key matching the Worker\'s ATOMS_APP_KEY. Leave null when the Worker runs with ATOMS_APP_KEY unset (its auth check is off entirely); an empty string is rejected as a misconfiguration.')
+                ->end()
                 ->floatNode('timeout')->defaultValue(10.0)->end()
                 ->integerNode('max_attempts')->defaultValue(3)->end()
                 ->scalarNode('platform_public_key')
@@ -130,9 +131,8 @@ final class AtomsBundle extends AbstractBundle
             ->setFactory([AtomsConfig::class, 'fromArray'])
             ->setArguments([[
                 'endpoint' => $config['endpoint'],
-                // atoms.json / the platform HTTP contract call this "customer"; the
-                // bundle config calls it "project" to match atoms.json's own key.
-                'customer' => $config['project'],
+                // Uncoerced: null means the Worker runs with auth off, while an
+                // empty string is a misconfiguration AtomsConfig throws on.
                 'apiKey' => $config['api_key'],
                 'timeout' => $config['timeout'],
                 'maxAttempts' => $config['max_attempts'],

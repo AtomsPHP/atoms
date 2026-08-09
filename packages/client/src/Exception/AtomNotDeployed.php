@@ -8,8 +8,8 @@ use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 
 /**
- * The requested Atom type is not present in the customer's current deploy
- * manifest (platform code `unknown_atom_type`, ATOMS-E060). Not retryable.
+ * The requested Atom type is not present in the Worker's currently deployed
+ * manifest (wire code `unknown_atom_type`, ATOMS-E060). Not retryable.
  */
 final class AtomNotDeployed extends AtomsException
 {

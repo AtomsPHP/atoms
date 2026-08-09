@@ -41,19 +41,24 @@ final class AtomsServiceProviderTest extends TestCase
         self::assertInstanceOf(GuzzleClient::class, $this->app->make(ClientInterface::class));
     }
 
+    /**
+     * Atoms is self-hosted in the user's own Cloudflare account, so there is no
+     * plausible default endpoint — an empty one the user must fill in is
+     * strictly better than a dead host that looks real.
+     */
     public function testConfigDefaultsAreMerged(): void
     {
-        self::assertSame('https://api.atoms.cloud', config('atoms.endpoint'));
+        self::assertSame('', config('atoms.endpoint'));
+        self::assertNull(config('atoms.api_key'));
         self::assertSame('/atoms/callback', config('atoms.callback.path'));
         self::assertSame([], config('atoms.callback.middleware'));
         self::assertSame('.atoms/build/manifest.json', config('atoms.manifest_path'));
     }
 
-    public function testConfigChangesFlowIntoAtomsConfigMappingProjectToCustomer(): void
+    public function testConfigChangesFlowIntoAtomsConfig(): void
     {
         config([
-            'atoms.project' => 'acme-games',
-            'atoms.endpoint' => 'https://staging.atoms.cloud',
+            'atoms.endpoint' => 'https://atoms.staging.workers.dev',
             'atoms.api_key' => 'secret-key',
             'atoms.timeout' => 5.5,
             'atoms.max_attempts' => 7,
@@ -62,11 +67,42 @@ final class AtomsServiceProviderTest extends TestCase
 
         $atomsConfig = $this->app->make(AtomsConfig::class);
 
-        self::assertSame('acme-games', $atomsConfig->customer);
-        self::assertSame('https://staging.atoms.cloud', $atomsConfig->endpoint);
+        self::assertSame('https://atoms.staging.workers.dev', $atomsConfig->endpoint);
         self::assertSame('secret-key', $atomsConfig->apiKey);
+        self::assertTrue($atomsConfig->isAuthenticated());
         self::assertSame(5.5, $atomsConfig->timeout);
         self::assertSame(7, $atomsConfig->maxAttempts);
+    }
+
+    /**
+     * An unset ATOMS_API_KEY is the shape that matches a Worker deployed with
+     * ATOMS_APP_KEY unset: unauthenticated on purpose, not accidentally empty.
+     */
+    public function testUnsetApiKeyBecomesAnExplicitlyUnauthenticatedConfig(): void
+    {
+        config([
+            'atoms.endpoint' => 'http://127.0.0.1:8787',
+            'atoms.api_key' => null,
+        ]);
+        $this->app->forgetInstance(AtomsConfig::class);
+
+        $atomsConfig = $this->app->make(AtomsConfig::class);
+
+        self::assertNull($atomsConfig->apiKey);
+        self::assertFalse($atomsConfig->isAuthenticated());
+    }
+
+    public function testEmptyApiKeyIsRejectedRatherThanTreatedAsUnauthenticated(): void
+    {
+        config([
+            'atoms.endpoint' => 'http://127.0.0.1:8787',
+            'atoms.api_key' => '',
+        ]);
+        $this->app->forgetInstance(AtomsConfig::class);
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        $this->app->make(AtomsConfig::class);
     }
 
     public function testCallbackRouteIsRegistered(): void
