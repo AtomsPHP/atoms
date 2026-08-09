@@ -140,13 +140,24 @@ final class WorkerConfigTest extends TestCase
     public function testABlankDenyListMeansTheDefaultsNotAnEmptyList(): void
     {
         foreach (['', ' ', "\u{00A0}"] as $blank) {
-            $config = WorkerConfig::fromWorkerDir($this->workerDir(
-                json_encode(['vars' => ['ATOMS_CONFIG_ENV_DENY_KEYS' => $blank]], JSON_THROW_ON_ERROR),
-            ));
+            // The prefix matters to the scenario: under ATOMS_, the key
+            // "app key" lands exactly on ATOMS_APP_KEY. Under the default
+            // prefix it lands on ATOMS_CONFIG_APP_KEY, which is a perfectly
+            // ordinary config name and rightly not refused.
+            $config = WorkerConfig::fromWorkerDir($this->workerDir(json_encode([
+                'vars' => [
+                    'ATOMS_CONFIG_ENV_PREFIX' => 'ATOMS_',
+                    'ATOMS_CONFIG_ENV_DENY_KEYS' => $blank,
+                ],
+            ], JSON_THROW_ON_ERROR)));
 
             self::assertSame(WorkerConfig::DEFAULT_DENY_KEYS, $config->configEnvDenyKeys);
             self::assertFalse($config->isReadable('ATOMS_APP_KEY'));
-            self::assertNotNull($config->keyRefusalReason('app key'));
+            self::assertSame('ATOMS_APP_KEY', $config->workerNameFor('app key'));
+            self::assertNotNull(
+                $config->keyRefusalReason('app key'),
+                'writing the Worker bearer secret must be refused, not reported as a stored config value',
+            );
         }
     }
 
