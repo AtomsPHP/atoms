@@ -7,6 +7,7 @@ namespace Atoms\Cli\Command;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
 use Atoms\Cli\Cloudflare\SecretName;
 use Atoms\Cli\Cloudflare\Wrangler;
+use Atoms\Cli\Cloudflare\WorkerConfig;
 use Atoms\Errors\AtomsError;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
@@ -17,9 +18,11 @@ use Symfony\Component\Console\Output\OutputInterface;
  * `atoms secrets:list --env X` — the Worker's secret names. Cloudflare never
  * returns values, so neither does this.
  *
- * Secrets carrying the `config.get` prefix are listed by the key Atom code
- * would use; anything else is listed separately under its raw name, because a
- * Worker legitimately holds operational secrets that Atom code cannot read.
+ * Secrets Atom code can actually read are listed by the key it would use;
+ * anything else is listed separately under its raw name, because a Worker
+ * legitimately holds operational secrets that Atom code cannot reach. Which is
+ * which comes from the Worker project's own config ({@see WorkerConfig}) — the
+ * prefix, the extra exact names, and the deny list are all overridable.
  */
 #[AsCommand(name: 'secrets:list', description: 'List Worker secret names for an environment')]
 final class SecretsListCommand extends AbstractCommand
@@ -54,6 +57,9 @@ final class SecretsListCommand extends AbstractCommand
                 self::stringOption($input, 'worker-dir'),
             );
 
+            $target->assertWorkerDir();
+            $worker = WorkerConfig::fromWorkerDir($target->workerDir);
+
             $result = $this->wrangler->listSecrets($target);
             if (!$result->ok()) {
                 $output->write($result->stderr);
@@ -80,12 +86,14 @@ final class SecretsListCommand extends AbstractCommand
             if (!\is_string($name) || $name === '') {
                 continue;
             }
-            $key = SecretName::toKey($name);
-            if ($key === null) {
+            if (!$worker->isReadable($name)) {
                 $other[] = $name;
-            } else {
-                $keys[] = $key;
+                continue;
             }
+
+            // A name reachable only through ATOMS_CONFIG_ENV_KEYS is read by
+            // Atom code under its own exact name, with no prefix to strip.
+            $keys[] = SecretName::toKey($name, $worker->configEnvPrefix) ?? $name;
         }
 
         if ($keys === [] && $other === []) {

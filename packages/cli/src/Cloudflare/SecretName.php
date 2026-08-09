@@ -13,41 +13,43 @@ namespace Atoms\Cli\Cloudflare;
  *
  *     const normalized = configEnvPrefix + key.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
  *
- * with `configEnvPrefix` defaulting to `ATOMS_CONFIG_`. A secret stored under
- * the bare name is simply invisible to the Atom that needs it — silently, since
- * `config.get` answers null for an unknown key rather than erroring.
+ * A secret stored under the bare name is simply invisible to the Atom that
+ * needs it — silently, since `config.get` answers null for an unknown key
+ * rather than erroring.
  *
- * So `atoms secrets:set PAYMENTS_API_KEY` stores
- * `ATOMS_CONFIG_PAYMENTS_API_KEY`, and
- * `atoms secrets:list` presents the Atom-facing name. The transformation is
- * duplicated from JavaScript into PHP here; the two must move together, which
- * is why the source line above is quoted rather than paraphrased.
+ * **The prefix is a parameter, not a constant.** It defaults to
+ * `ATOMS_CONFIG_` and is overridable per deployment through
+ * `ATOMS_CONFIG_ENV_PREFIX`; {@see WorkerConfig} reads whichever one the Worker
+ * project is actually configured with. Callers should get it from there rather
+ * than taking the default, or they reintroduce exactly the silent mismatch this
+ * class exists to prevent.
+ *
+ * The transformation is duplicated from JavaScript into PHP here; the two must
+ * move together, which is why the source line above is quoted rather than
+ * paraphrased.
  */
 final class SecretName
 {
-    /** Must match `ATOMS_CONFIG_ENV_PREFIX`'s default in worker/src/config.js. */
-    public const PREFIX = 'ATOMS_CONFIG_';
-
     /**
      * The Worker secret name backing an Atom-facing config key.
      */
-    public static function toWorker(string $key): string
+    public static function toWorker(string $key, string $prefix = WorkerConfig::DEFAULT_PREFIX): string
     {
-        return self::PREFIX . preg_replace('/[^A-Z0-9]+/', '_', strtoupper($key));
+        return $prefix . preg_replace('/[^A-Z0-9]+/', '_', strtoupper($key));
     }
 
     /**
      * The Atom-facing key a Worker secret name backs, or null when the secret
-     * is not part of the `config.get` allowlist at all (an operational
-     * variable, or one reachable only via `ATOMS_CONFIG_ENV_KEYS`).
+     * does not carry the prefix at all (an operational variable, or one
+     * reachable only through `ATOMS_CONFIG_ENV_KEYS`).
      */
-    public static function toKey(string $workerName): ?string
+    public static function toKey(string $workerName, string $prefix = WorkerConfig::DEFAULT_PREFIX): ?string
     {
-        if (!str_starts_with($workerName, self::PREFIX)) {
+        if ($prefix === '' || !str_starts_with($workerName, $prefix)) {
             return null;
         }
 
-        $key = substr($workerName, \strlen(self::PREFIX));
+        $key = substr($workerName, \strlen($prefix));
 
         return $key === '' ? null : $key;
     }

@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Atoms\Cli\Command;
 
 use Atoms\Cli\Cloudflare\CloudflareTarget;
-use Atoms\Cli\Cloudflare\SecretName;
 use Atoms\Cli\Cloudflare\Wrangler;
+use Atoms\Cli\Cloudflare\WorkerConfig;
 use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCatalog;
+use Atoms\Errors\ErrorCode;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -18,9 +20,11 @@ use Symfony\Component\Console\Output\OutputInterface;
  * `atoms secrets:set KEY [VALUE] --env X` — store a Worker secret readable from
  * Atom code as `$this->config('KEY')`.
  *
- * The secret is stored under {@see SecretName::toWorker()}, because that is the
- * name the Worker's `config.get` allowlist resolves `KEY` to. Storing the bare
- * name would appear to work and then read back as null.
+ * The secret is stored under the name the Worker's `config.get` allowlist
+ * resolves `KEY` to — read from the Worker project's own Wrangler config by
+ * {@see WorkerConfig}, because the prefix is overridable. Storing the bare
+ * name, or a name the deny list blocks, would appear to work and then read
+ * back as null.
  *
  * The value never appears in an argv: it goes to Wrangler on stdin.
  */
@@ -60,8 +64,6 @@ final class SecretsSetCommand extends AbstractCommand
             return self::FAILURE;
         }
 
-        $workerName = SecretName::toWorker($key);
-
         try {
             $target = CloudflareTarget::resolve(
                 $this->atomsJson($input),
@@ -69,6 +71,25 @@ final class SecretsSetCommand extends AbstractCommand
                 self::stringOption($input, 'api-token'),
                 self::stringOption($input, 'worker-dir'),
             );
+
+            // The prefix is read from the Worker project rather than assumed:
+            // ATOMS_CONFIG_ENV_PREFIX is overridable, and guessing it wrong
+            // stores a secret the Atom can never read, with no error anywhere.
+            $target->assertWorkerDir();
+            $worker = WorkerConfig::fromWorkerDir($target->workerDir);
+            $workerName = $worker->workerNameFor($key);
+
+            $unreadable = $worker->unreadableReason($workerName);
+            if ($unreadable !== null) {
+                throw new AtomsError(
+                    ErrorCode::SecretNotReadable,
+                    ErrorCatalog::format(ErrorCode::SecretNotReadable, [
+                        'key' => $key,
+                        'name' => $workerName,
+                        'reason' => $unreadable,
+                    ]),
+                );
+            }
 
             $result = $this->wrangler->putSecret($target, $workerName, $value);
             if (!$result->ok()) {

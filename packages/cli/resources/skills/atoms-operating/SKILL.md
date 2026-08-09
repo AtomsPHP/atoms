@@ -30,9 +30,12 @@ Deploy needs a Worker project directory (`worker_dir` in atoms.json, default
 `.atoms/worker`) with `npm ci` already run in it — Atoms runs the Wrangler it
 finds there and never downloads one. Missing: ATOMS-E073.
 
-`atoms secrets:set PAYMENTS_API_KEY` stores the Worker secret `ATOMS_CONFIG_PAYMENTS_API_KEY`,
-because that is the name the Worker's config allowlist resolves
-`$this->config('PAYMENTS_API_KEY')` to.
+`atoms secrets:set PAYMENTS_API_KEY` stores the Worker secret
+`ATOMS_CONFIG_PAYMENTS_API_KEY`, because that is the name the Worker's config
+allowlist resolves `$this->config('PAYMENTS_API_KEY')` to. The prefix is read
+from the Worker project's wrangler config (`ATOMS_CONFIG_ENV_PREFIX`), so an
+overridden one is honoured; a key that could never be read back is refused with
+ATOMS-E077 rather than stored.
 
 ## Deploy ordering (expand/contract)
 

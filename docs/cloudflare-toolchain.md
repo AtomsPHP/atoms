@@ -144,12 +144,38 @@ resolves through the host's allowlist in `worker/src/bridge.js`:
 const normalized = configEnvPrefix + key.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
 ```
 
-with `configEnvPrefix` defaulting to `ATOMS_CONFIG_`. A secret stored under its
-bare name is accepted by Cloudflare and then reads back as `null` — silently,
-because `config.get` answers `null` for unknown keys rather than erroring.
-`Atoms\Cli\Cloudflare\SecretName` mirrors that transformation, and
-`atoms secrets:list` presents Atom-facing keys separately from Worker secrets
-that Atom code cannot read.
+A secret stored under its bare name is accepted by Cloudflare and then reads
+back as `null` — silently, because `config.get` answers `null` for unknown keys
+rather than erroring. `Atoms\Cli\Cloudflare\SecretName` mirrors the
+transformation above.
+
+**The prefix is read, not assumed.** `configEnvPrefix` defaults to
+`ATOMS_CONFIG_` but comes from `ATOMS_CONFIG_ENV_PREFIX`, which a deployment can
+override in `wrangler.jsonc`'s `vars` — as can the two companion variables
+`ATOMS_CONFIG_ENV_KEYS` (extra exact names) and `ATOMS_CONFIG_ENV_DENY_KEYS`
+(names never readable). A CLI that hardcoded the default would write, under any
+override, a name the Worker never looks up, and nothing anywhere would say so.
+
+So `Atoms\Cli\Cloudflare\WorkerConfig` reads all three out of the Worker
+project the deploy is going to use — the CLI already knows that directory, and
+it is the only place the truth exists. Only top-level `vars` are read;
+Wrangler's per-environment `env.<name>.vars` sections are ignored on purpose,
+because `atoms deploy` selects the Worker with `--name` and never passes `-e`,
+so those sections do not apply to what it deploys. When there is no readable
+config, the documented defaults apply — the same fallback the Worker itself
+makes for an absent variable.
+
+This also lets both commands be honest about names that can never work.
+`atoms secrets:set` refuses with **ATOMS-E077** when the resolved name is on the
+deny list, or is one of the three variables that configure the allowlist itself
+— `atoms secrets:set ENV_PREFIX` would not store a value, it would change how
+every other key resolves. `atoms secrets:list` classifies against the same
+config, so a secret is reported readable only if that Worker would really
+resolve it.
+
+Both commands therefore require a usable Worker directory (E076), as `deploy`
+already did. Reporting readability without reading the config would mean
+guessing, and guessing is the defect this replaced.
 
 ## 3. The bundle: two formats, one translator
 

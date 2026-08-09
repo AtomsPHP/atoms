@@ -336,6 +336,14 @@
             "fix": "Point \"worker_dir\" in atoms.json at a checkout of the Atoms Cloudflare Worker (cloudflare/worker), and run `npm ci` inside it.",
             "severity": "error",
             "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E077",
+            "title": "Secret would not be readable from Atom code",
+            "message": "Refusing to store {key} as the Worker variable {name}: {reason}.",
+            "fix": "Pick a different key. $this->config() resolves through the Worker's ATOMS_CONFIG_ENV_PREFIX allowlist, and a name outside it — or on its deny list — reads back as null with no error.",
+            "severity": "error",
+            "phase": "cli"
         }
     ]
 }

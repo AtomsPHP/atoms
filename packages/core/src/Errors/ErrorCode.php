@@ -55,4 +55,5 @@ enum ErrorCode: string
     case WranglerFailed = 'ATOMS-E074';
     case CloudflareAccountMissing = 'ATOMS-E075';
     case WorkerDirectoryInvalid = 'ATOMS-E076';
+    case SecretNotReadable = 'ATOMS-E077';
 }
