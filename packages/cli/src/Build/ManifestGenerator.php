@@ -58,6 +58,12 @@ final class ManifestGenerator
             $out[] = [
                 'type' => $atom->basename(),
                 'class' => $atom->fqcn,
+                // Bundle-relative path of the file declaring the class. A
+                // consumer that loads the bundle — the Cloudflare Worker —
+                // must `require` exactly this file; re-deriving it by scanning
+                // the tarball for a class declaration would duplicate, in
+                // another language, work the build already did correctly.
+                'file' => $atom->relativePath,
                 'methods' => array_map(static fn (MethodSignature $m): array => $m->toManifest(), $methods),
                 'websocket' => $this->overridesWebsocket($atom),
                 'migrations' => $this->migrations->forAtom($atom->fqcn),

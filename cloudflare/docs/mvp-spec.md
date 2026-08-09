@@ -269,8 +269,17 @@ maps guest paths (`/app/...`, `/atoms/...`) to file contents, and `manifest`
 is `{"atoms":{"Counter":{"class":"App\\Atoms\\Counter","file":"/app/Counter.php",
 "migrations":["/app/migrations/001_init.sql", ...]}}, "abi":{"php":"8.3"}}`.
 The DO writes `files` into MEMFS at boot. No customer PHP executes at build
-time. (The real `atoms build` integration is post-MVP; this format is
-internal and versioned `bundle_format: 0`.)
+time. This format is internal and versioned `bundle_format: 0`.
+
+**`atoms build` integration (M3, 2026-08-09).** The module format above is
+unchanged and remains what the host loads — it is the *deploy* artifact.
+`atoms build`'s `bundle-{sha256}.tar.gz` + schema-1 `manifest.json` is the
+*portable* artifact, and `scripts/bundle-from-cli.mjs` translates the second
+into the first; `atoms deploy` runs it before `wrangler deploy`. Neither format
+moved, so nothing under `src/` or `php/` changed and this section still
+describes what the Worker loads. `build-bundle.mjs` is no longer a stand-in for
+`atoms build`: it builds the conformance fixture, which is all it now claims.
+See `docs/cloudflare-toolchain.md` §3.
 
 ## Fixture app (conformance subject)
 
