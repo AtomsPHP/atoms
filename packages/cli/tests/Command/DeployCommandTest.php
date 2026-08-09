@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Tests\Command;
 
+use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Command\DeployCommand;
-use Atoms\Cli\Platform\HttpResponse;
-use Atoms\Cli\Tests\Support\FakePlatformApi;
+use Atoms\Cli\Process\ProcessResult;
+use Atoms\Cli\Tests\Support\FakeProcessRunner;
+use Atoms\Cli\Tests\Support\FakeWrangler;
 use Atoms\Cli\Tests\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
 
@@ -16,60 +18,195 @@ final class DeployCommandTest extends TestCase
     {
         $path = $this->freshDir() . '/bundle.tar.gz';
         file_put_contents($path, (string) gzencode('dummy'));
+        file_put_contents(\dirname($path) . '/manifest.json', '{"schema":1,"atoms":[]}');
 
         return $path;
     }
 
-    public function testSuccessfulDeploy(): void
+    /**
+     * A Worker project that looks real enough for CloudflareTarget's checks: a
+     * wrangler config and the staging script. Nothing is executed — the process
+     * runner is faked — so the files may be empty.
+     */
+    private function workerDir(): string
     {
-        $fake = new FakePlatformApi();
-        $tester = new CommandTester(new DeployCommand($fake));
+        $dir = $this->freshDir();
+        file_put_contents($dir . '/wrangler.jsonc', '{}');
+        mkdir($dir . '/scripts', 0777, true);
+        file_put_contents($dir . '/' . BundleStager::SCRIPT, '');
+
+        return $dir;
+    }
+
+    private function stager(?FakeProcessRunner $runner = null): BundleStager
+    {
+        return new BundleStager($runner ?? new FakeProcessRunner());
+    }
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // These must not leak in from the ambient environment: several tests
+        // assert on their absence.
+        putenv('CLOUDFLARE_API_TOKEN');
+        putenv('CLOUDFLARE_ACCOUNT_ID');
+    }
+
+    public function testSuccessfulDeployStagesThenRunsWrangler(): void
+    {
+        $runner = new FakeProcessRunner();
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
 
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-key' => 'atoms_v1_test',
+            '--api-token' => 'cf-token',
+            '--worker-dir' => $this->workerDir(),
             '--bundle' => $this->bundleFile(),
         ]);
 
-        self::assertSame(0, $exit);
-        self::assertStringContainsString('v4', $tester->getDisplay());
-        self::assertSame('deploy', $fake->calls[0]['method']);
+        self::assertSame(0, $exit, $tester->getDisplay());
+        self::assertStringContainsString('Deployed acme-games to production', $tester->getDisplay());
+
+        // Staged before deployed, and staged by the Worker tree's own script.
+        self::assertCount(1, $runner->runs);
+        self::assertSame('/usr/bin/node', $runner->runs[0]['command'][0]);
+        self::assertStringEndsWith(BundleStager::SCRIPT, $runner->runs[0]['command'][1]);
+        self::assertSame(BundleStager::OUTPUT, $runner->runs[0]['command'][4]);
+
+        $deploy = $wrangler->lastCall('deploy');
+        self::assertNotNull($deploy);
+        self::assertSame('acme-games', $deploy['target']->workerName);
     }
 
-    public function testValidationFailureMapsToE042(): void
+    public function testCredentialsReachOnlyTheChildEnvironment(): void
     {
-        $fake = new FakePlatformApi(
-            deployResponse: new HttpResponse(422, ['error' => ['code' => 'validation_failed', 'message' => 'boundary broke at line 9']]),
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+
+        $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--api-token' => 'cf-secret-token',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        $deploy = $wrangler->lastCall('deploy');
+        self::assertNotNull($deploy);
+        self::assertSame(
+            ['CLOUDFLARE_API_TOKEN' => 'cf-secret-token', 'CLOUDFLARE_ACCOUNT_ID' => 'cf-account-1234'],
+            $deploy['target']->credentialEnv(),
         );
-        $tester = new CommandTester(new DeployCommand($fake));
+        self::assertStringNotContainsString(
+            'cf-secret-token',
+            $tester->getDisplay(),
+            'the API token must never be echoed',
+        );
+    }
+
+    public function testWranglerFailureMapsToE074AndShowsWranglerOutput(): void
+    {
+        $wrangler = new FakeWrangler();
+        $wrangler->deployResult = FakeWrangler::failed(
+            ['deploy'],
+            "✘ [ERROR] Authentication error [code: 10000]\n",
+        );
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
 
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-key' => 'atoms_v1_test',
+            '--api-token' => 'cf-token',
+            '--worker-dir' => $this->workerDir(),
             '--bundle' => $this->bundleFile(),
         ]);
 
         $display = $tester->getDisplay();
         self::assertSame(1, $exit);
-        self::assertStringContainsString('ATOMS-E042', $display);
-        self::assertStringContainsString('boundary broke at line 9', $display);
+        self::assertStringContainsString('ATOMS-E074', $display);
+        self::assertStringContainsString('Authentication error', $display, "wrangler's own diagnosis must survive");
     }
 
-    public function testMissingApiKeyMapsToE072(): void
+    public function testStagingFailureMapsToE074AndNeverDeploys(): void
     {
-        putenv('ATOMS_API_KEY');
-        $fake = new FakePlatformApi();
-        $tester = new CommandTester(new DeployCommand($fake));
+        $runner = new FakeProcessRunner(new ProcessResult(1, '', 'Error: atom Counter declares /app/Counter.php, which is not in the bundle'));
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
 
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
+            '--api-token' => 'cf-token',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E074', $display);
+        self::assertStringContainsString('not in the bundle', $display);
+        self::assertSame([], $wrangler->calls, 'a bundle that will not stage must never be deployed');
+    }
+
+    public function testMissingApiTokenMapsToE072(): void
+    {
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
         ]);
 
         self::assertSame(1, $exit);
         self::assertStringContainsString('ATOMS-E072', $tester->getDisplay());
-        self::assertSame([], $fake->calls, 'no request should be made without credentials');
+        self::assertSame([], $wrangler->calls, 'nothing should run without credentials');
+    }
+
+    public function testMissingAccountIdMapsToE075(): void
+    {
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+
+        // A project whose atoms.json carries no account_id, with none in the
+        // environment either.
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        unset($config['environments']['production']['account_id']);
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'production',
+            '--api-token' => 'cf-token',
+            '--worker-dir' => $this->workerDir(),
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E075', $tester->getDisplay());
+        self::assertSame([], $wrangler->calls);
+    }
+
+    public function testUnusableWorkerDirectoryMapsToE076(): void
+    {
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--api-token' => 'cf-token',
+            // Exists, but holds no wrangler config: the "you forgot npm ci /
+            // pointed at the wrong tree" case.
+            '--worker-dir' => $this->freshDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E076', $tester->getDisplay());
+        self::assertSame([], $wrangler->calls);
     }
 }

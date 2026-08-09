@@ -6,8 +6,16 @@
     },
     "php": "8.3",
     "environments": {
-        "production": { "endpoint": "https://api.atoms.cloud", "region": "iad" },
-        "staging": { "endpoint": "https://staging.atoms.cloud", "region": "iad" }
+        "production": {
+            "endpoint": "https://acme-games.example.workers.dev",
+            "worker_name": "acme-games",
+            "account_id": "cf-account-1234"
+        },
+        "staging": {
+            "endpoint": "https://acme-games-staging.example.workers.dev",
+            "worker_name": "acme-games-staging",
+            "account_id": "cf-account-1234"
+        }
     },
     "callback_url": {
         "production": "https://acme.example.com",

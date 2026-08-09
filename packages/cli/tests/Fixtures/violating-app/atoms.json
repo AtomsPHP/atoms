@@ -6,6 +6,9 @@
     },
     "php": "8.3",
     "environments": {
-        "production": { "endpoint": "https://api.atoms.cloud", "region": "iad" }
+        "production": {
+            "endpoint": "https://bad-app.example.workers.dev",
+            "account_id": "cf-account-1234"
+        }
     }
 }

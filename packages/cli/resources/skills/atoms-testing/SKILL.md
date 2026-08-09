@@ -46,10 +46,11 @@ Atoms::fake()->for(GameRoom::class, 'g-1')->returns('score', 42);
 Atoms::fake()->assertInvoked(GameRoom::class, 'g-1', 'score');
 ```
 
-## Layer 3 — integration against `atoms local`
+## Layer 3 — integration against `atoms dev`
 
-Use sparingly (WebSocket lifecycle, hibernation). Requires Docker; not for the
-default CI path.
+Use sparingly (lifecycle, hibernation). Runs the real Worker locally under
+`wrangler dev`; needs Node and a Worker project directory, not Docker, and no
+Cloudflare account. Not for the default CI path.
 
 ## What NOT to mock
 

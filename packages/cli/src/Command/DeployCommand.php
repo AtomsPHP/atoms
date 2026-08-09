@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Atoms\Cli\Command;
 
 use Atoms\Cli\Build\Builder;
-use Atoms\Cli\Platform\PlatformApi;
-use Atoms\Cli\Platform\PlatformError;
-use Atoms\Cli\Platform\PlatformTarget;
+use Atoms\Cli\Cloudflare\BundleStager;
+use Atoms\Cli\Cloudflare\CloudflareTarget;
+use Atoms\Cli\Cloudflare\Wrangler;
 use Atoms\Errors\AtomsError;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
@@ -15,15 +15,19 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * `atoms deploy --env X` — build (unless --bundle) and POST the tar.gz to the
- * platform's deploy endpoint. Missing credentials are ATOMS-E072; a 422 rejection
- * surfaces as ATOMS-E042 with the platform's reason.
+ * `atoms deploy --env X` — build, stage the bundle into the Worker project, and
+ * `wrangler deploy` into the user's own Cloudflare account.
+ *
+ * There is no Atoms-hosted service in this path. The user's Cloudflare
+ * credentials go straight into Wrangler's process environment and nowhere
+ * else — Atoms never proxies or retains them.
  */
-#[AsCommand(name: 'deploy', description: 'Deploy an Atoms bundle to an environment')]
+#[AsCommand(name: 'deploy', description: 'Deploy an Atoms bundle to your Cloudflare account')]
 final class DeployCommand extends AbstractCommand
 {
     public function __construct(
-        private readonly PlatformApi $api,
+        private readonly Wrangler $wrangler,
+        private readonly BundleStager $stager = new BundleStager(),
         private readonly Builder $builder = new Builder(),
     ) {
         parent::__construct();
@@ -34,7 +38,9 @@ final class DeployCommand extends AbstractCommand
         parent::configure();
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment');
         $this->addOption('bundle', null, InputOption::VALUE_REQUIRED, 'Deploy a prebuilt bundle instead of building');
-        $this->addOption('api-key', null, InputOption::VALUE_REQUIRED, 'API key (else $ATOMS_API_KEY)');
+        $this->addOption('manifest', null, InputOption::VALUE_REQUIRED, 'Manifest for --bundle (default: manifest.json beside it)');
+        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
+        $this->addOption('api-token', null, InputOption::VALUE_REQUIRED, 'Cloudflare API token (else $CLOUDFLARE_API_TOKEN)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -48,30 +54,46 @@ final class DeployCommand extends AbstractCommand
 
         try {
             $config = $this->atomsJson($input);
-            $apiKey = $input->getOption('api-key');
-            $target = PlatformTarget::resolve($config, $env, \is_string($apiKey) ? $apiKey : null);
+            $target = CloudflareTarget::resolve(
+                $config,
+                $env,
+                self::stringOption($input, 'api-token'),
+                self::stringOption($input, 'worker-dir'),
+            );
 
-            $bundleOpt = $input->getOption('bundle');
-            if (\is_string($bundleOpt) && $bundleOpt !== '') {
+            $bundleOpt = self::stringOption($input, 'bundle');
+            if ($bundleOpt !== null) {
                 $bundlePath = $bundleOpt;
+                $manifestPath = self::stringOption($input, 'manifest') ?? \dirname($bundlePath) . '/manifest.json';
             } else {
                 $output->writeln('Building bundle…');
-                $bundlePath = $this->builder->build($config, $config->rootDir . '/.atoms/build')->bundlePath;
+                $result = $this->builder->build($config, $config->rootDir . '/.atoms/build');
+                $bundlePath = $result->bundlePath;
+                $manifestPath = $result->manifestPath;
             }
 
-            $response = $this->api->deploy($target, $bundlePath);
-            if (!$response->isSuccess()) {
-                throw PlatformError::from($response);
-            }
+            $output->writeln('Staging bundle into ' . $target->workerDir . '…');
+            $this->stager->stage($target, $bundlePath, $manifestPath);
+
+            $output->writeln('Deploying Worker ' . $target->workerName . ' with wrangler…');
+            $wrangler = $this->wrangler->deploy($target);
+
+            // Wrangler's own output is the deploy log — including the URL it
+            // published to and any Cloudflare API rejection. Reprinting it is
+            // more useful than summarising it.
+            $output->write($wrangler->stdout);
+            $output->write($wrangler->stderr);
+
+            $wrangler->assertOk();
         } catch (AtomsError $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
 
             return self::FAILURE;
         }
 
-        $version = $response->json['version'] ?? '(unknown)';
         $output->writeln('<info>✓ Deployed ' . $config->project . ' to ' . $env . '.</info>');
-        $output->writeln('  version: ' . (\is_scalar($version) ? (string) $version : '(unknown)'));
+        $output->writeln('  worker:   ' . $target->workerName);
+        $output->writeln('  endpoint: ' . $target->endpoint);
 
         return self::SUCCESS;
     }

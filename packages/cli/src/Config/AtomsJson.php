@@ -12,7 +12,14 @@ use Atoms\Errors\ErrorCode;
  * The repo-root toolchain anchor (integration-plan.md §1). Parsed and validated;
  * every structural problem surfaces as ATOMS-E070 with the catalog fix line.
  *
- * @phpstan-type Environment array{endpoint: string, region: string}
+ * `endpoint` is the base URL the deployed Worker serves on — what `atoms/client`
+ * calls, and what `atoms status` reports. The Cloudflare keys (`worker_name`,
+ * `account_id`, `worker_dir`) are optional here because each has a fallback:
+ * the project name, `$CLOUDFLARE_ACCOUNT_ID`, and `.atoms/worker` respectively.
+ * An account id in particular is better supplied by the environment than
+ * committed, which is why atoms.json only offers to hold it.
+ *
+ * @phpstan-type Environment array{endpoint: string, region: string, worker_name: string, account_id: string, worker_dir: string}
  */
 final class AtomsJson
 {
@@ -186,17 +193,33 @@ final class AtomsJson
                 throw self::invalid('each environment must be an object keyed by name');
             }
             $endpoint = $env['endpoint'] ?? null;
-            $region = $env['region'] ?? null;
             if (!\is_string($endpoint) || $endpoint === '') {
                 throw self::invalid("environment '{$name}' is missing a string \"endpoint\"");
             }
-            if (!\is_string($region)) {
-                $region = '';
-            }
-            $out[$name] = ['endpoint' => rtrim($endpoint, '/'), 'region' => $region];
+
+            $out[$name] = [
+                'endpoint' => rtrim($endpoint, '/'),
+                // Vestigial: the superseded platform placed Machines in a
+                // region. Cloudflare places a Durable Object itself. Still
+                // parsed so an older atoms.json loads, and ignored everywhere.
+                'region' => self::optionalString($env, 'region'),
+                'worker_name' => self::optionalString($env, 'worker_name'),
+                'account_id' => self::optionalString($env, 'account_id'),
+                'worker_dir' => self::optionalString($env, 'worker_dir'),
+            ];
         }
 
         return $out;
+    }
+
+    /**
+     * @param array<array-key, mixed> $source
+     */
+    private static function optionalString(array $source, string $key): string
+    {
+        $value = $source[$key] ?? null;
+
+        return \is_string($value) ? $value : '';
     }
 
     /**

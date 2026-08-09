@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Command;
 
-use Atoms\Cli\Platform\PlatformApi;
-use Atoms\Cli\Platform\PlatformError;
-use Atoms\Cli\Platform\PlatformTarget;
+use Atoms\Cli\Cloudflare\CloudflareTarget;
+use Atoms\Cli\Cloudflare\SecretName;
+use Atoms\Cli\Cloudflare\Wrangler;
 use Atoms\Errors\AtomsError;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
@@ -14,13 +14,17 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * `atoms secrets:list --env X` — list the secret names configured for an
- * environment (values are never returned). Experimental (integration-plan §4.5).
+ * `atoms secrets:list --env X` — the Worker's secret names. Cloudflare never
+ * returns values, so neither does this.
+ *
+ * Secrets carrying the `config.get` prefix are listed by the key Atom code
+ * would use; anything else is listed separately under its raw name, because a
+ * Worker legitimately holds operational secrets that Atom code cannot read.
  */
-#[AsCommand(name: 'secrets:list', description: '[experimental] List platform secret names for an environment')]
+#[AsCommand(name: 'secrets:list', description: 'List Worker secret names for an environment')]
 final class SecretsListCommand extends AbstractCommand
 {
-    public function __construct(private readonly PlatformApi $api)
+    public function __construct(private readonly Wrangler $wrangler)
     {
         parent::__construct();
     }
@@ -29,7 +33,8 @@ final class SecretsListCommand extends AbstractCommand
     {
         parent::configure();
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment');
-        $this->addOption('api-key', null, InputOption::VALUE_REQUIRED, 'API key (else $ATOMS_API_KEY)');
+        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
+        $this->addOption('api-token', null, InputOption::VALUE_REQUIRED, 'Cloudflare API token (else $CLOUDFLARE_API_TOKEN)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -42,30 +47,65 @@ final class SecretsListCommand extends AbstractCommand
         }
 
         try {
-            $config = $this->atomsJson($input);
-            $apiKey = $input->getOption('api-key');
-            $target = PlatformTarget::resolve($config, $env, \is_string($apiKey) ? $apiKey : null);
+            $target = CloudflareTarget::resolve(
+                $this->atomsJson($input),
+                $env,
+                self::stringOption($input, 'api-token'),
+                self::stringOption($input, 'worker-dir'),
+            );
 
-            $response = $this->api->listSecrets($target);
-            if (!$response->isSuccess()) {
-                throw PlatformError::from($response);
+            $result = $this->wrangler->listSecrets($target);
+            if (!$result->ok()) {
+                $output->write($result->stderr);
             }
+            $result->assertOk();
         } catch (AtomsError $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
 
             return self::FAILURE;
         }
 
-        $keys = $response->json['keys'] ?? [];
-        if (!\is_array($keys) || $keys === []) {
+        $decoded = $result->json();
+        if ($decoded === null) {
+            $output->writeln('Could not parse `wrangler secret list` output:');
+            $output->write($result->stdout);
+
+            return self::SUCCESS;
+        }
+
+        $keys = [];
+        $other = [];
+        foreach ($decoded as $entry) {
+            $name = \is_array($entry) ? ($entry['name'] ?? null) : $entry;
+            if (!\is_string($name) || $name === '') {
+                continue;
+            }
+            $key = SecretName::toKey($name);
+            if ($key === null) {
+                $other[] = $name;
+            } else {
+                $keys[] = $key;
+            }
+        }
+
+        if ($keys === [] && $other === []) {
             $output->writeln('No secrets set for ' . $env . '.');
 
             return self::SUCCESS;
         }
 
-        $output->writeln('Secrets for ' . $env . ':');
-        foreach ($keys as $key) {
-            $output->writeln('  - ' . (\is_scalar($key) ? (string) $key : ''));
+        if ($keys !== []) {
+            $output->writeln('Readable from Atom code via $this->config() in ' . $env . ':');
+            foreach ($keys as $key) {
+                $output->writeln('  - ' . $key);
+            }
+        }
+
+        if ($other !== []) {
+            $output->writeln('Other Worker secrets in ' . $env . ' (not readable from Atom code):');
+            foreach ($other as $name) {
+                $output->writeln('  - ' . $name);
+            }
         }
 
         return self::SUCCESS;
