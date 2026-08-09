@@ -1,0 +1,48 @@
+Everything under `cloudflare/` that Atoms wrote is licensed under the MIT
+License, reproduced below. That is the host JavaScript in `worker/src/`, the
+`Atoms\Cf\` guest prelude in `worker/php/runtime/`, the build and test scripts,
+the fixture application, and the documentation.
+
+Three things in this tree are not covered by it:
+
+  - `worker/php/atoms-core/` — verbatim copies of the `atoms/core` package from
+    AtomsPHP/atoms-framework. Also MIT, but Atoms' grant for them lives with
+    that package rather than here. See that directory's VENDORED-FROM.md.
+
+  - The PHP/WebAssembly runtime, which is GPL-2.0-or-later and is not in this
+    repository at all — `npm ci` fetches it from WordPress Playground's own npm
+    package and `worker/scripts/prepare-runtime.mjs` stages it into a
+    gitignored directory at build time.
+
+  - A Worker assembled from this directory, which combines the two and is
+    therefore GPL-2.0-or-later as a whole. `worker/LICENSE` explains that, and
+    why it does not conflict with the grant below. Files licensed here remain
+    available under MIT when taken on their own.
+
+There are no per-file SPDX headers. This file and `worker/LICENSE` are the
+grant; a header on every source file would restate them thirty times without
+adding anything a reader or a scanner cannot get from here.
+
+================================================================================
+
+MIT License
+
+Copyright (c) 2026 Atoms contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

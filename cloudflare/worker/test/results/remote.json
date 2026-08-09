@@ -1,0 +1,65 @@
+{
+	"measured_at": "2026-08-05T03:16:07.653Z",
+	"base_url": "https://atoms-mvp-conformance.dabernathy89.workers.dev",
+	"worker": "atoms-mvp-conformance",
+	"deployment": {
+		"deployment_id": "896627c3-aa03-458e-8732-241772e32dc7",
+		"version_id": "3a43c001-1f17-42a0-b945-c67d6c5822cd",
+		"deployed_at": "2026-08-05T03:12:30.800861Z"
+	},
+	"method": {
+		"note": "client-observed end-to-end latency, including the client round trip to the Cloudflare edge; the guest clock does not advance inside a turn on deployed workerd",
+		"cold": "first invoke on an id with no prior residency (wasm boot + migrations + onActivation + turn)",
+		"warm": "median of 20 sequential invokes on one live residency, activation excluded",
+		"wake": "one invoke after 16000ms idle on an Atom with durable state",
+		"eviction_wait_ms": 16000
+	},
+	"cold_activation": {
+		"samples": 5,
+		"min_ms": 593.1,
+		"median_ms": 739.9,
+		"p90_ms": 1032.5,
+		"max_ms": 1032.5,
+		"all_ms": [
+			593.1,
+			663.1,
+			739.9,
+			795.9,
+			1032.5
+		]
+	},
+	"warm_turn": {
+		"samples": 20,
+		"min_ms": 51.4,
+		"median_ms": 59.3,
+		"p90_ms": 65.2,
+		"max_ms": 95.5,
+		"all_ms": [
+			51.4,
+			55.4,
+			55.9,
+			56,
+			57,
+			57.5,
+			57.9,
+			58.2,
+			59.1,
+			59.2,
+			59.5,
+			61.5,
+			62.8,
+			63.3,
+			63.6,
+			63.8,
+			64.1,
+			64.9,
+			65.2,
+			95.5
+		]
+	},
+	"post_hibernation_wake": {
+		"ms": 604.2,
+		"constructions_after": 2,
+		"warm_activation_ms": 643.5
+	}
+}

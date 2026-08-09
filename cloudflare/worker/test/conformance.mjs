@@ -1,0 +1,844 @@
+#!/usr/bin/env node
+
+/**
+ * Conformance suite for Atoms-on-Cloudflare MVP.
+ *
+ * Runs 12 conformance checks against a live worker URL per the spec.
+ *
+ * Config via env:
+ *   ATOMS_BASE_URL (required)
+ *   ATOMS_APP_KEY (optional bearer token)
+ *   ATOMS_EVICTION_WAIT_MS (default 12500)
+ *   ATOMS_SKIP=n,m (comma-separated check numbers to skip)
+ */
+
+const BASE_URL = process.env.ATOMS_BASE_URL;
+const APP_KEY = process.env.ATOMS_APP_KEY;
+const EVICTION_WAIT_MS = parseInt(process.env.ATOMS_EVICTION_WAIT_MS || '12500');
+const SKIP = (process.env.ATOMS_SKIP || '')
+    .split(',')
+    .map(s => parseInt(s.trim()))
+    .filter(n => !isNaN(n));
+
+if (!BASE_URL) {
+    console.error('Error: ATOMS_BASE_URL env var is required');
+    process.exit(1);
+}
+
+const baseUrl = BASE_URL.replace(/\/$/, '');
+
+// ---------------------------------------------------------------- utilities
+
+let passCount = 0;
+let failCount = 0;
+const results = [];
+
+function pass(checkNum, name, msg = '') {
+    passCount++;
+    results.push({ checkNum, name, status: 'PASS', msg });
+    console.log(`✓ CHECK ${checkNum}: ${name}${msg ? ` — ${msg}` : ''}`);
+}
+
+function fail(checkNum, name, msg = '') {
+    failCount++;
+    results.push({ checkNum, name, status: 'FAIL', msg });
+    console.log(`✗ CHECK ${checkNum}: ${name}${msg ? ` — ${msg}` : ''}`);
+}
+
+/** Make an HTTP request. */
+async function request(method, path, body = null) {
+    const url = new URL(path, baseUrl).toString();
+    const opts = { method };
+
+    if (APP_KEY) {
+        opts.headers = { Authorization: `Bearer ${APP_KEY}` };
+    }
+
+    if (body) {
+        opts.headers = { ...opts.headers, 'Content-Type': 'application/json' };
+        opts.body = JSON.stringify(body);
+    }
+
+    const res = await fetch(url, opts);
+    const text = await res.text();
+
+    let data;
+    try {
+        data = JSON.parse(text);
+    } catch {
+        data = { _raw: text };
+    }
+
+    return { status: res.status, headers: res.headers, data };
+}
+
+/** Helper to detect if a value is an int64 tag. */
+function isInt64Tag(val) {
+    return (
+        typeof val === 'object' &&
+        val !== null &&
+        '$atoms_int64' in val
+    );
+}
+
+/** Helper to parse int64 tag. */
+function parseInt64(val) {
+    if (isInt64Tag(val)) {
+        return BigInt(val.$atoms_int64);
+    }
+    return BigInt(val);
+}
+
+/** Helper to invoke an Atom method. */
+async function invoke(type, id, method, args = []) {
+    return request('POST', `/invoke/${type}/${id}/${method}`, { args });
+}
+
+/** Residency info from GET /debug/:type/:id/info (ATOMS_DEBUG_ENDPOINTS=1). */
+async function debugInfo(type, id) {
+    const { status, data } = await request('GET', `/debug/${type}/${id}/info`);
+    if (status !== 200) {
+        throw new Error(
+            `GET /debug/${type}/${id}/info returned ${status}: ${JSON.stringify(data)}. ` +
+                'The suite needs ATOMS_DEBUG_ENDPOINTS=1.'
+        );
+    }
+    return data.info;
+}
+
+/** Encode a JS BigInt the way the wire wants it: tagged only when it must be. */
+function wire(v) {
+    return v > 9007199254740991n || v < -9007199254740991n
+        ? { $atoms_int64: v.toString() }
+        : Number(v);
+}
+
+/** A fresh atom id per run, so a re-run never inherits durable state. */
+const RUN = `r${Date.now().toString(36)}`;
+const atomId = (name) => `${name}-${RUN}`;
+
+// ---------------------------------------------------------------- checks
+
+const checks = [];
+
+// CHECK 1: healthz
+checks.push(async () => {
+    const { status, data } = await request('GET', '/healthz');
+    const checkNum = 1;
+    const name = 'healthz';
+
+    if (status === 200 && data?.ok === true) {
+        pass(checkNum, name);
+    } else {
+        fail(checkNum, name, `status=${status}, ok=${data?.ok}`);
+    }
+});
+
+// CHECK 2: invoke + result envelope
+checks.push(async () => {
+    const checkNum = 2;
+    const name = 'invoke + result envelope';
+    const id = atomId('envelope');
+
+    const { status, data } = await invoke('Counter', id, 'increment', [1]);
+
+    if (status !== 200) {
+        fail(checkNum, name, `status=${status} body=${JSON.stringify(data)}`);
+        return;
+    }
+    if (data?.error) {
+        fail(checkNum, name, `error: ${data.error.code} — ${data.error.message}`);
+        return;
+    }
+    if (data.result !== 1) {
+        fail(checkNum, name, `result=${JSON.stringify(data.result)} (expected 1)`);
+        return;
+    }
+    if (data.atom?.type !== 'Counter' || data.atom?.id !== id) {
+        fail(checkNum, name, `malformed atom: ${JSON.stringify(data.atom)}`);
+        return;
+    }
+
+    // An unknown method must come back as method_not_found, not as a 200.
+    const missing = await invoke('Counter', id, 'noSuchMethod', []);
+    if (missing.status !== 404 || missing.data?.error?.code !== 'method_not_found') {
+        fail(
+            checkNum,
+            name,
+            `unknown method gave ${missing.status}/${missing.data?.error?.code} (expected 404/method_not_found)`
+        );
+        return;
+    }
+
+    // An unknown atom type must be refused before any DO is touched.
+    const unknownType = await invoke('NotAnAtom', id, 'increment', [1]);
+    if (unknownType.status !== 404 || unknownType.data?.error?.code !== 'unknown_atom_type') {
+        fail(
+            checkNum,
+            name,
+            `unknown type gave ${unknownType.status}/${unknownType.data?.error?.code} (expected 404/unknown_atom_type)`
+        );
+        return;
+    }
+
+    pass(checkNum, name, `result=${data.result}, method_not_found + unknown_atom_type mapped`);
+});
+
+// CHECK 3: warm-residency (in-memory counter)
+checks.push(async () => {
+    const checkNum = 3;
+    const name = 'warm-residency (in-memory counter)';
+    const id = atomId('warm');
+
+    const r1 = await invoke('Counter', id, 'increment', [5]);
+    const r2 = await invoke('Counter', id, 'increment', [3]);
+    const r3 = await invoke('Counter', id, 'getStats', []);
+
+    for (const [label, r] of [['increment#1', r1], ['increment#2', r2], ['getStats', r3]]) {
+        if (r.status !== 200 || r.data?.error) {
+            fail(checkNum, name, `${label} failed: ${r.status} ${JSON.stringify(r.data?.error)}`);
+            return;
+        }
+    }
+
+    const stats = r3.data.result;
+
+    if (r1.data.result !== 5 || r2.data.result !== 8) {
+        fail(checkNum, name, `durable value wrong: ${r1.data.result}, ${r2.data.result} (expected 5, 8)`);
+        return;
+    }
+    if (stats?.turnsThisResidency !== 3) {
+        fail(
+            checkNum,
+            name,
+            `turnsThisResidency=${stats?.turnsThisResidency} (expected 3) — in-memory state did not survive`
+        );
+        return;
+    }
+    if (stats?.currentValue !== 8) {
+        fail(checkNum, name, `currentValue=${stats?.currentValue} (expected 8)`);
+        return;
+    }
+
+    pass(checkNum, name, `3 turns on one residency, value=${stats.currentValue}`);
+});
+
+// CHECK 4: isolation between two IDs
+checks.push(async () => {
+    const checkNum = 4;
+    const name = 'isolation between two IDs';
+    const a = atomId('iso-a');
+    const b = atomId('iso-b');
+
+    const r1 = await invoke('Counter', a, 'increment', [10]);
+    const r2 = await invoke('Counter', b, 'increment', [20]);
+
+    if (r1.status !== 200 || r2.status !== 200) {
+        fail(checkNum, name, `invoke failed: ${r1.status}/${r2.status}`);
+        return;
+    }
+
+    // Each id must see only its own writes, and its own in-memory state.
+    const s1 = await invoke('Counter', a, 'getStats', []);
+    const s2 = await invoke('Counter', b, 'getStats', []);
+
+    if (r1.data.result !== 10 || r2.data.result !== 20) {
+        fail(checkNum, name, `isolation broken: a=${r1.data.result} (10), b=${r2.data.result} (20)`);
+        return;
+    }
+    if (s1.data.result?.currentValue !== 10 || s2.data.result?.currentValue !== 20) {
+        fail(
+            checkNum,
+            name,
+            `durable state leaked: a=${s1.data.result?.currentValue}, b=${s2.data.result?.currentValue}`
+        );
+        return;
+    }
+
+    pass(checkNum, name, `isolated: ${a}=10, ${b}=20`);
+});
+
+// CHECK 5: migrations applied once, user_version correct, activation row present
+checks.push(async () => {
+    const checkNum = 5;
+    const name = 'migrations applied once, user_version correct, activation row';
+    const id = atomId('mig');
+
+    const first = await invoke('Counter', id, 'getValue', []);
+    if (first.status !== 200 || first.data?.error) {
+        fail(checkNum, name, `getValue failed: ${JSON.stringify(first.data)}`);
+        return;
+    }
+    if (first.data.result !== 0) {
+        fail(checkNum, name, `fresh counter is ${first.data.result} (expected 0 from 001_init.sql)`);
+        return;
+    }
+
+    // Counter ships two migrations, so head version is 2.
+    const info = await debugInfo('Counter', id);
+    if (info.user_version !== 2) {
+        fail(checkNum, name, `user_version=${info.user_version} (expected 2)`);
+        return;
+    }
+
+    // 002_add_stats.sql must have run too — its table has to exist.
+    const stats = await invoke('Counter', id, 'getStats', []);
+    if (stats.status !== 200 || stats.data?.error) {
+        fail(checkNum, name, `getStats failed after migrations: ${JSON.stringify(stats.data)}`);
+        return;
+    }
+
+    // onActivation() wrote exactly one row for this residency.
+    const activations = await invoke('Counter', id, 'getActivations', []);
+    if (activations.data?.result !== 1) {
+        fail(checkNum, name, `activation rows=${activations.data?.result} (expected 1)`);
+        return;
+    }
+
+    // A second turn must not re-run migrations: user_version stays at head and
+    // no CREATE TABLE is replayed (which would surface as a sql_error).
+    const again = await invoke('Counter', id, 'getValue', []);
+    const info2 = await debugInfo('Counter', id);
+    if (again.status !== 200 || again.data?.error || info2.user_version !== 2) {
+        fail(checkNum, name, `re-run: status=${again.status}, user_version=${info2.user_version}`);
+        return;
+    }
+
+    pass(checkNum, name, `user_version=2, 1 activation row, no replay`);
+});
+
+// CHECK 6: tx commit read-your-own-write
+checks.push(async () => {
+    const checkNum = 6;
+    const name = 'tx commit read-your-own-write';
+    const id = atomId('tx-commit');
+
+    // The write is read back from INSIDE the open transaction.
+    const ryow = await invoke('Vault', id, 'putAndReadInTransaction', ['ryow', 4242]);
+    if (ryow.status !== 200 || ryow.data?.error) {
+        fail(checkNum, name, `putAndReadInTransaction failed: ${JSON.stringify(ryow.data)}`);
+        return;
+    }
+    if (Number(parseInt64(ryow.data.result)) !== 4242) {
+        fail(checkNum, name, `in-transaction read saw ${ryow.data.result} (expected 4242)`);
+        return;
+    }
+
+    // ...and it is still there after the transaction committed.
+    const after = await invoke('Vault', id, 'getBig', ['ryow']);
+    if (Number(parseInt64(after.data?.result)) !== 4242) {
+        fail(checkNum, name, `committed value is ${after.data?.result} (expected 4242)`);
+        return;
+    }
+
+    // A multi-statement transaction commits as a unit.
+    await invoke('Vault', id, 'putBig', ['key1', 100]);
+    await invoke('Vault', id, 'putBig', ['key2', 0]);
+
+    const transfer = await invoke('Vault', id, 'transfer', ['key1', 'key2', 30, false]);
+    if (transfer.status !== 200 || transfer.data?.error || transfer.data.result !== true) {
+        fail(checkNum, name, `transfer failed: ${JSON.stringify(transfer.data)}`);
+        return;
+    }
+
+    const k1 = parseInt64((await invoke('Vault', id, 'getBig', ['key1'])).data?.result);
+    const k2 = parseInt64((await invoke('Vault', id, 'getBig', ['key2'])).data?.result);
+
+    if (k1 === 70n && k2 === 30n) {
+        pass(checkNum, name, `read-your-own-write inside tx, transfer committed (70/30)`);
+    } else {
+        fail(checkNum, name, `key1=${k1} (expected 70), key2=${k2} (expected 30)`);
+    }
+});
+
+// CHECK 7: tx rollback discards observed write
+checks.push(async () => {
+    const checkNum = 7;
+    const name = 'tx rollback discards observed write';
+    const id = atomId('tx-rollback');
+
+    // A write that was genuinely read back from inside the open transaction
+    // must still vanish when that transaction rolls back.
+    const observed = await invoke('Vault', id, 'putReadThenFail', ['ghost', 99]);
+    if (observed.status !== 200 || observed.data?.error) {
+        fail(checkNum, name, `putReadThenFail failed: ${JSON.stringify(observed.data)}`);
+        return;
+    }
+    if (observed.data.result?.observed !== 99 || observed.data.result?.rolledBack !== true) {
+        fail(checkNum, name, `in-transaction read/rollback: ${JSON.stringify(observed.data.result)}`);
+        return;
+    }
+    const ghost = await invoke('Vault', id, 'getBig', ['ghost']);
+    if (parseInt64(ghost.data?.result) !== 0n) {
+        fail(checkNum, name, `the observed write survived the rollback: ghost=${ghost.data?.result}`);
+        return;
+    }
+
+    await invoke('Vault', id, 'putBig', ['a', 500]);
+    await invoke('Vault', id, 'putBig', ['b', 200]);
+
+    const rolled = await invoke('Vault', id, 'transfer', ['a', 'b', 100, true]);
+    if (rolled.status !== 200 || rolled.data?.error) {
+        fail(checkNum, name, `transfer call failed: ${JSON.stringify(rolled.data)}`);
+        return;
+    }
+    if (rolled.data.result !== false) {
+        fail(checkNum, name, `transfer reported ${rolled.data.result} (expected false — it rolled back)`);
+        return;
+    }
+
+    const a = parseInt64((await invoke('Vault', id, 'getBig', ['a'])).data?.result);
+    const b = parseInt64((await invoke('Vault', id, 'getBig', ['b'])).data?.result);
+
+    if (a !== 500n || b !== 200n) {
+        fail(checkNum, name, `rollback did not discard the write set: a=${a} (500), b=${b} (200)`);
+        return;
+    }
+
+    // A turn that ends with a transaction still open — a forgotten commit(),
+    // which the host cannot see — is an application bug: it must roll back and
+    // report atom_exception, not destroy the residency (which, being
+    // deterministic, every retry would destroy again).
+    const leaked = await invoke('Vault', id, 'leakTransaction', ['leaked', 1234]);
+    if (leaked.status !== 500 || leaked.data?.error?.code !== 'atom_exception') {
+        fail(
+            checkNum,
+            name,
+            `an abandoned transaction gave ${leaked.status}/${leaked.data?.error?.code} ` +
+                `(expected 500/atom_exception): ${JSON.stringify(leaked.data)}`
+        );
+        return;
+    }
+    const leakedValue = await invoke('Vault', id, 'getBig', ['leaked']);
+    if (leakedValue.status !== 200 || parseInt64(leakedValue.data?.result) !== 0n) {
+        fail(
+            checkNum,
+            name,
+            `the abandoned transaction's write was kept: ${JSON.stringify(leakedValue.data)}`
+        );
+        return;
+    }
+
+    // The Atom is still usable, and a later transaction still commits.
+    const after = await invoke('Vault', id, 'putAndReadInTransaction', ['after-rollback', 7]);
+    if (after.status !== 200 || Number(parseInt64(after.data?.result)) !== 7) {
+        fail(checkNum, name, `transaction machine wedged after rollback: ${JSON.stringify(after.data)}`);
+        return;
+    }
+
+    pass(checkNum, name, `write set discarded, abandoned tx rolled back, next transaction still commits`);
+});
+
+// CHECK 8: uncaught exception → atom_exception envelope, next turn healthy
+checks.push(async () => {
+    const checkNum = 8;
+    const name = 'uncaught exception → atom_exception, next turn healthy';
+    const id = atomId('exc');
+
+    await invoke('Counter', id, 'increment', [4]);
+
+    const boom = await invoke('Counter', id, 'boom', ['fixture explosion']);
+
+    if (boom.status !== 500) {
+        fail(checkNum, name, `status=${boom.status} (expected 500), body=${JSON.stringify(boom.data)}`);
+        return;
+    }
+    if (boom.data?.error?.code !== 'atom_exception') {
+        fail(checkNum, name, `code=${boom.data?.error?.code} (expected atom_exception)`);
+        return;
+    }
+    if (!String(boom.data.error.message).includes('fixture explosion')) {
+        fail(checkNum, name, `message did not carry the throwable: ${boom.data.error.message}`);
+        return;
+    }
+    if (boom.data.error.class !== 'RuntimeException') {
+        fail(checkNum, name, `class=${JSON.stringify(boom.data.error.class)} (expected RuntimeException)`);
+        return;
+    }
+
+    // Same residency must survive: in-memory state intact, durable state intact.
+    const stats = await invoke('Counter', id, 'getStats', []);
+    if (stats.status !== 200 || stats.data?.error) {
+        fail(checkNum, name, `next turn failed: ${JSON.stringify(stats.data)}`);
+        return;
+    }
+    if (stats.data.result?.currentValue !== 4) {
+        fail(checkNum, name, `durable value=${stats.data.result?.currentValue} (expected 4)`);
+        return;
+    }
+    if (stats.data.result?.turnsThisResidency !== 3) {
+        fail(
+            checkNum,
+            name,
+            `turnsThisResidency=${stats.data.result?.turnsThisResidency} (expected 3) — residency was recycled`
+        );
+        return;
+    }
+
+    pass(checkNum, name, `atom_exception envelope, residency intact`);
+});
+
+// CHECK 9: int64 matrix (±2^31, ±2^53, ±(2^63−1))
+checks.push(async () => {
+    const checkNum = 9;
+    const name = 'int64 matrix';
+    const id = atomId('int64');
+
+    const cases = [
+        { label: '2^31-1', val: 2147483647n },
+        { label: '-2^31', val: -2147483648n },
+        { label: '2^53-1', val: 9007199254740991n },
+        { label: '-(2^53-1)', val: -9007199254740991n },
+        { label: '2^63-1', val: 9223372036854775807n },
+        { label: '-(2^63-1)', val: -9223372036854775807n },
+    ];
+
+    const problems = [];
+
+    for (const tc of cases) {
+        // args -> SQL -> results
+        const put = await invoke('Vault', id, 'putBig', [tc.label, wire(tc.val)]);
+        if (put.status !== 200 || put.data?.error) {
+            problems.push(`${tc.label}: putBig ${JSON.stringify(put.data?.error ?? put.status)}`);
+            continue;
+        }
+
+        const got = await invoke('Vault', id, 'getBig', [tc.label]);
+        if (got.status !== 200 || got.data?.error) {
+            problems.push(`${tc.label}: getBig ${JSON.stringify(got.data?.error ?? got.status)}`);
+            continue;
+        }
+
+        const round = parseInt64(got.data.result);
+        if (round !== tc.val) {
+            problems.push(`${tc.label}: round-trip ${round} !== ${tc.val}`);
+            continue;
+        }
+
+        // Values that need the tag must actually carry it, and values that do
+        // not must stay plain JSON numbers.
+        const needsTag = tc.val > 9007199254740991n || tc.val < -9007199254740991n;
+        if (needsTag !== isInt64Tag(got.data.result)) {
+            problems.push(
+                `${tc.label}: tagged=${isInt64Tag(got.data.result)} but expected ${needsTag}`
+            );
+            continue;
+        }
+
+        // lastInsertId leg: insert through db()->pdo() and read the row back.
+        const rowid = await invoke('Vault', id, 'appendLedger', [tc.label, wire(tc.val)]);
+        if (rowid.status !== 200 || rowid.data?.error) {
+            problems.push(`${tc.label}: appendLedger ${JSON.stringify(rowid.data?.error ?? rowid.status)}`);
+            continue;
+        }
+        const rid = Number(parseInt64(rowid.data.result));
+        if (!Number.isInteger(rid) || rid < 1) {
+            problems.push(`${tc.label}: lastInsertId=${JSON.stringify(rowid.data.result)}`);
+            continue;
+        }
+
+        const row = await invoke('Vault', id, 'readLedger', [rid]);
+        if (row.status !== 200 || row.data?.error) {
+            problems.push(`${tc.label}: readLedger ${JSON.stringify(row.data?.error ?? row.status)}`);
+            continue;
+        }
+        if (parseInt64(row.data.result?.value) !== tc.val) {
+            problems.push(`${tc.label}: ledger value ${JSON.stringify(row.data.result?.value)}`);
+        }
+
+        // ...and lastInsertId must survive the reads that follow the INSERT.
+        // PDO/SQLite hold it until the next successful insert; a host that
+        // reports a rowid of 0 for every non-writing statement silently turns
+        // `INSERT parent; SELECT ...; INSERT child(parent_id=lastInsertId())`
+        // into a table full of zeroes.
+        const held = await invoke('Vault', id, 'appendLedgerThenRead', [tc.label, wire(tc.val)]);
+        if (held.status !== 200 || held.data?.error) {
+            problems.push(`${tc.label}: appendLedgerThenRead ${JSON.stringify(held.data?.error ?? held.status)}`);
+            continue;
+        }
+        const { immediate, afterRead } = held.data.result ?? {};
+        if (!Number.isInteger(immediate) || immediate < 1) {
+            problems.push(`${tc.label}: lastInsertId right after INSERT was ${JSON.stringify(immediate)}`);
+        } else if (afterRead !== immediate) {
+            problems.push(
+                `${tc.label}: lastInsertId was ${immediate} after the INSERT but ${JSON.stringify(afterRead)} ` +
+                    'after an intervening read — a read must not reset it'
+            );
+        }
+    }
+
+    // The same rule for the other direction of the same door: args nested past
+    // what the guest's json_decode() will follow must be a client error, and
+    // must never leave the guest unable to read its own turn envelope (which
+    // used to throw out of the parked loop and poison the residency).
+    {
+        // Hand-built body: the `request()` helper serializes objects, and this
+        // one has to be raw text to be deeper than JSON.stringify would go.
+        let nested = 'null';
+        for (let i = 0; i < 600; i++) nested = `[${nested}]`;
+        const res = await fetch(new URL(`/invoke/Vault/${id}/putBig`, baseUrl).toString(), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(APP_KEY ? { Authorization: `Bearer ${APP_KEY}` } : {}),
+            },
+            body: `{"args":[${nested}]}`,
+        });
+        const body = await res.text();
+        if (res.status < 400) {
+            problems.push(`deeply nested args were accepted (${res.status})`);
+        } else if (res.status >= 500) {
+            problems.push(
+                `deeply nested args produced ${res.status} ${body.slice(0, 120)} — ` +
+                    'a malformed argument must be a client error, not a runtime failure'
+            );
+        }
+    }
+
+    // ...and a RETURN value the boundary cannot carry is a typed turn error,
+    // not a dead residency either.
+    const deepReturn = await invoke('Vault', id, 'returnDeeplyNested', [600]);
+    if (deepReturn.status !== 500 || deepReturn.data?.error?.code !== 'atom_exception') {
+        problems.push(
+            `an unencodable return value gave ${deepReturn.status}/${deepReturn.data?.error?.code} ` +
+                '(expected 500/atom_exception)'
+        );
+    }
+
+    // A tagged value outside int64 range is an error, never a truncation —
+    // and never a dead residency. Client-supplied args reach the guest
+    // untouched, so a bad tag must be refused as a bad *request*, with the
+    // Atom still serving turns afterwards.
+    for (const bad of ['9223372036854775808', '-9223372036854775809', 'not-a-number', '1.5']) {
+        const overflow = await invoke('Vault', id, 'putBig', ['overflow', { $atoms_int64: bad }]);
+
+        if (overflow.status === 200 && !overflow.data?.error) {
+            problems.push(`the out-of-range tag ${bad} was accepted instead of refused`);
+            continue;
+        }
+        if (overflow.status >= 500) {
+            problems.push(
+                `the tag ${bad} produced ${overflow.status}/${overflow.data?.error?.code} — ` +
+                    'a malformed argument must be a client error, not a runtime failure'
+            );
+        }
+    }
+
+    // ...and the residency is still alive and still holds its state.
+    const survived = await invoke('Vault', id, 'getBig', ['2^63-1']);
+    if (survived.status !== 200 || parseInt64(survived.data?.result) !== 9223372036854775807n) {
+        problems.push(
+            `the Atom did not survive the malformed tags: ${JSON.stringify(survived.data)}`
+        );
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, `${cases.length} cases through args/SQL/results/lastInsertId`);
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 10: reserved-table rejection
+checks.push(async () => {
+    const checkNum = 10;
+    const name = 'reserved-table rejection';
+    const id = atomId('reserved');
+
+    const r = await invoke('Counter', id, 'readReserved', []);
+
+    if (r.status !== 200 || r.data?.error) {
+        fail(checkNum, name, `readReserved failed: ${JSON.stringify(r.data)}`);
+        return;
+    }
+    if (r.data.result?.rejected !== true) {
+        fail(checkNum, name, `customer SQL reached __atoms_meta: ${JSON.stringify(r.data.result)}`);
+        return;
+    }
+    if (!String(r.data.result.message).includes('reserved_table')) {
+        fail(checkNum, name, `rejected, but not as reserved_table: ${r.data.result.message}`);
+        return;
+    }
+
+    // The guard is lexical, so it must agree with SQLite's tokenizer about what
+    // is a literal: an apostrophe inside a `--` comment is not one. Getting this
+    // wrong lets a second statement through and lands `__atoms_meta.atom_type`
+    // in customer hands, which 409s the Atom forever.
+    const viaComment = await invoke('Counter', id, 'readReservedViaComment', []);
+    if (viaComment.status !== 200 || viaComment.data?.error) {
+        fail(checkNum, name, `readReservedViaComment failed: ${JSON.stringify(viaComment.data)}`);
+        return;
+    }
+    if (viaComment.data.result?.rejected !== true) {
+        fail(
+            checkNum,
+            name,
+            'customer SQL reached __atoms_meta through an apostrophe in a comment: ' +
+                JSON.stringify(viaComment.data.result)
+        );
+        return;
+    }
+
+    // The identity the smuggled UPDATE aimed at must be untouched.
+    const identity = await debugInfo('Counter', id);
+    if (identity.stored?.type !== 'Counter') {
+        fail(checkNum, name, `__atoms_meta.atom_type is now ${JSON.stringify(identity.stored?.type)}`);
+        return;
+    }
+
+    // The residency must survive a rejected statement.
+    const after = await invoke('Counter', id, 'getValue', []);
+    if (after.status !== 200 || after.data?.error) {
+        fail(checkNum, name, `residency broken after rejection: ${JSON.stringify(after.data)}`);
+        return;
+    }
+
+    pass(checkNum, name, `__atoms_meta refused (plain and via comment), residency healthy`);
+});
+
+// CHECK 11: turn serialization
+checks.push(async () => {
+    const checkNum = 11;
+    const name = 'turn serialization';
+    const id = atomId('serial');
+
+    // Two concurrent invokes of a deliberately slow method. Because a turn is
+    // one synchronous run of the guest, they must interleave nowhere: the
+    // read-modify-write inside slowIncrement cannot be observed twice.
+    const [r1, r2] = await Promise.all([
+        invoke('Counter', id, 'slowIncrement', [1, 100]),
+        invoke('Counter', id, 'slowIncrement', [1, 100]),
+    ]);
+
+    if (r1.status !== 200 || r2.status !== 200 || r1.data?.error || r2.data?.error) {
+        fail(checkNum, name, `slowIncrement failed: ${JSON.stringify(r1.data)} / ${JSON.stringify(r2.data)}`);
+        return;
+    }
+
+    const seen = [r1.data.result, r2.data.result].sort((a, b) => a - b);
+    if (seen[0] !== 1 || seen[1] !== 2) {
+        fail(checkNum, name, `not serialized: results were ${JSON.stringify(seen)} (expected [1,2])`);
+        return;
+    }
+
+    const stats = await invoke('Counter', id, 'getStats', []);
+    if (stats.data.result?.currentValue !== 2 || stats.data.result?.turnsThisResidency !== 3) {
+        fail(
+            checkNum,
+            name,
+            `value=${stats.data.result?.currentValue} (2), turns=${stats.data.result?.turnsThisResidency} (3)`
+        );
+        return;
+    }
+
+    pass(checkNum, name, `two concurrent turns serialized: [1,2]`);
+});
+
+// CHECK 12: eviction/wake
+checks.push(async () => {
+    const checkNum = 12;
+    const name = 'eviction/wake';
+    const id = atomId('evict');
+
+    const first = await invoke('Counter', id, 'increment', [7]);
+    if (first.status !== 200 || first.data?.error) {
+        fail(checkNum, name, `initial invoke failed: ${JSON.stringify(first.data)}`);
+        return;
+    }
+
+    const before = await invoke('Counter', id, 'getStats', []);
+    const beforeInfo = await debugInfo('Counter', id);
+
+    if (before.data.result?.turnsThisResidency !== 2) {
+        fail(checkNum, name, `pre-eviction turns=${before.data.result?.turnsThisResidency} (expected 2)`);
+        return;
+    }
+
+    console.log(`   (waiting ${EVICTION_WAIT_MS}ms for eviction...)`);
+    await new Promise((r) => setTimeout(r, EVICTION_WAIT_MS));
+
+    const afterInfo = await debugInfo('Counter', id);
+    const after = await invoke('Counter', id, 'getStats', []);
+
+    if (after.status !== 200 || after.data?.error) {
+        fail(checkNum, name, `post-eviction invoke failed: ${JSON.stringify(after.data)}`);
+        return;
+    }
+
+    const stats = after.data.result;
+
+    // 1. the residency was really rebuilt
+    if (!(afterInfo.constructions > beforeInfo.constructions)) {
+        fail(
+            checkNum,
+            name,
+            `constructions did not increase (${beforeInfo.constructions} -> ${afterInfo.constructions}): ` +
+                'the Durable Object was never evicted, so nothing was proved'
+        );
+        return;
+    }
+    // 2. in-memory state reset
+    if (stats?.turnsThisResidency !== 1) {
+        fail(checkNum, name, `turnsThisResidency=${stats?.turnsThisResidency} (expected 1 after wake)`);
+        return;
+    }
+    // 3. durable state intact
+    if (stats?.currentValue !== 7) {
+        fail(checkNum, name, `durable value=${stats?.currentValue} (expected 7)`);
+        return;
+    }
+    // 4. onActivation ran again for the new residency
+    if (stats?.activations !== 2) {
+        fail(checkNum, name, `activation rows=${stats?.activations} (expected 2 — onActivation must re-run)`);
+        return;
+    }
+
+    pass(
+        checkNum,
+        name,
+        `constructions ${beforeInfo.constructions} -> ${afterInfo.constructions}, memory reset, value=7, onActivation re-ran`
+    );
+});
+
+// ---------------------------------------------------------------- run
+
+async function run() {
+    console.log(`\nAtoms-on-Cloudflare MVP Conformance Suite`);
+    console.log(`Base URL: ${baseUrl}`);
+    console.log(`Skip: ${SKIP.length ? SKIP.join(', ') : 'none'}`);
+    console.log(`Eviction wait: ${EVICTION_WAIT_MS}ms`);
+    console.log('');
+
+    for (let i = 0; i < checks.length; i++) {
+        const checkNum = i + 1;
+        if (SKIP.includes(checkNum)) {
+            console.log(`⊘ CHECK ${checkNum}: skipped`);
+            continue;
+        }
+
+        try {
+            await checks[i]();
+        } catch (err) {
+            failCount++;
+            results.push({
+                checkNum,
+                name: '(unknown)',
+                status: 'FAIL',
+                msg: `${err.name}: ${err.message}`,
+            });
+            console.log(`✗ CHECK ${checkNum}: ${err.name}: ${err.message}`);
+        }
+    }
+
+    console.log('');
+    console.log(`\nResults: ${passCount} passed, ${failCount} failed`);
+
+    if (failCount > 0) {
+        process.exit(1);
+    }
+}
+
+run().catch(err => {
+    console.error(`Fatal error: ${err.message}`);
+    process.exit(1);
+});

@@ -1,0 +1,5 @@
+CREATE TABLE vault_ledger (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL,
+    value INTEGER NOT NULL
+);

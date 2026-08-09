@@ -1,0 +1,6 @@
+# `fetch-corresponding-source.sh` writes here by default. The archive is
+# 506 MB uncompressed and 158 MiB gzipped — far past GitHub's 100 MB hard
+# limit for a tracked file — so it travels as a release asset, never as a
+# commit. Ignoring the output directory makes that hard to get wrong by
+# accident.
+out/

@@ -1,0 +1,309 @@
+{
+    "$comment": "Single source of truth for the ATOMS-E* error catalog. Append-only; never renumber. Ranges: docs/conventions.md. docsUrl anchors are stable.",
+    "errors": [
+        {
+            "code": "ATOMS-E001",
+            "title": "Unclassifiable file under the Atoms path",
+            "message": "File {file} under the Atoms path is neither an Atom, Methods, AtomJob, Shared DTO, nor a migration.",
+            "fix": "Move non-Atoms code out of the Atoms path, or make the class extend the appropriate atoms/core base class.",
+            "severity": "warning",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E010",
+            "title": "Framework symbol referenced inside Atom code",
+            "message": "{symbol} belongs to a web framework and cannot be used inside Atom code — the Atoms runtime has no framework loaded.",
+            "fix": "Move the behavior into a Methods class (runs in your app via $this->app()) or use the atoms/core equivalent.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E011",
+            "title": "Global framework helper called inside Atom code",
+            "message": "The helper {symbol}() does not exist in the Atoms runtime.",
+            "fix": "Use $this->config() for configuration, new \\DateTimeImmutable() for time, or move the call into a Methods class.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E012",
+            "title": "Monolith class referenced inside Atom code",
+            "message": "Reference to monolith class {symbol} inside Atom code. Atom code ships to the platform; your application's classes do not.",
+            "fix": "Pass data across the boundary as a Shared DTO (implement Atoms\\Serialization\\Payload) or call it via $this->app().",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E013",
+            "title": "Package not declared in atoms-composer.json",
+            "message": "Atom code references {symbol} from package {package}, which is not listed in atoms-composer.json.",
+            "fix": "Add the package to atoms-composer.json if it is on the approved list; otherwise remove the dependency.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E014",
+            "title": "Facade used inside Atom code",
+            "message": "Facade {symbol} cannot be used inside Atom code — there is no service container in the Atoms runtime.",
+            "fix": "Move the behavior into a Methods class and call it via $this->app().",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E015",
+            "title": "Shared class references a non-core symbol",
+            "message": "Shared class {class} references {symbol}. Shared code runs in both worlds and may only use atoms/core and the PHP stdlib.",
+            "fix": "Keep Shared classes pure data: promoted scalar/Payload properties, accessors and factories only.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E016",
+            "title": "Shared class contains behavior",
+            "message": "Shared class {class} method {method} looks like behavior (I/O or side effects), not data.",
+            "fix": "Shared classes are DTOs. Move behavior to the Atom (World A) or a Methods class (World B).",
+            "severity": "warning",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E017",
+            "title": "env() called inside Atom code",
+            "message": "Atoms cannot read your application's .env.",
+            "fix": "Use `atoms secrets set KEY --env <environment>` and read it with $this->config('KEY').",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E018",
+            "title": "Native PHP serialization at a boundary",
+            "message": "serialize()/unserialize() must not appear in Atom, Shared, or boundary code.",
+            "fix": "Boundary values cross as JSON through the Atoms serializer; implement Atoms\\Serialization\\Payload for structured data.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E019",
+            "title": "PHP extension not available in the runtime image",
+            "message": "Atom code uses extension {extension}, which the Atoms runtime image does not provide.",
+            "fix": "Check the supported extension list in the docs, or move the dependent code into a Methods class.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E020",
+            "title": "Boundary type outside the serialization algebra",
+            "message": "{location} uses type {type}, which cannot cross the Atoms boundary.",
+            "fix": "Allowed: scalars, null, arrays of allowed types, Payload DTOs, DateTimeImmutable, backed enums.",
+            "severity": "error",
+            "phase": "static-analysis"
+        },
+        {
+            "code": "ATOMS-E021",
+            "title": "ORM object crossing the boundary",
+            "message": "{type} is an ORM object (Eloquent model / Doctrine entity) and cannot cross the Atoms boundary.",
+            "fix": "Pass a Shared DTO instead, e.g. PlayerSnapshot::fromUser($user) or $user->only([...]).",
+            "severity": "error",
+            "phase": "static-analysis"
+        },
+        {
+            "code": "ATOMS-E022",
+            "title": "Unserializable value in a boundary payload",
+            "message": "A {type} cannot cross the Atoms boundary.",
+            "fix": "Closures, resources, and container-bound objects cannot be serialized. Pass plain data or a Payload DTO.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E023",
+            "title": "Payload class is not hydratable",
+            "message": "Payload class {class} must declare all state as promoted constructor properties with allowed types.",
+            "fix": "Use public readonly promoted constructor properties; remove non-promoted state.",
+            "severity": "error",
+            "phase": "static-analysis"
+        },
+        {
+            "code": "ATOMS-E024",
+            "title": "Value does not match the declared boundary type",
+            "message": "Cannot denormalize {value} into {type} at {location}.",
+            "fix": "The wire value and the declared PHP type disagree — check the manifest for version skew (atoms diff).",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E030",
+            "title": "Unknown Methods method called from an Atom",
+            "message": "{atom} calls $this->app()->{method}(), but {methodsClass} has no public method {method}.",
+            "fix": "Add the method to the Methods class, or fix the call — method names are checked statically against the manifest.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E031",
+            "title": "Methods call-site signature mismatch",
+            "message": "{atom} calls {methodsClass}::{method}() with arguments that do not match its signature.",
+            "fix": "Update the call site or the Methods signature; both sides are part of the deployed contract.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E032",
+            "title": "AtomJob constructor signature mismatch",
+            "message": "{atom} dispatches new {job}(...) with arguments that do not match its constructor.",
+            "fix": "AtomJob constructor parameters are the dispatch contract — keep promoted properties and the dispatch site in sync.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E033",
+            "title": "Dispatched class is not an AtomJob",
+            "message": "{atom} dispatches {class}, which does not extend Atoms\\AtomJob.",
+            "fix": "Extend Atoms\\AtomJob, or run the code inline in the Atom instead of dispatching it.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E040",
+            "title": "Manifest hash mismatch (version skew)",
+            "message": "The monolith was built against manifest {local} but the platform is serving {deployed}.",
+            "fix": "Deploy order matters: additive Atom changes deploy Atoms-first; contractions deploy monolith-first. Run `atoms diff`.",
+            "severity": "warning",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E041",
+            "title": "Method not in deployed version",
+            "message": "Method {method} on {type} does not exist in the currently deployed manifest ({version}).",
+            "fix": "The monolith is ahead of the Atom deploy. Deploy Atoms first for additive changes (`atoms deploy`), then the monolith.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E042",
+            "title": "Bundle rejected by platform validation",
+            "message": "The platform build service rejected the bundle: {reason}.",
+            "fix": "Run `atoms validate` locally — it applies the same checks and must reproduce the failure.",
+            "severity": "error",
+            "phase": "deploy"
+        },
+        {
+            "code": "ATOMS-E043",
+            "title": "atoms/core version outside the runtime's supported range",
+            "message": "Bundle was built against atoms/core {built}, but the platform runtime supports {supported}.",
+            "fix": "composer update atoms/core to a supported version and rebuild.",
+            "severity": "error",
+            "phase": "deploy"
+        },
+        {
+            "code": "ATOMS-E050",
+            "title": "Shipped migration was edited",
+            "message": "Migration {file} differs from the version recorded in the deployed manifest.",
+            "fix": "Migrations are append-only once shipped. Restore the original file and add a new migration instead.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E051",
+            "title": "Migration numbering conflict",
+            "message": "Migrations for {type} have a duplicate or non-increasing version at {file}.",
+            "fix": "Number migrations with strictly increasing NNN_ prefixes (001_, 002_, ...).",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E052",
+            "title": "Migration likely exceeds the activation budget",
+            "message": "Migration {file} looks heavier than the activation-time budget ({budget_ms}ms).",
+            "fix": "Migrations run at Atom activation. Keep them tiny, or restructure as lazy per-row upgrades in Atom code.",
+            "severity": "warning",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E053",
+            "title": "Migration failed at activation",
+            "message": "Migration {version} for {type}/{id} failed: {reason}.",
+            "fix": "The Atom stays deactivated. Fix the migration by appending a corrective one — never edit the failed file — and redeploy.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E060",
+            "title": "Atom type not deployed",
+            "message": "Atom type {type} is not present in the customer's current deploy manifest.",
+            "fix": "Deploy the Atom (`atoms deploy`) or check the class basename — types are matched by basename.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E061",
+            "title": "Turn deadline exceeded",
+            "message": "The Atom's turn exceeded the configured deadline.",
+            "fix": "Turns must stay short. Move slow work to an AtomJob via $this->dispatch(), and check for accidental blocking I/O.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E062",
+            "title": "Capacity refused / rate limited",
+            "message": "The platform refused the request: {reason}. Retryable after backoff.",
+            "fix": "The SDK retries automatically where safe. Persistent refusals mean the fleet is at capacity — check the dashboard.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E063",
+            "title": "Remote Atom exception",
+            "message": "{class} thrown inside {type}/{id}::{method}: {message}",
+            "fix": "This is your Atom code throwing. The sanitized remote trace is attached to the exception.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E064",
+            "title": "Callback signature verification failed",
+            "message": "Rejected a platform callback: bad or missing Ed25519 signature.",
+            "fix": "Check the configured platform public key. If keys were rotated, update config and retry.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E065",
+            "title": "Callback replay detected",
+            "message": "Rejected a platform callback: stale timestamp or reused nonce.",
+            "fix": "Usually clock skew (>300s) on the app host, or a genuine replay. Sync clocks; investigate repeated nonces.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E066",
+            "title": "No Methods class for callback target",
+            "message": "A callback targeted {atomType}, but no Methods class resolves for it.",
+            "fix": "Create {expectedClass} (or mark a class with #[MethodsFor({atomType}::class)]).",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E070",
+            "title": "atoms.json missing or invalid",
+            "message": "Could not read atoms.json at the repository root: {reason}.",
+            "fix": "Run `atoms init` to create it, or fix the reported JSON error.",
+            "severity": "error",
+            "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E071",
+            "title": "atoms-composer.json invalid or package not allowed",
+            "message": "{reason}",
+            "fix": "atoms-composer.json may only contain `require` (from the approved package list) and `repositories`.",
+            "severity": "error",
+            "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E072",
+            "title": "Deploy credentials missing",
+            "message": "No API key found for environment {environment}.",
+            "fix": "Set ATOMS_API_KEY, or use OIDC in CI via the deploy action.",
+            "severity": "error",
+            "phase": "cli"
+        }
+    ]
+}

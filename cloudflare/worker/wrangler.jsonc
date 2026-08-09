@@ -1,0 +1,52 @@
+// SPDX-FileCopyrightText: 2026 Atoms contributors
+// SPDX-License-Identifier: MIT
+//
+// The Worker this config assembles bundles the Playground-derived PHP
+// runtime, which is GPL-2.0-or-later, so the assembled Worker is a combined
+// work under that licence. This repository does not redistribute that runtime
+// — it is fetched from npm and staged into `.php-wasm/` at build time by
+// scripts/prepare-runtime.mjs. See ../README.md#licensing.
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "atoms-mvp-conformance",
+	"main": "src/index.js",
+	"compatibility_date": "2026-08-01",
+
+	// REQUIRED: the php-wasm Emscripten glue takes the ENVIRONMENT_IS_NODE
+	// branch under workerd (process.release.name === 'node') and require()s
+	// 'events'. Without nodejs_compat the module fails to load.
+	"compatibility_flags": ["nodejs_compat"],
+
+	// The pinned PHP runtime is bundled as a precompiled wasm module
+	// (workerd forbids compiling bytes at runtime) and handed to Emscripten
+	// through the instantiateWasm hook in src/php-host.js.
+	"rules": [
+		{ "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true },
+		{ "type": "Text", "globs": ["**/*.php"], "fallthrough": true },
+		{ "type": "Data", "globs": ["**/*.data", "**/*.so"], "fallthrough": true }
+	],
+
+	// One generic SQLite-backed Durable Object class for every Atom type:
+	// atom type and id are application data, not DO class names.
+	"durable_objects": {
+		"bindings": [{ "name": "ATOMS", "class_name": "AtomDurableObject" }]
+	},
+	// SQLite storage backend, declared with a migration tag. Wrangler rejects
+	// `migrations` and the newer declarative `exports` block together
+	// ("mutually exclusive"); the equivalent declarative form is
+	//   "exports": { "AtomDurableObject": { "type": "durable-object", "storage": "sqlite" } }
+	// and both dry-run clean. The migration tag is kept because it is the
+	// shape the phase-2 spike exercised end to end under `wrangler dev`.
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["AtomDurableObject"] }],
+
+	// Operational values live in env, with defaults resolved in src/config.js.
+	// ATOMS_APP_KEY is a secret (`wrangler secret put ATOMS_APP_KEY`); when it
+	// is unset, bearer auth is off, which is the local-dev posture.
+	"vars": {
+		"ATOMS_DEBUG_ENDPOINTS": "1",
+		"ATOMS_LOG_LEVEL": "info"
+	},
+
+	"dev": { "port": 8787, "ip": "127.0.0.1" },
+	"observability": { "enabled": true }
+}
