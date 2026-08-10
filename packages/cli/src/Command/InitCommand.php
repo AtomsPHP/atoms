@@ -48,9 +48,23 @@ final class InitCommand extends AbstractCommand
                 'shared' => $atomsPath . '/Shared',
             ],
             'php' => '8.3',
+            // Deploys go to the user's own Cloudflare account, so there is no
+            // Atoms-hosted endpoint to default to. The workers.dev placeholders
+            // below are obviously placeholders on purpose: a plausible-looking
+            // wrong default is worse than one that cannot be mistaken for real.
             'environments' => [
-                'production' => ['endpoint' => 'https://api.atoms.cloud', 'region' => 'iad'],
-                'staging' => ['endpoint' => 'https://api.atoms.cloud', 'region' => 'iad'],
+                'production' => [
+                    'endpoint' => 'https://' . $project . '.<your-subdomain>.workers.dev',
+                    'worker_name' => $project,
+                    'account_id' => '',
+                    'worker_dir' => '.atoms/worker',
+                ],
+                'staging' => [
+                    'endpoint' => 'https://' . $project . '-staging.<your-subdomain>.workers.dev',
+                    'worker_name' => $project . '-staging',
+                    'account_id' => '',
+                    'worker_dir' => '.atoms/worker',
+                ],
             ],
             'callback_url' => [
                 'production' => 'https://example.com',
@@ -73,6 +87,9 @@ final class InitCommand extends AbstractCommand
 
         $output->writeln('<info>✓ Wrote atoms.json and atoms-composer.json.</info>');
         $output->writeln('  Next: atoms make:atom GameRoom --with-methods --with-migration');
+        $output->writeln('  Then, to deploy: set each environment\'s "endpoint" and "account_id",');
+        $output->writeln('  put the Atoms Worker project at .atoms/worker (and `npm ci` in it),');
+        $output->writeln('  export CLOUDFLARE_API_TOKEN, and run `atoms deploy --env staging`.');
 
         return Command::SUCCESS;
     }

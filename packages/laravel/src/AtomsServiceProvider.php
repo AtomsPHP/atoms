@@ -14,9 +14,9 @@ use Atoms\Client\Callback\NonceStore;
 use Atoms\Client\Callback\QueueBridge;
 use Atoms\Client\Manifest\ManifestLoader;
 use Atoms\Laravel\Console\DeployCommand;
+use Atoms\Laravel\Console\DevCommand;
 use Atoms\Laravel\Console\InstallCommand;
 use Atoms\Laravel\Console\ListCommand;
-use Atoms\Laravel\Console\LocalCommand;
 use Atoms\Laravel\Console\MakeAtomCommand;
 use Atoms\Laravel\Console\RollbackCommand;
 use Atoms\Laravel\Http\CallbackController;
@@ -79,7 +79,7 @@ final class AtomsServiceProvider extends ServiceProvider
                 DeployCommand::class,
                 RollbackCommand::class,
                 ListCommand::class,
-                LocalCommand::class,
+                DevCommand::class,
                 MakeAtomCommand::class,
             ]);
         }
@@ -139,8 +139,11 @@ final class AtomsServiceProvider extends ServiceProvider
 
             return AtomsConfig::fromArray([
                 'endpoint' => $config['endpoint'] ?? '',
-                'customer' => $config['project'] ?? '',
-                'apiKey' => $config['api_key'] ?? '',
+                // Passed through uncoerced on purpose: null (key absent/unset)
+                // means "the Worker runs with ATOMS_APP_KEY unset", while a
+                // present-but-empty string is a misconfiguration AtomsConfig
+                // rejects loudly. Defaulting to '' here would erase both.
+                'apiKey' => $config['api_key'] ?? null,
                 'timeout' => $config['timeout'] ?? 10.0,
                 'maxAttempts' => $config['max_attempts'] ?? 3,
                 'platformPublicKey' => $config['platform_public_key'] ?? null,

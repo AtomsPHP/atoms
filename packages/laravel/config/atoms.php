@@ -6,22 +6,10 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Project
-    |--------------------------------------------------------------------------
-    |
-    | The customer slug this app deploys as (matches atoms.json "project" and
-    | the API key's customer). Sent as {customer} in the platform HTTP contract.
-    |
-    */
-
-    'project' => env('ATOMS_PROJECT', ''),
-
-    /*
-    |--------------------------------------------------------------------------
     | Environment
     |--------------------------------------------------------------------------
     |
-    | Environment name (e.g. production, staging) selecting which platform
+    | Environment name (e.g. production, staging) selecting which Worker
     | endpoint/credentials apply. Purely descriptive here; endpoint/api_key
     | below are the values actually used for this app instance.
     |
@@ -33,17 +21,31 @@ return [
     |--------------------------------------------------------------------------
     | Endpoint
     |--------------------------------------------------------------------------
+    |
+    | Base URL of YOUR deployed Atoms Worker, e.g.
+    | https://atoms.<your-subdomain>.workers.dev, a custom route, or
+    | http://127.0.0.1:8787 for `wrangler dev`. There is deliberately no
+    | default: Atoms is self-hosted in your own Cloudflare account, so any
+    | built-in host would be wrong. Set ATOMS_ENDPOINT.
+    |
     */
 
-    'endpoint' => env('ATOMS_ENDPOINT', 'https://api.atoms.cloud'),
+    'endpoint' => env('ATOMS_ENDPOINT', ''),
 
     /*
     |--------------------------------------------------------------------------
     | API key
     |--------------------------------------------------------------------------
+    |
+    | Must match the Worker's ATOMS_APP_KEY. Leave ATOMS_API_KEY unset (null)
+    | when the Worker runs with ATOMS_APP_KEY unset — its bearer check is off
+    | entirely then, and the client sends no Authorization header. Setting it to
+    | an EMPTY string is not that posture: it is a misconfiguration, and
+    | AtomsConfig throws rather than shipping "Authorization: Bearer ".
+    |
     */
 
-    'api_key' => env('ATOMS_API_KEY', ''),
+    'api_key' => env('ATOMS_API_KEY'),
 
     /*
     |--------------------------------------------------------------------------

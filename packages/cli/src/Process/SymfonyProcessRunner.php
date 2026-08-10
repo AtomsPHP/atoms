@@ -14,9 +14,9 @@ use Symfony\Component\Process\Process;
  */
 final class SymfonyProcessRunner implements ProcessRunner
 {
-    public function run(array $command, ?string $cwd = null, array $env = [], ?float $timeout = null): ProcessResult
+    public function run(array $command, ?string $cwd = null, array $env = [], ?float $timeout = null, ?string $stdin = null): ProcessResult
     {
-        $process = new Process($command, $cwd, $env === [] ? null : $env, null, $timeout);
+        $process = new Process($command, $cwd, $env === [] ? null : $env, $stdin, $timeout);
         $process->run();
 
         return new ProcessResult(
@@ -24,6 +24,17 @@ final class SymfonyProcessRunner implements ProcessRunner
             $process->getOutput(),
             $process->getErrorOutput(),
         );
+    }
+
+    public function runForeground(array $command, ?string $cwd = null, array $env = []): ProcessResult
+    {
+        // No timeout: the caller ends this by interrupting it.
+        $process = new Process($command, $cwd, $env === [] ? null : $env, null, null);
+        $process->run(static function (string $type, string $buffer): void {
+            fwrite($type === Process::ERR ? \STDERR : \STDOUT, $buffer);
+        });
+
+        return new ProcessResult($process->getExitCode() ?? 1, '', '');
     }
 
     public function which(string $binary): ?string

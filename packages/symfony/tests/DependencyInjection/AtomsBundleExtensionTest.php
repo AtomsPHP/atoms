@@ -39,8 +39,7 @@ final class AtomsBundleExtensionTest extends TestCase
 
         $container->registerExtension($extension);
         $container->loadFromExtension($extension->getAlias(), array_merge([
-            'project' => 'acme-games',
-            'endpoint' => 'https://edge.atoms.test',
+            'endpoint' => 'https://atoms.example.workers.dev',
             'api_key' => 'atoms_v1_test_key',
         ], $config));
 
@@ -73,13 +72,38 @@ final class AtomsBundleExtensionTest extends TestCase
 
         $config = $container->get(AtomsConfig::class);
         self::assertInstanceOf(AtomsConfig::class, $config);
-        self::assertSame('https://edge.atoms.test', $config->endpoint);
-        self::assertSame('acme-games', $config->customer);
+        self::assertSame('https://atoms.example.workers.dev', $config->endpoint);
         self::assertSame('atoms_v1_test_key', $config->apiKey);
+        self::assertTrue($config->isAuthenticated());
         self::assertSame('staging', $config->environment);
         self::assertSame(5.5, $config->timeout);
         self::assertSame(7, $config->maxAttempts);
         self::assertSame('a-test-key', $config->platformPublicKey);
+    }
+
+    /**
+     * A self-hosted Worker deployed with ATOMS_APP_KEY unset has its bearer
+     * check off entirely; omitting api_key is how the bundle expresses that.
+     */
+    public function testOmittedApiKeyYieldsAnExplicitlyUnauthenticatedConfig(): void
+    {
+        $container = $this->buildContainer(['api_key' => null]);
+        $container->compile();
+
+        $config = $container->get(AtomsConfig::class);
+        self::assertInstanceOf(AtomsConfig::class, $config);
+        self::assertNull($config->apiKey);
+        self::assertFalse($config->isAuthenticated());
+    }
+
+    public function testEmptyApiKeyIsRejectedRatherThanTreatedAsUnauthenticated(): void
+    {
+        $container = $this->buildContainer(['api_key' => '']);
+        $container->compile();
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        $container->get(AtomsConfig::class);
     }
 
     public function testHttpClientFallsBackToAppDefinedClientInterfaceService(): void

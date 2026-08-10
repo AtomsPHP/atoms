@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Command;
 
-use Atoms\Cli\Platform\PlatformApi;
-use Atoms\Cli\Platform\PlatformError;
-use Atoms\Cli\Platform\PlatformTarget;
+use Atoms\Cli\Cloudflare\CloudflareTarget;
+use Atoms\Cli\Cloudflare\Wrangler;
+use Atoms\Cli\Cloudflare\WorkerConfig;
 use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCatalog;
+use Atoms\Errors\ErrorCode;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -15,14 +17,21 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * `atoms secrets:set KEY [VALUE] --env X` — store a platform-side secret injected
- * into the Machine at bundle load and read via $this->config() (integration-plan
- * §4.5). Experimental: the secrets endpoint is not part of the frozen v1 contract.
+ * `atoms secrets:set KEY [VALUE] --env X` — store a Worker secret readable from
+ * Atom code as `$this->config('KEY')`.
+ *
+ * The secret is stored under the name the Worker's `config.get` allowlist
+ * resolves `KEY` to — read from the Worker project's own Wrangler config by
+ * {@see WorkerConfig}, because the prefix is overridable. Storing the bare
+ * name, or a name the deny list blocks, would appear to work and then read
+ * back as null.
+ *
+ * The value never appears in an argv: it goes to Wrangler on stdin.
  */
-#[AsCommand(name: 'secrets:set', description: '[experimental] Set a platform secret for an environment')]
+#[AsCommand(name: 'secrets:set', description: 'Set a Worker secret readable via $this->config()')]
 final class SecretsSetCommand extends AbstractCommand
 {
-    public function __construct(private readonly PlatformApi $api)
+    public function __construct(private readonly Wrangler $wrangler)
     {
         parent::__construct();
     }
@@ -30,17 +39,17 @@ final class SecretsSetCommand extends AbstractCommand
     protected function configure(): void
     {
         parent::configure();
-        $this->addArgument('key', InputArgument::REQUIRED, 'Secret name, e.g. STRIPE_KEY');
+        $this->addArgument('key', InputArgument::REQUIRED, 'Secret name, e.g. PAYMENTS_API_KEY');
         $this->addArgument('value', InputArgument::OPTIONAL, 'Secret value (read from STDIN when omitted)');
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment');
-        $this->addOption('api-key', null, InputOption::VALUE_REQUIRED, 'API key (else $ATOMS_API_KEY)');
+        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $env = $input->getOption('env');
         $key = $input->getArgument('key');
-        if (!\is_string($env) || $env === '' || !\is_string($key)) {
+        if (!\is_string($env) || $env === '' || !\is_string($key) || $key === '') {
             $output->writeln('<error>--env and a KEY are required</error>');
 
             return self::FAILURE;
@@ -48,16 +57,54 @@ final class SecretsSetCommand extends AbstractCommand
 
         $valueArg = $input->getArgument('value');
         $value = \is_string($valueArg) ? $valueArg : $this->readStdin();
+        if ($value === '') {
+            $output->writeln('<error>Refusing to store an empty value for ' . $key . '.</error>');
+
+            return self::FAILURE;
+        }
 
         try {
-            $config = $this->atomsJson($input);
-            $apiKey = $input->getOption('api-key');
-            $target = PlatformTarget::resolve($config, $env, \is_string($apiKey) ? $apiKey : null);
+            $target = CloudflareTarget::resolve(
+                $this->atomsJson($input),
+                $env,
+                null,
+                self::stringOption($input, 'worker-dir'),
+            );
 
-            $response = $this->api->setSecret($target, $key, $value);
-            if (!$response->isSuccess()) {
-                throw PlatformError::from($response);
+            // The prefix is read from the Worker project rather than assumed:
+            // ATOMS_CONFIG_ENV_PREFIX is overridable, and guessing it wrong
+            // stores a secret the Atom can never read, with no error anywhere.
+            $target->assertWorkerDir();
+            $worker = WorkerConfig::fromWorkerDir($target->workerDir);
+
+            if ($worker->parseError !== null) {
+                throw new AtomsError(
+                    ErrorCode::WorkerDirectoryInvalid,
+                    ErrorCatalog::format(ErrorCode::WorkerDirectoryInvalid, [
+                        'environment' => $env,
+                        'reason' => $worker->parseError,
+                    ]),
+                );
             }
+            $workerName = $worker->workerNameFor($key);
+
+            $unreadable = $worker->keyRefusalReason($key);
+            if ($unreadable !== null) {
+                throw new AtomsError(
+                    ErrorCode::SecretNotReadable,
+                    ErrorCatalog::format(ErrorCode::SecretNotReadable, [
+                        'key' => $key,
+                        'name' => $workerName,
+                        'reason' => $unreadable,
+                    ]),
+                );
+            }
+
+            $result = $this->wrangler->putSecret($target, $workerName, $value);
+            if (!$result->ok()) {
+                $output->write($result->stderr);
+            }
+            $result->assertOk();
         } catch (AtomsError $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
 
@@ -65,6 +112,18 @@ final class SecretsSetCommand extends AbstractCommand
         }
 
         $output->writeln('<info>✓ Set ' . $key . ' for ' . $env . '.</info>');
+        $output->writeln('  worker secret: ' . $workerName);
+        $output->writeln('  read it with:  $this->config(' . var_export($key, true) . ')');
+        // Name the source, so a prefix read from the wrong place is visible
+        // rather than something the user has to take on trust.
+        $output->writeln('  prefix:        ' . $worker->configEnvPrefix
+            . ($worker->source === null ? ' (default; no wrangler config read)' : ' (from ' . $worker->source . ')'));
+        // A rotated credential is not retroactive: an Atom that is already
+        // resident keeps the value its isolate started with. Observed on a real
+        // account — a fresh id read the new value while a warm one did not.
+        $output->writeln('');
+        $output->writeln('<comment>Atoms already running keep the previous value until they next</comment>');
+        $output->writeln('<comment>activate, so a rotation is not immediately in force everywhere.</comment>');
 
         return self::SUCCESS;
     }

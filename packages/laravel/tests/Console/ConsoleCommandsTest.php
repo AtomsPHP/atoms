@@ -38,12 +38,44 @@ final class ConsoleCommandsTest extends TestCase
         self::assertSame([['deploy', '--env', 'staging', '--bundle', '/tmp/bundle.tar.gz']], $this->runner->calls);
     }
 
+    public function testDeployForwardsManifestAndWorkerDir(): void
+    {
+        $this->artisan('atoms:deploy', [
+            '--env' => 'production',
+            '--bundle' => '/tmp/bundle.tar.gz',
+            '--manifest' => '/tmp/manifest.json',
+            '--worker-dir' => '/srv/worker',
+        ])->assertExitCode(0);
+
+        self::assertSame([[
+            'deploy',
+            '--env', 'production',
+            '--bundle', '/tmp/bundle.tar.gz',
+            '--manifest', '/tmp/manifest.json',
+            '--worker-dir', '/srv/worker',
+        ]], $this->runner->calls);
+    }
+
     public function testRollbackBuildsArgvWithEnvAndVersion(): void
     {
         $this->artisan('atoms:rollback', ['version' => 'abc123', '--env' => 'production'])
             ->assertExitCode(0);
 
         self::assertSame([['rollback', '--env', 'production', 'abc123']], $this->runner->calls);
+    }
+
+    public function testRollbackForwardsMessageAndWorkerDir(): void
+    {
+        $this->artisan('atoms:rollback', [
+            '--env' => 'production',
+            '--message' => 'bad deploy',
+            '--worker-dir' => '/srv/worker',
+        ])->assertExitCode(0);
+
+        self::assertSame(
+            [['rollback', '--env', 'production', '--message', 'bad deploy', '--worker-dir', '/srv/worker']],
+            $this->runner->calls,
+        );
     }
 
     public function testListWrapsStatus(): void
@@ -53,11 +85,31 @@ final class ConsoleCommandsTest extends TestCase
         self::assertSame([['status', '--env', 'staging']], $this->runner->calls);
     }
 
-    public function testLocalPassesPlatformParityFlag(): void
+    /**
+     * `atoms:local` (and the Docker runtime image behind `atoms local`) is
+     * gone; `atoms dev` serves the Worker through `wrangler dev` instead.
+     */
+    public function testDevForwardsEnvAndPort(): void
     {
-        $this->artisan('atoms:local', ['--platform-parity' => true])->assertExitCode(0);
+        $this->artisan('atoms:dev', ['--env' => 'staging', '--port' => '8788'])->assertExitCode(0);
 
-        self::assertSame([['local', '--platform-parity']], $this->runner->calls);
+        self::assertSame([['dev', '--env', 'staging', '--port', '8788']], $this->runner->calls);
+    }
+
+    public function testDevForwardsCallbackUrlWorkerDirAndNoBuild(): void
+    {
+        $this->artisan('atoms:dev', [
+            '--callback-url' => 'http://127.0.0.1:8000/atoms/callback',
+            '--worker-dir' => '/srv/worker',
+            '--no-build' => true,
+        ])->assertExitCode(0);
+
+        self::assertSame([[
+            'dev',
+            '--callback-url', 'http://127.0.0.1:8000/atoms/callback',
+            '--worker-dir', '/srv/worker',
+            '--no-build',
+        ]], $this->runner->calls);
     }
 
     public function testMakeAtomBuildsArgvWithFlags(): void

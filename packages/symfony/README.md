@@ -34,10 +34,9 @@ return [
 
 ```yaml
 atoms:
-    project: acme-games
     environment: '%env(APP_ENV)%'
-    endpoint: https://edge.atoms.cloud
-    api_key: '%env(ATOMS_API_KEY)%'
+    endpoint: https://atoms.your-subdomain.workers.dev   # your own deployed Worker
+    api_key: '%env(ATOMS_API_KEY)%'                      # null when the Worker's ATOMS_APP_KEY is unset
     timeout: 10.0
     max_attempts: 3
     platform_public_key: '%env(ATOMS_PLATFORM_PUBLIC_KEY)%'

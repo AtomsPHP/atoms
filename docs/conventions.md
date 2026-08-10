@@ -161,12 +161,21 @@ Wire form of a Payload object: plain JSON object of its promoted properties.
 Wire form of an AtomJob: `{"job": "FQCN", "args": {"param": value, ...}}`
 (constructor args by name through the same serializer).
 
-## Platform HTTP contract (client + cli)
+## Runtime HTTP contract (client + cli)
 
-`atoms/client` implements `docs/platform/api-contract.md` v1 exactly:
+The Worker is single-tenant, so there is no customer prefix and no
+Atoms-operated service. `docs/cloudflare-toolchain.md` is normative for the
+decisions below; `docs/platform/api-contract.md` describes the retired Fly-era
+contract and is history only.
 
-- `POST /v1/{customer}/invoke/{type}/{id}/{method}` body `{"args": [...]}`,
-  `Authorization: Bearer {api_key}`.
+`atoms/client` calls the Worker:
+
+- `POST {baseUrl}/invoke/{type}/{id}/{method}` body `{"args": [...]}`.
+- `Authorization: Bearer {apiKey}` when a key is configured. `apiKey` is
+  nullable: `null` means **explicitly** unauthenticated and sends no header,
+  matching a Worker whose `ATOMS_APP_KEY` is unset; `''` throws at
+  construction, because an empty key is a misconfiguration rather than a
+  posture.
 - Additive headers we send (allowed within v1):
   - `Idempotency-Key: <32 hex chars>` — stable across retries of one logical call.
   - `X-Atoms-Manifest-Hash: <sha256>` — manifest hash the monolith was built
@@ -184,8 +193,12 @@ Wire form of an AtomJob: `{"job": "FQCN", "args": {"param": value, ...}}`
   detail → `RemoteAtomException` (original class name + sanitized trace);
   anything else → `AtomsRequestFailed`.
 
-`atoms/cli` implements the deploy endpoints (`POST /v1/{c}/deploys`,
-`GET /v1/{c}/deploys`, `POST /v1/{c}/rollback`) with plain ext-curl.
+`atoms/cli` has no HTTP client at all. `deploy`, `status`, `rollback` and
+`secrets` drive a pinned, locally installed Wrangler as a subprocess
+(`Atoms\Cli\Cloudflare\`), with the user's own `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` passed to that child process and nowhere else. `npx` is
+never used, so no toolchain is fetched at deploy time. See
+`docs/cloudflare-toolchain.md` §2.
 
 ## Callback signing (platform → monolith)
 
@@ -221,12 +234,18 @@ package allowlist lives in `packages/cli/resources/allowed-packages.json`.
 ## Manifest schema (CLI emits, client loads)
 
 `manifest.json`, `"schema": 1`. Top-level keys: `project`, `atoms` (list of
-`{type, class, methods: [{name, params: [{name, type, optional, default?}],
-return}], websocket: bool, migrations: {head: int, files: [{version, name,
-sha256}]}}`), `methods` (list of `{atom_type, class, methods: [...]}`), `jobs`
+`{type, class, file, methods: [{name, params: [{name, type, optional,
+default?}], return}], websocket: bool, migrations: {head: int, files:
+[{version, name, sha256, path}]}}`), `methods` (list of
+`{atom_type, class, methods: [...]}`), `jobs`
 (list of `{class, params: [...]}`), `shared` (list of `{class, properties:
 [{name, type}]}`), `toolchain` (`{core_version, php, extensions: [...],
 scoper_prefix}`), `content_hash` (sha256 of the bundle tarball, hex).
+`file` and `migrations.files[].path` are bundle-relative paths, added in M3:
+the Cloudflare Worker must `require` and migrate exactly those files, and
+`MigrationEntry::$name` keeps only the descriptive part of `NNN_name.sql`, so
+neither is reconstructable from the rest of the manifest.
+
 `manifest_hash` anywhere = sha256 of the canonical JSON encoding of the
 manifest **without** the `content_hash` key: keys recursively sorted
 (lists keep order), no whitespace, encoded with
@@ -253,6 +272,23 @@ it before inventing a code. Ranges:
 Every user-facing failure message in every package includes its `ATOMS-E###`
 code and the catalog fix line. New codes: add to the JSON **and** the
 `ErrorCode` enum; append-only, never renumber.
+
+**What "append-only" protects, and what it does not** (clarified 2026-08-09).
+The rule exists so a code means the same thing forever, because codes end up in
+runbooks, search boxes and support threads. So:
+
+- **Never** reuse a retired number, renumber an existing one, or repoint one at
+  a different kind of failure. Those break the promise.
+- **Updating the `message` or `fix` text of an existing code is allowed**, and
+  is sometimes required: a code that is still thrown must describe the failure
+  as it is now. M3 rewrote E072's text when deploy credentials stopped being an
+  Atoms API key and became the user's own Cloudflare token — same failure, same
+  number, a credential that now exists. Leaving the old wording would have
+  pointed users at a service that no longer runs.
+
+Nothing has been published yet, so there is no installed base to protect and no
+reason to treat pre-launch wording as frozen. Once `atoms/core` is on Packagist
+the bar for rewording rises, but the two bullets above stay the rule.
 
 ## Testing & tooling
 

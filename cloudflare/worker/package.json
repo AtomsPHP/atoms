@@ -16,6 +16,7 @@
     "prepare": "node scripts/prepare-runtime.mjs --if-installed",
     "prepare-runtime": "node scripts/prepare-runtime.mjs",
     "bundle": "node scripts/build-bundle.mjs",
+    "bundle:cli": "node scripts/bundle-from-cli.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "node test/conformance.mjs"

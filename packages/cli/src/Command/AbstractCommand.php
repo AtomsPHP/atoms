@@ -36,4 +36,16 @@ abstract class AbstractCommand extends Command
     {
         return AtomsJson::locate($this->rootDir($input));
     }
+
+    /**
+     * An option's value when it is a non-empty string, else null — so an
+     * unset option and an explicitly empty one resolve the same way, and
+     * callers can fall back with `??`.
+     */
+    protected static function stringOption(InputInterface $input, string $name): ?string
+    {
+        $value = $input->getOption($name);
+
+        return \is_string($value) && $value !== '' ? $value : null;
+    }
 }

@@ -1,34 +1,68 @@
 name: Atoms Deploy
-description: Deploy an Atoms bundle to the Atoms platform
+description: Deploy an Atoms bundle to a Cloudflare Worker in your own account
 inputs:
   environment:
     description: Deployment environment (staging, production, etc.)
     required: true
-  api-key:
-    description: API key for authentication (optional if using OIDC)
-    required: false
-    default: ''
-  endpoint:
-    description: Platform API endpoint
-    required: false
-    default: 'https://api.atoms.cloud'
+  cloudflare-api-token:
+    description: Cloudflare API token with Workers Scripts:Edit on the target account
+    required: true
+  cloudflare-account-id:
+    description: Cloudflare account id to deploy into
+    required: true
   working-directory:
     description: Working directory containing atoms.json
     required: false
     default: '.'
+  worker-directory:
+    description: >-
+      Worker directory (holding package.json and node_modules/.bin/wrangler),
+      relative to working-directory. When set, the action runs `npm ci` there and
+      passes it to the CLI as --worker-dir. When empty, the CLI resolves it from
+      atoms.json and you are responsible for installing its dependencies.
+    required: false
+    default: ''
   bundle:
     description: Path to a prebuilt bundle (optional; if omitted, builds locally)
     required: false
     default: ''
+  php-version:
+    description: PHP version used to run the Atoms CLI
+    required: false
+    default: '8.3'
+  node-version:
+    description: Node version used to run Wrangler
+    required: false
+    default: '20'
 
 runs:
   using: composite
   steps:
+    # The one place the token is deliberately echoed, and the only reason is to
+    # stop it being echoed anywhere else. `::add-mask::` is GitHub's documented
+    # way to register a value for redaction, and the workflow command is read
+    # off stdout — there is no non-echoing form of it. Registering it matters
+    # because an action input is not automatically masked: only values that came
+    # from `secrets.*` are, and a caller is free to pass this one from a
+    # variable, an output, or a literal. Masking it here means a later step that
+    # accidentally prints it — a `set -x` trace, a Wrangler error quoting its
+    # own environment — gets `***` in the log instead of the credential.
+    - name: Mask Cloudflare API token
+      shell: bash
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+      run: echo "::add-mask::$CLOUDFLARE_API_TOKEN"
+
     - name: Set up PHP
       uses: shivammathur/setup-php@v2
       with:
-        php-version: '8.3'
+        php-version: ${{ inputs.php-version }}
         extensions: pdo_sqlite, curl
+
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
 
     - name: Install Atoms CLI
       shell: bash
@@ -36,37 +70,37 @@ runs:
         composer global require atoms/cli --no-interaction
         echo "$(composer global config bin-dir --absolute)" >> "$GITHUB_PATH"
 
-    - name: Exchange OIDC token for API key
-      if: ${{ inputs.api-key == '' }}
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const token = await core.getIDToken('atoms.cloud');
-          const response = await fetch('${{ inputs.endpoint }}/v1/oidc/token-exchange', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-          });
-          const data = await response.json();
-          if (!response.ok) {
-            throw new Error(`OIDC exchange failed: ${data.error || response.statusText}`);
-          }
-          core.setSecret(data.token);
-          core.exportVariable('ATOMS_API_KEY', data.token);
-
-    - name: Set API key from input
-      if: ${{ inputs.api-key != '' }}
+    - name: Install Worker dependencies
+      if: ${{ inputs.worker-directory != '' }}
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        WORKER_DIR: ${{ inputs.worker-directory }}
       run: |
-        echo "::add-mask::${{ inputs.api-key }}"
-        echo "ATOMS_API_KEY=${{ inputs.api-key }}" >> "$GITHUB_ENV"
+        set -euo pipefail
+        if [ ! -f "$WORKER_DIR/package-lock.json" ]; then
+          echo "::error::No package-lock.json in $WORKER_DIR (relative to the working directory). The Worker directory must be a checked-in Worker project — Atoms never downloads Wrangler for you."
+          exit 1
+        fi
+        cd -- "$WORKER_DIR"
+        npm ci
 
     - name: Deploy
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
-        ATOMS_API_KEY: ${{ env.ATOMS_API_KEY }}
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+        DEPLOY_WORKER_DIR: ${{ inputs.worker-directory }}
+        DEPLOY_BUNDLE: ${{ inputs.bundle }}
       run: |
-        atoms deploy --env "${{ inputs.environment }}" ${{ inputs.bundle != '' && format('--bundle "{0}"', inputs.bundle) || '' }}
+        set -euo pipefail
+        args=(deploy --env "$DEPLOY_ENVIRONMENT")
+        if [ -n "$DEPLOY_WORKER_DIR" ]; then
+          args+=(--worker-dir "$DEPLOY_WORKER_DIR")
+        fi
+        if [ -n "$DEPLOY_BUNDLE" ]; then
+          args+=(--bundle "$DEPLOY_BUNDLE")
+        fi
+        atoms "${args[@]}"

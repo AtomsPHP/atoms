@@ -57,7 +57,7 @@ the consistency boundary.
 |---|---|
 | [`packages/`](packages/) | The seven PHP packages — see the table below |
 | [`cloudflare/`](cloudflare/) | The Cloudflare Worker runtime: a PHP interpreter in WebAssembly parked inside a SQLite-backed Durable Object, plus its spec, conformance suite and licence files |
-| [`docs/`](docs/) | Architecture and contracts: [`conventions.md`](docs/conventions.md) (normative), [`integration-plan.md`](docs/integration-plan.md), [`two-worlds.md`](docs/two-worlds.md), [`errors.md`](docs/errors.md) |
+| [`docs/`](docs/) | Architecture and contracts: [`conventions.md`](docs/conventions.md) (normative), [`cloudflare-toolchain.md`](docs/cloudflare-toolchain.md) (deploy, runtime auth, bundles), [`integration-plan.md`](docs/integration-plan.md), [`two-worlds.md`](docs/two-worlds.md), [`errors.md`](docs/errors.md) |
 | [`action/`](action/) | The deploy GitHub Action |
 | [`tests/`](tests/) | Cross-package integration tests |
 
@@ -69,7 +69,7 @@ the consistency boundary.
 | `atoms/symfony` | Symfony bundle (skeleton — it also exists to prove the layering holds). |
 | `atoms/testing` | `AtomHarness` and fakes for fast, infrastructure-free tests. |
 | `atoms/phpstan-rules` | Boundary enforcement in your IDE and CI. |
-| `atoms/cli` | The `atoms` binary: `init`, `make:atom`, `validate`, `build`, `deploy`, `status`, `diff`, `rollback`, `local`, `ai:install`. |
+| `atoms/cli` | The `atoms` binary: `init`, `make:atom`, `validate`, `build`, `deploy`, `dev`, `status`, `diff`, `rollback`, `secrets:*`, `ai:install`. |
 
 Every failure in every package carries a stable `ATOMS-E###` code and a fix
 line — see [`docs/errors.md`](docs/errors.md).

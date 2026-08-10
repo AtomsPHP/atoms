@@ -300,10 +300,58 @@
         {
             "code": "ATOMS-E072",
             "title": "Deploy credentials missing",
-            "message": "No API key found for environment {environment}.",
-            "fix": "Set ATOMS_API_KEY, or use OIDC in CI via the deploy action.",
+            "message": "No Cloudflare API token found for environment {environment}.",
+            "fix": "Export CLOUDFLARE_API_TOKEN. It is never accepted as a command-line option — a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`.",
             "severity": "error",
             "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E073",
+            "title": "Wrangler not found",
+            "message": "Could not find a Wrangler executable for environment {environment}: {reason}.",
+            "fix": "Run `npm install` in the Worker directory so node_modules/.bin/wrangler exists, or set ATOMS_WRANGLER_BIN to an absolute path. Atoms never downloads Wrangler for you.",
+            "severity": "error",
+            "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E074",
+            "title": "Wrangler command failed",
+            "message": "`wrangler {command}` exited with status {status}.",
+            "fix": "Read Wrangler's own output above; it reports Cloudflare API rejections verbatim. Check that the API token has Workers Scripts:Edit on the target account.",
+            "severity": "error",
+            "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E075",
+            "title": "Cloudflare account not configured",
+            "message": "Environment {environment} has no Cloudflare account id.",
+            "fix": "Add \"account_id\" to that environment in atoms.json, or set CLOUDFLARE_ACCOUNT_ID. Find it on the Workers & Pages overview in the Cloudflare dashboard.",
+            "severity": "error",
+            "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E076",
+            "title": "Worker directory missing or incomplete",
+            "message": "The Atoms Worker project for environment {environment} is not usable: {reason}.",
+            "fix": "Point \"worker_dir\" in atoms.json at a checkout of the Atoms Cloudflare Worker (cloudflare/worker), and run `npm ci` inside it.",
+            "severity": "error",
+            "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E077",
+            "title": "Secret would not be readable from Atom code",
+            "message": "Refusing to store {key} as the Worker variable {name}: {reason}.",
+            "fix": "Pick a different key. $this->config() resolves through the Worker's ATOMS_CONFIG_ENV_PREFIX allowlist, and a name outside it — or on its deny list — reads back as null with no error.",
+            "severity": "error",
+            "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E078",
+            "title": "Bundle path too long for the archive format",
+            "message": "{path} is {bytes} bytes and cannot be stored in the bundle archive.",
+            "fix": "The bundle is a ustar tar: a path needs a \"/\" positioned so the tail is at most 100 bytes and the head at most 155. Shorten the class or directory name.",
+            "severity": "error",
+            "phase": "build"
         }
     ]
 }

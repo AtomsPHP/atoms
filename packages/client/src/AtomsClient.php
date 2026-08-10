@@ -24,10 +24,16 @@ use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Log\LoggerInterface;
 
 /**
- * The monolith-side RPC client. Turns typed method calls into signed HTTP
- * invocations of the platform's `POST /v1/{customer}/invoke/...` contract,
- * mapping platform error frames to the {@see Exception} taxonomy and retrying
- * only where the contract says it is safe.
+ * The monolith-side RPC client. Turns typed method calls into HTTP invocations
+ * of the Worker's `POST /invoke/{type}/{id}/{method}` route, mapping error
+ * frames to the {@see Exception} taxonomy and retrying only where the contract
+ * says it is safe.
+ *
+ * The deployed Worker is single-tenant — one Cloudflare account, one Worker,
+ * one set of Atoms — so there is no `/v1/{customer}` prefix to build. Auth is a
+ * single optional bearer key ({@see AtomsConfig::$apiKey}); when it is null the
+ * client sends no Authorization header at all, matching a Worker deployed with
+ * `ATOMS_APP_KEY` unset.
  */
 final class AtomsClient
 {
@@ -134,9 +140,8 @@ final class AtomsClient
         $body = json_encode(['args' => $normalized], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
 
         $uri = sprintf(
-            '%s/v1/%s/invoke/%s/%s/%s',
+            '%s/invoke/%s/%s/%s',
             $this->config->baseUrl(),
-            rawurlencode($this->config->customer),
             rawurlencode($type),
             rawurlencode($id),
             rawurlencode($method),
@@ -167,13 +172,18 @@ final class AtomsClient
 
     /**
      * Explicitly destroy an Atom. Idempotent: returns false if it did not exist.
+     *
+     * NOTE: the Cloudflare Worker runtime does not implement `DELETE
+     * /atoms/{type}/{id}` yet — it answers `not_found`, which surfaces here as
+     * an {@see AtomsRequestFailed}. The method is kept because the route shape
+     * is settled; do not read a successful call as proof the Atom was removed
+     * until the Worker grows the route.
      */
     public function destroy(string $type, string $id): bool
     {
         $uri = sprintf(
-            '%s/v1/%s/atoms/%s/%s',
+            '%s/atoms/%s/%s',
             $this->config->baseUrl(),
-            rawurlencode($this->config->customer),
             rawurlencode($type),
             rawurlencode($id),
         );
@@ -308,8 +318,14 @@ final class AtomsClient
     private function baseRequest(string $method, string $uri): RequestInterface
     {
         $request = $this->requestFactory->createRequest($method, $uri)
-            ->withHeader('Authorization', 'Bearer ' . $this->config->apiKey)
             ->withHeader('traceparent', $this->traceparent ?? $this->generateTraceparent());
+
+        // Null apiKey is an explicit "this Worker runs with auth off" posture:
+        // send no Authorization header rather than an empty bearer credential.
+        // AtomsConfig rejects the empty string outright, so a key here is real.
+        if ($this->config->apiKey !== null) {
+            $request = $request->withHeader('Authorization', 'Bearer ' . $this->config->apiKey);
+        }
 
         if ($this->manifest !== null) {
             $request = $request->withHeader('X-Atoms-Manifest-Hash', $this->manifest->hash());

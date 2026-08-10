@@ -31,7 +31,7 @@ What an Atom may touch on `atoms/core` (frozen ABI):
 $this->db();                       // Atoms\Database — pdo(), query(), execute(), transaction()
 $this->app()->getPlayer($id);      // reverse RPC into your Methods class (World B)
 $this->dispatch(new RecordGameResult(...));  // hand a job to the monolith queue
-$this->config('STRIPE_KEY');       // platform secrets/config — NOT env()
+$this->config('PAYMENTS_API_KEY');       // platform secrets/config — NOT env()
 $this->broadcast('room', [...]);   // push to subscribers
 // lifecycle: onActivation(), onDeactivation()
 // websocket: onConnect(), onMessage(), onDisconnect()

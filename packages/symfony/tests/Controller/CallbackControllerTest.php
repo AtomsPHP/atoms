@@ -42,8 +42,7 @@ final class CallbackControllerTest extends TestCase
 
         $container->registerExtension($extension);
         $container->loadFromExtension($extension->getAlias(), [
-            'project' => 'acme-games',
-            'endpoint' => 'https://edge.atoms.test',
+            'endpoint' => 'https://atoms.example.workers.dev',
             'api_key' => 'atoms_v1_test_key',
             'platform_public_key' => base64_encode($this->publicKey),
         ]);

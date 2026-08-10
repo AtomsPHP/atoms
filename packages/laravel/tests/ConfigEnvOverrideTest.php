@@ -15,7 +15,7 @@ final class ConfigEnvOverrideTest extends TestCase
     protected function setUp(): void
     {
         putenv('ATOMS_API_KEY=from-env-key');
-        putenv('ATOMS_ENDPOINT=https://from-env.atoms.cloud');
+        putenv('ATOMS_ENDPOINT=https://atoms.from-env.workers.dev');
         putenv('ATOMS_MAX_ATTEMPTS=9');
 
         parent::setUp();
@@ -33,7 +33,7 @@ final class ConfigEnvOverrideTest extends TestCase
     public function testEnvironmentVariablesFlowIntoConfig(): void
     {
         self::assertSame('from-env-key', config('atoms.api_key'));
-        self::assertSame('https://from-env.atoms.cloud', config('atoms.endpoint'));
+        self::assertSame('https://atoms.from-env.workers.dev', config('atoms.endpoint'));
         self::assertSame(9, config('atoms.max_attempts'));
     }
 }

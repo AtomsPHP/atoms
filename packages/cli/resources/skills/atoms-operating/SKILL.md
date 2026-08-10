@@ -14,14 +14,28 @@ your app, so a broken monolith never blocks a deploy.
 atoms validate                 # stages 1–3+5: static boundary/contract/migration checks. Seconds, no network. The PR gate.
 atoms build [--fast] [--out D] # deterministic, content-addressed bundle + manifest. --fast skips php-scoper.
 atoms diff [--against M]       # label each manifest change additive / contracting / breaking vs a saved manifest.
-atoms deploy --env X [--bundle B]  # build (unless --bundle) and upload. The platform re-validates; it cannot fail for a reason validate wouldn't have caught locally.
-atoms status --env X           # retained versions + current.
-atoms rollback --env X [version]   # flip the version pointer (previous by default).
-atoms secrets:set KEY --env X  # platform-side secret, read in the Atom via $this->config(). [experimental]
+atoms deploy --env X [--bundle B]  # build (unless --bundle), stage into the Worker project, then `wrangler deploy` into YOUR Cloudflare account.
+atoms dev [--port P]           # build + `wrangler dev` locally. No Cloudflare account needed.
+atoms status --env X           # Worker versions (`wrangler versions list`).
+atoms rollback --env X [version-id]  # `wrangler rollback` (previous version by default).
+atoms secrets:set KEY --env X  # Worker secret, read in the Atom via $this->config().
 ```
 
-Credentials: `ATOMS_API_KEY` (or `--api-key`). In CI, prefer OIDC via the deploy
-action over a long-lived key.
+Credentials: `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` (or `account_id` in atoms.json). They go straight to
+your own Wrangler; Atoms never proxies or retains them. In CI, supply them to
+the deploy action as `cloudflare-api-token` / `cloudflare-account-id`.
+
+Deploy needs a Worker project directory (`worker_dir` in atoms.json, default
+`.atoms/worker`) with `npm ci` already run in it — Atoms runs the Wrangler it
+finds there and never downloads one. Missing: ATOMS-E073.
+
+`atoms secrets:set PAYMENTS_API_KEY` stores the Worker secret
+`ATOMS_CONFIG_PAYMENTS_API_KEY`, because that is the name the Worker's config
+allowlist resolves `$this->config('PAYMENTS_API_KEY')` to. The prefix is read
+from the Worker project's wrangler config (`ATOMS_CONFIG_ENV_PREFIX`), so an
+overridden one is honoured; a key that could never be read back is refused with
+ATOMS-E077 rather than stored.
 
 ## Deploy ordering (expand/contract)
 

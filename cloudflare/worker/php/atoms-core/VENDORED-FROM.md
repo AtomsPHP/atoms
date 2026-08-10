@@ -9,7 +9,7 @@ reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 | Source of `*.php` | `packages/core/src/…` (same relative tree) |
 | Source of `resources/errors.json` | `packages/core/resources/errors.json` |
 | Vendored on | 2026-08-04 (from the then-separate framework repository) |
-| Re-verified | 2026-08-08, on the move into `AtomsPHP/atoms` — all 22 files byte-identical to `packages/core`, and all digests below unchanged |
+| Re-verified | 2026-08-09, on the M3 Cloudflare toolchain change — all 22 files byte-identical to `packages/core`. `Errors/ErrorCode.php` and `resources/errors.json` were re-vendored (ATOMS-E073–E077 added, E072 reworded); the other 20 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -80,12 +80,12 @@ efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/Met
 7c996f6c31cff9bf210040f311bb534a140e79ae3c62b721c6266ad6d78353e2  Errors/AtomsError.php
 0b4bfcf9ea74ed277614139157b03696f4eae42dc85f420120f96663cf654283  Errors/CatalogEntry.php
 ee937355bb4a22b02287215525faabf25d2fd0b9427f160352953a65eda13b34  Errors/ErrorCatalog.php
-49aa5038e66c740f288143b63ee5366f70c6f52b8415c56a0153679e4d8841c4  Errors/ErrorCode.php
+d125f3ad08b7f17def1c9dbc426c9a81e93688799754d0ebefb4345361dc5b91  Errors/ErrorCode.php
 e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Migration.php
 f433e85e2449339b31bf806c4c8dde1afbd9e06dda005a2dc5a3df62fcd1252e  Migrations/MigrationEntry.php
 addfe71f9472e7f2e76422227ef06586818b546e09842cdcba8e8a97a1dcd690  Migrations/MigrationSet.php
 50af83b416b9dec8f9c16e4b0fa635ef4fb5be8e38134571f66d910bded18b9d  Migrations/Migrator.php
-df2fe7aa993514464f9ad5b32dedf3e3ae86da8c90b1e14112d5101a8df01382  resources/errors.json
+22ae1e11a76bb727294732f8ca7fa458d7531d6097cc5229ddbf020964f96e87  resources/errors.json
 a79559d5f3c3f2c6e50817daca583d21222aa13e10e90da317bd9cf12b4aa102  Runtime/AtomContext.php
 2f7038814942c735af5d501ad51a59520237d55f848dfb6c3603ff7370fddcf4  Runtime/LifecycleInvoker.php
 b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/Payload.php

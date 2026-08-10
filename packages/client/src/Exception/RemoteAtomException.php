@@ -8,7 +8,7 @@ use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 
 /**
- * The customer's own Atom code threw inside the platform runtime (ATOMS-E063).
+ * Your own Atom code threw inside the Worker runtime (ATOMS-E063).
  * The original PHP exception class and a sanitized remote stack trace are carried
  * through so the monolith can surface a meaningful error. Not retryable — the
  * same input will throw again.

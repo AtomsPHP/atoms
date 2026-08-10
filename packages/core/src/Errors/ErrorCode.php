@@ -51,4 +51,10 @@ enum ErrorCode: string
     case AtomsJsonInvalid = 'ATOMS-E070';
     case AtomsComposerJsonInvalid = 'ATOMS-E071';
     case DeployCredentialsMissing = 'ATOMS-E072';
+    case WranglerNotFound = 'ATOMS-E073';
+    case WranglerFailed = 'ATOMS-E074';
+    case CloudflareAccountMissing = 'ATOMS-E075';
+    case WorkerDirectoryInvalid = 'ATOMS-E076';
+    case SecretNotReadable = 'ATOMS-E077';
+    case BundlePathTooLong = 'ATOMS-E078';
 }
