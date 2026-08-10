@@ -87,6 +87,29 @@ final class DeployCommandTest extends TestCase
         self::assertSame('acme-games', $deploy['target']->workerName);
     }
 
+    /**
+     * A successful deploy is not a deploy that is in force. This caveat is the
+     * whole fix for the convergence finding — measured on a real account,
+     * /healthz reached the new Worker while the first invocation still 404'd —
+     * so dropping or rewording it away must fail the suite rather than pass it.
+     */
+    public function testSuccessSaysThatPropagationIsNotInstant(): void
+    {
+        $tester = new CommandTester(new DeployCommand(new FakeWrangler(), $this->stager()));
+
+        $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertStringContainsString('propagates', $display);
+        self::assertStringContainsString('previous', $display, 'the warning must name what is still being served');
+        self::assertStringContainsString('atoms status', $display, 'and point at how to check');
+    }
+
     public function testCredentialsReachOnlyTheChildEnvironment(): void
     {
         putenv('CLOUDFLARE_API_TOKEN=cf-secret-token');

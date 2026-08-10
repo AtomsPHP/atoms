@@ -83,7 +83,11 @@ not direction.
   `deploy`/`status`/`rollback`/`secrets` run a Wrangler that is already on the
   machine — never `npx`, which would defeat the pin in the Worker project's
   lockfile. Cloudflare credentials go into the Wrangler child process's
-  environment and nowhere else: no file, no log, no echo.
+  environment and nowhere else: no file, no log, no echo. The single exception
+  is `action/action.yml`'s `::add-mask::` step, which echoes the token to
+  register it for redaction — GitHub has no non-echoing form of that command,
+  and an action input is not masked automatically unless it came from
+  `secrets.*`. Masking is what keeps the rest of the rule true in a log.
 - Package versions are pinned `0.1.0` and managed by release tooling — don't
   hand-edit them. Root `composer.json` wires the packages via path
   repositories; one root `composer install`, one root `vendor/`.

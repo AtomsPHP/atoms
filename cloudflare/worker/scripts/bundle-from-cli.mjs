@@ -206,7 +206,7 @@ function hostManifest(cli) {
 		atoms,
 		// Provenance, for `atoms status` and for reading a deployed Worker.
 		project: cli.project ?? null,
-		content_hash: cli.content_hash ?? null,
+		content_hash: cli.content_hash,
 	};
 }
 
@@ -236,14 +236,26 @@ function main() {
 	// mispaired archive, and renaming an altered archive to the expected name
 	// defeats it entirely. This is the check that makes "content-addressed"
 	// mean something at the point the bundle is consumed.
-	if (cli.content_hash) {
-		const actual = crypto.createHash('sha256').update(tar).digest('hex');
-		if (actual !== cli.content_hash) {
-			throw new Error(
-				`bundle content hash ${actual} does not match the manifest's content_hash ` +
-					`${cli.content_hash} — the manifest and the archive are not a matching pair`
-			);
-		}
+	// Mandatory, never conditional. Guarding this on `if (cli.content_hash)`
+	// meant deleting the field skipped verification altogether — the one check
+	// that makes "content-addressed" mean anything at the point of consumption,
+	// opted out of by removing a line. `BundleWriter` always emits it, so a
+	// manifest without one did not come from `atoms build`, and the right
+	// answer is to refuse rather than to trust the archive.
+	if (typeof cli.content_hash !== 'string' || !/^[0-9a-f]{64}$/.test(cli.content_hash)) {
+		throw new Error(
+			`manifest.json has no usable content_hash (${JSON.stringify(cli.content_hash ?? null)}). ` +
+				'`atoms build` always emits one; a manifest without it cannot be verified against its ' +
+				'archive, and an unverified bundle is not deployable.'
+		);
+	}
+
+	const actual = crypto.createHash('sha256').update(tar).digest('hex');
+	if (actual !== cli.content_hash) {
+		throw new Error(
+			`bundle content hash ${actual} does not match the manifest's content_hash ` +
+				`${cli.content_hash} — the manifest and the archive are not a matching pair`
+		);
 	}
 
 	const appFiles = {};

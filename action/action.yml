@@ -38,6 +38,15 @@ inputs:
 runs:
   using: composite
   steps:
+    # The one place the token is deliberately echoed, and the only reason is to
+    # stop it being echoed anywhere else. `::add-mask::` is GitHub's documented
+    # way to register a value for redaction, and the workflow command is read
+    # off stdout — there is no non-echoing form of it. Registering it matters
+    # because an action input is not automatically masked: only values that came
+    # from `secrets.*` are, and a caller is free to pass this one from a
+    # variable, an output, or a literal. Masking it here means a later step that
+    # accidentally prints it — a `set -x` trace, a Wrangler error quoting its
+    # own environment — gets `***` in the log instead of the credential.
     - name: Mask Cloudflare API token
       shell: bash
       env:

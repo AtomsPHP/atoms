@@ -126,6 +126,51 @@ final class BundleBridgeTest extends TestCase
         self::rmrf($outDir);
     }
 
+    /**
+     * Deleting `content_hash` must not be a way to opt out of verification.
+     * The check was briefly written as `if (cli.content_hash)`, which made
+     * removing one line from a hand-edited manifest skip it entirely.
+     */
+    public function testTranslatorRefusesAManifestWithNoContentHash(): void
+    {
+        $repo = \dirname(__DIR__, 2);
+        $node = (new \Symfony\Component\Process\ExecutableFinder())->find('node');
+        if ($node === null) {
+            self::markTestSkipped('node is not on PATH.');
+        }
+
+        $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
+        $built = (new Builder())->build(AtomsJson::load($repo . '/' . self::FIXTURE . '/atoms.json'), $outDir, fast: true);
+
+        foreach ([null, '', 'not-a-hash', 'ABCDEF'] as $i => $bad) {
+            /** @var array<string, mixed> $manifest */
+            $manifest = json_decode((string) file_get_contents($built->manifestPath), true, 512, JSON_THROW_ON_ERROR);
+            if ($bad === null) {
+                unset($manifest['content_hash']);
+            } else {
+                $manifest['content_hash'] = $bad;
+            }
+
+            $path = $outDir . "/manifest-{$i}.json";
+            file_put_contents($path, json_encode($manifest, JSON_THROW_ON_ERROR));
+
+            $process = new \Symfony\Component\Process\Process(
+                [$node, $repo . '/cloudflare/worker/scripts/bundle-from-cli.mjs', $built->bundlePath, $path, $outDir . '/out.js'],
+                $repo . '/cloudflare/worker',
+            );
+            $process->run();
+
+            self::assertNotSame(
+                0,
+                $process->getExitCode(),
+                'an unverifiable manifest must be refused, not trusted: ' . var_export($bad, true),
+            );
+            self::assertStringContainsString('content_hash', $process->getErrorOutput());
+        }
+
+        self::rmrf($outDir);
+    }
+
     private static function rmrf(string $dir): void
     {
         if (!is_dir($dir)) {

@@ -77,6 +77,28 @@ final class SecretsCommandTest extends TestCase
         self::assertStringNotContainsString('sk_live_xyz', $display, 'the value must never be echoed');
     }
 
+    /**
+     * A rotation is not retroactive: an Atom already resident keeps the value
+     * its isolate started with. Observed on a real account, and the only thing
+     * standing between a user and that surprise is this sentence.
+     */
+    public function testSetSaysARotationIsNotImmediatelyInForce(): void
+    {
+        $tester = new CommandTester(new SecretsSetCommand(new FakeWrangler()));
+
+        $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            'key' => 'PAYMENTS_API_KEY',
+            'value' => 'v',
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertStringContainsString('already running', $display);
+        self::assertStringContainsString('previous value', $display);
+    }
+
     public function testSetNormalisesKeysTheSameWayTheWorkerDoes(): void
     {
         // bridge.js: configEnvPrefix + key.toUpperCase().replace(/[^A-Z0-9]+/g, '_')
