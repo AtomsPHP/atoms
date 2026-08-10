@@ -44,7 +44,7 @@ final class StatusCommandTest extends TestCase
     /**
      * @param list<array<string, mixed>> $versions
      */
-    private function run(array $versions): string
+    private function statusDisplay(array $versions): string
     {
         $wrangler = new FakeWrangler();
         $wrangler->versionsResult = FakeWrangler::ok(
@@ -69,7 +69,7 @@ final class StatusCommandTest extends TestCase
      */
     public function testReadsTheLiveWranglerShape(): void
     {
-        $display = $this->run([[
+        $display = $this->statusDisplay([[
             'id' => 'f00dcafe-0000-4000-8000-000000000001',
             'number' => 1,
             'metadata' => ['created_on' => '2026-08-09T21:00:00.000Z', 'source' => 'wrangler'],
@@ -86,7 +86,7 @@ final class StatusCommandTest extends TestCase
      */
     public function testStillReadsATopLevelCreatedOn(): void
     {
-        $display = $this->run([[
+        $display = $this->statusDisplay([[
             'id' => 'abc',
             'created_on' => '2026-01-01T00:00:00.000Z',
             'annotations' => ['workers/message' => 'a deploy message'],
@@ -99,14 +99,14 @@ final class StatusCommandTest extends TestCase
 
     public function testAVersionWithNeitherFieldStillLists(): void
     {
-        $display = $this->run([['id' => 'bare']]);
+        $display = $this->statusDisplay([['id' => 'bare']]);
 
         self::assertStringContainsString('bare', $display);
     }
 
     public function testNoVersionsSaysSoRatherThanPrintingNothing(): void
     {
-        $display = $this->run([]);
+        $display = $this->statusDisplay([]);
 
         self::assertStringContainsString('nothing deployed yet', $display);
     }
