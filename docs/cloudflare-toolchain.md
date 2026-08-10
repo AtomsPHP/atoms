@@ -123,14 +123,36 @@ would have to be replaced.
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` — Wrangler's own variable
 names, chosen deliberately so that Atoms is visibly a *caller* of the user's
 toolchain rather than a broker sitting between them and Cloudflare. They are
-resolved from `--api-token` / `atoms.json` / the environment, and travel
-exactly one way: into the Wrangler child process's environment
+read from the environment (the account id may also come from `atoms.json`) and
+travel exactly one way: into the Wrangler child process's environment
 (`CloudflareTarget::credentialEnv()`). They are never written to a file, never
 logged, never echoed, and never sent anywhere but Cloudflare's own API by way
 of Wrangler.
 
+**There is no `--api-token` option, deliberately.** A credential passed as a
+command-line argument sits in the CLI's own argv, readable by every other
+process on the machine, and usually in shell history too — which would make the
+sentence above false at the very first hop. The environment is the only inlet.
+
 `atoms dev` requires neither: `wrangler dev` runs workerd locally, so a
 developer with no Cloudflare account can still work.
+
+### Deploying does not mean deployed
+
+Cloudflare propagates a new Worker version and its variables **eventually**.
+Measured on a real account: immediately after a successful `wrangler deploy`,
+`/healthz` reached the new Worker while the first Atom invocation still 404'd,
+and a conformance run against the same URL passed 1/12, then 7/12, then 12/12
+as propagation completed. Secret rotation splits the same way — a freshly
+addressed Atom saw the new value while an already-warm one still read the old.
+
+Two consequences the commands cannot paper over. Ordering a monolith deploy
+immediately after `atoms deploy` can have the monolith calling methods the
+serving bundle does not have yet; and a rotated credential is not in force for
+Atoms that are already resident. `atoms deploy` and `atoms secrets:set` say so
+on completion rather than reporting a success that overstates what happened.
+Neither waits for convergence: there is no readiness signal to wait on, and
+inventing a poll loop would assert something Cloudflare does not promise.
 
 ### Secrets carry a prefix, because the Worker's allowlist does
 

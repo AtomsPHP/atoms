@@ -48,8 +48,16 @@ final class DeployCommandTest extends TestCase
         parent::setUp();
         // These must not leak in from the ambient environment: several tests
         // assert on their absence.
-        putenv('CLOUDFLARE_API_TOKEN');
+        // There is no --api-token option: a credential in argv is visible to
+        // every process on the machine. The environment is the only inlet.
+        putenv('CLOUDFLARE_API_TOKEN=cf-token');
         putenv('CLOUDFLARE_ACCOUNT_ID');
+    }
+
+    protected function tearDown(): void
+    {
+        putenv('CLOUDFLARE_API_TOKEN');
+        parent::tearDown();
     }
 
     public function testSuccessfulDeployStagesThenRunsWrangler(): void
@@ -61,7 +69,6 @@ final class DeployCommandTest extends TestCase
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-token' => 'cf-token',
             '--worker-dir' => $this->workerDir(),
             '--bundle' => $this->bundleFile(),
         ]);
@@ -82,13 +89,13 @@ final class DeployCommandTest extends TestCase
 
     public function testCredentialsReachOnlyTheChildEnvironment(): void
     {
+        putenv('CLOUDFLARE_API_TOKEN=cf-secret-token');
         $wrangler = new FakeWrangler();
         $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
 
         $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-token' => 'cf-secret-token',
             '--worker-dir' => $this->workerDir(),
             '--bundle' => $this->bundleFile(),
         ]);
@@ -118,7 +125,6 @@ final class DeployCommandTest extends TestCase
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-token' => 'cf-token',
             '--worker-dir' => $this->workerDir(),
             '--bundle' => $this->bundleFile(),
         ]);
@@ -138,7 +144,6 @@ final class DeployCommandTest extends TestCase
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-token' => 'cf-token',
             '--worker-dir' => $this->workerDir(),
             '--bundle' => $this->bundleFile(),
         ]);
@@ -152,6 +157,7 @@ final class DeployCommandTest extends TestCase
 
     public function testMissingApiTokenMapsToE072(): void
     {
+        putenv('CLOUDFLARE_API_TOKEN');
         $wrangler = new FakeWrangler();
         $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
 
@@ -181,7 +187,6 @@ final class DeployCommandTest extends TestCase
         $exit = $tester->execute([
             '--root' => $root,
             '--env' => 'production',
-            '--api-token' => 'cf-token',
             '--worker-dir' => $this->workerDir(),
         ]);
 
@@ -198,7 +203,6 @@ final class DeployCommandTest extends TestCase
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-token' => 'cf-token',
             // Exists, but holds no wrangler config: the "you forgot npm ci /
             // pointed at the wrong tree" case.
             '--worker-dir' => $this->freshDir(),

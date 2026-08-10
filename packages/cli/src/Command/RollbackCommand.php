@@ -34,7 +34,6 @@ final class RollbackCommand extends AbstractCommand
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment');
         $this->addOption('message', 'm', InputOption::VALUE_REQUIRED, 'Reason for the rollback');
         $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
-        $this->addOption('api-token', null, InputOption::VALUE_REQUIRED, 'Cloudflare API token (else $CLOUDFLARE_API_TOKEN)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -50,7 +49,7 @@ final class RollbackCommand extends AbstractCommand
             $target = CloudflareTarget::resolve(
                 $this->atomsJson($input),
                 $env,
-                self::stringOption($input, 'api-token'),
+                null,
                 self::stringOption($input, 'worker-dir'),
             );
 

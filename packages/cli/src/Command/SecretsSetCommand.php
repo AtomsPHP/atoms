@@ -43,7 +43,6 @@ final class SecretsSetCommand extends AbstractCommand
         $this->addArgument('value', InputArgument::OPTIONAL, 'Secret value (read from STDIN when omitted)');
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment');
         $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
-        $this->addOption('api-token', null, InputOption::VALUE_REQUIRED, 'Cloudflare API token (else $CLOUDFLARE_API_TOKEN)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -68,7 +67,7 @@ final class SecretsSetCommand extends AbstractCommand
             $target = CloudflareTarget::resolve(
                 $this->atomsJson($input),
                 $env,
-                self::stringOption($input, 'api-token'),
+                null,
                 self::stringOption($input, 'worker-dir'),
             );
 
@@ -119,6 +118,12 @@ final class SecretsSetCommand extends AbstractCommand
         // rather than something the user has to take on trust.
         $output->writeln('  prefix:        ' . $worker->configEnvPrefix
             . ($worker->source === null ? ' (default; no wrangler config read)' : ' (from ' . $worker->source . ')'));
+        // A rotated credential is not retroactive: an Atom that is already
+        // resident keeps the value its isolate started with. Observed on a real
+        // account — a fresh id read the new value while a warm one did not.
+        $output->writeln('');
+        $output->writeln('<comment>Atoms already running keep the previous value until they next</comment>');
+        $output->writeln('<comment>activate, so a rotation is not immediately in force everywhere.</comment>');
 
         return self::SUCCESS;
     }

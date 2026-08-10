@@ -31,7 +31,6 @@ final class StatusCommand extends AbstractCommand
         parent::configure();
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment');
         $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
-        $this->addOption('api-token', null, InputOption::VALUE_REQUIRED, 'Cloudflare API token (else $CLOUDFLARE_API_TOKEN)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -47,7 +46,7 @@ final class StatusCommand extends AbstractCommand
             $target = CloudflareTarget::resolve(
                 $this->atomsJson($input),
                 $env,
-                self::stringOption($input, 'api-token'),
+                null,
                 self::stringOption($input, 'worker-dir'),
             );
 
@@ -87,9 +86,14 @@ final class StatusCommand extends AbstractCommand
             if (!\is_array($version)) {
                 continue;
             }
+            // Field placement observed against wrangler 4.118.0 on a real
+            // account: `created_on` is nested under `metadata`, and there is
+            // no `workers/message` annotation unless a deploy supplied one.
+            // Both older and flatter shapes are tolerated rather than assumed.
             $id = self::field($version, 'id');
-            $created = self::field($version, 'created_on');
-            $message = self::field($version, 'annotations', 'workers/message');
+            $created = self::field($version, 'metadata', 'created_on') ?? self::field($version, 'created_on');
+            $message = self::field($version, 'annotations', 'workers/message')
+                ?? self::field($version, 'annotations', 'workers/triggered_by');
             $output->writeln(sprintf(
                 '  - %s%s%s',
                 $id ?? '(no id)',

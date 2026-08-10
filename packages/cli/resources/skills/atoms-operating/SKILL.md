@@ -21,7 +21,7 @@ atoms rollback --env X [version-id]  # `wrangler rollback` (previous version by 
 atoms secrets:set KEY --env X  # Worker secret, read in the Atom via $this->config().
 ```
 
-Credentials: `CLOUDFLARE_API_TOKEN` (or `--api-token`) and
+Credentials: `CLOUDFLARE_API_TOKEN` and
 `CLOUDFLARE_ACCOUNT_ID` (or `account_id` in atoms.json). They go straight to
 your own Wrangler; Atoms never proxies or retains them. In CI, supply them to
 the deploy action as `cloudflare-api-token` / `cloudflare-account-id`.

@@ -273,6 +273,23 @@ Every user-facing failure message in every package includes its `ATOMS-E###`
 code and the catalog fix line. New codes: add to the JSON **and** the
 `ErrorCode` enum; append-only, never renumber.
 
+**What "append-only" protects, and what it does not** (clarified 2026-08-09).
+The rule exists so a code means the same thing forever, because codes end up in
+runbooks, search boxes and support threads. So:
+
+- **Never** reuse a retired number, renumber an existing one, or repoint one at
+  a different kind of failure. Those break the promise.
+- **Updating the `message` or `fix` text of an existing code is allowed**, and
+  is sometimes required: a code that is still thrown must describe the failure
+  as it is now. M3 rewrote E072's text when deploy credentials stopped being an
+  Atoms API key and became the user's own Cloudflare token — same failure, same
+  number, a credential that now exists. Leaving the old wording would have
+  pointed users at a service that no longer runs.
+
+Nothing has been published yet, so there is no installed base to protect and no
+reason to treat pre-launch wording as frozen. Once `atoms/core` is on Packagist
+the bar for rewording rises, but the two bullets above stay the rule.
+
 ## Testing & tooling
 
 - One root `composer install`; one root `vendor/`. Run everything from repo

@@ -17,6 +17,13 @@ use Atoms\Errors\ErrorCode;
  * child process environment in {@see self::credentialEnv()}. Atoms never writes
  * them to a file, never logs them, and never sends them anywhere but
  * Cloudflare's own API by way of Wrangler.
+ *
+ * **There is deliberately no `--api-token` option.** A credential passed as a
+ * command-line argument is in this process's argv, visible to every other
+ * process on the machine, and usually in shell history as well — which would
+ * make the invariant above false at the very first hop. `$apiToken` stays a
+ * parameter for testing and for callers that already hold the value; the only
+ * way a user supplies one is `CLOUDFLARE_API_TOKEN` in the environment.
  */
 final class CloudflareTarget
 {

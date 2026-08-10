@@ -16,8 +16,16 @@ final class SecretsCommandTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        putenv('CLOUDFLARE_API_TOKEN');
+        // There is no --api-token option: a credential in argv is visible to
+        // every process on the machine. The environment is the only inlet.
+        putenv('CLOUDFLARE_API_TOKEN=cf-token');
         putenv('CLOUDFLARE_ACCOUNT_ID');
+    }
+
+    protected function tearDown(): void
+    {
+        putenv('CLOUDFLARE_API_TOKEN');
+        parent::tearDown();
     }
 
     /**
@@ -51,7 +59,6 @@ final class SecretsCommandTest extends TestCase
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-token' => 'cf-token',
             '--worker-dir' => $this->workerDir(),
             'key' => 'PAYMENTS_API_KEY',
             'value' => 'sk_live_xyz',
@@ -92,7 +99,6 @@ final class SecretsCommandTest extends TestCase
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-token' => 'cf-token',
             '--worker-dir' => $this->workerDir(['ATOMS_CONFIG_ENV_PREFIX' => 'MYAPP_']),
             'key' => 'PAYMENTS_API_KEY',
             'value' => 'v',
@@ -117,7 +123,6 @@ final class SecretsCommandTest extends TestCase
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-token' => 'cf-token',
             '--worker-dir' => $this->workerDir(),
             'key' => 'ENV_PREFIX',
             'value' => 'v',
@@ -140,7 +145,6 @@ final class SecretsCommandTest extends TestCase
         $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-token' => 'cf-token',
             '--worker-dir' => $this->workerDir(['ATOMS_CONFIG_ENV_PREFIX' => 'MYAPP_']),
         ]);
 
@@ -157,7 +161,6 @@ final class SecretsCommandTest extends TestCase
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-token' => 'cf-token',
             '--worker-dir' => $this->workerDir(),
             'key' => 'PAYMENTS_API_KEY',
             'value' => '',
@@ -179,7 +182,6 @@ final class SecretsCommandTest extends TestCase
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-token' => 'cf-token',
             '--worker-dir' => $this->workerDir(),
         ]);
 
@@ -205,7 +207,6 @@ final class SecretsCommandTest extends TestCase
         $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
-            '--api-token' => 'cf-token',
             '--worker-dir' => $this->workerDir(),
         ]);
 

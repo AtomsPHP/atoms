@@ -125,6 +125,19 @@ jobs:
       - name: Bundle the fixture app
         run: npm run bundle
 
+      # src/bundle.generated.js is committed but generated, and it embeds the
+      # vendored atoms/core catalog — so a change to packages/core silently
+      # staled it. Regenerating above and then diffing is what turns that into
+      # a red build: without this, CI is green precisely because it rebuilt the
+      # artifact it never checked.
+      - name: The committed bundle is not stale
+        run: |
+          if ! git diff --exit-code -- src/bundle.generated.js; then
+            echo "::error::src/bundle.generated.js is out of date."
+            echo "Run 'npm run bundle' in cloudflare/worker and commit the result."
+            exit 1
+          fi
+
       # Backgrounded with its output on disk, so the log survives the step and
       # can be printed whatever happens later.
       - name: Start wrangler dev

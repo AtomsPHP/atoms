@@ -40,7 +40,6 @@ final class DeployCommand extends AbstractCommand
         $this->addOption('bundle', null, InputOption::VALUE_REQUIRED, 'Deploy a prebuilt bundle instead of building');
         $this->addOption('manifest', null, InputOption::VALUE_REQUIRED, 'Manifest for --bundle (default: manifest.json beside it)');
         $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
-        $this->addOption('api-token', null, InputOption::VALUE_REQUIRED, 'Cloudflare API token (else $CLOUDFLARE_API_TOKEN)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -57,7 +56,7 @@ final class DeployCommand extends AbstractCommand
             $target = CloudflareTarget::resolve(
                 $config,
                 $env,
-                self::stringOption($input, 'api-token'),
+                null,
                 self::stringOption($input, 'worker-dir'),
             );
 
@@ -94,6 +93,17 @@ final class DeployCommand extends AbstractCommand
         $output->writeln('<info>✓ Deployed ' . $config->project . ' to ' . $env . '.</info>');
         $output->writeln('  worker:   ' . $target->workerName);
         $output->writeln('  endpoint: ' . $target->endpoint);
+        // Uploading is not the same as serving. Measured on a real account:
+        // /healthz reached the new Worker while the first invocation still
+        // 404'd, and a conformance run went 1/12 -> 7/12 -> 12/12 as
+        // propagation completed. Saying so beats a success line that overstates
+        // what just happened; there is no readiness signal to wait on.
+        $output->writeln('');
+        $output->writeln('<comment>Cloudflare propagates a new version eventually, so this is not yet</comment>');
+        $output->writeln('<comment>fully in force. Atoms already resident keep serving the previous</comment>');
+        $output->writeln('<comment>bundle until they next activate — check with `atoms status --env '
+            . $env . '`</comment>');
+        $output->writeln('<comment>before deploying a monolith that depends on new Atom methods.</comment>');
 
         return self::SUCCESS;
     }

@@ -301,7 +301,7 @@
             "code": "ATOMS-E072",
             "title": "Deploy credentials missing",
             "message": "No Cloudflare API token found for environment {environment}.",
-            "fix": "Set CLOUDFLARE_API_TOKEN (or pass --api-token). In CI, supply it to the deploy action as `cloudflare-api-token`.",
+            "fix": "Export CLOUDFLARE_API_TOKEN. It is never accepted as a command-line option — a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`.",
             "severity": "error",
             "phase": "cli"
         },

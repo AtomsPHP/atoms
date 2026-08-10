@@ -71,7 +71,9 @@ not direction.
 - **The error catalog is the single source of truth.**
   `packages/core/resources/errors.json` — every user-facing failure in every
   package carries its `ATOMS-E###` code and catalog fix line. Append-only;
-  never renumber; keep the `ErrorCode` enum in sync (a core test enforces it).
+  never renumber or repoint an existing code; keep the `ErrorCode` enum in sync
+  (a core test enforces it). Rewording an existing code's message/fix **is**
+  allowed — see `docs/conventions.md` §Error catalog.
 - **No native `serialize()`/`unserialize()`** anywhere in the codebase.
   Boundary data moves as JSON through `Atoms\Serialization\Serializer`.
 - **Builds are pure functions of the repo.** `atoms build` must be

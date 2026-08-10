@@ -43,7 +43,7 @@ This catalog is the single source of truth: `packages/core/resources/errors.json
 | ATOMS-E066 | No Methods class for callback target | error | runtime | Create {expectedClass} (or mark a class with #[MethodsFor({atomType}::class)]). |
 | ATOMS-E070 | atoms.json missing or invalid | error | cli | Run `atoms init` to create it, or fix the reported JSON error. |
 | ATOMS-E071 | atoms-composer.json invalid or package not allowed | error | cli | atoms-composer.json may only contain `require` (from the approved package list) and `repositories`. |
-| ATOMS-E072 | Deploy credentials missing | error | cli | Set CLOUDFLARE_API_TOKEN (or pass --api-token). In CI, supply it to the deploy action as `cloudflare-api-token`. |
+| ATOMS-E072 | Deploy credentials missing | error | cli | Export CLOUDFLARE_API_TOKEN. It is never accepted as a command-line option — a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`. |
 | ATOMS-E073 | Wrangler not found | error | cli | Run `npm install` in the Worker directory so node_modules/.bin/wrangler exists, or set ATOMS_WRANGLER_BIN to an absolute path. Atoms never downloads Wrangler for you. |
 | ATOMS-E074 | Wrangler command failed | error | cli | Read Wrangler's own output above; it reports Cloudflare API rejections verbatim. Check that the API token has Workers Scripts:Edit on the target account. |
 | ATOMS-E075 | Cloudflare account not configured | error | cli | Add "account_id" to that environment in atoms.json, or set CLOUDFLARE_ACCOUNT_ID. Find it on the Workers & Pages overview in the Cloudflare dashboard. |
