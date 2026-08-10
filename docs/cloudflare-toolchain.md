@@ -129,6 +129,15 @@ travel exactly one way: into the Wrangler child process's environment
 logged, never echoed, and never sent anywhere but Cloudflare's own API by way
 of Wrangler.
 
+The one echo in the whole toolchain is `action/action.yml`'s first step, which
+runs `echo "::add-mask::$CLOUDFLARE_API_TOKEN"`. That is GitHub's documented
+way to register a value for redaction and the workflow command is read off
+stdout, so there is no non-echoing form of it. It is there because an action
+input is *not* masked automatically — only values that came from `secrets.*`
+are, and a caller may pass this one from a variable or a literal. Registering
+it means a later step that prints it by accident gets `***`. The exception
+exists to keep the rule true in a log, not to weaken it.
+
 **There is no `--api-token` option, deliberately.** A credential passed as a
 command-line argument sits in the CLI's own argv, readable by every other
 process on the machine, and usually in shell history too — which would make the
