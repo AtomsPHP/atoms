@@ -18,6 +18,12 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * A bare `atoms rollback` rolls back to the previous version, which is
  * Wrangler's own default. `atoms status` lists the version ids.
+ *
+ * "Previous version" means the previous *Worker version*, not the previous
+ * bundle. A `wrangler secret put` mints a version too, so on a Worker whose
+ * last two versions are one deploy followed by one secret rotation, rolling
+ * back lands on the same code it started from. Hence the note printed on
+ * success.
  */
 #[AsCommand(name: 'rollback', description: 'Roll a Worker back to a previous version')]
 final class RollbackCommand extends AbstractCommand
@@ -67,6 +73,14 @@ final class RollbackCommand extends AbstractCommand
         }
 
         $output->writeln('<info>✓ ' . $target->workerName . ' rolled back to ' . ($version ?? 'the previous version') . '.</info>');
+        // Every version counts, including ones that changed no code. Observed
+        // on a real account: with a single deploy followed by a secret
+        // rotation, a bare rollback selected the rotation's version and the
+        // running code did not change.
+        $output->writeln('');
+        $output->writeln('<comment>This moves the Worker version, not the bundle. Setting a secret also</comment>');
+        $output->writeln('<comment>creates a version, so the previous version may run the same code —</comment>');
+        $output->writeln('<comment>check `atoms status --env ' . $env . '` if you expected a code change.</comment>');
 
         return self::SUCCESS;
     }

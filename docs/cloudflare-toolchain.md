@@ -163,6 +163,18 @@ on completion rather than reporting a success that overstates what happened.
 Neither waits for convergence: there is no readiness signal to wait on, and
 inventing a poll loop would assert something Cloudflare does not promise.
 
+Propagation runs in both directions. On a real account, deleting a Worker
+returned API code 10007 for a lookup while `/healthz` on the same hostname kept
+answering 200 for roughly ten more seconds.
+
+**`atoms rollback` moves the version, not the bundle.** A `wrangler secret put`
+mints a Worker version just as a deploy does, so on a Worker whose last two
+versions are one deploy and one secret rotation, a bare rollback selects the
+rotation and the running code does not change — observed on a real account. It
+reads like a state operation and is a code-version operation; Wrangler's own
+warning that bound resources such as the Durable Object do not roll back points
+at the same distinction. The command says so on success.
+
 ### Secrets carry a prefix, because the Worker's allowlist does
 
 `atoms secrets:set PAYMENTS_API_KEY` stores a Worker secret named
@@ -195,6 +207,37 @@ sections do not apply to what it deploys. Parsing goes through
 `colinodell/json5`, because Wrangler's config is JSON with comments and trailing
 commas and a hand-written stripper that is subtly wrong reintroduces the very
 bug this removes.
+
+**Known gap: JSON5 is a superset of what Wrangler parses.** Wrangler accepts
+JSON plus comments and trailing commas. JSON5 accepts all of that *and*
+unquoted keys, single-quoted strings, hex numbers, leading `+`, and more. So
+the CLI reads configurations Wrangler will reject — this file parses here and
+dies at `wrangler deploy` with `InvalidSymbol` on the unquoted `name`:
+
+```json5
+{ name: 'worker', vars: { ATOMS_CONFIG_ENV_PREFIX: 'JSON5_', VALUE: 0x10 } }
+```
+
+Most of the time that is harmless, because a deploy follows and fails loudly
+within seconds. The case that is *not* harmless is `secrets:set` against a
+Worker that is **already running**, whose `wrangler.jsonc` has since been
+edited into JSON5-only syntax. The CLI resolves a prefix from a file the live
+Worker was never deployed from, reports success, and stores a name that Worker
+does not resolve — so `$this->config('KEY')` reads back `null`, silently. That
+is precisely the failure ATOMS-E077 and the whole "read the prefix, don't
+assume it" design exist to prevent, arriving through the parser instead.
+
+It is accepted rather than fixed because the fix is worse. No parser matching
+Wrangler's exact grammar exists for PHP, so closing it means hand-writing one —
+which is what produced the comment-stripper that silently rewrote string
+*values* while parsing cleanly, the bug this dependency replaced. Trading a
+loud, immediate failure for a fresh way to be quietly wrong is the wrong
+direction. The right long-term fix is to ask Wrangler to resolve its own
+config and read the answer, rather than re-implementing its parser; that is a
+larger change than the gap warrants today. Until then, the mitigation is the
+one already in place: `secrets:set` prints the prefix it resolved and the file
+it came from, so a stale or unparsed-as-Wrangler-would config is visible in the
+output rather than something to take on trust.
 
 **This is better than assuming, and it is not authoritative.** The Worker's real
 `env` is whatever the last deploy of that Worker name established, which a
