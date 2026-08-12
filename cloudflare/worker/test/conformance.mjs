@@ -31,8 +31,9 @@
  *   ATOMS_SKIP=n,m (comma-separated check numbers to skip)
  */
 
-import { createPublicKey, verify as verifyEd25519 } from 'node:crypto';
+import { createPublicKey, randomBytes, verify as verifyEd25519 } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -173,12 +174,23 @@ const atomId = (name) => `${name}-${RUN}`;
 // -------------------------------------------------------------- websockets
 
 /**
- * A plain HTTP request carrying `Upgrade: websocket` but never completing the
- * actual WebSocket handshake (no `Sec-WebSocket-Key`) — for asserting that a
- * BAD upgrade is refused with an ordinary JSON error response before any DO
- * is touched (design doc §2). Built on `node:http` rather than `fetch()`
- * because `Upgrade`/`Connection` are the two headers a spec-compliant fetch
- * implementation may refuse to let a caller set by hand.
+ * A SYNTACTICALLY COMPLETE WebSocket upgrade — valid `Sec-WebSocket-Key`,
+ * `Sec-WebSocket-Version: 13`, `Connection: Upgrade`, `Upgrade: websocket` —
+ * carrying a WORKER-LEVEL violation (too many channels, or a type that declares
+ * no WebSocket handler) that the route must refuse with an ordinary JSON error
+ * envelope BEFORE any DO is touched (design doc §2). The handshake is complete
+ * on purpose: a deployed `https://` target sits behind Cloudflare's edge, which
+ * rejects an INCOMPLETE handshake (e.g. a missing `Sec-WebSocket-Key`) itself,
+ * before the Worker can answer — so the probe would never reach the code it is
+ * meant to exercise. A complete handshake passes the edge's own check and lands
+ * on the Worker, where the worker-level violation yields the 400/501 JSON the
+ * check asserts (an error case never becomes a 101, on http or https alike).
+ *
+ * Built on `node:http`/`node:https` rather than `fetch()` because
+ * `Upgrade`/`Connection` are the two headers a spec-compliant fetch
+ * implementation may refuse to let a caller set by hand; the client is chosen
+ * from the base URL's scheme so a deployed `https://` base URL works instead of
+ * dying with Node's `Protocol "https:" not supported`.
  *
  * @param {string} path
  * @returns {Promise<{status: number, data: any}>}
@@ -186,9 +198,15 @@ const atomId = (name) => `${name}-${RUN}`;
 function wsHandshakeAttempt(path) {
     return new Promise((resolve, reject) => {
         const url = new URL(path, baseUrl);
-        const headers = { Upgrade: 'websocket', Connection: 'Upgrade' };
+        const headers = {
+            Connection: 'Upgrade',
+            Upgrade: 'websocket',
+            'Sec-WebSocket-Key': randomBytes(16).toString('base64'),
+            'Sec-WebSocket-Version': '13',
+        };
         if (APP_KEY) headers.Authorization = `Bearer ${APP_KEY}`;
-        const req = httpRequest(url, { method: 'GET', headers }, (res) => {
+        const requestFn = url.protocol === 'https:' ? httpsRequest : httpRequest;
+        const req = requestFn(url, { method: 'GET', headers }, (res) => {
             const chunks = [];
             res.on('data', (c) => chunks.push(c));
             res.on('end', () => {

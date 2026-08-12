@@ -1398,24 +1398,33 @@ otherwise unchanged and still binding.
      with a catchable `DOMException` named `TimeoutError`, and `Date.now()`
      measurably advances across the awaited, aborted fetch — the clock the
      turn-deadline budget depends on (§The turn deadline).
-   - **An orphaned Durable Object `fetch()` still completes under LOCAL
-     `wrangler dev`.** A promise handed to neither `await` nor `waitUntil()`
-     was still delivered in every mode tested. **This must not be relied
-     on** — deployed workerd is documented to cancel pending I/O once a
-     response has been returned and nothing holds the request context, which
-     is exactly the local-passes/remote-fails shape items 1–3 above already
-     record. The design forbids orphaned callback/dispatch deliveries
-     regardless of this measurement (§The callback channel, §Worker layout):
-     every outbound request this Worker makes is started and awaited within
-     the lifetime of the DO event that caused it. Deployed behaviour is
-     otherwise unverified here.
+   - **An orphaned Durable Object `fetch()` completes — locally AND on the
+     deployed platform.** A promise handed to neither `await` nor
+     `waitUntil()` was still delivered in every mode tested under LOCAL
+     `wrangler dev`; a 2026-08-12 deployed measurement against real Durable
+     Objects saw a bare, un-awaited cross-Worker `fetch()` COMPLETE **20/20**
+     after its source event had already returned — this deployment behaved
+     exactly like local workerd. **Neither outcome may be relied on:** the
+     platform promises neither that an orphaned request completes nor that it
+     is cancelled, so the runtime depends on neither. What the design forbids
+     — orphaned callback/dispatch deliveries (§The callback channel, §Worker
+     layout) — is enforced by *always awaiting* every outbound request inside
+     the lifetime of the DO event that caused it, never by hoping the platform
+     cancels one. That await is what makes the guarantee real in both
+     directions: a 200 response means the jobs have actually left the Worker
+     (not merely been started), and hibernation cannot interrupt a delivery
+     that is still in flight because the DO event has not resolved until it
+     lands. No `waitUntil()`, no fire-and-forget: the response-time guarantee,
+     not platform cancellation, is the justification.
    - **Hibernatable-socket limits, measured locally:** 10 tags per socket (an
      11th throws); a 256-character max tag length (a 257th throws); the
      attachment cap is 16384 bytes serialized. `ATOMS_WS_MAX_ATTACHMENT_BYTES`
      defaults to 512 anyway — far under the measured local limit — because
-     production may enforce a smaller number (Cloudflare's published guidance
-     has historically named one); that production figure is **unverified
-     here**.
+     production could in principle enforce a smaller number (Cloudflare's
+     published guidance has historically named one). The 2026-08-12 deployed
+     review (item 5 below) measured production's serialized attachment limit at
+     **16384 bytes** too, so the 512-byte cap is safe with a wide margin; the
+     limit is now confirmed, not merely assumed.
    - **`webSocketMessage` is gated by `blockConcurrencyWhile`, with delivery
      order preserved.** A frame sent while a gate was open was held until the
      gate closed, and a text frame sent before a binary frame was still
@@ -1469,6 +1478,57 @@ otherwise unchanged and still binding.
      "the alarm wakes an evicted residency with no HTTP request involved at
      all," and what conformance check 24 measures directly against a real
      eviction rather than assuming.
+
+5. **Deployed review against real Durable Objects (2026-08-12).** The M2 suite
+   was run against a `workers.dev` deployment on a real Cloudflare account, not
+   `wrangler dev`. Everything below is now measured on deployed infrastructure,
+   not inferred from local behaviour. Two findings changed the tree — a runtime
+   fix and this appendix; the rest confirmed local assumptions on the platform.
+
+   - **Chained timers needed a within-event drain (fixed).** Conformance
+     check 23 intermittently failed: a timer scheduled for "now" from inside
+     `onTimer()` did not fire until ~15s later, because the alarm handler
+     computed one batch of due rows, rearmed for the chained timer's now-past
+     timestamp, and relied on the platform firing that past-due alarm promptly
+     — which deployed workerd sometimes stalled ~15s on (local workerd fires it
+     at once). `runAlarm()` now re-queries and DRAINS newly-due timers within a
+     single alarm event, bounded by `ATOMS_TIMERS_MAX_PER_ALARM`, rearming only
+     after the drain, so a chained timer fires in the same event regardless of
+     platform alarm-timing (§Timers). This removes the timing dependency rather
+     than tightening any assertion.
+   - **An orphaned cross-Worker `fetch()` COMPLETED 20/20** after its source
+     event returned — this deployment did NOT cancel the orphaned I/O; it
+     behaved like local workerd. The runtime relies on neither outcome; see the
+     corrected orphan item in the M2 local list above for why awaiting every
+     delivery inside its DO event is the real justification.
+   - **WebSockets survived a genuine eviction:** across a full
+     `ATOMS_EVICTION_WAIT_MS` idle the object was reconstructed (construction
+     count increased) and the socket kept working — check 21, now confirmed
+     against real eviction.
+   - **Both a close event AND an alarm event independently woke an evicted
+     object** with no HTTP request and no prior traffic — checks 25 and 24,
+     confirmed on deployed hibernation.
+   - **The guest clock stayed frozen across CPU work and across a SQL round
+     trip** on the deployed Worker (the item-3 deviation, now reconfirmed on
+     this deployment): `hrtime(true)` did not advance across a busy loop or a
+     `sql.exec`.
+   - **The turn deadline fired for real:** an over-budget turn returned 504
+     (`turn_deadline_exceeded`) and the next turn got a fresh full budget —
+     check 15, confirmed deployed.
+   - **Crossing ~30s inside `blockConcurrencyWhile` reset the object**, exactly
+     as the operator invariant tied to the item-3 CPU ceiling already warns: an
+     activation (or any single blocking span) that exceeds the platform CPU
+     limit is reset, not merely slowed.
+   - **Production's serialized WebSocket attachment limit was 16384 bytes** —
+     the same figure measured locally — so `ATOMS_WS_MAX_ATTACHMENT_BYTES`'s
+     512-byte default is safe with a wide margin (see the hibernatable-socket
+     limits item above).
+   - **Full-range signed int64 stayed exact** through SQL (via the CAST-to-text
+     path of item 1) and through `app()` callbacks: the whole ±(2^63−1) matrix
+     round-tripped without loss on deployed infrastructure.
+   - **Latency (median):** cold activation 651ms, warm turn 73ms,
+     post-hibernation wake 449ms — no material regression against the earlier
+     ~740 / ~59 / ~604ms figures.
 
 ## Deployment (MVP)
 

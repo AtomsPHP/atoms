@@ -540,8 +540,8 @@ export class AtomDurableObject extends DurableObject {
 	 * with the next turn starting.
 	 *
 	 * Timer turns dispatched from `alarm()` do NOT call this — `runAlarm()`
-	 * re-arms once after its whole batch instead (there is no HTTP response
-	 * to hold there, and re-arming per timer in a batch would be wasted work).
+	 * re-arms once after its whole drain instead (there is no HTTP response
+	 * to hold there, and re-arming per timer in a drain would be wasted work).
 	 *
 	 * Neither leg may turn a committed turn's 200 into a 500: the turn is over
 	 * and its writes are durable by the time this runs, so a failing alarm
@@ -1121,58 +1121,82 @@ export class AtomDurableObject extends DurableObject {
 			return;
 		}
 
-		// Host-side query, WITHOUT booting PHP: a spurious alarm (fired for
-		// rows that were since cancelled or already consumed) just re-arms
-		// and returns.
-		const due = this.timers.dueRows(now(), this.config.timersMaxPerAlarm);
-		if (due.length === 0) {
-			await this.timers.rearmForAlarm();
-			return;
-		}
+		// The drain loop — the fix for the deployed chained-timer flake found in
+		// the 2026-08-12 review (conformance check 23's chain leg). A timer
+		// scheduled for "now" from INSIDE onTimer() must fire in THIS alarm
+		// event, not wait on a past-due alarm that production workerd fires only
+		// eventually (~15s observed). Each iteration re-queries due rows against
+		// a FRESH now() — Date.now() advances across the awaited turn's real I/O
+		// — so a timer chained during one turn becomes `due_at_ms <= now` on the
+		// NEXT iteration and is drained in the SAME alarm event, milliseconds
+		// later, with no dependency on the platform firing a past-due alarm.
+		//
+		// `cap` bounds the TOTAL timers drained in one alarm() invocation, not
+		// just the first batch: a chain longer than the cap, or a genuinely
+		// future timer, is left for the final rearmForAlarm() below to point the
+		// alarm at (MIN(due_at_ms), possibly past → the platform re-fires and
+		// does ANOTHER bounded drain). Never an unbounded loop inside one
+		// alarm(); every row drained is deleted and counted, so total ≤ cap.
+		const cap = this.config.timersMaxPerAlarm;
+		let drained = 0;
+		while (drained < cap) {
+			// FRESH now() each iteration — see above. Host-side query, WITHOUT
+			// booting PHP: a spurious alarm (rows since cancelled or already
+			// consumed) just finds nothing due and falls straight to the re-arm.
+			const due = this.timers.dueRows(now(), cap - drained);
+			if (due.length === 0) break;
 
-		for (const row of due) {
-			// At-most-once: delete BEFORE dispatch. A throwing (or
-			// residency-poisoning) onTimer must not be retried by a later
-			// alarm — the timer is already consumed. This is deliberately
-			// NOT an at-least-once queue.
-			this.timers.deleteRow(row.name);
-			this.timers.noteFired();
+			for (const row of due) {
+				// At-most-once: delete BEFORE dispatch. A throwing (or
+				// residency-poisoning) onTimer must not be retried by a later
+				// alarm — the timer is already consumed. This is deliberately
+				// NOT an at-least-once queue.
+				this.timers.deleteRow(row.name);
+				this.timers.noteFired();
 
-			try {
-				const result = await this.runTimerTurn(identity, row.name);
-				if (result.ok !== true) {
-					this.log('warning', {
-						msg: 'atoms.do.timer_turn_failed',
+				try {
+					const result = await this.runTimerTurn(identity, row.name);
+					if (result.ok !== true) {
+						this.log('warning', {
+							msg: 'atoms.do.timer_turn_failed',
+							name: row.name,
+							code: /** @type {any} */ (result).error?.code,
+							error: /** @type {any} */ (result).error?.message,
+						});
+					}
+				} catch (e) {
+					// The turn loop is documented never to throw; this is defence
+					// in depth for a residency that got poisoned mid-turn (a real
+					// protocol failure), which must not take the whole alarm()
+					// call down with it — the remaining due rows still deserve
+					// their turn.
+					const n = normalizeError(e);
+					this.log('error', {
+						msg: 'atoms.do.alarm_turn_failed',
 						name: row.name,
-						code: /** @type {any} */ (result).error?.code,
-						error: /** @type {any} */ (result).error?.message,
+						code: n.code,
+						error: n.message,
 					});
 				}
-			} catch (e) {
-				// The turn loop is documented never to throw; this is defence
-				// in depth for a residency that got poisoned mid-turn (a real
-				// protocol failure), which must not take the whole alarm()
-				// call down with it — the remaining due rows still deserve
-				// their turn.
-				const n = normalizeError(e);
-				this.log('error', {
-					msg: 'atoms.do.alarm_turn_failed',
-					name: row.name,
-					code: n.code,
-					error: n.message,
-				});
+
+				drained++;
+				if (drained >= cap) break;
 			}
 		}
 
-		// One re-arm after the whole batch: if more rows were due than
-		// ATOMS_TIMERS_MAX_PER_ALARM allowed, MIN(due_at_ms) is still in the
-		// past and the platform fires again immediately — never an unbounded
-		// loop inside one alarm() invocation. `rearmForAlarm()` clears the
-		// touched flag BEFORE its own query and re-checks it after, so a
-		// `timer.schedule` that lands while the re-arm is in flight is either
-		// covered by a second pass here or left flagged for the next turn's
-		// `rearmIfTouched()` — never swallowed by a clear this alarm does not
-		// own (which is how a concurrent schedule used to lose its alarm).
+		// One re-arm AFTER the whole drain. If the drain hit `cap` with rows
+		// still due (a chain longer than the cap, or genuinely-future timers
+		// remain), MIN(due_at_ms) is set and the platform fires again for another
+		// bounded drain — never an unbounded loop inside one alarm() invocation.
+		// `rearmForAlarm()` clears the touched flag BEFORE its own query and
+		// re-checks it after, so a `timer.schedule` that lands while the re-arm
+		// is in flight is either covered here or left flagged for the next turn's
+		// `rearmIfTouched()` — never swallowed by a clear this alarm does not own
+		// (which is how a concurrent schedule used to lose its alarm). Timer turns
+		// dispatched inside the drain set `touched`, and an ordinary turn
+		// interleaved between drain iterations may rearm intermediately off it;
+		// that is harmless because this final rearmForAlarm() overwrites it from
+		// post-drain truth.
 		await this.timers.rearmForAlarm();
 	}
 
@@ -1180,7 +1204,7 @@ export class AtomDurableObject extends DurableObject {
 	 * Dispatch one alarm-driven timer turn through the SAME
 	 * enqueue/ensureActive/beginTurn/runTurn/settleTurn machinery as
 	 * invoke()/wsEvent(): app()/dispatch()/broadcast() work identically from
-	 * onTimer. No rearm here — runAlarm() rearms once after the whole batch
+	 * onTimer. No rearm here — runAlarm() rearms once after the whole drain
 	 * instead. There is no HTTP response to hold, so dispatch() deliveries
 	 * are still settled before this resolves, exactly like every other turn.
 	 *

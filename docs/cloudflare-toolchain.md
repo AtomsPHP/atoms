@@ -193,8 +193,11 @@ Cloudflare propagates a new Worker version and its variables **eventually**.
 Measured on a real account: immediately after a successful `wrangler deploy`,
 `/healthz` reached the new Worker while the first Atom invocation still 404'd,
 and a conformance run against the same URL passed 1/12, then 7/12, then 12/12
-as propagation completed. Secret rotation splits the same way — a freshly
-addressed Atom saw the new value while an already-warm one still read the old.
+as propagation completed. Secret rotation is eventual the same way, and the
+2026-08-12 deployed review found the ORDER in which warm versus freshly
+addressed objects pick up a rotated secret is not guaranteed — it observed both
+warm and fresh Atoms lagging, inconsistently, so neither can be assumed to see a
+new value before the other.
 
 Two consequences the commands cannot paper over. Ordering a monolith deploy
 immediately after `atoms deploy` can have the monolith calling methods the
