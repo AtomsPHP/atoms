@@ -40,8 +40,8 @@ use Symfony\Component\Console\Output\OutputInterface;
 final class DevCommand extends AbstractCommand
 {
     /**
-     * The Worker var carrying the monolith's callback endpoint. Inert until M2;
-     * named now so the Worker half has a name to implement against.
+     * The Worker var carrying the monolith's callback endpoint. The Worker
+     * consumes this for the signed callback channel (`$this->app()`/`dispatch()`).
      */
     public const CALLBACK_VAR = 'ATOMS_CALLBACK_URL';
 

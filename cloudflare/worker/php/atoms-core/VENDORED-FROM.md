@@ -57,9 +57,8 @@ Required by the runtime: `Atom.php`, `AtomJob.php`, `AtomMethods.php`,
 `Errors/*` closure that `AtomsError` → `ErrorCatalog` → `CatalogEntry` pulls in
 (plus its `resources/errors.json` data file). `Timers/Timers.php` is required
 because `Runtime/AtomContext.php` now declares `timers(): Timers\Timers` —
-`CfAtomContext` (`worker/php/runtime/CfAtomContext.php`) still throws
-`AtomsNotSupported` from its `timers()` method; only the ABI shape is vendored
-in this wave.
+`CfAtomContext` (`worker/php/runtime/CfAtomContext.php`) implements this via
+`CfTimers` in `worker/php/runtime/`, which landed in M2.
 
 Two deliberate additions beyond the strict transitive closure:
 `Attributes/MethodsFor.php` and `Attributes/SharedWithAtoms.php`. Nothing in

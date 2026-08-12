@@ -69,7 +69,7 @@ jobs:
           exit "$status"
 
   # The Cloudflare Worker half: build it, run it locally under workerd, and put
-  # the twelve-check conformance suite through it. Everything here is local —
+  # the 24-check conformance suite through it. Everything here is local —
   # `wrangler dev` needs no Cloudflare account, API token or login, and nothing
   # in this job deploys. Do not add credentials or `--remote` to make it
   # "work"; if it stops working, something in the worker broke.
