@@ -3,7 +3,7 @@
 /**
  * ATOMS-E082 — `$this->app()` was called while a database transaction is
  * open. `ctx.storage.transactionSync(cb)` runs `cb` synchronously and cannot
- * await, so there is no version of this that works (design doc §3.1).
+ * await, so there is no version of this that works.
  *
  * Raised from two places: {@see CallbackAppProxy::__call()} (guest-side,
  * primary — the customer gets a clean exception and no request ever leaves

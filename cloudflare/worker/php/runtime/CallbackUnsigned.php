@@ -4,8 +4,7 @@
  * ATOMS-E081 — `ATOMS_CALLBACK_URL` is set but the Worker has no usable
  * Ed25519 signing key. There is no "development mode" that sends unsigned: a
  * monolith with the kernel mounted would reject it anyway (ATOMS-E064), so an
- * unsigned request would only make a security control look optional (design
- * doc §6.3).
+ * unsigned request would only make a security control look optional.
  *
  * No declare(strict_types=1) — see the note in host.php.
  */

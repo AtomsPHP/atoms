@@ -3,7 +3,7 @@
 /**
  * Thrown by {@see CfConnection::send()} when the host reports `ws_conn_gone`
  * — the connection id no longer resolves to a socket, so the message was not
- * delivered (design doc §5). A customer that does not care catches this:
+ * delivered. A customer that does not care catches this:
  *
  *     try { $conn->send($msg); } catch (ConnectionClosed $e) {}
  *
@@ -12,7 +12,7 @@
  * the `Atoms\Cf` prelude has never carried `ATOMS-E###` codes — neither does
  * {@see AtomsNotSupported}.
  *
- * Honesty caveat (design doc §5, `php/README.md` §Documented leaks): the host
+ * Honesty caveat (`php/README.md` §Documented leaks): the host
  * can only detect "gone" when the id resolves to no socket at all. If the
  * socket is mid-teardown, `ws.send()` can still succeed and the frame is
  * silently dropped by the platform — so the ABSENCE of this exception means

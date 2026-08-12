@@ -85,15 +85,15 @@ export class AtomDurableObject extends DurableObject {
 
 		// Bumped by discardPhp(). Lets a callback in flight across an await
 		// (serviceAppCall) detect that the PHP instance it would resume is gone,
-		// rather than resuming a dead Emscripten module (design §5.3).
+		// rather than resuming a dead Emscripten module.
 		this.phpGeneration = 0;
 
 		/**
 		 * The open callback window's budget, set by `beginWindow()` and cleared
 		 * the moment the window closes (end of `runTurn()`, end of `activate()`,
 		 * and in `discardPhp()`). Never allowed to outlive its window: the
-		 * `exhausted` flag latches for the rest of the turn (design §2.2), so a
-		 * budget carried into the NEXT window arrives permanently spent.
+		 * `exhausted` flag latches for the rest of the turn, so a budget
+		 * carried into the NEXT window arrives permanently spent.
 		 *
 		 * @type {import('./callbacks.js').TurnBudget|null}
 		 */
@@ -104,7 +104,7 @@ export class AtomDurableObject extends DurableObject {
 		 * dead code by construction. They are drained by whichever settle path
 		 * encloses the window that produced them (`settlePostTurn()`, or
 		 * `activate()`'s own finally), so even the unreachable path cannot leave
-		 * a delivery un-awaited across the DO event (design §5).
+		 * a delivery un-awaited across the DO event.
 		 *
 		 * @type {import('./callbacks.js').TurnCollector[]}
 		 */
@@ -139,13 +139,13 @@ export class AtomDurableObject extends DurableObject {
 		});
 		this.tx = new TransactionMachine({ ctx, config: this.config, host: this, callbacks: this.callbacks });
 
-		// Residency-local WebSocket bookkeeping (design §7/§10). None of this is
-		// ever persisted: it exists to make a wake path cheap and to give the
+		// Residency-local WebSocket bookkeeping. None of this is ever
+		// persisted: it exists to make a wake path cheap and to give the
 		// debug endpoint an honest "this residency" view, never to be the
 		// authority on what sockets exist — ctx.getWebSockets() always is.
 		this.wsConnectsThisResidency = 0;
 		this.wsTurnsThisResidency = 0;
-		/** @type {Set<string>} de-dupes webSocketError+webSocketClose firing for one socket (H6) */
+		/** @type {Set<string>} de-dupes webSocketError+webSocketClose firing for one socket */
 		this.wsDisconnected = new Set();
 
 		this.bridge.ensureSchema();
@@ -207,10 +207,10 @@ export class AtomDurableObject extends DurableObject {
 	/**
 	 * `/ws?call=<json>` — everything `index.js`'s `wsUpgrade()` already
 	 * validated (type/id, manifest, the `websocket` flag, params/channels)
-	 * arrives packed into `call`; this does ONLY the accept path (design
-	 * §7A). The whole thing runs inside `this.enqueue()`, exactly one turn
+	 * arrives packed into `call`; this does ONLY the accept path.
+	 * The whole thing runs inside `this.enqueue()`, exactly one turn
 	 * mutex slot, so it cannot interleave with any other turn on this
-	 * residency (H2/H4).
+	 * residency.
 	 *
 	 * @param {URL} url
 	 * @param {Request} request
@@ -233,13 +233,13 @@ export class AtomDurableObject extends DurableObject {
 
 		const collector = this.callbacks.newCollector();
 		const run = this.enqueue(async () => {
-			// Step A3 (design §7): the SAME activation gate fetch() uses for an
+			// Step A3: the SAME activation gate fetch() uses for an
 			// invoke. If it throws, nothing below runs and nothing has been
 			// accepted.
 			await this.ensureActive(type, id);
 
 			// Step A4: host-minted identity. Nothing here is derived from guest
-			// memory (§1) — id and channels are the whole attachment.
+			// memory — id and channels are the whole attachment.
 			const connId = crypto.randomUUID();
 			const attachment = buildAttachment(connId, channels);
 			if (attachmentByteLength(attachment) > this.config.wsMaxAttachmentBytes) {
@@ -252,8 +252,9 @@ export class AtomDurableObject extends DurableObject {
 
 			// Step A5: accept, THEN attach, THEN memoize — in that order, so a
 			// frame arriving the instant after accept still finds a readable
-			// attachment (M11 proves a send this early already reaches the
-			// client; the same ordering argument applies to reads).
+			// attachment (a frame sent between acceptWebSocket() and the 101
+			// response still reaches the client; the same ordering argument
+			// applies to reads).
 			const pair = new WebSocketPair();
 			const server = pair[1];
 			const client = pair[0];
@@ -271,12 +272,12 @@ export class AtomDurableObject extends DurableObject {
 
 			const conn = { id: connId, channels };
 			try {
-				// Step A6: onConnect fires from exactly this one place (design §7)
+				// Step A6: onConnect fires from exactly this one place
 				// — no wake path can ever reach ws.connect.
 				const result = await this.runTurn({ ok: true, kind: 'ws.connect', conn, params });
 				if (result.ok !== true) {
 					// An ok:false envelope (onConnect threw, caught by run_ws_turn())
-					// is logged and the connection is KEPT (design §4/§7A step 6).
+					// is logged and the connection is KEPT.
 					this.log('warning', {
 						msg: 'atoms.ws.connect_turn_failed',
 						conn: connId,
@@ -322,8 +323,8 @@ export class AtomDurableObject extends DurableObject {
 
 	/**
 	 * A hibernatable socket delivered an inbound frame. Cold or warm residency
-	 * — `blockConcurrencyWhile` gates this the same way it gates `fetch()`
-	 * (measured M6, design §7 H1), so there is no ws-specific "is it warm?"
+	 * — `blockConcurrencyWhile` gates this the same way it gates `fetch()`,
+	 * so there is no ws-specific "is it warm?"
 	 * check anywhere in this file.
 	 *
 	 * @param {any} ws
@@ -334,7 +335,7 @@ export class AtomDurableObject extends DurableObject {
 		const byteLength = binary ? /** @type {ArrayBuffer} */ (message).byteLength : encoder.encode(message).length;
 
 		if (byteLength > this.config.wsMaxMessageBytes) {
-			// H10: an over-cap frame is not dispatched as a turn — the peer must
+			// An over-cap frame is not dispatched as a turn — the peer must
 			// never be left believing a dropped frame was delivered.
 			this.log('warning', { msg: 'atoms.ws.message_too_big', bytes: byteLength });
 			try {
@@ -373,9 +374,9 @@ export class AtomDurableObject extends DurableObject {
 	}
 
 	/**
-	 * M12: an abrupt client disconnect delivers webSocketClose(1006, false),
+	 * An abrupt client disconnect delivers webSocketClose(1006, false),
 	 * not this handler — but a genuine transport error can still fire it, and
-	 * H6 says it may fire ALONGSIDE webSocketClose for the same socket. The
+	 * it may fire ALONGSIDE webSocketClose for the same socket. The
 	 * dedupe set makes at most one ws.close turn ever result.
 	 *
 	 * @param {any} ws
@@ -390,7 +391,7 @@ export class AtomDurableObject extends DurableObject {
 	}
 
 	/**
-	 * The wake path shared by every hibernatable socket event (design §7C).
+	 * The wake path shared by every hibernatable socket event.
 	 * Runs the SAME activation gate and the SAME turn mutex as `fetch()`'s
 	 * accept path and every invoke — there is no ws-specific mutex and no
 	 * ws-specific "is it warm?" check. Never throws: a failed ws turn is
@@ -412,8 +413,8 @@ export class AtomDurableObject extends DurableObject {
 		}
 
 		// A socket can only exist because an upgrade completed an activation,
-		// so __atoms_meta is always present; absent means corruption (design
-		// §7C) — dropped rather than guessed at. Read from durable state, not
+		// so __atoms_meta is always present; absent means corruption —
+		// dropped rather than guessed at. Read from durable state, not
 		// `this.identity`: a wake may be the FIRST event this residency has
 		// ever seen.
 		const identity = this.identityFromMeta();
@@ -423,7 +424,7 @@ export class AtomDurableObject extends DurableObject {
 		}
 
 		if (opts.dedupe) {
-			// H6. The Set is residency-lived: it is never cleared per event,
+			// The Set is residency-lived: it is never cleared per event,
 			// because the second of `webSocketError`/`webSocketClose` for one
 			// socket arrives AFTER the first has finished, and an entry removed
 			// in the first event's `finally` would let the second one through —
@@ -463,7 +464,7 @@ export class AtomDurableObject extends DurableObject {
 			// The turn loop never throws out of here: the only way this catches
 			// is the same protocol-level failure that would poison an invoke, and
 			// a socket event must not take the residency OR the socket down for
-			// that (design §4).
+			// that.
 			const n = normalizeError(e);
 			this.log('error', { msg: 'atoms.ws.turn_failed', conn: att.id, code: n.code, error: n.message });
 		} finally {
@@ -528,14 +529,14 @@ export class AtomDurableObject extends DurableObject {
 		});
 		// Outside the mutex, inside the DO event: the next turn may start while
 		// this turn's dispatch() deliveries are in flight, but this turn's
-		// response does not go out until they have settled (design §4.1).
+		// response does not go out until they have settled.
 		return run.finally(() => this.settlePostTurn(collector));
 	}
 
 	/**
 	 * Post-turn work that must happen after every ordinary turn, outside the
-	 * turn mutex: `dispatch()` delivery settlement (design §4.1) and, when
-	 * this turn touched a timer, the Durable Object alarm re-arm (M2 wave 3's
+	 * turn mutex: `dispatch()` delivery settlement and, when this turn
+	 * touched a timer, the Durable Object alarm re-arm (M2 wave 3's
 	 * "re-arm rule"). Both are safe to run concurrently with each other and
 	 * with the next turn starting.
 	 *
@@ -581,7 +582,7 @@ export class AtomDurableObject extends DurableObject {
 	 * Await `collector`'s deliveries, plus any stray collector the dead-code
 	 * fallback in `serviceParks()` minted while this window was open. Every
 	 * delivery this residency starts is awaited by exactly one of these calls,
-	 * inside the DO event that caused it (design §5).
+	 * inside the DO event that caused it.
 	 *
 	 * @param {import('./callbacks.js').TurnCollector} collector
 	 * @returns {Promise<void>}
@@ -638,8 +639,8 @@ export class AtomDurableObject extends DurableObject {
 			// The window closes with the turn. A budget left set here would be
 			// found by the NEXT window's guest code already spent — and
 			// `exhausted` latches, so the damage would be permanent rather than
-			// transient (design §2.2, "reset on the next beginTurn()"). The
-			// collector is dropped in the same breath (endWindow): a dispatch
+			// transient (reset on the next beginTurn()). The collector is
+			// dropped in the same breath (endWindow): a dispatch
 			// that reaches the bridge between windows must hit the "no collector"
 			// refusal, not attach to this settled one.
 			this.turnBudget = null;
@@ -693,8 +694,7 @@ export class AtomDurableObject extends DurableObject {
 				p.reply(errorReply('tx_state', `${op} received with no transaction open`));
 			} else if (op === 'app.call') {
 				// This is the first `await` inside serviceParks(), and the reason
-				// the method is already `async` and already awaited by runTurn()
-				// (design §1.2).
+				// the method is already `async` and already awaited by runTurn().
 				//
 				// The budget is opened by beginWindow() before any guest code can
 				// run — by the turn paths before runTurn(), and by activate()
@@ -757,8 +757,8 @@ export class AtomDurableObject extends DurableObject {
 	 * is customer code on the legal ABI — may call `app()` and `dispatch()`.
 	 * The window is opened BEFORE `php.run()` starts and settled in a `finally`
 	 * before this method returns, so activation-time deliveries are awaited
-	 * inside the activation event rather than orphaned across it (design §5).
-	 * The settle runs inside `blockConcurrencyWhile` and is bounded by
+	 * inside the activation event rather than orphaned across it. The settle
+	 * runs inside `blockConcurrencyWhile` and is bounded by
 	 * `ATOMS_CALLBACK_TIMEOUT_MS`, exactly like the rest of the gate.
 	 *
 	 * @param {string} type
@@ -858,9 +858,9 @@ export class AtomDurableObject extends DurableObject {
 		} finally {
 			// `finally`, for the same reason `invoke()` settles with `.finally`:
 			// a job dispatched before a failing activation is as durable as a
-			// non-transactional write and must still be awaited (design §3.4).
-			// Settlement itself never rejects, so this cannot mask the real
-			// activation error.
+			// non-transactional write and must still be awaited. Settlement
+			// itself never rejects, so this cannot mask the real activation
+			// error.
 			await this.settleDeliveries(activationCollector);
 			this.turnBudget = null;
 			// Deliveries are settled; drop the collector so nothing can attach to
@@ -1050,13 +1050,13 @@ export class AtomDurableObject extends DurableObject {
 		this.turnBudget = null;
 		this.callbacks.endWindow();
 		this.tx.reset();
-		// The connId -> socket memo is residency-local and must not outlive the
-		// PHP instance it was warmed for (design §5/§7E) — but the sockets
-		// themselves are NOT closed: poisoning is recoverable, and a socket
-		// stays open across it exactly like it stays open across an eviction.
+		// The connId -> socket memo is residency-local and must not outlive
+		// the PHP instance it was warmed for — but the sockets themselves are
+		// NOT closed: poisoning is recoverable, and a socket stays open
+		// across it exactly like it stays open across an eviction.
 		this.ws.clearMemo();
-		// Invalidates any serviceAppCall() awaiting a fetch with this generation
-		// captured (design §5.3): its reply is dropped rather than resuming a
+		// Invalidates any serviceAppCall() awaiting a fetch with this
+		// generation captured: its reply is dropped rather than resuming a
 		// discarded PHP instance.
 		this.phpGeneration++;
 		if (php) {

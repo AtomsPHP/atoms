@@ -10,7 +10,7 @@
  *
  * `\RuntimeException`, not `\PDOException`: these are not database failures,
  * and a customer catching `\RuntimeException` around `$this->app()`/
- * `$this->dispatch()` is the documented pattern (design doc §2.4).
+ * `$this->dispatch()` is the intended pattern.
  *
  * No declare(strict_types=1) — see the note in host.php.
  */

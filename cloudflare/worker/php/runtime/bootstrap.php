@@ -102,7 +102,7 @@ function runtime_files()
         'TurnDeadlineExceeded.php',
         'CallbackChannel.php',
         'CallbackAppProxy.php',
-        // The WebSocket seam (design doc §5): ConnectionClosed before
+        // The WebSocket seam: ConnectionClosed before
         // CfConnection, which throws it, for the same "base before what
         // references it" reason as the callback classes above — though PHP
         // resolves it lazily (inside a method body) either way.
@@ -271,7 +271,7 @@ function apply_migrations(BridgeDatabase $db, array $paths, $type)
  * client must never reach through `POST /invoke/:type/:id/:method`:
  *
  *   - onConnect/onMessage/onDisconnect — dispatched by `run_ws_dispatch()`,
- *     reachable only through a socket (design doc §4's security fix);
+ *     reachable only through a socket, never through `/invoke`;
  *   - onTimer                          — dispatched by `run_timer_turn()`,
  *     reachable only through a Durable Object alarm;
  *   - onActivation/onDeactivation      — the residency lifecycle hooks,
@@ -541,8 +541,7 @@ function run_turn($atom, Serializer $serializer, SqlBridge $bridge, array $ident
             // An uncaught turn-deadline overrun is reported as its own
             // turn-result code, not folded into atom_exception, so the client
             // can retry it (atoms/client already maps turn_deadline_exceeded ->
-            // TurnDeadlineExceeded and only retries when the call site opts in
-            // — design doc §2.4).
+            // TurnDeadlineExceeded and only retries when the call site opts in).
             if ($e instanceof TurnDeadlineExceeded) {
                 return error_envelope('turn_deadline_exceeded', $e->getMessage(), get_class($e));
             }
@@ -574,8 +573,8 @@ function run_turn($atom, Serializer $serializer, SqlBridge $bridge, array $ident
 }
 
 /**
- * `run_turn()`'s sibling for the three WebSocket lifecycle handlers (design
- * doc §4). Shares its two-layer guard exactly — an uncaught exception in
+ * `run_turn()`'s sibling for the three WebSocket lifecycle handlers.
+ * Shares its two-layer guard exactly — an uncaught exception in
  * `onConnect`/`onMessage`/`onDisconnect` becomes an `atom_exception`
  * turn-result envelope, logged host-side, is NEVER sent to the socket peer in
  * any form, and does not close the socket or poison the residency — but
@@ -652,10 +651,10 @@ function run_ws_turn($atom, SqlBridge $bridge, array $identity, $method, array $
 
 /**
  * Build the right handler call for one `ws.*` turn envelope and run it
- * through {@see run_ws_turn()}. `conn.id`/`conn.channels` are host-minted
- * (design doc §1); only the id is ever handed to the guest, wrapped in a
- * fresh {@see CfConnection} — never a cached one, so a wake-path CfConnection
- * is exactly as cheap to build as a first-turn one.
+ * through {@see run_ws_turn()}. `conn.id`/`conn.channels` are host-minted;
+ * only the id is ever handed to the guest, wrapped in a fresh
+ * {@see CfConnection} — never a cached one, so a wake-path CfConnection is
+ * exactly as cheap to build as a first-turn one.
  *
  * @param object $atom
  * @param SqlBridge $bridge
@@ -678,8 +677,8 @@ function run_ws_dispatch($atom, SqlBridge $bridge, array $identity, $kind, array
     if ($kind === 'ws.message') {
         $binary = !empty($envelope['binary']);
         $payload = isset($envelope['payload']) && is_string($envelope['payload']) ? $envelope['payload'] : '';
-        // The host base64-encodes a binary frame (ArrayBuffer -> string,
-        // design doc §5); a text frame arrives already decoded.
+        // The host base64-encodes a binary frame (ArrayBuffer -> string);
+        // a text frame arrives already decoded.
         $decoded = $binary ? (string) base64_decode($payload, true) : $payload;
 
         return run_ws_turn($atom, $bridge, $identity, 'onMessage', [$conn, new CfMessage($decoded, $binary)]);

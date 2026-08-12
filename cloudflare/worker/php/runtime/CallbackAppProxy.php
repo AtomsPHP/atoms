@@ -2,20 +2,19 @@
 
 /**
  * The `app()` proxy: reverse RPC into the monolith's Methods class, over the
- * signed `app.call` park op (design doc §7.1).
+ * signed `app.call` park op.
  *
  * `__call()` refuses inside a transaction before encoding anything
- * (`ctx.storage.transactionSync(cb)` cannot await — design doc §3.1), builds
- * the exact `methods` body the kernel expects with `json_encode()`, crosses,
- * and returns `json_decode($body, true)['result']` verbatim — the decoded
- * wire tree, not hydrated back into Payload DTOs/DateTimeImmutable/BackedEnum
- * (design doc §7.4; documented gap, not a bug).
+ * (`ctx.storage.transactionSync(cb)` cannot await), builds the exact
+ * `methods` body the kernel expects with `json_encode()`, crosses, and
+ * returns `json_decode($body, true)['result']` verbatim — the decoded wire
+ * tree, not hydrated back into Payload DTOs/DateTimeImmutable/BackedEnum (a
+ * known, deliberate gap, not a bug).
  *
  * No int64 tagging on this wire: PHP writes a bare JSON number and the
  * kernel's json_decode() reads it back exactly, because the host never
- * parses a callback body (the opaque-body invariant, design doc §1.1). This
- * is the one place the callback wire and the PHP<->JS wire deliberately
- * disagree.
+ * parses a callback body (the opaque-body invariant). This is the one place
+ * the callback wire and the PHP<->JS wire deliberately disagree.
  *
  * No declare(strict_types=1) — see the note in host.php.
  */

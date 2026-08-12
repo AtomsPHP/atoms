@@ -291,7 +291,7 @@ async function debugInfo(env, config, type, id) {
 }
 
 /**
- * `GET /ws/:type/:id` — validate everything (mvp-spec / design doc §2), THEN
+ * `GET /ws/:type/:id` — validate everything, THEN
  * forward the raw upgrade `Request` to the Atom's Durable Object stub. The
  * stub's `Response` (a 101 carrying `webSocket`, or a JSON error envelope
  * `atom-do.js` built itself) is returned untouched: an upgrade cannot go
@@ -319,7 +319,7 @@ async function wsUpgrade(request, env, config, url, type, id) {
 	if (manifestFailure) return manifestFailure;
 
 	// Absent flag => allowed; explicit false => the type declares no WebSocket
-	// handlers and the route refuses before any DO is touched (design §2/§11).
+	// handlers and the route refuses before any DO is touched.
 	const entry = bundle?.manifest?.atoms?.[type] ?? {};
 	if (entry.websocket === false) {
 		return errorResponse(
@@ -346,13 +346,13 @@ async function wsUpgrade(request, env, config, url, type, id) {
 	return stub.fetch(new Request(`https://atoms.internal/ws?call=${call}`, request));
 }
 
-/** `^[A-Za-z0-9][A-Za-z0-9._:@-]*$` — design §3. */
+/** Channel name format: `^[A-Za-z0-9][A-Za-z0-9._:@-]*$`. */
 const CHANNEL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/;
 
 /**
  * The flat `string -> string` map `onConnect` receives: every query key as
  * sent, last value winning for repeats (matches `URLSearchParams` iteration
- * order), `channels` included verbatim (design §4).
+ * order), `channels` included verbatim.
  *
  * @param {URL} url
  * @param {import('./config.js').AtomsConfig} config
@@ -395,7 +395,7 @@ function parseWsParams(url, config) {
 
 /**
  * Parse and validate `?channels=a,b,c` into the de-duplicated, ordered list
- * of channel names a new connection joins (design §3). Never silently
+ * of channel names a new connection joins. Never silently
  * truncates: every violation is a named `invalid_request`.
  *
  * @param {string|undefined} raw
@@ -431,7 +431,7 @@ function parseWsChannels(raw, config) {
 			`the connect request names ${channels.length} channels, over ATOMS_WS_MAX_CHANNELS (${config.wsMaxChannels})`
 		);
 	}
-	// The derived budget (design §3): stated once here so it cannot drift from
+	// The derived budget, stated once here so it cannot drift from
 	// the connection tag plus one channel tag per channel.
 	if (1 + channels.length > config.wsMaxTagsPerConnection) {
 		throw new AtomsError(

@@ -1,9 +1,8 @@
 /**
  * The signed callback channel: `app()` (park op `app.call`) and `dispatch()`
- * (sync op `dispatch.enqueue`) both cross here. Ported from the approved
- * design doc's §1/§2/§4/§6.
+ * (sync op `dispatch.enqueue`) both cross here.
  *
- * The opaque-body invariant (design §1.1) is load-bearing for this whole file:
+ * The opaque-body invariant is load-bearing for this whole file:
  * `body` arrives from the guest as an already-`json_encode()`d string and is
  * never `JSON.parse`d or re-encoded. `TextEncoder.encode()` turns it into the
  * exact bytes that are signed and sent; the response text is relayed to the
@@ -34,15 +33,15 @@ function fail(code, message, extra = {}) {
 const encoder = new TextEncoder();
 
 // The fixed 16-byte PKCS8 DER prefix for a raw 32-byte Ed25519 seed. Verified
-// against workerd's WebCrypto and node:crypto (design doc §0.1 M1, §6.1).
+// against workerd's WebCrypto and node:crypto.
 const PKCS8_PREFIX = new Uint8Array([
 	0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
 ]);
 
 // A JS string can hold a lone UTF-16 surrogate, which TextEncoder silently
 // replaces with U+FFFD — signed would still equal sent, but sent would no
-// longer equal what PHP built. PHP's json_encode() cannot emit one (design
-// §1.1), so this only ever fires on a prelude bug.
+// longer equal what PHP built. PHP's json_encode() cannot emit one, so
+// this only ever fires on a prelude bug.
 const LONE_SURROGATE_RE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 /**
@@ -83,7 +82,7 @@ function concatBytes(a, b) {
  * @property {number} deadlineMs       `ATOMS_TURN_DEADLINE_MS` at the time the turn began.
  * @property {boolean} exhausted       Latched true once `turn_deadline_exceeded` has been produced once this turn.
  * @property {number} [exhaustedElapsedMs] Elapsed-at-exhaustion, cached so a later latched call reports it
- *                                          without another clock read (design §2.2).
+ *                                          without another clock read.
  */
 
 /**
@@ -100,14 +99,14 @@ export class CallbackChannel {
 	 * @param {() => number} [opts.phpGenerationRef]
 	 *   Snapshot of the residency's PHP generation counter, bumped whenever the
 	 *   PHP instance is discarded. Read before and after the callback await so a
-	 *   reply is never delivered to a dead guest (design §5.3).
+	 *   reply is never delivered to a dead guest.
 	 */
 	constructor({ config, log, phpGenerationRef }) {
 		this.config = config;
 		this.log = log;
 		this.phpGenerationRef = phpGenerationRef ?? (() => 0);
 
-		/** @type {Promise<CryptoKey>|null} memoized signing key import (design §6.1) */
+		/** @type {Promise<CryptoKey>|null} memoized signing key import */
 		this.keyPromise = null;
 
 		/** @type {{body: string, job: string}[]} dispatch() bodies buffered while a transaction is open */
@@ -116,7 +115,7 @@ export class CallbackChannel {
 		/** @type {TurnCollector|null} the current turn's collector, set by beginTurn() */
 		this.collector = null;
 
-		// Debug-endpoint observables (design §8), all monotonic per residency.
+		// Debug-endpoint observables, all monotonic per residency.
 		this.callbackCalls = 0;
 		this.dispatches = 0;
 		this.dispatchFailures = 0;
@@ -136,7 +135,7 @@ export class CallbackChannel {
 	 * Open a callback window: a FRESH budget, and `collector` as the target for
 	 * any `dispatch()` initiated while the window is open.
 	 *
-	 * Placement matters (design §4.1). There are exactly two kinds of window,
+	 * Placement matters. There are exactly two kinds of window,
 	 * and between them they cover every moment guest code can run:
 	 *
 	 *   - a **turn** window — opened after `ensureActive()` and before
@@ -148,7 +147,7 @@ export class CallbackChannel {
 	 *
 	 * The budget is always newly minted here and never reused: a budget that
 	 * outlived its window would arrive at the next one already spent, and
-	 * `exhausted` latches (§2.2), so the reuse is permanent rather than
+	 * `exhausted` latches, so the reuse is permanent rather than
 	 * transient.
 	 *
 	 * @param {number} deadlineMs
@@ -184,7 +183,7 @@ export class CallbackChannel {
 
 	/**
 	 * Await every delivery THIS turn's `dispatch()` calls started. Per-turn
-	 * collectors are required (design §4.1): awaiting the wrong one would make
+	 * collectors are required: awaiting the wrong one would make
 	 * turn N wait on turn N+1's deliveries, or worse, never settle.
 	 *
 	 * @param {TurnCollector|null} collector
@@ -199,7 +198,7 @@ export class CallbackChannel {
 	/**
 	 * Service one `app.call` park. Every path out of this method replies to
 	 * `parked` (or explicitly drops the reply after logging, when the PHP
-	 * instance was discarded mid-await — design §5.3): the park callback must
+	 * instance was discarded mid-await): the park callback must
 	 * ALWAYS be answered so the guest is never stranded.
 	 *
 	 * @param {import('./bridge.js').ParkedCall} parked
@@ -232,7 +231,7 @@ export class CallbackChannel {
 		if (budget.exhausted) {
 			// Latched: no clock read, no fetch. This is what stops a caught-and-
 			// retried app() loop from hammering the monolith once the turn is
-			// already out of time (design §2.2, checked by conformance 15b).
+			// already out of time (checked by conformance check 15b).
 			reply(
 				fail('turn_deadline_exceeded', 'the turn budget is already exhausted', {
 					elapsed_ms: budget.exhaustedElapsedMs ?? budget.deadlineMs,
@@ -417,7 +416,7 @@ export class CallbackChannel {
 		return ok({ buffered: false });
 	}
 
-	/** Move buffered dispatches to in-flight. Called by TransactionMachine on commit (design §3.4). */
+	/** Move buffered dispatches to in-flight. Called by TransactionMachine on commit. */
 	onTransactionCommit() {
 		const buffered = this.txBuffer;
 		this.txBuffer = [];
@@ -432,7 +431,7 @@ export class CallbackChannel {
 			// lands between windows reaches this branch instead of finding a
 			// stale collector. There is nowhere to attach these deliveries that
 			// anything would await — starting them anyway would orphan them
-			// across the DO event (design §5) — so they are dropped LOUDLY, one
+			// across the DO event — so they are dropped LOUDLY, one
 			// line per job, never silently.
 			for (const { job } of buffered) {
 				this.dispatchFailures++;
@@ -447,8 +446,8 @@ export class CallbackChannel {
 	}
 
 	/**
-	 * Drop buffered dispatches. Called by TransactionMachine on rollback/abandon
-	 * (design §3.4). The per-turn dispatch cap is refunded for them: a job the
+	 * Drop buffered dispatches. Called by TransactionMachine on rollback/abandon.
+	 * The per-turn dispatch cap is refunded for them: a job the
 	 * runtime itself decided never happened must not consume the budget of the
 	 * turn that retries it inside the same residency.
 	 */
@@ -463,8 +462,8 @@ export class CallbackChannel {
 	/**
 	 * Fire the signed POST without awaiting it here; register the promise on
 	 * the turn's collector so `settleTurn()` waits for it before the turn's
-	 * response goes out (design §4.1). `deliverJob()` never rejects: a
-	 * delivery failure is logged and dropped, per §4.2.
+	 * response goes out. `deliverJob()` never rejects: a
+	 * delivery failure is logged and dropped.
 	 *
 	 * @param {string} bodyString
 	 * @param {string} job
@@ -552,7 +551,7 @@ export class CallbackChannel {
 	/**
 	 * Once `turn_deadline_exceeded` has been produced, latch the budget for
 	 * the rest of the turn and cache the elapsed time it was latched at, so a
-	 * later latched call can report without another clock read (design §2.2).
+	 * later latched call can report without another clock read.
 	 *
 	 * @param {TurnBudget} budget
 	 * @param {number} elapsedMs
@@ -605,7 +604,7 @@ export class CallbackChannel {
 	 * Import (and memoize) the Ed25519 signing key. `extractable: false`: the
 	 * Worker never needs to export it, and a customer Atom that reads
 	 * arbitrary guest memory still cannot obtain it — the key never enters
-	 * wasm at all (design §6.1).
+	 * wasm at all.
 	 *
 	 * @returns {Promise<CryptoKey>}
 	 */
@@ -628,7 +627,7 @@ export class CallbackChannel {
 	/**
 	 * Build the signed request for one callback body. `bodyBytes` is computed
 	 * once and used for both signing and sending — "signed ≡ sent" is true by
-	 * construction (design §1.1, §6.2).
+	 * construction.
 	 *
 	 * @param {string} bodyString
 	 * @param {'methods'|'job'} kind
@@ -659,7 +658,7 @@ export class CallbackChannel {
 
 /**
  * `AbortSignal.timeout()` aborts with a DOMException named "TimeoutError"
- * (design doc §0.1 M3, measured against the pinned wrangler/workerd).
+ * (measured against the pinned wrangler/workerd).
  *
  * @param {unknown} e
  * @returns {boolean}

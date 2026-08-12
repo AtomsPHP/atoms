@@ -481,7 +481,7 @@ export class Bridge {
 
 	/**
 	 * `{"op":"dispatch.enqueue","body":string,"job":string}` — the sync door
-	 * half of `dispatch()` (design doc §1.3). Genuinely synchronous: it
+	 * half of `dispatch()`. Genuinely synchronous: it
 	 * validates and either buffers the body (a transaction is open) or
 	 * initiates the signed POST without awaiting it. Delegates everything to
 	 * the shared `CallbackChannel`, which never throws out of this call —
@@ -568,7 +568,7 @@ export class TransactionMachine {
 			this.open = false;
 			if (e === this.SENTINEL && rollbackParked) {
 				// Cloudflare discarded the write set; drop any buffered dispatch()
-				// bodies (design §3.4) and tell the guest.
+				// bodies and tell the guest.
 				this.callbacks?.onTransactionRollback();
 				/** @type {ParkedCall} */ (rollbackParked).reply(ok({ rolledBack: true }));
 				return;
@@ -587,7 +587,7 @@ export class TransactionMachine {
 			throw new AtomsError('internal', 'transaction committed without a parked tx.commit');
 		}
 		// The write set is durable; buffered dispatch() bodies become deliverable
-		// now, overlapping with the rest of the guest's work (design §3.4, §4.1).
+		// now, overlapping with the rest of the guest's work.
 		this.callbacks?.onTransactionCommit();
 		/** @type {ParkedCall} */ (commitParked).reply(ok({ committed: true }));
 	}
@@ -646,7 +646,7 @@ export class TransactionMachine {
 			if (op === 'tx.commit') return { kind: 'commit', parked: p };
 			if (op === 'tx.rollback') return { kind: 'rollback', parked: p };
 			if (op === 'turn.await') return { kind: 'abandoned', parked: p };
-			// app.call is the common case reaching this branch (design §3.2): the
+			// app.call is the common case reaching this branch: the
 			// guest-side guard in CallbackAppProxy is supposed to catch it first,
 			// so this is defence in depth, and the message says why rejecting it
 			// is safe where rejecting turn.await (above) is not.

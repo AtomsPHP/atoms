@@ -7,10 +7,10 @@
  * against the Worker alone, 13-17 against the callback channel (app()/
  * dispatch()), for which this suite itself plays the monolith — a
  * `node:http` listener bound to 127.0.0.1 that verifies Ed25519 signatures
- * with `node:crypto` (design doc §10) — 18-22 against the WebSocket seam and
+ * with `node:crypto` — 18-22 against the WebSocket seam and
  * `broadcast()`, 23-24 against timers and the Durable Object alarm, and 25
  * against a close that has to WAKE a hibernated Durable Object. The WebSocket
- * checks use Node's built-in global `WebSocket` (M14) so no `ws` dependency is
+ * checks use Node's built-in global `WebSocket` so no `ws` dependency is
  * ever added to a GPL-assembled package.json.
  *
  * Config via env:
@@ -178,7 +178,7 @@ const atomId = (name) => `${name}-${RUN}`;
  * `Sec-WebSocket-Version: 13`, `Connection: Upgrade`, `Upgrade: websocket` —
  * carrying a WORKER-LEVEL violation (too many channels, or a type that declares
  * no WebSocket handler) that the route must refuse with an ordinary JSON error
- * envelope BEFORE any DO is touched (design doc §2). The handshake is complete
+ * envelope BEFORE any DO is touched. The handshake is complete
  * on purpose: a deployed `https://` target sits behind Cloudflare's edge, which
  * rejects an INCOMPLETE handshake (e.g. a missing `Sec-WebSocket-Key`) itself,
  * before the Worker can answer — so the probe would never reach the code it is
@@ -260,7 +260,7 @@ function wsHandshakeAttempt(path) {
 /**
  * Open a WebSocket to the worker's `/ws` route and wait for it to connect.
  * Node 22's global `WebSocket` accepts `{headers: {Authorization: ...}}`
- * (M14, an undici extension), so this works identically whether
+ * (an undici extension), so this works identically whether
  * `ATOMS_APP_KEY` is set or not — no ticket, no query-string credential.
  *
  * The returned handle collects inbound frames into arrival order; `.next()`
@@ -337,8 +337,8 @@ function openSocket(path) {
 
 /**
  * Wrap a raw 32-byte Ed25519 public key in the fixed SPKI DER header so
- * node:crypto can import it. Mirrors the PKCS8 trick on the signing side
- * (design doc §6.1) — same idea, the public-key encoding.
+ * node:crypto can import it. Mirrors the PKCS8 trick on the signing side —
+ * same idea, the public-key encoding.
  */
 function importRawEd25519PublicKey(b64) {
     const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
@@ -350,9 +350,9 @@ function importRawEd25519PublicKey(b64) {
  * The in-suite "monolith": verifies every callback the Worker sends and
  * answers the fixture's two Methods (`echoBig`, `stall`) and its one job
  * kind. Bound to 127.0.0.1 only — this keeps "tests never hit the network"
- * literally true (design doc §10.1).
+ * literally true.
  *
- * Inherits the opaque-body invariant (design doc §10.3): the wide-integer
+ * Inherits the opaque-body invariant: the wide-integer
  * argument to `echoBig` is extracted and echoed back TEXTUALLY, via regex on
  * the raw body, never through `JSON.parse` — which would silently round an
  * int64-range value the same way a buggy host implementation would, making
@@ -1649,7 +1649,7 @@ checks.push(async () => {
             );
         } else {
             // A FAILING turn settles its deliveries too — `.finally`, not
-            // `.then` (design doc §4.1). Same ordering assertion as check 16:
+            // `.then`. Same ordering assertion as check 16:
             // the 500 must not go out before the job response came back.
             const rec = listener.records[0];
             if (rec.respondedAt === null) {
@@ -1723,7 +1723,7 @@ checks.push(async () => {
         problems.push(`/ws/Counter gave ${noHandlers.status}/${noHandlers.data?.error?.code} (expected 501/not_supported)`);
     }
 
-    // The invocable_method() denylist (design doc §4). Every handler the
+    // The invocable_method() denylist. Every handler the
     // RUNTIME dispatches must be unreachable through POST /invoke, whatever
     // its visibility and whatever case the client spells it in:
     //
@@ -1814,7 +1814,7 @@ checks.push(async () => {
 
         // Genuinely non-UTF-8 bytes: 0xFF/0xFE are invalid lead bytes and 0x80
         // is a lone continuation byte, so CfConnection::send()'s
-        // content-based opcode rule (design doc §5 — text iff valid UTF-8)
+        // content-based opcode rule (text iff valid UTF-8)
         // is guaranteed to answer with a binary frame. Low ASCII bytes like
         // [1,2,3,4,5] would come back as TEXT instead, by that same rule —
         // deliberately, not a bug — so they would not exercise this path.
@@ -1906,8 +1906,8 @@ checks.push(async () => {
             problems.push(`A unhealthy after the empty-channel broadcast: ${JSON.stringify(echoed)}`);
         }
 
-        // broadcast() from INSIDE a committed db()->transaction(). This is V3
-        // in the WebSocket design doc — that a ws op is legal at all while the
+        // broadcast() from INSIDE a committed db()->transaction() — the
+        // documented transaction-send hazard: a ws op is legal at all while the
         // guest is parked inside ctx.storage.transactionSync()'s callback. It
         // was probed and found legal (mvp-spec.md §Appendix item 4); the
         // assertion here is what keeps it from silently regressing into the
@@ -1951,7 +1951,7 @@ checks.push(async () => {
             name,
             'broadcast reached A and B on "lobby" with the exact pinned wire shape, not C on "other"; ' +
                 'an empty-channel broadcast is a no-op, not an error; a broadcast from inside a committed ' +
-                'transaction is delivered (V3)'
+                'transaction is delivered'
         );
     } else {
         fail(checkNum, name, problems.join('; '));
@@ -2377,15 +2377,15 @@ checks.push(async () => {
 //
 // Check 21 proves a socket survives eviction and that onDisconnect fires after
 // a wake — but it sends a frame across the eviction first, which re-activates
-// the residency, so by the time it closes, the DO is warm again. V2 in the
-// WebSocket design doc is the case nothing covered: the close itself is the
+// the residency, so by the time it closes, the DO is warm again. This is the
+// case check 21 doesn't cover: the close itself is the
 // FIRST event after the hibernation, with no traffic in between. That is the
 // path a real client takes when it goes away quietly (a laptop lid, a mobile
 // network drop), and it is the one that would leave connections leaked forever
 // if the platform did not deliver it.
 checks.push(async () => {
     const checkNum = 25;
-    const name = 'close wakes a hibernated Durable Object (V2)';
+    const name = 'close wakes a hibernated Durable Object';
     const problems = [];
     const id = atomId('room-closewake');
 

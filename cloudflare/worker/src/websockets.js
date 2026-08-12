@@ -1,20 +1,20 @@
 /**
  * The WebSocket seam: the host side of `ws.send` / `ws.close` / `ws.broadcast`
  * (sync ops dispatched from `Bridge.handleSync`), the `{v,id,ch}` attachment
- * format (design doc §1), and the connId -> socket memo that makes a
- * post-wake send resolve in one call instead of a scan (design doc §5).
+ * format, and the connId -> socket memo that makes a
+ * post-wake send resolve in one call instead of a scan.
  *
  * Nothing here parses or re-encodes a broadcast frame — it is a string built
  * entirely by the PHP guest (`CfAtomContext::broadcast()`) and fanned out
- * opaquely, which is what keeps a wide integer inside it exact (int64 rule,
- * design doc §6).
+ * opaquely, which is what keeps a wide integer inside it exact
+ * (mvp-spec.md's int64 rule).
  */
 import { base64ToBytes } from './config.js';
 import { AtomsError, normalizeError } from './errors.js';
 
 /**
- * Wire version of the `{v,id,ch}` attachment written once at accept (design
- * §1). Not env-tunable: a protocol constant, not a capacity value, exactly
+ * Wire version of the `{v,id,ch}` attachment written once at accept. Not
+ * env-tunable: a protocol constant, not a capacity value, exactly
  * like `BOOT_PROTOCOL` in atom-do.js.
  */
 export const WS_ATTACHMENT_VERSION = 1;
@@ -53,8 +53,8 @@ function errorMessage(e) {
 }
 
 /**
- * Build the `{v,id,ch}` attachment for a newly accepted connection (design
- * §1). `channels` must already be validated, de-duplicated, and in accepted
+ * Build the `{v,id,ch}` attachment for a newly accepted connection.
+ * `channels` must already be validated, de-duplicated, and in accepted
  * order — this function does no validation of its own.
  *
  * @param {string} connId
@@ -69,8 +69,8 @@ export function buildAttachment(connId, channels) {
  * Serialized size of an attachment, in bytes. A conservative proxy for what
  * `serializeAttachment()` actually stores (structured-clone, not JSON) — good
  * enough because the attachment is a flat JSON-safe object of strings and the
- * configured cap (default 512, §9) sits far below both the measured local
- * limit (16384, M5) and the smaller number production may enforce (V4), so a
+ * configured cap (default 512) sits far below both the measured local
+ * limit (16384 bytes) and the smaller number production may enforce, so a
  * few bytes of proxy slop can never be the difference between accepted and
  * refused.
  *
@@ -84,7 +84,7 @@ export function attachmentByteLength(attachment) {
 /**
  * Read and validate a socket's attachment. Returns `null` when it is missing,
  * unparseable, or shaped wrong — the caller drops the socket rather than
- * guessing (design §7, H9): a socket accepted by an older/newer deployment is
+ * guessing: a socket accepted by an older/newer deployment is
  * a cross-version wire format, not an in-process struct.
  *
  * @param {any} ws
@@ -120,7 +120,7 @@ function requireConnId(connId) {
  * Decode the outbound payload of a `ws.send` request into what
  * `WebSocket.send()` wants: a string for a text frame (the `payload` key), or
  * an `ArrayBuffer` for a binary frame (the `payload_b64` key) — the opcode
- * rule the guest's `CfConnection::send()` already implements (design §5).
+ * rule the guest's `CfConnection::send()` already implements.
  * Exactly one of the two keys must be present.
  *
  * @param {any} msg
@@ -162,7 +162,7 @@ function decodeOutboundPayload(msg, maxBytes) {
 /**
  * One instance per DO residency, alongside `Bridge`/`CallbackChannel`/
  * `TransactionMachine` in `atom-do.js`. Owns the residency-local connId ->
- * socket memo (never persisted, never written to an attachment — design §5)
+ * socket memo (never persisted, never written to an attachment)
  * and answers the three ws.* sync ops.
  */
 export class WebSocketHost {
@@ -177,10 +177,10 @@ export class WebSocketHost {
 		this.config = config;
 		this.log = log;
 
-		/** @type {Map<string, any>} residency-local, NEVER persisted (design §5) */
+		/** @type {Map<string, any>} residency-local, NEVER persisted */
 		this.memo = new Map();
 
-		// Debug-endpoint observables (design §10), monotonic per residency.
+		// Debug-endpoint observables, monotonic per residency.
 		this.sendsThisResidency = 0;
 		this.broadcastsThisResidency = 0;
 	}
@@ -188,7 +188,7 @@ export class WebSocketHost {
 	/**
 	 * Record a socket the platform just handed us directly — at accept, or on
 	 * any wake event (`webSocketMessage`/`webSocketClose` hand the object
-	 * itself; design §5).
+	 * itself).
 	 *
 	 * @param {string} connId
 	 * @param {any} ws
@@ -209,7 +209,7 @@ export class WebSocketHost {
 
 	/**
 	 * connId -> socket. O(1) through the memo; falls back to the platform's
-	 * own tag index, which needs no reconstruction after a wake (design §5).
+	 * own tag index, which needs no reconstruction after a wake.
 	 *
 	 * @param {string} connId
 	 * @returns {any|null}
@@ -242,7 +242,7 @@ export class WebSocketHost {
 		try {
 			ws.send(data);
 		} catch (e) {
-			// M9: send() after close() throws. The id resolved a moment ago and
+			// send() after close() throws. The id resolved a moment ago and
 			// is gone now — same observable the guest sees either way.
 			this.forgetSocket(connId);
 			return fail('ws_conn_gone', `connection ${JSON.stringify(connId)} closed mid-send: ${errorMessage(e)}`);
@@ -252,8 +252,8 @@ export class WebSocketHost {
 
 	/**
 	 * `{"op":"ws.close","conn":string,"code"?:number,"reason"?:string}` — a
-	 * gone connection is a silent success (design §5: closing an already-gone
-	 * thing got the outcome the caller wanted).
+	 * gone connection is a silent success: closing an already-gone
+	 * thing got the outcome the caller wanted.
 	 *
 	 * @param {any} msg
 	 * @returns {string}
@@ -268,7 +268,7 @@ export class WebSocketHost {
 		try {
 			ws.close(code, reason);
 		} catch (e) {
-			// M9: a second close() does not throw at the platform level, but
+			// A second close() does not throw at the platform level, but
 			// nothing guarantees every path here is a first close — best effort,
 			// logged, never surfaced as a guest-visible failure.
 			this.log('warning', { msg: 'atoms.ws.close_failed', conn: connId, error: errorMessage(e) });
@@ -280,7 +280,7 @@ export class WebSocketHost {
 	/**
 	 * `{"op":"ws.broadcast","channel":string,"frame":string}` — `frame` is the
 	 * COMPLETE wire text, built and `json_encode()`d entirely by the guest.
-	 * This never parses or re-encodes it (design §6, the int64 rule): it is a
+	 * This never parses or re-encodes it (mvp-spec.md's int64 rule): it is a
 	 * string in, the same string out, to every socket on the channel.
 	 *
 	 * @param {any} msg
@@ -356,7 +356,7 @@ export class WebSocketHost {
 	// ------------------------------------------------------------- debug info
 
 	/**
-	 * The `"ws"` block of `AtomDurableObject.info()` (design §10). Reads only
+	 * The `"ws"` block of `AtomDurableObject.info()`. Reads only
 	 * `ctx.getWebSockets()`/`getTags()`/attachments — never activates PHP, so
 	 * it stays usable on an evicted residency.
 	 *

@@ -11,7 +11,7 @@ use Atoms\Websocket\Connection;
 use Atoms\Websocket\Message;
 
 /**
- * Room — a fixture Atom for WebSocket conformance testing (design doc §10).
+ * Room — a fixture Atom for WebSocket conformance testing.
  *
  * A SEPARATE type from Counter/Vault, not new methods added to either:
  * conformance checks 3/11/12 assert exact `turnsThisResidency` values that a
@@ -22,7 +22,8 @@ use Atoms\Websocket\Message;
  *   - "echo:<text>"        -> `send('echo:' . $text)`
  *   - "bcast:<ch>:<text>"  -> `broadcast($ch, ['text' => $text])`
  *   - "bcasttx:<ch>:<t>"   -> the same broadcast, from inside a COMMITTED
- *                             `db()->transaction()` (the V3 hazard, pinned)
+ *                             `db()->transaction()` (the documented
+ *                             transaction-send hazard)
  *   - "id?"                -> `send('id:' . $conn->id())`
  *   - "poke:<connId>"      -> `send()` on a Connection for that id, catching
  *                             ConnectionClosed and recording the outcome
@@ -34,7 +35,7 @@ final class Room extends Atom
 {
     /**
      * @var array<string, Connection> in-memory only, exactly like every other
-     *      in-memory Atom property (spike §6): a cache, wiped on every wake.
+     *      in-memory Atom property: a cache, wiped on every wake.
      */
     private array $live = [];
 
@@ -129,7 +130,7 @@ final class Room extends Atom
         if (str_starts_with($payload, 'poke:')) {
             $targetId = substr($payload, 5);
             // A fresh CfConnection, not a $live lookup: a Connection holds
-            // nothing but its id string (design doc §5), so the two resolve
+            // nothing but its id string, so the two resolve
             // identically at send()-time through the host's own connId ->
             // socket index — this is what lets poke reach ANY id the caller
             // names, including one this Atom's $live no longer tracks (e.g.

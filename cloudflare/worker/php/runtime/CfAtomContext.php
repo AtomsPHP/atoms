@@ -95,9 +95,9 @@ final class CfAtomContext implements AtomContext
     /**
      * Encode the job from its promoted public constructor properties and
      * cross on the sync `dispatch.enqueue` op — dual to
-     * `Atoms\Client\Callback\CallbackKernel::constructJob()` (design doc
-     * §7.5). Buffered on commit / dropped on rollback when a transaction is
-     * open; delivered immediately (fire-and-forget) otherwise.
+     * `Atoms\Client\Callback\CallbackKernel::constructJob()`. Buffered on
+     * commit / dropped on rollback when a transaction is open; delivered
+     * immediately (fire-and-forget) otherwise.
      */
     public function dispatch(AtomJob $job): void
     {
@@ -148,7 +148,7 @@ final class CfAtomContext implements AtomContext
      * what keeps a wide integer inside `$payload` exact all the way to the
      * client. The host never parses or re-encodes `$frame`: it is a string in,
      * the same string out, fanned to every socket tagged for `$channel`
-     * (design doc §6, the int64 rule).
+     * (mvp-spec.md's int64 rule).
      *
      * Wire shape, pinned: `{"kind":"broadcast","channel":...,"payload":...}`
      * — deliberately asymmetric with `Connection::send(string $payload)`,
@@ -180,7 +180,7 @@ final class CfAtomContext implements AtomContext
 
         // A sync op ('!' door): broadcasting does not park, so it works
         // identically from an invoke turn, a ws turn, or (later) an
-        // alarm/queue turn — it needs no request context (design doc §8).
+        // alarm/queue turn — it needs no request context.
         // An over-cap fan-out is a refusal (ws_fanout_limit -> \RuntimeException
         // via host_sync()), never a truncated send.
         host_sync(['op' => 'ws.broadcast', 'channel' => $channel, 'frame' => $frame]);

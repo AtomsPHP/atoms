@@ -5,7 +5,7 @@
  * could not be read back off the object. The constructor's parameters ARE the
  * dispatch contract (`AtomJob`'s own docblock) and must be promoted public,
  * non-static properties; anything else cannot be read here without an
- * instance the runtime does not have (design doc §7.5).
+ * instance the runtime does not have.
  *
  * No declare(strict_types=1) — see the note in host.php.
  */

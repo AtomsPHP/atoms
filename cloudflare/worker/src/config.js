@@ -117,7 +117,7 @@ function int(env, name, dflt) {
 }
 
 /**
- * `int()`, plus the design's "int, default, **>0 else default**" rule for the
+ * `int()`, plus the "int, default, **>0 else default**" rule for the
  * values where zero or negative is not a tighter setting but a broken one: a
  * deadline of 0 would make every `app()` fail before it started, a dispatch
  * cap of 0 would refuse every `dispatch()`, and a size cap of 0 would refuse
@@ -209,7 +209,7 @@ export function base64ToBytes(b64) {
 }
 
 /**
- * `ATOMS_CALLBACK_URL` validation (design doc §8): absolute, `https:`, or
+ * `ATOMS_CALLBACK_URL` validation: absolute, `https:`, or
  * `http:` only when the host is a loopback address. Plain `http` to a public
  * host would send customer arguments in the clear — the Ed25519 signature
  * protects integrity and authenticity, never confidentiality. The loopback
@@ -236,10 +236,11 @@ function validateCallbackUrl(raw) {
 }
 
 /**
- * Classify the callback channel from the two raw env values, per the three
- * states in the design doc's §6.3 table. Never throws: `loadConfig()` stays
- * total so `/healthz` answers on a misconfigured Worker; the typed failure is
- * raised only when `app()`/`dispatch()` is actually used.
+ * Classify the callback channel from the two raw env values into one of
+ * three states: configured, unconfigured, or misconfigured. Never throws:
+ * `loadConfig()` stays total so `/healthz` answers on a misconfigured
+ * Worker; the typed failure is raised only when `app()`/`dispatch()` is
+ * actually used.
  *
  * @param {string} callbackUrl
  * @param {string} callbackSigningKey
@@ -386,7 +387,7 @@ function mergeDenyKeys(operatorKeys) {
 /**
  * The channel-tag prefix and the connection-tag prefix must never let a
  * `ATOMS_WS_CHANNEL_TAG_PREFIX + <any channel name>` tag collide with a
- * `ATOMS_WS_CONN_TAG_PREFIX + <any connection id>` tag (design §3). That is
+ * `ATOMS_WS_CONN_TAG_PREFIX + <any connection id>` tag. That is
  * guaranteed for EVERY possible name/id, whatever charset they use, as long
  * as neither prefix is a prefix of the other: a shared prefix is the only way
  * two differently-sourced strings could ever compare equal. Checked once at

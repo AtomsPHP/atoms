@@ -4,11 +4,11 @@
  * `Atoms\Websocket\Connection` for the Cloudflare MVP.
  *
  * Holds a STRING AND NOTHING ELSE — no host object, no index into a host
- * array, no residency-scoped handle (design doc §5). That is the guest-side
- * half of the attachment rule in §1: even if a `Connection` somehow outlived
- * its residency (it cannot — the interpreter is destroyed on every wake), the
- * worst it could name is a connection that no longer exists, which is a
- * defined, typed failure (`ConnectionClosed`) rather than a wrong delivery.
+ * array, no residency-scoped handle. That is the guest-side half of the
+ * attachment rule: even if a `Connection` somehow outlived its residency (it
+ * cannot — the interpreter is destroyed on every wake), the worst it could
+ * name is a connection that no longer exists, which is a defined, typed
+ * failure (`ConnectionClosed`) rather than a wrong delivery.
  *
  * No declare(strict_types=1) — see the note in host.php.
  */
@@ -34,8 +34,8 @@ final class CfConnection implements Connection
     }
 
     /**
-     * Text if `$payload` is valid UTF-8, binary otherwise (design doc §5) —
-     * `json_encode()` refuses invalid UTF-8 outright (host.php's
+     * Text if `$payload` is valid UTF-8, binary otherwise — `json_encode()`
+     * refuses invalid UTF-8 outright (host.php's
      * `host_call()`), so bytes that are not valid UTF-8 have to cross as
      * base64 or not at all. This is the one rule that makes `send($rawBytes)`
      * always work and `send(json_encode(...))` always arrive as text.
@@ -74,9 +74,9 @@ final class CfConnection implements Connection
     }
 
     /**
-     * Idempotent by nature (design doc §5): asking an already-gone connection
-     * to close got the outcome the caller wanted, so the host answers
-     * `ok:true` either way and this never throws on that account.
+     * Idempotent by nature: asking an already-gone connection to close got
+     * the outcome the caller wanted, so the host answers `ok:true` either
+     * way and this never throws on that account.
      */
     public function close(int $code = 1000, string $reason = ''): void
     {

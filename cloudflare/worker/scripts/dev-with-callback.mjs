@@ -24,7 +24,7 @@
  *
  * Do not "harden" this into a committed key file. The generated-per-run
  * design costs one script and one CI step; a committed key costs a private
- * key in git forever (design doc §10.2).
+ * key in git forever.
  *
  * Usage: node scripts/dev-with-callback.mjs [--port <workerPort>]
  * Env:
@@ -57,8 +57,8 @@ const workerPort = parsePort(process.argv.slice(2));
 const callbackPort = process.env.ATOMS_CALLBACK_PORT || DEFAULT_CALLBACK_PORT;
 const turnDeadlineMs = process.env.ATOMS_TURN_DEADLINE_MS;
 
-// M1 in the design doc's probe confirms the PKCS8-prefix trick this derives
-// from: subarray(-32) on the DER export is the raw seed / raw public key.
+// The PKCS8-prefix trick this derives from: subarray(-32) on the DER export
+// is the raw seed / raw public key.
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
 const pkcs8 = privateKey.export({ type: 'pkcs8', format: 'der' });
 const seed = pkcs8.subarray(pkcs8.length - 32);

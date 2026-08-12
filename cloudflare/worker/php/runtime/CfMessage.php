@@ -6,9 +6,9 @@
  *
  * Immutable and host-constructed only — `turn_loop()` builds one per
  * `ws.message` turn from the envelope the host already decoded (base64 for a
- * binary frame, verbatim for text; design doc §5). `payload()` returns raw
- * bytes either way: PHP strings are byte-safe, so this honours
- * `payload(): string` exactly, binary or not.
+ * binary frame, verbatim for text). `payload()` returns raw bytes either
+ * way: PHP strings are byte-safe, so this honours `payload(): string`
+ * exactly, binary or not.
  *
  * No declare(strict_types=1) — see the note in host.php.
  */

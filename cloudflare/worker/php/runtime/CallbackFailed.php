@@ -5,7 +5,7 @@
  * transport failure, per-call timeout, a non-200 status, or a response body
  * that could not be decoded. Everything the host's `app.call` reply can
  * report except a transaction conflict (E082) or a deadline overrun (reused
- * E061) lands here (design doc §1.2, §9.1).
+ * E061) lands here.
  *
  * No declare(strict_types=1) — see the note in host.php.
  */
