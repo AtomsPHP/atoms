@@ -29,6 +29,14 @@
       "migrations": [
         "/app/migrations/room/001_init.sql"
       ]
+    },
+    "Scheduler": {
+      "class": "App\\Atoms\\Scheduler",
+      "file": "/app/Scheduler.php",
+      "websocket": false,
+      "migrations": [
+        "/app/migrations/scheduler/001_init.sql"
+      ]
     }
   }
 }

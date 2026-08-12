@@ -4,12 +4,8 @@
  * `Atoms\Runtime\AtomContext` for the Cloudflare MVP — everything the customer's
  * Atom is allowed to reach, and the exact boundary of what the MVP implements.
  *
- * `db()`, `config()`, `app()`, `dispatch()` and `broadcast()` are real.
- * `timers()` remains out of scope for this wave and throws
- * {@see AtomsNotSupported} naming the limitation (mvp-spec.md §Scope: "These
- * are explicit stubs, never silent no-ops"). A customer Atom that calls it
- * fails its turn with a clear `atom_exception` envelope rather than appearing
- * to have sent something.
+ * `db()`, `config()`, `app()`, `dispatch()`, `broadcast()` and `timers()` are
+ * all real (M2 waves 1-3).
  *
  * No declare(strict_types=1) — see the note in host.php.
  */
@@ -38,6 +34,9 @@ final class CfAtomContext implements AtomContext
 
     /** @var CallbackAppProxy|null lazily built; one per Atom, like db()->pdo() */
     private $appProxy = null;
+
+    /** @var CfTimers|null lazily built; one per Atom, like db()->pdo() and $appProxy */
+    private $timers = null;
 
     /**
      * @param BridgeDatabase $db
@@ -187,14 +186,16 @@ final class CfAtomContext implements AtomContext
         host_sync(['op' => 'ws.broadcast', 'channel' => $channel, 'frame' => $frame]);
     }
 
-    // Replaced by the timers wave.
+    /**
+     * Named one-shot timers backed by the host's `__atoms_timers` table and
+     * a single multiplexed Durable Object alarm (M2 wave 3).
+     */
     public function timers(): Timers
     {
-        throw new AtomsNotSupported(
-            'Atom::timers()',
-            'M2 wave 0 adds Atoms\Timers\Timers to the AtomContext ABI so atoms-core '
-            . 'vendors cleanly, but a later M2 wave is what actually schedules timers '
-            . 'on this Worker runtime.'
-        );
+        if ($this->timers === null) {
+            $this->timers = new CfTimers($this->identity);
+        }
+
+        return $this->timers;
     }
 }

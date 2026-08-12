@@ -1767,6 +1767,240 @@ checks.push(async () => {
     }
 });
 
+// CHECK 23: timers fire, are consumed, are transactional, cancel works,
+// errors are contained (M2 wave 3 — Durable Object alarms behind the Timers
+// ABI).
+checks.push(async () => {
+    const checkNum = 23;
+    const name = 'timers: fire, consume, transactional, cancel, errors contained';
+    const problems = [];
+    const id = atomId('scheduler');
+
+    async function timerLog() {
+        const r = await invoke('Scheduler', id, 'timerLog', []);
+        if (r.status !== 200 || r.data?.error) {
+            throw new Error(`timerLog failed: ${JSON.stringify(r.data)}`);
+        }
+        return (r.data.result ?? []).map((e) => e.name);
+    }
+
+    async function scheduledMs(timerName) {
+        const r = await invoke('Scheduler', id, 'scheduledMs', [timerName]);
+        if (r.status !== 200 || r.data?.error) {
+            throw new Error(`scheduledMs failed: ${JSON.stringify(r.data)}`);
+        }
+        return r.data.result;
+    }
+
+    async function waitUntilLogged(timerName, timeoutMs = 15000) {
+        const deadline = Date.now() + timeoutMs;
+        let log = await timerLog();
+        while (!log.includes(timerName) && Date.now() < deadline) {
+            await new Promise((res) => setTimeout(res, 300));
+            log = await timerLog();
+        }
+        return log;
+    }
+
+    // t1 fires once, and is consumed (no longer scheduled) afterwards.
+    const armT1 = await invoke('Scheduler', id, 'arm', ['t1', 1500]);
+    if (armT1.status !== 200 || armT1.data?.error) {
+        problems.push(`arm(t1) failed: ${JSON.stringify(armT1.data)}`);
+    }
+    const afterT1 = await waitUntilLogged('t1');
+    if (!afterT1.includes('t1')) {
+        problems.push(`t1 did not fire within the poll window: log=${JSON.stringify(afterT1)}`);
+    }
+    if ((await scheduledMs('t1')) !== null) {
+        problems.push('t1 is still scheduled after firing (expected consumed/null)');
+    }
+
+    // A timer scheduled from inside onTimer() fires too (chain-1 -> chain-2).
+    const armChain = await invoke('Scheduler', id, 'arm', ['chain-1', 500]);
+    if (armChain.status !== 200 || armChain.data?.error) {
+        problems.push(`arm(chain-1) failed: ${JSON.stringify(armChain.data)}`);
+    }
+    const afterChain = await waitUntilLogged('chain-2');
+    if (!afterChain.includes('chain-1') || !afterChain.includes('chain-2')) {
+        problems.push(`chain did not complete: log=${JSON.stringify(afterChain)}`);
+    }
+
+    // A schedule() made inside a transaction that rolls back never fires.
+    const rolled = await invoke('Scheduler', id, 'armInsideRollback', ['never', 500]);
+    if (rolled.status !== 500 || rolled.data?.error?.code !== 'atom_exception') {
+        problems.push(
+            `armInsideRollback gave ${rolled.status}/${rolled.data?.error?.code} (expected 500/atom_exception)`
+        );
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+    const afterRollback = await timerLog();
+    if (afterRollback.includes('never')) {
+        problems.push("'never' fired despite its schedule() being inside a rolled-back transaction");
+    }
+    if ((await scheduledMs('never')) !== null) {
+        problems.push("'never' is still scheduled after its transaction rolled back");
+    }
+
+    // cancel() actually prevents the fire.
+    await invoke('Scheduler', id, 'arm', ['t-cancel', 4000]);
+    await invoke('Scheduler', id, 'cancelTimer', ['t-cancel']);
+    await new Promise((r) => setTimeout(r, 4500));
+    const afterCancel = await timerLog();
+    if (afterCancel.includes('t-cancel')) {
+        problems.push('t-cancel fired despite being cancelled');
+    }
+
+    // A throwing onTimer is still consumed at-most-once, and the residency
+    // stays healthy for the atom's other timers/turns.
+    await invoke('Scheduler', id, 'arm', ['boom-1', 500]);
+    {
+        const deadline = Date.now() + 8000;
+        let ms = await scheduledMs('boom-1');
+        while (ms !== null && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 300));
+            ms = await scheduledMs('boom-1');
+        }
+        if (ms !== null) {
+            problems.push(`boom-1 was never consumed (still scheduled): ${ms}`);
+        }
+    }
+    const afterBoom = await timerLog();
+    if (afterBoom.includes('boom-1')) {
+        problems.push('boom-1 wrote a log row despite throwing');
+    }
+    const healthy = await invoke('Scheduler', id, 'scheduledMs', ['nothing-scheduled-by-this-name']);
+    if (healthy.status !== 200 || healthy.data?.error || healthy.data.result !== null) {
+        problems.push(`residency unhealthy after a throwing onTimer: ${JSON.stringify(healthy.data)}`);
+    }
+
+    // __atoms_timers is reserved, exactly like __atoms_meta (check 10).
+    const reserved = await invoke('Scheduler', id, 'readReservedTimers', []);
+    if (reserved.status !== 200 || reserved.data?.error) {
+        problems.push(`readReservedTimers failed: ${JSON.stringify(reserved.data)}`);
+    } else if (
+        reserved.data.result?.rejected !== true ||
+        !String(reserved.data.result.message).includes('reserved_table')
+    ) {
+        problems.push(`__atoms_timers was not rejected: ${JSON.stringify(reserved.data.result)}`);
+    }
+
+    // Name validation: empty and over-long names are ATOMS-E085, not silently
+    // accepted.
+    const emptyName = await invoke('Scheduler', id, 'arm', ['', 100]);
+    if (
+        emptyName.status !== 500 ||
+        emptyName.data?.error?.code !== 'atom_exception' ||
+        !String(emptyName.data.error.message).includes('ATOMS-E085')
+    ) {
+        problems.push(
+            `empty timer name gave ${emptyName.status}/${emptyName.data?.error?.code}: ` +
+                `${JSON.stringify(emptyName.data?.error)} (expected 500/atom_exception carrying ATOMS-E085)`
+        );
+    }
+    const longName = await invoke('Scheduler', id, 'arm', ['x'.repeat(300), 100]);
+    if (
+        longName.status !== 500 ||
+        longName.data?.error?.code !== 'atom_exception' ||
+        !String(longName.data.error.message).includes('ATOMS-E085')
+    ) {
+        problems.push(
+            `over-long timer name gave ${longName.status}/${longName.data?.error?.code}: ` +
+                `${JSON.stringify(longName.data?.error)} (expected 500/atom_exception carrying ATOMS-E085)`
+        );
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            't1/chain fired and consumed, rollback+cancel honored, throwing onTimer contained, ' +
+                '__atoms_timers reserved, ATOMS-E085 validated'
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 24: THE HONEST ONE — a Durable Object alarm wakes an evicted atom.
+checks.push(async () => {
+    const checkNum = 24;
+    const name = 'alarm wakes an evicted atom (THE HONEST ONE)';
+    const problems = [];
+    const id = atomId('scheduler-wake');
+
+    const beforeInfo = await debugInfo('Scheduler', id);
+
+    const armed = await invoke('Scheduler', id, 'arm', ['wake-1', EVICTION_WAIT_MS + 4000]);
+    if (armed.status !== 200 || armed.data?.error) {
+        fail(checkNum, name, `arm(wake-1) failed: ${JSON.stringify(armed.data)}`);
+        return;
+    }
+
+    // Idle the FULL eviction wait, exactly like checks 12/21 — never
+    // shortened — so the residency genuinely gets evicted rather than merely
+    // asserting on a warm one.
+    console.log(`   (idling ${EVICTION_WAIT_MS}ms for eviction...)`);
+    await new Promise((r) => setTimeout(r, EVICTION_WAIT_MS));
+
+    // wake-1 is not due for another ~4s past the idle wait. Give the alarm a
+    // window to fire entirely on its own — nothing from this suite has
+    // touched the atom yet — before any poll request below could reactivate
+    // it first via the ordinary invoke path and blur what actually woke it.
+    await new Promise((r) => setTimeout(r, 4500));
+
+    // Poll (bounded): confirms the alarm actually delivered wake-1, whether
+    // it had already fired by the line above or fires during this window.
+    const deadline = Date.now() + 15000;
+    let log = [];
+    for (;;) {
+        const r = await invoke('Scheduler', id, 'timerLog', []);
+        if (r.status !== 200 || r.data?.error) {
+            fail(checkNum, name, `timerLog failed: ${JSON.stringify(r.data)}`);
+            return;
+        }
+        log = (r.data.result ?? []).map((e) => e.name);
+        if (log.includes('wake-1') || Date.now() >= deadline) break;
+        await new Promise((res) => setTimeout(res, 300));
+    }
+    if (!log.includes('wake-1')) {
+        fail(checkNum, name, 'wake-1 did not fire within the poll window');
+        return;
+    }
+
+    const afterInfo = await debugInfo('Scheduler', id);
+
+    // This is what makes the check honest. Without it the check passes on a
+    // warm residency and asserts nothing — see CHECK 12/21's identical rule.
+    if (!(afterInfo.constructions > beforeInfo.constructions)) {
+        fail(
+            checkNum,
+            name,
+            `constructions did not increase (${beforeInfo.constructions} -> ${afterInfo.constructions}): ` +
+                'the Durable Object was never evicted, so nothing was proved'
+        );
+        return;
+    }
+
+    const fired = log.filter((n) => n === 'wake-1').length;
+    if (fired !== 1) {
+        problems.push(`wake-1 appears ${fired} times in the log (expected exactly 1)`);
+    }
+    if (afterInfo.timers?.fired_this_residency !== 1) {
+        problems.push(`timers.fired_this_residency=${afterInfo.timers?.fired_this_residency} (expected 1)`);
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            `constructions ${beforeInfo.constructions} -> ${afterInfo.constructions} across the idle wait, ` +
+                'wake-1 fired exactly once via the alarm'
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
 // ---------------------------------------------------------------- run
 
 async function run() {

@@ -63,6 +63,9 @@ import { AtomsError } from './errors.js';
  * @property {number}   wsMaxSendBytes          Outbound cap for one Connection::send() or one broadcast frame.
  * @property {number}   wsMaxBroadcastSockets   Fan-out cap for one broadcast() call.
  * @property {number}   wsDebugMaxConnections   Connection rows the debug endpoint will list.
+ * @property {number}   timersMax             Per-Atom cap on scheduled timers (ATOMS_TIMERS_MAX).
+ * @property {number}   timerNameMaxBytes     Byte-length cap on a timer name (ATOMS_TIMER_NAME_MAX_BYTES).
+ * @property {number}   timersMaxPerAlarm     Due timers processed by one alarm() invocation before it re-arms and returns, rather than looping unbounded (ATOMS_TIMERS_MAX_PER_ALARM).
  */
 
 /** Levels understood by the `log` sync op, lowest first. */
@@ -73,6 +76,9 @@ export const META_TABLE = '__atoms_meta';
 
 /** Prefix reserved for host-owned tables; customer SQL touching it is rejected. */
 export const RESERVED_TABLE_PREFIX = '__atoms_';
+
+/** Table that holds this Atom's scheduled timers inside the DO's SQLite. */
+export const TIMERS_TABLE = '__atoms_timers';
 
 /** Meta keys the host itself owns. */
 export const META_KEYS = {
@@ -315,6 +321,10 @@ export function loadConfig(env) {
 		wsMaxSendBytes: int(env, 'ATOMS_WS_MAX_SEND_BYTES', 131072),
 		wsMaxBroadcastSockets: int(env, 'ATOMS_WS_MAX_BROADCAST_SOCKETS', 1000),
 		wsDebugMaxConnections: int(env, 'ATOMS_WS_DEBUG_MAX_CONNECTIONS', 100),
+
+		timersMax: int(env, 'ATOMS_TIMERS_MAX', 10000),
+		timerNameMaxBytes: int(env, 'ATOMS_TIMER_NAME_MAX_BYTES', 256),
+		timersMaxPerAlarm: int(env, 'ATOMS_TIMERS_MAX_PER_ALARM', 100),
 	};
 
 	assertWsPrefixesDisjoint(config.wsChannelTagPrefix, config.wsConnTagPrefix);

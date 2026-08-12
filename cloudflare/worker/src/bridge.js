@@ -18,7 +18,7 @@
  * Every failure becomes an `{"ok":false,"error":{...}}` reply, which the PHP
  * helpers turn into exceptions.
  */
-import { LOG_LEVELS, META_TABLE, META_KEYS, RESERVED_TABLE_PREFIX } from './config.js';
+import { LOG_LEVELS, META_TABLE, META_KEYS, RESERVED_TABLE_PREFIX, TIMERS_TABLE } from './config.js';
 import { AtomsError, normalizeError } from './errors.js';
 import {
 	decodeInt64Deep,
@@ -69,9 +69,10 @@ export class Bridge {
 	 * @param {() => ({type: string, id: string}|null)} opts.identityRef
 	 * @param {import('./callbacks.js').CallbackChannel} opts.callbacks
 	 * @param {import('./websockets.js').WebSocketHost} opts.ws
+	 * @param {import('./timers.js').TimersHost} opts.timers
 	 * @param {() => boolean} opts.inTransactionRef
 	 */
-	constructor({ ctx, env, config, identityRef, callbacks, ws, inTransactionRef }) {
+	constructor({ ctx, env, config, identityRef, callbacks, ws, timers, inTransactionRef }) {
 		this.ctx = ctx;
 		this.env = env;
 		this.config = config;
@@ -79,16 +80,25 @@ export class Bridge {
 		this.identityRef = identityRef;
 		this.callbacks = callbacks;
 		this.ws = ws;
+		this.timers = timers;
 		this.inTransactionRef = inTransactionRef;
 		this.sqlCalls = 0;
 	}
 
 	// ------------------------------------------------------------------ schema
 
-	/** Create the host-owned metadata table. Idempotent, safe in a constructor. */
+	/**
+	 * Create the host-owned tables. Idempotent, safe in a constructor.
+	 * `__atoms_timers` lives here alongside `__atoms_meta` (M2 wave 3): one
+	 * place creates every host-owned table, so the reserved-prefix guard
+	 * below only ever has to agree with itself.
+	 */
 	ensureSchema() {
 		this.sql.exec(
 			`CREATE TABLE IF NOT EXISTS ${META_TABLE} (key TEXT PRIMARY KEY, value TEXT NOT NULL)`
+		);
+		this.sql.exec(
+			`CREATE TABLE IF NOT EXISTS ${TIMERS_TABLE} (name TEXT PRIMARY KEY, due_at_ms INTEGER NOT NULL)`
 		);
 	}
 
@@ -179,6 +189,12 @@ export class Bridge {
 		// delegating whole avoids duplicating that contract here.
 		if (msg.op === 'ws.send' || msg.op === 'ws.close' || msg.op === 'ws.broadcast') {
 			return this.ws.handleSync(msg.op, msg);
+		}
+
+		// Same delegation for the three timer.* ops (src/timers.js, M2 wave 3):
+		// its own try/catch-to-reply contract, identical to this one.
+		if (msg.op === 'timer.schedule' || msg.op === 'timer.cancel' || msg.op === 'timer.get') {
+			return this.timers.handleSync(msg.op, msg);
 		}
 
 		try {

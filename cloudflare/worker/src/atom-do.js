@@ -29,6 +29,7 @@ import { CallbackChannel } from './callbacks.js';
 import { loadConfig, META_KEYS } from './config.js';
 import { AtomsError, normalizeError, retryableFor, statusFor } from './errors.js';
 import { bootPHP, composeBootCode, guestMemoryBytes, mkdirp, writeGuestFile } from './php-host.js';
+import { TimersHost } from './timers.js';
 import { WebSocketHost, WS_ATTACHMENT_VERSION, buildAttachment, readAttachment, attachmentByteLength } from './websockets.js';
 
 /** Wire version of the boot payload handed to the PHP runtime prelude. */
@@ -102,6 +103,11 @@ export class AtomDurableObject extends DurableObject {
 			config: this.config,
 			log: (level, fields) => this.log(level, fields),
 		});
+		this.timers = new TimersHost({
+			ctx,
+			config: this.config,
+			log: (level, fields) => this.log(level, fields),
+		});
 		this.bridge = new Bridge({
 			ctx,
 			env,
@@ -109,6 +115,7 @@ export class AtomDurableObject extends DurableObject {
 			identityRef: () => this.identity,
 			callbacks: this.callbacks,
 			ws: this.ws,
+			timers: this.timers,
 			inTransactionRef: () => this.tx.open,
 		});
 		this.tx = new TransactionMachine({ ctx, config: this.config, host: this, callbacks: this.callbacks });
@@ -277,7 +284,7 @@ export class AtomDurableObject extends DurableObject {
 			// Outside the mutex, exactly like invoke(): the next turn may start
 			// while this ws.connect turn's dispatch() deliveries are in flight,
 			// but the 101 does not go out until they have settled.
-			const client = await run.finally(() => this.callbacks.settleTurn(collector));
+			const client = await run.finally(() => this.settlePostTurn(collector));
 			// Step A7.
 			return new Response(null, { status: 101, webSocket: client });
 		} catch (e) {
@@ -411,7 +418,7 @@ export class AtomDurableObject extends DurableObject {
 			// Outside the mutex, exactly like invoke()/handleWsUpgrade(): the next
 			// event may start while this turn's dispatch() deliveries are still
 			// in flight.
-			await run.finally(() => this.callbacks.settleTurn(collector));
+			await run.finally(() => this.settlePostTurn(collector));
 		} catch (e) {
 			// The turn loop never throws out of here: the only way this catches
 			// is the same protocol-level failure that would poison an invoke, and
@@ -482,7 +489,25 @@ export class AtomDurableObject extends DurableObject {
 		// Outside the mutex, inside the DO event: the next turn may start while
 		// this turn's dispatch() deliveries are in flight, but this turn's
 		// response does not go out until they have settled (design §4.1).
-		return run.finally(() => this.callbacks.settleTurn(collector));
+		return run.finally(() => this.settlePostTurn(collector));
+	}
+
+	/**
+	 * Post-turn work that must happen after every ordinary turn, outside the
+	 * turn mutex: `dispatch()` delivery settlement (design §4.1) and, when
+	 * this turn touched a timer, the Durable Object alarm re-arm (M2 wave 3's
+	 * "re-arm rule"). Both are safe to run concurrently with each other and
+	 * with the next turn starting.
+	 *
+	 * Timer turns dispatched from `alarm()` do NOT call this — `runAlarm()`
+	 * re-arms once after its whole batch instead (there is no HTTP response
+	 * to hold there, and re-arming per timer in a batch would be wasted work).
+	 *
+	 * @param {import('./callbacks.js').TurnCollector} collector
+	 * @returns {Promise<void>}
+	 */
+	async settlePostTurn(collector) {
+		await Promise.all([this.callbacks.settleTurn(collector), this.timers.rearmIfTouched()]);
 	}
 
 	/**
@@ -908,6 +933,120 @@ export class AtomDurableObject extends DurableObject {
 		});
 	}
 
+	// ------------------------------------------------------------------ alarm
+
+	/**
+	 * The Durable Object alarm handler (M2 wave 3): the platform calls this
+	 * when this residency's stored alarm time has passed, cold or warm,
+	 * evicted or not — this IS the mechanism that wakes an evicted residency
+	 * to fire a due timer without any HTTP request ever reaching it. Must
+	 * never throw: Cloudflare retries a throwing alarm, and the
+	 * delete-before-dispatch rule in `runAlarm()` already makes a retry safe,
+	 * but the contract this file keeps everywhere else is "report, don't
+	 * throw" — `alarm()` keeps it too.
+	 */
+	async alarm() {
+		try {
+			await this.runAlarm();
+		} catch (e) {
+			const n = normalizeError(e);
+			this.log('error', { msg: 'atoms.do.alarm_failed', code: n.code, error: n.message });
+		}
+	}
+
+	/** @returns {Promise<void>} */
+	async runAlarm() {
+		// Read identity from durable __atoms_meta, exactly like a WebSocket
+		// wake (identityFromMeta(), above): this can be the FIRST event a
+		// fresh JS instance ever sees. Absent means corruption — log and
+		// return rather than guessing at an identity.
+		const identity = this.identityFromMeta();
+		if (!identity) {
+			this.log('error', {
+				msg: 'atoms.do.alarm_no_identity',
+				error: 'the alarm fired for a residency with no recorded __atoms_meta identity',
+			});
+			return;
+		}
+
+		// Host-side query, WITHOUT booting PHP: a spurious alarm (fired for
+		// rows that were since cancelled or already consumed) just re-arms
+		// and returns.
+		const due = this.timers.dueRows(now(), this.config.timersMaxPerAlarm);
+		if (due.length === 0) {
+			await this.timers.rearm();
+			this.timers.touched = false;
+			return;
+		}
+
+		for (const row of due) {
+			// At-most-once: delete BEFORE dispatch. A throwing (or
+			// residency-poisoning) onTimer must not be retried by a later
+			// alarm — the timer is already consumed. This is deliberately
+			// NOT an at-least-once queue.
+			this.timers.deleteRow(row.name);
+			this.timers.noteFired();
+
+			try {
+				const result = await this.runTimerTurn(identity, row.name);
+				if (result.ok !== true) {
+					this.log('warning', {
+						msg: 'atoms.do.timer_turn_failed',
+						name: row.name,
+						code: /** @type {any} */ (result).error?.code,
+						error: /** @type {any} */ (result).error?.message,
+					});
+				}
+			} catch (e) {
+				// The turn loop is documented never to throw; this is defence
+				// in depth for a residency that got poisoned mid-turn (a real
+				// protocol failure), which must not take the whole alarm()
+				// call down with it — the remaining due rows still deserve
+				// their turn.
+				const n = normalizeError(e);
+				this.log('error', {
+					msg: 'atoms.do.alarm_turn_failed',
+					name: row.name,
+					code: n.code,
+					error: n.message,
+				});
+			}
+		}
+
+		// One re-arm after the whole batch: if more rows were due than
+		// ATOMS_TIMERS_MAX_PER_ALARM allowed, MIN(due_at_ms) is still in the
+		// past and the platform fires again immediately — never an unbounded
+		// loop inside one alarm() invocation. Reset touched explicitly:
+		// nothing above relies on the flag (this rearm is unconditional), and
+		// a timer.schedule from inside onTimer (the "chain" case) may have
+		// left it set — clearing it here keeps the NEXT ordinary turn from
+		// paying for a redundant rearm.
+		await this.timers.rearm();
+		this.timers.touched = false;
+	}
+
+	/**
+	 * Dispatch one alarm-driven timer turn through the SAME
+	 * enqueue/ensureActive/beginTurn/runTurn/settleTurn machinery as
+	 * invoke()/wsEvent(): app()/dispatch()/broadcast() work identically from
+	 * onTimer. No rearm here — runAlarm() rearms once after the whole batch
+	 * instead. There is no HTTP response to hold, so dispatch() deliveries
+	 * are still settled before this resolves, exactly like every other turn.
+	 *
+	 * @param {{type: string, id: string}} identity
+	 * @param {string} timerName
+	 * @returns {Promise<any>}
+	 */
+	async runTimerTurn(identity, timerName) {
+		const collector = this.callbacks.newCollector();
+		const run = this.enqueue(async () => {
+			await this.ensureActive(identity.type, identity.id);
+			this.turnBudget = this.callbacks.beginTurn(this.config.turnDeadlineMs, collector);
+			return this.runTurn({ ok: true, kind: 'timer', name: timerName });
+		});
+		return run.finally(() => this.callbacks.settleTurn(collector));
+	}
+
 	/**
 	 * Residency info for `GET /debug/:type/:id/info`. Deliberately does not
 	 * activate: it must be usable to observe an evicted residency.
@@ -945,6 +1084,7 @@ export class AtomDurableObject extends DurableObject {
 			dispatch_failures_this_residency: this.callbacks.dispatchFailures,
 			turn_deadline_ms: this.config.turnDeadlineMs,
 			ws: this.ws.debugBlock(this.wsConnectsThisResidency, this.wsTurnsThisResidency),
+			timers: this.timers.debugBlock(),
 		};
 	}
 

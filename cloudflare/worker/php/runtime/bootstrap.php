@@ -109,6 +109,12 @@ function runtime_files()
         'ConnectionClosed.php',
         'CfConnection.php',
         'CfMessage.php',
+        // The timers seam (M2 wave 3): the two typed exceptions before the
+        // class that throws them, for the same "base before what references
+        // it" reason as the callback classes above.
+        'InvalidTimerName.php',
+        'TimerLimitExceeded.php',
+        'CfTimers.php',
         'CfAtomContext.php',
     ];
 }
@@ -663,6 +669,67 @@ function run_ws_dispatch($atom, SqlBridge $bridge, array $identity, $kind, array
 }
 
 /**
+ * `run_ws_turn()`'s sibling for the timer lifecycle hook (M2 wave 3). Same
+ * two-layer guard, same void success envelope: the host's alarm-driven
+ * dispatch already deleted the due row before this turn was ever handed to
+ * the guest (at-most-once — see atom-do.js's runAlarm()), so there is
+ * nothing here for the guest to acknowledge or retry.
+ *
+ * @param object $atom
+ * @param SqlBridge $bridge
+ * @param array<string, mixed> $identity
+ * @param string $name
+ * @return array<string, mixed>
+ */
+function run_timer_turn($atom, SqlBridge $bridge, array $identity, $name)
+{
+    try {
+        try {
+            LifecycleInvoker::timer($atom, $name);
+        } catch (\Throwable $e) {
+            host_log('error', [
+                'event' => 'timer_turn_failed',
+                'atom_type' => $identity['type'],
+                'atom_id' => $identity['id'],
+                'timer_name' => $name,
+                'class' => get_class($e),
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            // Same rule as run_turn()/run_ws_turn(): a throw that escaped the
+            // customer's own transaction handling can leave one open; settle
+            // it before the turn boundary.
+            settle_open_transaction($bridge, $identity, 'onTimer');
+
+            return error_envelope('atom_exception', $e->getMessage(), get_class($e));
+        }
+
+        $leaked = settle_open_transaction($bridge, $identity, 'onTimer');
+        if ($leaked !== null) {
+            return error_envelope('atom_exception', $leaked, null);
+        }
+
+        return ['ok' => true, 'result' => null];
+    } catch (\Throwable $e) {
+        // Anything that escapes the inner handler is a runtime bug, not the
+        // customer's — same outer guard as run_turn()/run_ws_turn(). This is
+        // what makes "the turn loop never throws" true for a timer turn too.
+        host_log('error', [
+            'event' => 'timer_turn_internal_error',
+            'atom_type' => $identity['type'],
+            'atom_id' => $identity['id'],
+            'timer_name' => is_string($name) ? $name : '',
+            'class' => get_class($e),
+            'message' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+
+        return error_envelope('internal', $e->getMessage(), get_class($e));
+    }
+}
+
+/**
  * Park between turns forever. The `result` field carries the PREVIOUS turn's
  * envelope and is null on the first park after boot (mvp-spec.md §Park ops).
  *
@@ -733,6 +800,16 @@ function turn_loop($atom, SqlBridge $bridge, array $identity)
             $result = encodable_envelope(
                 run_ws_dispatch($atom, $bridge, $identity, $kind, $envelope),
                 $kind
+            );
+            continue;
+        }
+
+        if ($kind === 'timer') {
+            $timerName = isset($envelope['name']) && is_string($envelope['name']) ? $envelope['name'] : '';
+
+            $result = encodable_envelope(
+                run_timer_turn($atom, $bridge, $identity, $timerName),
+                'onTimer'
             );
             continue;
         }
