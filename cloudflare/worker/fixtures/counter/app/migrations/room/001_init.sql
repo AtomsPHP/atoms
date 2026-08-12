@@ -1,0 +1,7 @@
+CREATE TABLE room_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    conn_id TEXT NOT NULL,
+    detail TEXT,
+    at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

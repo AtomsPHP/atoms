@@ -126,6 +126,16 @@ async function route(request, env) {
 		return debugInfo(env, config, decodeSeg(parts[1]), decodeSeg(parts[2]));
 	}
 
+	if (parts[0] === 'ws') {
+		if (request.method !== 'GET') {
+			return errorResponse('method_not_allowed', 'GET /ws/:type/:id');
+		}
+		if (parts.length !== 3) {
+			return errorResponse('invalid_request', 'expected /ws/:type/:id');
+		}
+		return wsUpgrade(request, env, config, url, decodeSeg(parts[1]), decodeSeg(parts[2]));
+	}
+
 	return errorResponse('not_found', `no route for ${request.method} ${url.pathname}`);
 }
 
@@ -277,6 +287,153 @@ async function debugInfo(env, config, type, id) {
 		return errorResponse(code, envelope.error?.message ?? 'internal error');
 	}
 	return json({ atom: { type, id }, info: envelope.info });
+}
+
+/**
+ * `GET /ws/:type/:id` — validate everything (mvp-spec / design doc §2), THEN
+ * forward the raw upgrade `Request` to the Atom's Durable Object stub. The
+ * stub's `Response` (a 101 carrying `webSocket`, or a JSON error envelope
+ * `atom-do.js` built itself) is returned untouched: an upgrade cannot go
+ * through `callDurableObject()`'s JSON envelope, because workerd needs the
+ * real `Request`/`Response` pair to hand the `webSocket` back to the client.
+ *
+ * @param {Request} request
+ * @param {Record<string, any>} env
+ * @param {import('./config.js').AtomsConfig} config
+ * @param {URL} url
+ * @param {string} type
+ * @param {string} id
+ * @returns {Promise<Response>}
+ */
+async function wsUpgrade(request, env, config, url, type, id) {
+	const upgradeHeader = (request.headers.get('upgrade') ?? '').toLowerCase();
+	if (upgradeHeader !== 'websocket') {
+		return errorResponse('invalid_request', 'expected "Upgrade: websocket"');
+	}
+
+	validateType(type);
+	validateId(id, config);
+
+	const manifestFailure = checkManifest(type);
+	if (manifestFailure) return manifestFailure;
+
+	// Absent flag => allowed; explicit false => the type declares no WebSocket
+	// handlers and the route refuses before any DO is touched (design §2/§11).
+	const entry = bundle?.manifest?.atoms?.[type] ?? {};
+	if (entry.websocket === false) {
+		return errorResponse(
+			'not_supported',
+			`atom type ${JSON.stringify(type)} does not declare a WebSocket handler ("websocket": false in the manifest)`
+		);
+	}
+
+	const params = parseWsParams(url, config);
+	const channels = parseWsChannels(params.channels, config);
+
+	const ns = env.ATOMS;
+	if (!ns || typeof ns.idFromName !== 'function') {
+		throw new AtomsError('internal', 'the ATOMS Durable Object binding is not configured');
+	}
+	const stub = ns.get(ns.idFromName(`${type}\n${id}`));
+
+	// Everything the DO needs that is NOT already on the forwarded Request
+	// (method, headers including Upgrade) crosses in one `call` query key,
+	// which cannot collide with the client's own params — those were
+	// re-encoded inside it, not merged with it.
+	const call = encodeURIComponent(JSON.stringify({ type, id, params, channels }));
+	return stub.fetch(new Request(`https://atoms.internal/ws?call=${call}`, request));
+}
+
+/** `^[A-Za-z0-9][A-Za-z0-9._:@-]*$` — design §3. */
+const CHANNEL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/;
+
+/**
+ * The flat `string -> string` map `onConnect` receives: every query key as
+ * sent, last value winning for repeats (matches `URLSearchParams` iteration
+ * order), `channels` included verbatim (design §4).
+ *
+ * @param {URL} url
+ * @param {import('./config.js').AtomsConfig} config
+ * @returns {Record<string, string>}
+ */
+function parseWsParams(url, config) {
+	/** @type {Record<string, string>} */
+	const params = {};
+	let count = 0;
+	for (const [key, value] of url.searchParams) {
+		if (!Object.prototype.hasOwnProperty.call(params, key)) count++;
+		params[key] = value;
+	}
+	if (count > config.wsMaxParams) {
+		throw new AtomsError(
+			'invalid_request',
+			`the connect request has ${count} query parameters, over ATOMS_WS_MAX_PARAMS (${config.wsMaxParams})`
+		);
+	}
+
+	let totalBytes = 0;
+	for (const [key, value] of Object.entries(params)) {
+		totalBytes += new TextEncoder().encode(key).length + new TextEncoder().encode(value).length;
+	}
+	if (totalBytes > config.wsMaxParamBytes) {
+		throw new AtomsError(
+			'invalid_request',
+			`the connect request's query parameters total ${totalBytes} bytes, over ATOMS_WS_MAX_PARAM_BYTES (${config.wsMaxParamBytes})`
+		);
+	}
+
+	return params;
+}
+
+/**
+ * Parse and validate `?channels=a,b,c` into the de-duplicated, ordered list
+ * of channel names a new connection joins (design §3). Never silently
+ * truncates: every violation is a named `invalid_request`.
+ *
+ * @param {string|undefined} raw
+ * @param {import('./config.js').AtomsConfig} config
+ * @returns {string[]}
+ */
+function parseWsChannels(raw, config) {
+	if (raw === undefined || raw.trim() === '') return [];
+
+	/** @type {string[]} */
+	const channels = [];
+	const seen = new Set();
+	for (const part of raw.split(',')) {
+		const name = part.trim();
+		if (name === '' || seen.has(name)) continue;
+		seen.add(name);
+
+		if (!CHANNEL_NAME_RE.test(name)) {
+			throw new AtomsError('invalid_request', `invalid channel name ${JSON.stringify(name)}`);
+		}
+		if (new TextEncoder().encode(name).length > config.wsMaxChannelNameBytes) {
+			throw new AtomsError(
+				'invalid_request',
+				`channel name ${JSON.stringify(name)} exceeds ATOMS_WS_MAX_CHANNEL_NAME_BYTES (${config.wsMaxChannelNameBytes})`
+			);
+		}
+		channels.push(name);
+	}
+
+	if (channels.length > config.wsMaxChannels) {
+		throw new AtomsError(
+			'invalid_request',
+			`the connect request names ${channels.length} channels, over ATOMS_WS_MAX_CHANNELS (${config.wsMaxChannels})`
+		);
+	}
+	// The derived budget (design §3): stated once here so it cannot drift from
+	// the connection tag plus one channel tag per channel.
+	if (1 + channels.length > config.wsMaxTagsPerConnection) {
+		throw new AtomsError(
+			'invalid_request',
+			`1 connection tag + ${channels.length} channel tags exceeds ATOMS_WS_MAX_TAGS_PER_CONNECTION ` +
+				`(${config.wsMaxTagsPerConnection})`
+		);
+	}
+
+	return channels;
 }
 
 /**

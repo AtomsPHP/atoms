@@ -10,6 +10,8 @@
  * variable is absent or unparseable.
  */
 
+import { AtomsError } from './errors.js';
+
 /** @typedef {Record<string, unknown>} Env */
 
 /**
@@ -48,6 +50,19 @@
  * @property {number}   maxDispatchesPerTurn  dispatch() calls allowed in one turn before `dispatch_limit`.
  * @property {'configured'|'unconfigured'|'misconfigured'} callbackState  Derived from callbackUrl/callbackSigningKey.
  * @property {string|null} callbackConfigError Human-readable reason when callbackState is 'misconfigured'.
+ * @property {number}   wsMaxTagsPerConnection  Platform hard limit on tags per hibernatable socket (measured: 10).
+ * @property {number}   wsMaxTagBytes           Platform hard limit on one tag's byte length (measured: 256).
+ * @property {number}   wsMaxChannels           Channels a single connection may join at connect time.
+ * @property {number}   wsMaxChannelNameBytes   Per-channel-name cap, before the "ch:" prefix.
+ * @property {string}   wsChannelTagPrefix      Tag prefix for channel membership. Disjoint from wsConnTagPrefix by construction (asserted below).
+ * @property {string}   wsConnTagPrefix         Tag prefix for the one per-connection identity tag.
+ * @property {number}   wsMaxParams             Query parameters delivered to onConnect.
+ * @property {number}   wsMaxParamBytes         Total decoded bytes of all onConnect params.
+ * @property {number}   wsMaxAttachmentBytes    Host-side ceiling on the serialized {v,id,ch} attachment.
+ * @property {number}   wsMaxMessageBytes       Inbound frame cap, decoded bytes.
+ * @property {number}   wsMaxSendBytes          Outbound cap for one Connection::send() or one broadcast frame.
+ * @property {number}   wsMaxBroadcastSockets   Fan-out cap for one broadcast() call.
+ * @property {number}   wsDebugMaxConnections   Connection rows the debug endpoint will list.
  */
 
 /** Levels understood by the `log` sync op, lowest first. */
@@ -230,7 +245,7 @@ export function loadConfig(env) {
 	const callbackSigningKey = str(env, 'ATOMS_CALLBACK_SIGNING_KEY', '');
 	const callback = classifyCallbackChannel(callbackUrl, callbackSigningKey);
 
-	return {
+	const config = {
 		appKey: str(env, 'ATOMS_APP_KEY', ''),
 		debugEndpoints: bool(env, 'ATOMS_DEBUG_ENDPOINTS', false),
 
@@ -286,5 +301,49 @@ export function loadConfig(env) {
 		maxDispatchesPerTurn: int(env, 'ATOMS_MAX_DISPATCHES_PER_TURN', 100),
 		callbackState: callback.state,
 		callbackConfigError: callback.error,
+
+		wsMaxTagsPerConnection: int(env, 'ATOMS_WS_MAX_TAGS_PER_CONNECTION', 10),
+		wsMaxTagBytes: int(env, 'ATOMS_WS_MAX_TAG_BYTES', 256),
+		wsMaxChannels: int(env, 'ATOMS_WS_MAX_CHANNELS', 8),
+		wsMaxChannelNameBytes: int(env, 'ATOMS_WS_MAX_CHANNEL_NAME_BYTES', 64),
+		wsChannelTagPrefix: str(env, 'ATOMS_WS_CHANNEL_TAG_PREFIX', 'ch:'),
+		wsConnTagPrefix: str(env, 'ATOMS_WS_CONN_TAG_PREFIX', 'c:'),
+		wsMaxParams: int(env, 'ATOMS_WS_MAX_PARAMS', 32),
+		wsMaxParamBytes: int(env, 'ATOMS_WS_MAX_PARAM_BYTES', 4096),
+		wsMaxAttachmentBytes: int(env, 'ATOMS_WS_MAX_ATTACHMENT_BYTES', 512),
+		wsMaxMessageBytes: int(env, 'ATOMS_WS_MAX_MESSAGE_BYTES', 131072),
+		wsMaxSendBytes: int(env, 'ATOMS_WS_MAX_SEND_BYTES', 131072),
+		wsMaxBroadcastSockets: int(env, 'ATOMS_WS_MAX_BROADCAST_SOCKETS', 1000),
+		wsDebugMaxConnections: int(env, 'ATOMS_WS_DEBUG_MAX_CONNECTIONS', 100),
 	};
+
+	assertWsPrefixesDisjoint(config.wsChannelTagPrefix, config.wsConnTagPrefix);
+
+	return config;
+}
+
+/**
+ * The channel-tag prefix and the connection-tag prefix must never let a
+ * `ATOMS_WS_CHANNEL_TAG_PREFIX + <any channel name>` tag collide with a
+ * `ATOMS_WS_CONN_TAG_PREFIX + <any connection id>` tag (design §3). That is
+ * guaranteed for EVERY possible name/id, whatever charset they use, as long
+ * as neither prefix is a prefix of the other: a shared prefix is the only way
+ * two differently-sourced strings could ever compare equal. Checked once at
+ * config-resolution time so a misconfigured environment fails loudly at boot
+ * rather than mixing up connections and channels under load.
+ *
+ * @param {string} channelPrefix
+ * @param {string} connPrefix
+ */
+function assertWsPrefixesDisjoint(channelPrefix, connPrefix) {
+	const [shorter, longer] =
+		channelPrefix.length <= connPrefix.length ? [channelPrefix, connPrefix] : [connPrefix, channelPrefix];
+	if (shorter !== '' && longer.startsWith(shorter)) {
+		throw new AtomsError(
+			'internal',
+			`ATOMS_WS_CHANNEL_TAG_PREFIX (${JSON.stringify(channelPrefix)}) and ATOMS_WS_CONN_TAG_PREFIX ` +
+				`(${JSON.stringify(connPrefix)}) are not disjoint: one is a prefix of the other, which would let a ` +
+				'channel tag collide with a connection tag'
+		);
+	}
 }

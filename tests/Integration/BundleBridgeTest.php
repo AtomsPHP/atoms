@@ -61,6 +61,12 @@ final class BundleBridgeTest extends TestCase
         self::assertStringContainsString('"GameRoom": {', $module);
         self::assertStringContainsString('"class": "App\\\\Atoms\\\\GameRoom"', $module);
 
+        // The additive "websocket" manifest field (docs/cloudflare-toolchain.md
+        // §3) must survive the translation: GameRoom overrides onConnect(), so
+        // the CLI's ManifestGenerator marks it true, and bundle-from-cli.mjs
+        // must carry that through rather than dropping it.
+        self::assertStringContainsString('"websocket": true', $module);
+
         // Guest paths: the customer's tree under /app, the runtime prelude and
         // the verbatim atoms/core under /atoms.
         self::assertStringContainsString('"file": "/app/app/Atoms/GameRoom.php"', $module);

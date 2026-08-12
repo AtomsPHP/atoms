@@ -68,15 +68,17 @@ export class Bridge {
 	 * @param {import('./config.js').AtomsConfig} opts.config
 	 * @param {() => ({type: string, id: string}|null)} opts.identityRef
 	 * @param {import('./callbacks.js').CallbackChannel} opts.callbacks
+	 * @param {import('./websockets.js').WebSocketHost} opts.ws
 	 * @param {() => boolean} opts.inTransactionRef
 	 */
-	constructor({ ctx, env, config, identityRef, callbacks, inTransactionRef }) {
+	constructor({ ctx, env, config, identityRef, callbacks, ws, inTransactionRef }) {
 		this.ctx = ctx;
 		this.env = env;
 		this.config = config;
 		this.sql = ctx.storage.sql;
 		this.identityRef = identityRef;
 		this.callbacks = callbacks;
+		this.ws = ws;
 		this.inTransactionRef = inTransactionRef;
 		this.sqlCalls = 0;
 	}
@@ -170,6 +172,13 @@ export class Bridge {
 		}
 		if (typeof msg !== 'object' || msg === null || typeof msg.op !== 'string') {
 			return fail('bad_host_message', 'sync message must be an object with an "op" string');
+		}
+
+		// The three ws.* ops are a self-contained module (src/websockets.js)
+		// with their own try/catch-to-reply contract identical to this one;
+		// delegating whole avoids duplicating that contract here.
+		if (msg.op === 'ws.send' || msg.op === 'ws.close' || msg.op === 'ws.broadcast') {
+			return this.ws.handleSync(msg.op, msg);
 		}
 
 		try {

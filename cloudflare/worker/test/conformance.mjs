@@ -3,11 +3,14 @@
 /**
  * Conformance suite for Atoms-on-Cloudflare MVP.
  *
- * Runs 17 conformance checks against a live worker URL per the spec: 1-12
+ * Runs 22 conformance checks against a live worker URL per the spec: 1-12
  * against the Worker alone, 13-17 against the callback channel (app()/
  * dispatch()), for which this suite itself plays the monolith — a
  * `node:http` listener bound to 127.0.0.1 that verifies Ed25519 signatures
- * with `node:crypto` (design doc §10).
+ * with `node:crypto` (design doc §10) — and 18-22 against the WebSocket seam
+ * and `broadcast()` (design doc §10), using Node's built-in global
+ * `WebSocket` (M14) so no `ws` dependency is ever added to a GPL-assembled
+ * package.json.
  *
  * Config via env:
  *   ATOMS_BASE_URL (required)
@@ -21,7 +24,7 @@
  */
 
 import { createPublicKey, verify as verifyEd25519 } from 'node:crypto';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -142,6 +145,119 @@ function wire(v) {
 /** A fresh atom id per run, so a re-run never inherits durable state. */
 const RUN = `r${Date.now().toString(36)}`;
 const atomId = (name) => `${name}-${RUN}`;
+
+// -------------------------------------------------------------- websockets
+
+/**
+ * A plain HTTP request carrying `Upgrade: websocket` but never completing the
+ * actual WebSocket handshake (no `Sec-WebSocket-Key`) — for asserting that a
+ * BAD upgrade is refused with an ordinary JSON error response before any DO
+ * is touched (design doc §2). Built on `node:http` rather than `fetch()`
+ * because `Upgrade`/`Connection` are the two headers a spec-compliant fetch
+ * implementation may refuse to let a caller set by hand.
+ *
+ * @param {string} path
+ * @returns {Promise<{status: number, data: any}>}
+ */
+function wsHandshakeAttempt(path) {
+    return new Promise((resolve, reject) => {
+        const url = new URL(path, baseUrl);
+        const headers = { Upgrade: 'websocket', Connection: 'Upgrade' };
+        if (APP_KEY) headers.Authorization = `Bearer ${APP_KEY}`;
+        const req = httpRequest(url, { method: 'GET', headers }, (res) => {
+            const chunks = [];
+            res.on('data', (c) => chunks.push(c));
+            res.on('end', () => {
+                const text = Buffer.concat(chunks).toString('utf8');
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch {
+                    data = { _raw: text };
+                }
+                resolve({ status: res.statusCode, data });
+            });
+        });
+        req.on('error', reject);
+        req.end();
+    });
+}
+
+/**
+ * Open a WebSocket to the worker's `/ws` route and wait for it to connect.
+ * Node 22's global `WebSocket` accepts `{headers: {Authorization: ...}}`
+ * (M14, an undici extension), so this works identically whether
+ * `ATOMS_APP_KEY` is set or not — no ticket, no query-string credential.
+ *
+ * The returned handle collects inbound frames into arrival order; `.next()`
+ * awaits (and consumes) the next one, whether it already arrived or is still
+ * to come, with a bounded timeout so a check fails instead of hanging.
+ *
+ * @param {string} path e.g. `/ws/Room/<id>?channels=lobby`
+ * @returns {Promise<{
+ *   send: (data: string|Uint8Array) => void,
+ *   next: (timeoutMs?: number) => Promise<string|ArrayBuffer>,
+ *   close: (code?: number, reason?: string) => Promise<void>,
+ * }>}
+ */
+function openSocket(path) {
+    const url = new URL(path, baseUrl).toString().replace(/^http/, 'ws');
+    const opts = APP_KEY ? { headers: { Authorization: `Bearer ${APP_KEY}` } } : undefined;
+    const ws = opts ? new WebSocket(url, opts) : new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+
+    /** @type {(string|ArrayBuffer)[]} */
+    const frames = [];
+    /** @type {((frame: string|ArrayBuffer) => void)[]} */
+    const waiters = [];
+
+    ws.addEventListener('message', (e) => {
+        if (waiters.length) waiters.shift()(e.data);
+        else frames.push(e.data);
+    });
+
+    const opened = new Promise((resolve, reject) => {
+        ws.addEventListener('open', () => resolve(), { once: true });
+        ws.addEventListener('error', () => reject(new Error(`ws open failed for ${path}`)), { once: true });
+        setTimeout(() => reject(new Error(`ws open timed out for ${path}`)), 5000);
+    });
+
+    return opened.then(() => ({
+        send(data) {
+            ws.send(data);
+        },
+        async next(timeoutMs = 3000) {
+            if (frames.length) return frames.shift();
+            return new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    const i = waiters.indexOf(onFrame);
+                    if (i !== -1) waiters.splice(i, 1);
+                    reject(new Error(`timed out waiting for a frame on ${path} after ${timeoutMs}ms`));
+                }, timeoutMs);
+                const onFrame = (frame) => {
+                    clearTimeout(timer);
+                    resolve(frame);
+                };
+                waiters.push(onFrame);
+            });
+        },
+        async close(code = 1000, reason = '') {
+            // 0 = CONNECTING, 1 = OPEN — only those are legal to close().
+            if (ws.readyState === 0 || ws.readyState === 1) {
+                try {
+                    ws.close(code, reason);
+                } catch {
+                    /* already closing */
+                }
+            }
+            if (ws.readyState === 3) return; // CLOSED
+            await new Promise((resolve) => {
+                ws.addEventListener('close', () => resolve(), { once: true });
+                setTimeout(resolve, 3000);
+            });
+        },
+    }));
+}
 
 // ------------------------------------------------------- callback listener
 
@@ -1276,6 +1392,376 @@ checks.push(async () => {
 
     if (problems.length === 0) {
         pass(checkNum, name, `buffered-on-commit/dropped-on-rollback inside tx; delivered-despite-throw outside tx`);
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 18: connect, onConnect observed, params delivered; bad upgrades
+// refused before any DO work; the invocable_method() denylist for socket
+// handlers.
+checks.push(async () => {
+    const checkNum = 18;
+    const name = 'ws connect: onConnect observed, params delivered, refusals, invocable_method denylist';
+    const problems = [];
+    const id = atomId('room-connect');
+
+    const sock = await openSocket(`/ws/Room/${id}?channels=lobby&hello=world`);
+    try {
+        const frame = await sock.next();
+        let welcome = null;
+        try {
+            welcome = JSON.parse(/** @type {string} */ (frame));
+        } catch {
+            problems.push(`welcome frame was not JSON: ${frame}`);
+        }
+        if (welcome) {
+            if (welcome.kind !== 'welcome') problems.push(`welcome.kind=${JSON.stringify(welcome.kind)} (expected "welcome")`);
+            if (typeof welcome.conn !== 'string' || welcome.conn === '') {
+                problems.push(`welcome.conn=${JSON.stringify(welcome.conn)} (expected a non-empty string)`);
+            }
+            if (JSON.stringify(welcome.params) !== JSON.stringify({ channels: 'lobby', hello: 'world' })) {
+                problems.push(
+                    `welcome.params=${JSON.stringify(welcome.params)} (expected {"channels":"lobby","hello":"world"})`
+                );
+            }
+        }
+
+        const stats = await invoke('Room', id, 'stats', []);
+        if (stats.data?.result?.connects !== 1) {
+            problems.push(`stats().connects=${stats.data?.result?.connects} (expected 1)`);
+        }
+    } finally {
+        await sock.close();
+    }
+
+    // A bad upgrade must be refused before any DO is touched.
+    const tooManyChannels = Array.from({ length: 40 }, (_, i) => `c${i}`).join(',');
+    const badChannels = await wsHandshakeAttempt(`/ws/Room/${atomId('room-badchan')}?channels=${tooManyChannels}`);
+    if (badChannels.status !== 400 || badChannels.data?.error?.code !== 'invalid_request') {
+        problems.push(
+            `40 channels gave ${badChannels.status}/${badChannels.data?.error?.code} (expected 400/invalid_request)`
+        );
+    }
+
+    // Counter declares no WebSocket handlers ("websocket": false).
+    const noHandlers = await wsHandshakeAttempt(`/ws/Counter/${atomId('room-nohandlers')}`);
+    if (noHandlers.status !== 501 || noHandlers.data?.error?.code !== 'not_supported') {
+        problems.push(`/ws/Counter gave ${noHandlers.status}/${noHandlers.data?.error?.code} (expected 501/not_supported)`);
+    }
+
+    // The invocable_method() denylist (design doc §4): onConnect/onMessage/
+    // onDisconnect are public on Atom but must be unreachable via POST
+    // /invoke — reachable ONLY through a socket.
+    const viaInvoke = await invoke('Room', id, 'onMessage', []);
+    if (viaInvoke.status !== 404 || viaInvoke.data?.error?.code !== 'method_not_found') {
+        problems.push(
+            `POST /invoke .../onMessage gave ${viaInvoke.status}/${viaInvoke.data?.error?.code} ` +
+                '(expected 404/method_not_found)'
+        );
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            'welcome frame observed with full params, bad upgrades refused pre-DO, onMessage unreachable via invoke'
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 19: echo round trip through onMessage + Connection::send(), text and binary
+checks.push(async () => {
+    const checkNum = 19;
+    const name = 'ws echo round trip through onMessage + Connection::send() (text + binary)';
+    const problems = [];
+    const id = atomId('room-echo');
+
+    const sock = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    try {
+        await sock.next(); // welcome
+
+        sock.send('echo:hi');
+        const textFrame = await sock.next();
+        if (textFrame !== 'echo:hi') problems.push(`text echo: got ${JSON.stringify(textFrame)} (expected "echo:hi")`);
+
+        // Genuinely non-UTF-8 bytes: 0xFF/0xFE are invalid lead bytes and 0x80
+        // is a lone continuation byte, so CfConnection::send()'s
+        // content-based opcode rule (design doc §5 — text iff valid UTF-8)
+        // is guaranteed to answer with a binary frame. Low ASCII bytes like
+        // [1,2,3,4,5] would come back as TEXT instead, by that same rule —
+        // deliberately, not a bug — so they would not exercise this path.
+        const bin = new Uint8Array([0xff, 0xfe, 0x80, 0x00, 0xfd]);
+        sock.send(bin);
+        const binFrame = await sock.next();
+        if (!(binFrame instanceof ArrayBuffer)) {
+            problems.push(`binary echo: got a ${typeof binFrame} frame, not an ArrayBuffer`);
+        } else {
+            const got = new Uint8Array(/** @type {ArrayBuffer} */ (binFrame));
+            if (got.length !== bin.length || !bin.every((b, i) => got[i] === b)) {
+                problems.push(`binary echo: got [${got}] (expected [${bin}])`);
+            }
+        }
+
+        const stats = await invoke('Room', id, 'stats', []);
+        if (stats.data?.result?.lastBinary !== true) {
+            problems.push(`stats().lastBinary=${stats.data?.result?.lastBinary} (expected true)`);
+        }
+        if (stats.data?.result?.messages !== 2) {
+            problems.push(`stats().messages=${stats.data?.result?.messages} (expected 2)`);
+        }
+    } finally {
+        await sock.close();
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, 'text frame and 5-byte binary frame both echoed exactly; lastBinary observed');
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 20: broadcast reaches the channel and only the channel
+checks.push(async () => {
+    const checkNum = 20;
+    const name = 'broadcast() reaches the channel and only the channel';
+    const problems = [];
+    const id = atomId('room-bcast');
+
+    const a = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    const b = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    const c = await openSocket(`/ws/Room/${id}?channels=other`);
+    try {
+        await a.next();
+        await b.next();
+        await c.next(); // welcomes
+
+        a.send('bcast:lobby:hello');
+
+        const want = { kind: 'broadcast', channel: 'lobby', payload: { text: 'hello' } };
+        for (const [label, sock] of /** @type {const} */ ([
+            ['A', a],
+            ['B', b],
+        ])) {
+            const frame = await sock.next();
+            let parsed = null;
+            try {
+                parsed = JSON.parse(/** @type {string} */ (frame));
+            } catch {
+                problems.push(`${label}: broadcast frame was not JSON: ${frame}`);
+                continue;
+            }
+            if (JSON.stringify(parsed) !== JSON.stringify(want)) {
+                problems.push(`${label}: broadcast frame ${JSON.stringify(parsed)} !== ${JSON.stringify(want)}`);
+            }
+        }
+
+        // C, on a different channel, must receive nothing within a bounded wait.
+        try {
+            const spurious = await c.next(800);
+            problems.push(`C (channel "other") received a frame it should not have: ${JSON.stringify(spurious)}`);
+        } catch {
+            /* expected: the wait times out */
+        }
+
+        // broadcast() to a channel with no members is not an error, and the
+        // turn still succeeds — proved by the sender staying healthy.
+        a.send('bcast:nobody:x');
+        try {
+            const spurious = await b.next(600);
+            problems.push(`B received an unexpected frame from the empty-channel broadcast: ${JSON.stringify(spurious)}`);
+        } catch {
+            /* expected */
+        }
+        a.send('echo:still-alive');
+        const echoed = await a.next();
+        if (echoed !== 'echo:still-alive') {
+            problems.push(`A unhealthy after the empty-channel broadcast: ${JSON.stringify(echoed)}`);
+        }
+    } finally {
+        await a.close();
+        await b.close();
+        await c.close();
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            'broadcast reached A and B on "lobby" with the exact pinned wire shape, not C on "other"; ' +
+                'an empty-channel broadcast is a no-op, not an error'
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 21: THE BIG ONE — survival across a real hibernation
+checks.push(async () => {
+    const checkNum = 21;
+    const name = 'ws survival across a real hibernation (THE BIG ONE)';
+    const problems = [];
+    const id = atomId('room-evict');
+
+    const sock = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    try {
+        const welcome = JSON.parse(/** @type {string} */ (await sock.next()));
+        const connId = welcome.conn;
+
+        sock.send('echo:before');
+        const before = await sock.next();
+        if (before !== 'echo:before') problems.push(`pre-eviction echo: ${JSON.stringify(before)} (expected "echo:before")`);
+
+        const beforeInfo = await debugInfo('Room', id);
+
+        console.log(`   (waiting ${EVICTION_WAIT_MS}ms for eviction...)`);
+        await new Promise((r) => setTimeout(r, EVICTION_WAIT_MS));
+
+        const afterInfo = await debugInfo('Room', id);
+
+        // This is what makes the check honest. Without it the check passes on
+        // a warm residency and asserts nothing — see CHECK 12's identical rule.
+        if (!(afterInfo.constructions > beforeInfo.constructions)) {
+            fail(
+                checkNum,
+                name,
+                `constructions did not increase (${beforeInfo.constructions} -> ${afterInfo.constructions}): ` +
+                    'the Durable Object was never evicted, so nothing was proved'
+            );
+            return;
+        }
+
+        sock.send('echo:after');
+        const after = await sock.next();
+        if (after !== 'echo:after') problems.push(`post-wake echo on the SAME socket: ${JSON.stringify(after)}`);
+
+        sock.send('id?');
+        const idFrame = await sock.next();
+        if (idFrame !== `id:${connId}`) {
+            problems.push(`post-wake id: ${JSON.stringify(idFrame)} (expected "id:${connId}") — the connection id changed`);
+        }
+
+        const stats = await invoke('Room', id, 'stats', []);
+        if (stats.data?.result?.connects !== 1) {
+            problems.push(`stats().connects=${stats.data?.result?.connects} (expected 1 — onConnect must not re-run)`);
+        }
+        if (stats.data?.result?.connectsThisResidency !== 0) {
+            problems.push(
+                `stats().connectsThisResidency=${stats.data?.result?.connectsThisResidency} (expected 0 — ` +
+                    'this residency is new, cross-checking constructions)'
+            );
+        }
+
+        if (!(afterInfo.ws?.sockets >= 1)) problems.push(`afterInfo.ws.sockets=${afterInfo.ws?.sockets} (expected >=1)`);
+        const afterConn = (afterInfo.ws?.connections ?? []).find((/** @type {any} */ c) => c.id === connId);
+        if (!afterConn || JSON.stringify(afterConn.channels) !== JSON.stringify(['lobby'])) {
+            problems.push(`post-wake debug channels for ${connId}: ${JSON.stringify(afterConn?.channels)} (expected ["lobby"])`);
+        }
+        if (!afterConn || !(afterConn.tags ?? []).includes('ch:lobby')) {
+            problems.push(`getTags() after the wake did not include "ch:lobby": ${JSON.stringify(afterConn?.tags)}`);
+        }
+
+        await sock.close(1000, 'done');
+        let disconnects = 0;
+        const deadline = Date.now() + 8000;
+        while (Date.now() < deadline) {
+            const s = await invoke('Room', id, 'stats', []);
+            disconnects = s.data?.result?.disconnects;
+            if (disconnects === 1) break;
+            await new Promise((r) => setTimeout(r, 200));
+        }
+        if (disconnects !== 1) {
+            problems.push(`stats().disconnects=${disconnects} (expected 1 — onDisconnect must fire after a wake)`);
+        }
+    } finally {
+        try {
+            await sock.close();
+        } catch {
+            /* already closed */
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            'constructions grew across the wait, same conn id and channels survived (tags intact), ' +
+                'onConnect did not re-run, onDisconnect fired post-wake'
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 22: send() to a dead connection
+checks.push(async () => {
+    const checkNum = 22;
+    const name = "send() to a dead connection: ConnectionClosed, scoped to the call";
+    const problems = [];
+    const id = atomId('room-poke');
+
+    const a = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    const b = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    try {
+        await a.next();
+        await b.next(); // welcomes
+
+        a.send('id?');
+        const aId = String(await a.next()).replace(/^id:/, '');
+        b.send('id?');
+        const bId = String(await b.next()).replace(/^id:/, '');
+
+        await b.close(1000, 'bye');
+
+        let disconnects = 0;
+        let deadline = Date.now() + 8000;
+        while (Date.now() < deadline) {
+            const s = await invoke('Room', id, 'stats', []);
+            disconnects = s.data?.result?.disconnects;
+            if (disconnects === 1) break;
+            await new Promise((r) => setTimeout(r, 200));
+        }
+        if (disconnects !== 1) problems.push(`stats().disconnects=${disconnects} (expected 1 before poking)`);
+
+        a.send(`poke:${bId}`);
+        let lastPoke = null;
+        deadline = Date.now() + 8000;
+        while (Date.now() < deadline) {
+            const s = await invoke('Room', id, 'stats', []);
+            lastPoke = s.data?.result?.lastPoke;
+            if (lastPoke !== null && lastPoke !== undefined) break;
+            await new Promise((r) => setTimeout(r, 150));
+        }
+        if (lastPoke !== 'ConnectionClosed') {
+            problems.push(`stats().lastPoke=${JSON.stringify(lastPoke)} (expected "ConnectionClosed")`);
+        }
+
+        // The failure is scoped to the call, not the connection or the
+        // residency: A's own socket must still be open and still echo.
+        a.send('echo:still-here');
+        const echoed = await a.next();
+        if (echoed !== 'echo:still-here') {
+            problems.push(`A's socket unhealthy after poking a dead connection: ${JSON.stringify(echoed)}`);
+        }
+        void aId; // captured for symmetry/debuggability; not itself asserted on
+    } finally {
+        await a.close();
+        try {
+            await b.close();
+        } catch {
+            /* already closed */
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            'poke to a closed connection produced ConnectionClosed (typed, catchable), scoped to the call — ' +
+                "A's socket kept working"
+        );
     } else {
         fail(checkNum, name, problems.join('; '));
     }

@@ -33,6 +33,8 @@
  *   | 'tx_state'
  *   | 'bad_host_message'
  *   | 'turn_deadline_exceeded'
+ *   | 'ws_conn_gone'
+ *   | 'ws_fanout_limit'
  *   | 'internal'
  * )} AtomsErrorCode
  */
@@ -57,6 +59,12 @@ const CODE_TABLE = {
 	unsupported_value: { status: 500, retryable: false },
 	tx_state: { status: 500, retryable: false },
 	bad_host_message: { status: 500, retryable: false },
+	// The id resolved to no socket (§5, §6): a connection that already closed,
+	// or a broadcast fan-out that would exceed ATOMS_WS_MAX_BROADCAST_SOCKETS.
+	// Neither is the caller's fault in the retry sense — the recipient is gone
+	// or the cap needs raising — so both are non-retryable.
+	ws_conn_gone: { status: 500, retryable: false },
+	ws_fanout_limit: { status: 500, retryable: false },
 	// Matches the retired platform contract's table and what atoms/client
 	// already expects (AtomsClient.php maps this to TurnDeadlineExceeded and
 	// only retries when the call site opts in) — see design doc §9.4.

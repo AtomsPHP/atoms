@@ -27,13 +27,15 @@ import bundle from './bundle.generated.js';
 import { Bridge, TransactionMachine, errorReply } from './bridge.js';
 import { CallbackChannel } from './callbacks.js';
 import { loadConfig, META_KEYS } from './config.js';
-import { AtomsError, normalizeError } from './errors.js';
+import { AtomsError, normalizeError, retryableFor, statusFor } from './errors.js';
 import { bootPHP, composeBootCode, guestMemoryBytes, mkdirp, writeGuestFile } from './php-host.js';
+import { WebSocketHost, WS_ATTACHMENT_VERSION, buildAttachment, readAttachment, attachmentByteLength } from './websockets.js';
 
 /** Wire version of the boot payload handed to the PHP runtime prelude. */
 const BOOT_PROTOCOL = 1;
 
 const now = () => Date.now();
+const encoder = new TextEncoder();
 
 /**
  * @param {unknown} body
@@ -95,15 +97,30 @@ export class AtomDurableObject extends DurableObject {
 			log: (level, fields) => this.log(level, fields),
 			phpGenerationRef: () => this.phpGeneration,
 		});
+		this.ws = new WebSocketHost({
+			ctx,
+			config: this.config,
+			log: (level, fields) => this.log(level, fields),
+		});
 		this.bridge = new Bridge({
 			ctx,
 			env,
 			config: this.config,
 			identityRef: () => this.identity,
 			callbacks: this.callbacks,
+			ws: this.ws,
 			inTransactionRef: () => this.tx.open,
 		});
 		this.tx = new TransactionMachine({ ctx, config: this.config, host: this, callbacks: this.callbacks });
+
+		// Residency-local WebSocket bookkeeping (design §7/§10). None of this is
+		// ever persisted: it exists to make a wake path cheap and to give the
+		// debug endpoint an honest "this residency" view, never to be the
+		// authority on what sockets exist — ctx.getWebSockets() always is.
+		this.wsConnectsThisResidency = 0;
+		this.wsTurnsThisResidency = 0;
+		/** @type {Set<string>} de-dupes webSocketError+webSocketClose firing for one socket (H6) */
+		this.wsDisconnected = new Set();
 
 		this.bridge.ensureSchema();
 		this.constructions = this.bridge.bumpConstructions();
@@ -119,6 +136,15 @@ export class AtomDurableObject extends DurableObject {
 	 * @returns {Promise<Response>}
 	 */
 	async fetch(request) {
+		const url = new URL(request.url);
+		// The upgrade route: no JSON body to read (request.json() below would
+		// consume/reject a bodyless GET), and the response has to be a real 101
+		// carrying `webSocket`, not the {ok:...} envelope every other call here
+		// produces. Branches out before anything else touches `request`.
+		if (url.pathname === '/ws') {
+			return this.handleWsUpgrade(url, request);
+		}
+
 		/** @type {any} */
 		let call;
 		try {
@@ -148,6 +174,290 @@ export class AtomDurableObject extends DurableObject {
 			});
 			return envelope({ ok: false, error: { code: n.code, message: n.message } });
 		}
+	}
+
+	// ------------------------------------------------------------ websockets
+
+	/**
+	 * `/ws?call=<json>` — everything `index.js`'s `wsUpgrade()` already
+	 * validated (type/id, manifest, the `websocket` flag, params/channels)
+	 * arrives packed into `call`; this does ONLY the accept path (design
+	 * §7A). The whole thing runs inside `this.enqueue()`, exactly one turn
+	 * mutex slot, so it cannot interleave with any other turn on this
+	 * residency (H2/H4).
+	 *
+	 * @param {URL} url
+	 * @param {Request} request
+	 * @returns {Promise<Response>}
+	 */
+	async handleWsUpgrade(url, request) {
+		/** @type {any} */
+		let call;
+		try {
+			call = JSON.parse(url.searchParams.get('call') ?? '');
+		} catch (e) {
+			return wsErrorResponse('invalid_request', `unreadable ws call parameter: ${String(e)}`);
+		}
+		if (typeof call !== 'object' || call === null || typeof call.type !== 'string' || typeof call.id !== 'string') {
+			return wsErrorResponse('invalid_request', 'ws call parameter is missing "type"/"id"');
+		}
+		const { type, id } = call;
+		const params = typeof call.params === 'object' && call.params !== null ? call.params : {};
+		const channels = Array.isArray(call.channels) ? call.channels.map(String) : [];
+
+		const collector = this.callbacks.newCollector();
+		const run = this.enqueue(async () => {
+			// Step A3 (design §7): the SAME activation gate fetch() uses for an
+			// invoke. If it throws, nothing below runs and nothing has been
+			// accepted.
+			await this.ensureActive(type, id);
+
+			// Step A4: host-minted identity. Nothing here is derived from guest
+			// memory (§1) — id and channels are the whole attachment.
+			const connId = crypto.randomUUID();
+			const attachment = buildAttachment(connId, channels);
+			if (attachmentByteLength(attachment) > this.config.wsMaxAttachmentBytes) {
+				throw new AtomsError(
+					'invalid_request',
+					`this connection's channel list makes its attachment exceed ` +
+						`ATOMS_WS_MAX_ATTACHMENT_BYTES (${this.config.wsMaxAttachmentBytes})`
+				);
+			}
+
+			// Step A5: accept, THEN attach, THEN memoize — in that order, so a
+			// frame arriving the instant after accept still finds a readable
+			// attachment (M11 proves a send this early already reaches the
+			// client; the same ordering argument applies to reads).
+			const pair = new WebSocketPair();
+			const server = pair[1];
+			const client = pair[0];
+			const tags = [
+				this.config.wsConnTagPrefix + connId,
+				...channels.map((c) => this.config.wsChannelTagPrefix + c),
+			];
+			this.ctx.acceptWebSocket(server, tags);
+			server.serializeAttachment(attachment);
+			this.ws.noteSocket(connId, server);
+
+			this.wsConnectsThisResidency++;
+			this.wsTurnsThisResidency++;
+			this.turnBudget = this.callbacks.beginTurn(this.config.turnDeadlineMs, collector);
+
+			const conn = { id: connId, channels };
+			try {
+				// Step A6: onConnect fires from exactly this one place (design §7)
+				// — no wake path can ever reach ws.connect.
+				const result = await this.runTurn({ ok: true, kind: 'ws.connect', conn, params });
+				if (result.ok !== true) {
+					// An ok:false envelope (onConnect threw, caught by run_ws_turn())
+					// is logged and the connection is KEPT (design §4/§7A step 6).
+					this.log('warning', {
+						msg: 'atoms.ws.connect_turn_failed',
+						conn: connId,
+						code: /** @type {any} */ (result).error?.code,
+						error: /** @type {any} */ (result).error?.message,
+					});
+				}
+			} catch (e) {
+				// A THROW means the residency was poisoned mid-onConnect: a
+				// connection whose onConnect never ran must not exist.
+				try {
+					server.close(1011, 'atoms: onConnect failed to run');
+				} catch {
+					/* best effort */
+				}
+				this.ws.forgetSocket(connId);
+				throw e;
+			}
+
+			return client;
+		});
+
+		try {
+			// Outside the mutex, exactly like invoke(): the next turn may start
+			// while this ws.connect turn's dispatch() deliveries are in flight,
+			// but the 101 does not go out until they have settled.
+			const client = await run.finally(() => this.callbacks.settleTurn(collector));
+			// Step A7.
+			return new Response(null, { status: 101, webSocket: client });
+		} catch (e) {
+			const n = normalizeError(e);
+			return wsErrorResponse(n.code, n.message);
+		}
+	}
+
+	/**
+	 * A hibernatable socket delivered an inbound frame. Cold or warm residency
+	 * — `blockConcurrencyWhile` gates this the same way it gates `fetch()`
+	 * (measured M6, design §7 H1), so there is no ws-specific "is it warm?"
+	 * check anywhere in this file.
+	 *
+	 * @param {any} ws
+	 * @param {string|ArrayBuffer} message
+	 */
+	async webSocketMessage(ws, message) {
+		const binary = typeof message !== 'string';
+		const byteLength = binary ? /** @type {ArrayBuffer} */ (message).byteLength : encoder.encode(message).length;
+
+		if (byteLength > this.config.wsMaxMessageBytes) {
+			// H10: an over-cap frame is not dispatched as a turn — the peer must
+			// never be left believing a dropped frame was delivered.
+			this.log('warning', { msg: 'atoms.ws.message_too_big', bytes: byteLength });
+			try {
+				ws.close(1009, 'atoms: message exceeds ATOMS_WS_MAX_MESSAGE_BYTES');
+			} catch {
+				/* best effort */
+			}
+			return;
+		}
+
+		await this.wsEvent(ws, (conn) =>
+			binary
+				? {
+						ok: true,
+						kind: 'ws.message',
+						conn,
+						payload: arrayBufferToBase64(/** @type {ArrayBuffer} */ (message)),
+						binary: true,
+						encoding: 'base64',
+					}
+				: { ok: true, kind: 'ws.message', conn, payload: message, binary: false, encoding: 'utf8' }
+		);
+	}
+
+	/**
+	 * @param {any} ws
+	 * @param {number} code
+	 * @param {string} reason
+	 * @param {boolean} wasClean
+	 */
+	async webSocketClose(ws, code, reason, wasClean) {
+		await this.wsEvent(ws, (conn) => ({ ok: true, kind: 'ws.close', conn, code, reason, wasClean }), {
+			forget: true,
+			dedupe: true,
+		});
+	}
+
+	/**
+	 * M12: an abrupt client disconnect delivers webSocketClose(1006, false),
+	 * not this handler — but a genuine transport error can still fire it, and
+	 * H6 says it may fire ALONGSIDE webSocketClose for the same socket. The
+	 * dedupe set makes at most one ws.close turn ever result.
+	 *
+	 * @param {any} ws
+	 * @param {unknown} error
+	 */
+	async webSocketError(ws, error) {
+		await this.wsEvent(
+			ws,
+			(conn) => ({ ok: true, kind: 'ws.close', conn, code: 1006, reason: errorReason(error), wasClean: false }),
+			{ forget: true, dedupe: true }
+		);
+	}
+
+	/**
+	 * The wake path shared by every hibernatable socket event (design §7C).
+	 * Runs the SAME activation gate and the SAME turn mutex as `fetch()`'s
+	 * accept path and every invoke — there is no ws-specific mutex and no
+	 * ws-specific "is it warm?" check. Never throws: a failed ws turn is
+	 * logged, not a reason to take the residency (or the socket) down.
+	 *
+	 * @param {any} ws
+	 * @param {(conn: {id: string, channels: string[]}) => Record<string, unknown>} buildEnvelope
+	 * @param {{forget?: boolean, dedupe?: boolean}} [opts]
+	 */
+	async wsEvent(ws, buildEnvelope, opts = {}) {
+		const att = readAttachment(ws);
+		if (!att) {
+			this.dropSocket(ws, 1011, 'atoms: unreadable connection attachment');
+			return;
+		}
+		if (att.v !== WS_ATTACHMENT_VERSION) {
+			this.dropSocket(ws, 1012, 'atoms: attachment format changed');
+			return;
+		}
+
+		// A socket can only exist because an upgrade completed an activation,
+		// so __atoms_meta is always present; absent means corruption (design
+		// §7C) — dropped rather than guessed at. Read from durable state, not
+		// `this.identity`: a wake may be the FIRST event this residency has
+		// ever seen.
+		const identity = this.identityFromMeta();
+		if (!identity) {
+			this.dropSocket(ws, 1011, 'atoms: this object has no recorded identity');
+			return;
+		}
+
+		if (opts.dedupe) {
+			// H6, best-effort by construction (the Set dies with the residency,
+			// which is sound because both events for one socket arrive inside one
+			// wake window).
+			if (this.wsDisconnected.has(att.id)) return;
+			this.wsDisconnected.add(att.id);
+		}
+
+		this.ws.noteSocket(att.id, ws);
+		const conn = { id: att.id, channels: att.ch };
+		const collector = this.callbacks.newCollector();
+
+		const run = this.enqueue(async () => {
+			await this.ensureActive(identity.type, identity.id);
+			this.wsTurnsThisResidency++;
+			this.turnBudget = this.callbacks.beginTurn(this.config.turnDeadlineMs, collector);
+			return this.runTurn(buildEnvelope(conn));
+		});
+
+		try {
+			// Outside the mutex, exactly like invoke()/handleWsUpgrade(): the next
+			// event may start while this turn's dispatch() deliveries are still
+			// in flight.
+			await run.finally(() => this.callbacks.settleTurn(collector));
+		} catch (e) {
+			// The turn loop never throws out of here: the only way this catches
+			// is the same protocol-level failure that would poison an invoke, and
+			// a socket event must not take the residency OR the socket down for
+			// that (design §4).
+			const n = normalizeError(e);
+			this.log('error', { msg: 'atoms.ws.turn_failed', conn: att.id, code: n.code, error: n.message });
+		} finally {
+			if (opts.forget) {
+				this.ws.forgetSocket(att.id);
+				this.wsDisconnected.delete(att.id);
+			}
+		}
+	}
+
+	/**
+	 * A socket event that cannot be attributed to a valid, current connection
+	 * (unreadable/version-mismatched attachment, or no recorded identity). No
+	 * turn is dispatched; the socket is closed with the given RFC 6455 code
+	 * and the drop is logged.
+	 *
+	 * @param {any} ws
+	 * @param {number} code
+	 * @param {string} reason
+	 */
+	dropSocket(ws, code, reason) {
+		this.log('error', { msg: 'atoms.ws.dropped_socket', code, reason });
+		try {
+			ws.close(code, reason);
+		} catch {
+			/* best effort — the socket may already be gone */
+		}
+	}
+
+	/**
+	 * Identity for a wake event, read from durable `__atoms_meta` rather than
+	 * `this.identity` (set only by `activate()`, which a cold wake has not run
+	 * yet).
+	 *
+	 * @returns {{type: string, id: string}|null}
+	 */
+	identityFromMeta() {
+		const type = this.bridge.metaGet(META_KEYS.type);
+		const id = this.bridge.metaGet(META_KEYS.id);
+		if (type === null || id === null) return null;
+		return { type, id };
 	}
 
 	// ------------------------------------------------------------------ turns
@@ -563,6 +873,11 @@ export class AtomDurableObject extends DurableObject {
 		this.parkedTurn = null;
 		this.activationPromise = null;
 		this.tx.reset();
+		// The connId -> socket memo is residency-local and must not outlive the
+		// PHP instance it was warmed for (design §5/§7E) — but the sockets
+		// themselves are NOT closed: poisoning is recoverable, and a socket
+		// stays open across it exactly like it stays open across an eviction.
+		this.ws.clearMemo();
 		// Invalidates any serviceAppCall() awaiting a fetch with this generation
 		// captured (design §5.3): its reply is dropped rather than resuming a
 		// discarded PHP instance.
@@ -629,6 +944,7 @@ export class AtomDurableObject extends DurableObject {
 			dispatches_this_residency: this.callbacks.dispatches,
 			dispatch_failures_this_residency: this.callbacks.dispatchFailures,
 			turn_deadline_ms: this.config.turnDeadlineMs,
+			ws: this.ws.debugBlock(this.wsConnectsThisResidency, this.wsTurnsThisResidency),
 		};
 	}
 
@@ -647,6 +963,43 @@ export class AtomDurableObject extends DurableObject {
 			})
 		);
 	}
+}
+
+/**
+ * The `/ws` route's own error envelope: `{"error":{"code","message",
+ * "retryable"}}`, the same shape `index.js`'s `errorResponse()` builds for
+ * `/invoke` — required here because an upgrade response is returned straight
+ * from the DO stub, never through `callDurableObject()`'s JSON unwrapping.
+ *
+ * @param {string} code
+ * @param {string} message
+ * @returns {Response}
+ */
+function wsErrorResponse(code, message) {
+	return new Response(JSON.stringify({ error: { code, message, retryable: retryableFor(code) } }), {
+		status: statusFor(code),
+		headers: { 'content-type': 'application/json; charset=utf-8' },
+	});
+}
+
+/**
+ * @param {ArrayBuffer} buf
+ * @returns {string}
+ */
+function arrayBufferToBase64(buf) {
+	const bytes = new Uint8Array(buf);
+	let binary = '';
+	for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+	return btoa(binary);
+}
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function errorReason(error) {
+	if (error instanceof Error) return error.message;
+	return String(error ?? 'unknown error');
 }
 
 /**

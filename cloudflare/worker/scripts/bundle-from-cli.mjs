@@ -196,6 +196,13 @@ function hostManifest(cli) {
 		atoms[atom.type] = {
 			class: atom.class,
 			file: path.posix.join(APP_PREFIX, atom.file),
+			// Additive manifest field (docs/cloudflare-toolchain.md §3): the CLI's
+			// ManifestGenerator always emits a definite bool (true only when the
+			// Atom class overrides onConnect/onMessage/onDisconnect), never
+			// absent — carried through verbatim so the upgrade route can refuse
+			// a type that declares no WebSocket handlers (501, before any DO is
+			// touched) exactly as it does for the checked-in conformance fixture.
+			websocket: atom.websocket === true,
 			migrations,
 		};
 	}

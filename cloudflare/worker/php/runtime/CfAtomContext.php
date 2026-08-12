@@ -4,11 +4,12 @@
  * `Atoms\Runtime\AtomContext` for the Cloudflare MVP — everything the customer's
  * Atom is allowed to reach, and the exact boundary of what the MVP implements.
  *
- * `db()`, `config()`, `app()` and `dispatch()` are real. `broadcast()` and
- * `timers()` are out of scope for this wave and throw {@see AtomsNotSupported}
- * naming the limitation (mvp-spec.md §Scope: "These are explicit stubs, never
- * silent no-ops"). A customer Atom that calls them fails its turn with a clear
- * `atom_exception` envelope rather than appearing to have sent something.
+ * `db()`, `config()`, `app()`, `dispatch()` and `broadcast()` are real.
+ * `timers()` remains out of scope for this wave and throws
+ * {@see AtomsNotSupported} naming the limitation (mvp-spec.md §Scope: "These
+ * are explicit stubs, never silent no-ops"). A customer Atom that calls it
+ * fails its turn with a clear `atom_exception` envelope rather than appearing
+ * to have sent something.
  *
  * No declare(strict_types=1) — see the note in host.php.
  */
@@ -143,17 +144,47 @@ final class CfAtomContext implements AtomContext
     }
 
     /**
+     * The GUEST builds the entire wire frame — `json_encode()` here, never a
+     * structured payload handed to JS for `JSON.stringify()` — because that is
+     * what keeps a wide integer inside `$payload` exact all the way to the
+     * client. The host never parses or re-encodes `$frame`: it is a string in,
+     * the same string out, fanned to every socket tagged for `$channel`
+     * (design doc §6, the int64 rule).
+     *
+     * Wire shape, pinned: `{"kind":"broadcast","channel":...,"payload":...}`
+     * — deliberately asymmetric with `Connection::send(string $payload)`,
+     * which sends exactly the bytes the customer framed. `broadcast()` takes
+     * a structure, so the runtime must serialize it, and once it does it must
+     * also say which channel it came from: a socket on more than one channel
+     * has no other way to tell two broadcasts apart.
+     *
      * @param array<string, mixed> $payload
      */
     public function broadcast(string $channel, array $payload): void
     {
-        throw new AtomsNotSupported(
-            'Atom::broadcast()',
-            sprintf(
-                'WebSockets are out of scope for the Cloudflare MVP, so there is nothing subscribed to "%s".',
-                $channel
-            )
+        $frame = json_encode(
+            [
+                'kind' => 'broadcast',
+                'channel' => $channel,
+                'payload' => $this->serializer->normalize($payload),
+            ],
+            JSON_UNESCAPED_SLASHES
         );
+
+        if ($frame === false) {
+            throw new \RuntimeException(sprintf(
+                'Atoms: could not encode the broadcast payload for channel %s: %s.',
+                $channel,
+                json_last_error_msg()
+            ));
+        }
+
+        // A sync op ('!' door): broadcasting does not park, so it works
+        // identically from an invoke turn, a ws turn, or (later) an
+        // alarm/queue turn — it needs no request context (design doc §8).
+        // An over-cap fan-out is a refusal (ws_fanout_limit -> \RuntimeException
+        // via host_sync()), never a truncated send.
+        host_sync(['op' => 'ws.broadcast', 'channel' => $channel, 'frame' => $frame]);
     }
 
     // Replaced by the timers wave.
