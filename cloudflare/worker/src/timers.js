@@ -274,10 +274,35 @@ export class TimersHost {
 
 	/**
 	 * The re-arm rule's turn-boundary half: only pay for `rearm()` when THIS
-	 * turn actually touched a timer. Resets the flag whether or not anything
-	 * was found, so the next turn starts clean.
+	 * turn actually touched a timer. Read-and-clear BEFORE the re-arm, never
+	 * after: a `timer.schedule` that lands while `rearm()`'s `SELECT
+	 * MIN(due_at_ms)` is in flight must leave the flag set, so the next turn
+	 * boundary re-arms for it.
 	 */
 	async rearmIfTouched() {
+		if (!this.touched) return;
+		this.touched = false;
+		await this.rearm();
+	}
+
+	/**
+	 * The alarm's re-arm. Unconditional (the alarm run has just deleted rows,
+	 * so `MIN(due_at_ms)` has moved whether or not any `timer.*` op ran), but
+	 * it obeys the same read-and-clear-first rule as `rearmIfTouched()`, plus
+	 * one re-check afterwards.
+	 *
+	 * The flag is what the ordinary turn boundary uses to decide whether to
+	 * re-arm at all, so an alarm that clears it *after* its own query can
+	 * swallow a concurrent `timer.schedule`: that turn's `rearmIfTouched()`
+	 * then sees a clean flag and returns, while the alarm's `setAlarm()` was
+	 * computed before the new row existed — a scheduled timer with no alarm
+	 * covering it. Clearing first, and re-checking once after the awaited
+	 * `rearm()`, means the flag is only ever cleared for a query that has not
+	 * run yet; anything that lands later stays flagged for the next turn.
+	 */
+	async rearmForAlarm() {
+		this.touched = false;
+		await this.rearm();
 		if (!this.touched) return;
 		this.touched = false;
 		await this.rearm();

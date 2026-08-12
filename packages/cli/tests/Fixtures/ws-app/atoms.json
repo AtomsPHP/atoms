@@ -1,0 +1,15 @@
+{
+    "project": "ws-shapes",
+    "paths": {
+        "atoms": "app/Atoms",
+        "shared": "app/Atoms/Shared"
+    },
+    "php": "8.3",
+    "environments": {
+        "production": {
+            "endpoint": "https://ws-shapes.example.workers.dev",
+            "worker_name": "ws-shapes",
+            "account_id": "cf-account-1234"
+        }
+    }
+}

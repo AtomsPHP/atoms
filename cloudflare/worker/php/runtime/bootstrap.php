@@ -267,22 +267,35 @@ function apply_migrations(BridgeDatabase $db, array $paths, $type)
 }
 
 /**
- * The three WebSocket lifecycle handlers (`Atom.php:95,99,103`). Reachable
- * ONLY through a socket (`run_ws_turn()`, below) — never through
- * `POST /invoke/:type/:id/:method` (design doc §4's security fix).
+ * Every lifecycle handler the RUNTIME dispatches, and therefore every name a
+ * client must never reach through `POST /invoke/:type/:id/:method`:
+ *
+ *   - onConnect/onMessage/onDisconnect — dispatched by `run_ws_dispatch()`,
+ *     reachable only through a socket (design doc §4's security fix);
+ *   - onTimer                          — dispatched by `run_timer_turn()`,
+ *     reachable only through a Durable Object alarm;
+ *   - onActivation/onDeactivation      — the residency lifecycle hooks,
+ *     dispatched by `activate()` / not at all.
+ *
+ * The last three are `protected` on `Atoms\Atom` today, so visibility alone
+ * refuses them — but visibility is the SUBCLASS's to widen, and a customer who
+ * writes `public function onTimer(string $name)` (to call it from a test, say)
+ * would otherwise hand every client a way to fire it with arbitrary arguments.
+ * Naming them here makes the refusal a property of the name, not of a modifier
+ * the customer controls.
  *
  * @return list<string>
  */
-function websocket_handler_names()
+function runtime_handler_names()
 {
-    return ['onConnect', 'onMessage', 'onDisconnect'];
+    return ['onConnect', 'onMessage', 'onDisconnect', 'onTimer', 'onActivation', 'onDeactivation'];
 }
 
 /**
  * Resolve an invocable Atom method, refusing anything that is not a customer
  * method: private/protected/static/abstract members, magic methods, the
- * WebSocket handlers (reachable only through a socket — see below), and the
- * base class's own surface (the constructor and the lifecycle hooks, which
+ * runtime's own lifecycle handlers (see {@see runtime_handler_names()}), and
+ * the base class's own surface (the constructor and the lifecycle hooks, which
  * are out of scope for the MVP).
  *
  * @param object $atom
@@ -302,25 +315,33 @@ function invocable_method($atom, $method)
         throw new BootstrapError('method_not_found', sprintf('%s has no method %s().', $class, $method));
     }
 
-    // Checked by NAME, before reflection even looks at who declares it. The
-    // base-class check below is not enough on its own: it only catches the
-    // no-op defaults, not an Atom subclass that overrides onConnect/onMessage/
-    // onDisconnect, and from M2 on those really do reach customer code with
-    // client-supplied arguments if this guard is skipped.
-    if (in_array($method, websocket_handler_names(), true)) {
+    $reflection = new \ReflectionMethod($atom, $method);
+
+    // Compared against the CANONICAL name, never against the client's spelling.
+    // PHP method names are case-insensitive, so `method_exists($atom,
+    // 'ONMESSAGE')` is true and `$atom->ONMESSAGE(...)` calls onMessage() — a
+    // denylist that compares the request string walks straight past. The
+    // reflection normalises it to the name as declared, which is the only
+    // spelling that can be compared meaningfully.
+    //
+    // Placed BEFORE the visibility check on purpose: an atom that widened a
+    // protected handler to public must be refused for the same reason and with
+    // the SAME message as one that did not, so the response is never an oracle
+    // for whether this Atom overrides (or widens) a handler.
+    $canonical = $reflection->getName();
+
+    if (in_array($canonical, runtime_handler_names(), true)) {
         throw new BootstrapError(
             'method_not_found',
-            sprintf('%s::%s() is a WebSocket handler, reachable only through a socket.', $class, $method)
+            sprintf('%s::%s() is an Atoms lifecycle handler, dispatched only by the runtime.', $class, $canonical)
         );
     }
-
-    $reflection = new \ReflectionMethod($atom, $method);
 
     if (!$reflection->isPublic() || $reflection->isStatic() || $reflection->isAbstract()) {
         throw new BootstrapError('method_not_found', sprintf('%s::%s() is not an invocable Atom method.', $class, $method));
     }
 
-    if (strncmp($reflection->getName(), '__', 2) === 0) {
+    if (strncmp($canonical, '__', 2) === 0) {
         throw new BootstrapError('method_not_found', sprintf('%s::%s() is a magic method.', $class, $method));
     }
 
@@ -924,13 +945,38 @@ function activate(array $cfg)
 
     $atom = new $class($id, $context);
 
-    LifecycleInvoker::activate($atom);
+    // onActivation() is customer code on the legal ABI: it may write SQL, and
+    // — since the host opens a callback window before php.run() starts
+    // (mvp-spec.md §The turn deadline) — it may call app() and dispatch() too.
+    // A throw from it still fails the activation, which is the existing
+    // contract: an Atom whose onActivation() did not complete must not go on to
+    // serve turns. What changes here is only that the failure is CLASSIFIED
+    // rather than unwinding php.run() as an unnamed fatal — any transaction it
+    // left open is settled first, and the host's activation_failed line names
+    // the customer's class and message instead of reporting 'internal'.
+    try {
+        LifecycleInvoker::activate($atom);
+    } catch (\Throwable $e) {
+        settle_open_transaction($bridge, $identity, 'onActivation');
+
+        throw new BootstrapError(
+            'atom_exception',
+            sprintf(
+                'onActivation() for %s threw %s: %s',
+                $class,
+                get_class($e),
+                ascii_excerpt($e->getMessage(), 300)
+            ),
+            $e
+        );
+    }
 
     // Same reasoning as in run_turn(): the first park is turn.await, which the
-    // host refuses while a transaction is open. onActivation() is best-effort by
-    // contract, so an abandoned one is rolled back and logged rather than made
-    // to fail the activation — failing it would cold-boot the residency on every
-    // request, forever, for a deterministic customer bug.
+    // host refuses while a transaction is open. A RETURNING onActivation() that
+    // merely forgot to commit is best-effort by contract, so an abandoned
+    // transaction is rolled back and logged rather than made to fail the
+    // activation — failing it would cold-boot the residency on every request,
+    // forever, for a deterministic customer bug.
     settle_open_transaction($bridge, $identity, 'onActivation');
 
     host_log('info', [

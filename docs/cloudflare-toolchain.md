@@ -355,7 +355,7 @@ needs `php/runtime/` and `php/atoms-core/`, which are the Worker's own.
 
 **Nothing under `cloudflare/worker/src/**` or `cloudflare/worker/php/**`
 changed.** The emitted module is exactly the shape the host already reads, so
-the conformance suite (twelve checks at the time; 24 as of M2 — see
+the conformance suite (twelve checks at the time; 25 as of M2 — see
 `cloudflare/docs/mvp-spec.md` §Conformance suite) was untouched by the CLI
 integration and the vendored `atoms/core` copy needed no re-vendor on this
 account.
@@ -377,6 +377,25 @@ additive; `schema` stays `1`.
   migration. `MigrationEntry::$name` is the *descriptive* part only
   (`MigrationSet` parses `NNN_name.sql` and keeps `name`), so the filename is
   not reconstructable from the manifest at all.
+
+**`atoms[].websocket` is three-valued, and the third value is "no answer".**
+The Worker reads the key as: absent ⇒ allowed, `true` ⇒ allowed, `false` ⇒
+refuse `GET /ws/:type/:id` with 501 before any Durable Object is touched. So
+`false` is a *claim*, and `ManifestGenerator` may only make it when it can
+actually see that no handler exists. Discovery parses files; it does not load
+classes. For `final class Room extends BaseRoom` it cannot follow `BaseRoom`
+— which may live in a vendor package and may itself extend something else — so
+it cannot know whether `onMessage` is declared up the chain. The generator
+therefore emits `true` when the class declares a handler **itself** (matched
+case-insensitively, because PHP method names are), `false` only when the class
+extends `Atoms\Atom` **directly** and declares none, and **omits the key
+entirely** in every other case, leaving the decision to the runtime's own
+dispatch. The limitation this documents is real and deliberate: a project that
+puts its handlers on an intermediate base class gets no build-time 501
+shortcut for its non-WebSocket types. The alternative — guessing `false` —
+produced a wrongful 501 on handlers that worked perfectly, which is the worse
+failure by a wide margin: a build-time guess breaking a runtime that was
+correct.
 
 `tests/Integration/BundleBridgeTest.php` runs a real build through the real
 translator and is the test that catches either half drifting away from it.

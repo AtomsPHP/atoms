@@ -19,6 +19,15 @@ import { AtomsError, normalizeError } from './errors.js';
  */
 export const WS_ATTACHMENT_VERSION = 1;
 
+/**
+ * A stand-in connection id, exactly as long as the `crypto.randomUUID()` the
+ * accept path will mint (36 characters), so the edge can size an attachment
+ * and a connection tag before the real id exists (`index.js`'s `wsUpgrade()`).
+ * Not a capacity value: it is the platform's UUID string length, the same
+ * category of protocol constant as `WS_ATTACHMENT_VERSION`.
+ */
+export const WS_CONN_ID_PLACEHOLDER = '00000000-0000-0000-0000-000000000000';
+
 const encoder = new TextEncoder();
 
 /** @param {Record<string, unknown>} extra */

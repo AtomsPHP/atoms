@@ -98,10 +98,11 @@ final class Scheduler extends Atom
 
     /**
      * The one lifecycle hook the Cloudflare runtime dispatches from an
-     * alarm, never from `/invoke` (bootstrap.php's invocable_method()
-     * rejects it by visibility — onTimer is protected on Atom, so it is
-     * already unreachable the same way onConnect/onMessage/onDisconnect are
-     * rejected by name).
+     * alarm, never from `/invoke`. bootstrap.php's invocable_method() rejects
+     * it BY NAME, against the canonical name reflection reports — the same
+     * denylist onConnect/onMessage/onDisconnect are on. Visibility is not the
+     * guard: `protected` is the subclass's to widen, and a customer who made
+     * onTimer public would otherwise have published it to every client.
      *
      * A name starting with "boom" throws, uncaught, so conformance check 23
      * can prove a throwing onTimer is still consumed at-most-once and leaves

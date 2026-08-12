@@ -88,8 +88,27 @@ export class AtomDurableObject extends DurableObject {
 		// rather than resuming a dead Emscripten module (design §5.3).
 		this.phpGeneration = 0;
 
-		/** @type {import('./callbacks.js').TurnBudget|null} the current turn's budget, set by beginTurn() */
+		/**
+		 * The open callback window's budget, set by `beginWindow()` and cleared
+		 * the moment the window closes (end of `runTurn()`, end of `activate()`,
+		 * and in `discardPhp()`). Never allowed to outlive its window: the
+		 * `exhausted` flag latches for the rest of the turn (design §2.2), so a
+		 * budget carried into the NEXT window arrives permanently spent.
+		 *
+		 * @type {import('./callbacks.js').TurnBudget|null}
+		 */
 		this.turnBudget = null;
+
+		/**
+		 * Collectors minted by `serviceParks()`'s no-window fallback, which is
+		 * dead code by construction. They are drained by whichever settle path
+		 * encloses the window that produced them (`settlePostTurn()`, or
+		 * `activate()`'s own finally), so even the unreachable path cannot leave
+		 * a delivery un-awaited across the DO event (design §5).
+		 *
+		 * @type {import('./callbacks.js').TurnCollector[]}
+		 */
+		this.strayCollectors = [];
 
 		this.turnChain = Promise.resolve();
 
@@ -248,7 +267,7 @@ export class AtomDurableObject extends DurableObject {
 
 			this.wsConnectsThisResidency++;
 			this.wsTurnsThisResidency++;
-			this.turnBudget = this.callbacks.beginTurn(this.config.turnDeadlineMs, collector);
+			this.beginWindow(collector);
 
 			const conn = { id: connId, channels };
 			try {
@@ -289,6 +308,14 @@ export class AtomDurableObject extends DurableObject {
 			return new Response(null, { status: 101, webSocket: client });
 		} catch (e) {
 			const n = normalizeError(e);
+			// Same rule as `index.js`'s top-level handler: an `internal` message
+			// is a host-side detail (a poisoned residency's reason, an
+			// Emscripten string) and never goes to the client. It is logged
+			// instead, in full, on the side of the connection that owns it.
+			if (n.code === 'internal') {
+				this.log('error', { msg: 'atoms.ws.upgrade_failed', error: n.message });
+				return wsErrorResponse('internal', 'internal error');
+			}
 			return wsErrorResponse(n.code, n.message);
 		}
 	}
@@ -396,11 +423,24 @@ export class AtomDurableObject extends DurableObject {
 		}
 
 		if (opts.dedupe) {
-			// H6, best-effort by construction (the Set dies with the residency,
-			// which is sound because both events for one socket arrive inside one
-			// wake window).
+			// H6. The Set is residency-lived: it is never cleared per event,
+			// because the second of `webSocketError`/`webSocketClose` for one
+			// socket arrives AFTER the first has finished, and an entry removed
+			// in the first event's `finally` would let the second one through —
+			// which is the whole thing this guard exists to stop. Unbounded
+			// growth is not a concern: entries are UUIDs of sockets that have
+			// already disconnected, and the Set dies with the residency, which
+			// is exactly the lifetime the platform guarantees both events land
+			// inside.
 			if (this.wsDisconnected.has(att.id)) return;
 			this.wsDisconnected.add(att.id);
+		} else if (this.wsDisconnected.has(att.id)) {
+			// A frame that arrived after this connection's onDisconnect already
+			// ran. Dispatching it would call onMessage() on a connection the
+			// Atom has been told is gone — an ordering the ABI does not allow —
+			// so it is dropped rather than delivered late.
+			this.log('debug', { msg: 'atoms.ws.message_after_disconnect', conn: att.id });
+			return;
 		}
 
 		this.ws.noteSocket(att.id, ws);
@@ -410,7 +450,7 @@ export class AtomDurableObject extends DurableObject {
 		const run = this.enqueue(async () => {
 			await this.ensureActive(identity.type, identity.id);
 			this.wsTurnsThisResidency++;
-			this.turnBudget = this.callbacks.beginTurn(this.config.turnDeadlineMs, collector);
+			this.beginWindow(collector);
 			return this.runTurn(buildEnvelope(conn));
 		});
 
@@ -427,10 +467,10 @@ export class AtomDurableObject extends DurableObject {
 			const n = normalizeError(e);
 			this.log('error', { msg: 'atoms.ws.turn_failed', conn: att.id, code: n.code, error: n.message });
 		} finally {
-			if (opts.forget) {
-				this.ws.forgetSocket(att.id);
-				this.wsDisconnected.delete(att.id);
-			}
+			// The connId -> socket memo is dropped; `wsDisconnected` is NOT —
+			// see the dedupe comment above. Forgetting the memo entry is safe
+			// because `socketFor()` falls back to the platform's tag index.
+			if (opts.forget) this.ws.forgetSocket(att.id);
 		}
 	}
 
@@ -482,7 +522,7 @@ export class AtomDurableObject extends DurableObject {
 		const collector = this.callbacks.newCollector();
 		const run = this.enqueue(async () => {
 			await this.ensureActive(type, id);
-			this.turnBudget = this.callbacks.beginTurn(this.config.turnDeadlineMs, collector);
+			this.beginWindow(collector);
 			const result = await this.runTurn({ ok: true, kind: 'invoke', method, args });
 			return { ...result, atom: { type, id } };
 		});
@@ -503,11 +543,56 @@ export class AtomDurableObject extends DurableObject {
 	 * re-arms once after its whole batch instead (there is no HTTP response
 	 * to hold there, and re-arming per timer in a batch would be wasted work).
 	 *
+	 * Neither leg may turn a committed turn's 200 into a 500: the turn is over
+	 * and its writes are durable by the time this runs, so a failing alarm
+	 * re-arm (a storage error) is reported on the log, not propagated to the
+	 * caller. `settleTurn()` never rejects by construction — `deliverJob()`
+	 * logs and drops — so this only ever fires for the re-arm leg.
+	 *
 	 * @param {import('./callbacks.js').TurnCollector} collector
 	 * @returns {Promise<void>}
 	 */
 	async settlePostTurn(collector) {
-		await Promise.all([this.callbacks.settleTurn(collector), this.timers.rearmIfTouched()]);
+		const settled = await Promise.allSettled([
+			this.settleDeliveries(collector),
+			this.timers.rearmIfTouched(),
+		]);
+		for (const r of settled) {
+			if (r.status !== 'rejected') continue;
+			const n = normalizeError(r.reason);
+			this.log('error', { msg: 'atoms.do.post_turn_failed', code: n.code, error: n.message });
+		}
+	}
+
+	/**
+	 * Open a callback window for the turn about to run: a fresh budget bound to
+	 * `ATOMS_TURN_DEADLINE_MS`, and `collector` as the target for any
+	 * `dispatch()` the turn initiates. Called after `ensureActive()` and before
+	 * `runTurn()` on every turn path (invoke, ws.*, timer); `activate()` opens
+	 * the activation window the same way for `onActivation()`.
+	 *
+	 * @param {import('./callbacks.js').TurnCollector} collector
+	 */
+	beginWindow(collector) {
+		this.turnBudget = this.callbacks.beginTurn(this.config.turnDeadlineMs, collector);
+	}
+
+	/**
+	 * Await `collector`'s deliveries, plus any stray collector the dead-code
+	 * fallback in `serviceParks()` minted while this window was open. Every
+	 * delivery this residency starts is awaited by exactly one of these calls,
+	 * inside the DO event that caused it (design §5).
+	 *
+	 * @param {import('./callbacks.js').TurnCollector} collector
+	 * @returns {Promise<void>}
+	 */
+	async settleDeliveries(collector) {
+		const strays = this.strayCollectors;
+		this.strayCollectors = [];
+		await Promise.all([
+			this.callbacks.settleTurn(collector),
+			...strays.map((c) => this.callbacks.settleTurn(c)),
+		]);
 	}
 
 	/**
@@ -549,6 +634,12 @@ export class AtomDurableObject extends DurableObject {
 			const n = normalizeError(e);
 			this.poison(n.code, n.message);
 			throw e instanceof AtomsError ? e : new AtomsError('internal', n.message, { cause: e });
+		} finally {
+			// The window closes with the turn. A budget left set here would be
+			// found by the NEXT window's guest code already spent — and
+			// `exhausted` latches, so the damage would be permanent rather than
+			// transient (design §2.2, "reset on the next beginTurn()").
+			this.turnBudget = null;
 		}
 
 		if (!next) {
@@ -599,12 +690,25 @@ export class AtomDurableObject extends DurableObject {
 			} else if (op === 'app.call') {
 				// This is the first `await` inside serviceParks(), and the reason
 				// the method is already `async` and already awaited by runTurn()
-				// (design §1.2). Normally set by invoke() before runTurn(); a null
-				// budget here means the guest called app() during activation
-				// (before any turn has begun), which still deserves a real budget
-				// rather than a crash.
+				// (design §1.2).
+				//
+				// The budget is opened by beginWindow() before any guest code can
+				// run — by the turn paths before runTurn(), and by activate()
+				// before php.run() starts — so a null one here is a host bug, not
+				// an activation-time app() call. It is repaired loudly rather than
+				// crashed on: a fresh budget, a fresh collector, and the collector
+				// handed to strayCollectors so the enclosing settle path still
+				// awaits whatever it collects. Nothing here may be silent — a
+				// window opened by accident is the shape of the bug this replaced.
 				if (!this.turnBudget) {
-					this.turnBudget = this.callbacks.beginTurn(this.config.turnDeadlineMs, this.callbacks.newCollector());
+					const stray = this.callbacks.newCollector();
+					this.strayCollectors.push(stray);
+					this.beginWindow(stray);
+					this.log('warning', {
+						msg: 'atoms.do.callback_window_missing',
+						op,
+						error: 'an app.call park arrived with no callback window open; opened a fresh one',
+					});
 				}
 				await this.callbacks.serviceAppCall(p, this.turnBudget);
 			} else {
@@ -643,6 +747,15 @@ export class AtomDurableObject extends DurableObject {
 	/**
 	 * The activation gate. Runs once per residency, inside
 	 * `blockConcurrencyWhile`, so no turn is delivered before it completes.
+	 *
+	 * Activation is itself a callback window (§The turn deadline): the guest
+	 * code it runs — the bootstrap, the migrations, and `onActivation()`, which
+	 * is customer code on the legal ABI — may call `app()` and `dispatch()`.
+	 * The window is opened BEFORE `php.run()` starts and settled in a `finally`
+	 * before this method returns, so activation-time deliveries are awaited
+	 * inside the activation event rather than orphaned across it (design §5).
+	 * The settle runs inside `blockConcurrencyWhile` and is bounded by
+	 * `ATOMS_CALLBACK_TIMEOUT_MS`, exactly like the rest of the gate.
 	 *
 	 * @param {string} type
 	 * @param {string} id
@@ -688,39 +801,55 @@ export class AtomDurableObject extends DurableObject {
 		this.runError = null;
 		this.tx.reset();
 
-		// One php.run() that never returns until shutdown. It is deliberately not
-		// awaited; handlers are attached so a rejection is never unhandled.
-		this.runPromise = php.run({ code: composeBootCode(payload, bootstrapPath) }).then(
-			(/** @type {any} */ r) => {
-				this.runSettled = true;
-				this.runError = `the PHP bootstrap returned (exit ${r?.exitCode ?? '?'}): ${String(r?.errors ?? '').slice(0, 2000)}`;
-			},
-			(/** @type {any} */ e) => {
-				this.runSettled = true;
-				this.runError = `the PHP bootstrap threw: ${e?.name ?? 'Error'}: ${e?.message ?? String(e)}`;
-			}
-		);
+		// The activation window opens here — before a single line of guest code
+		// has run, so `onActivation()`'s app()/dispatch() find a budget and a
+		// collector already waiting for them.
+		const activationCollector = this.callbacks.newCollector();
+		this.beginWindow(activationCollector);
 
-		const first = await this.waitForPark(this.config.activationTimeoutMs);
-		if (!first) {
-			throw new AtomsError(
-				'internal',
-				this.runError ?? 'the PHP bootstrap never parked within the activation budget'
+		try {
+			// One php.run() that never returns until shutdown. It is deliberately not
+			// awaited; handlers are attached so a rejection is never unhandled.
+			this.runPromise = php.run({ code: composeBootCode(payload, bootstrapPath) }).then(
+				(/** @type {any} */ r) => {
+					this.runSettled = true;
+					this.runError = `the PHP bootstrap returned (exit ${r?.exitCode ?? '?'}): ${String(r?.errors ?? '').slice(0, 2000)}`;
+				},
+				(/** @type {any} */ e) => {
+					this.runSettled = true;
+					this.runError = `the PHP bootstrap threw: ${e?.name ?? 'Error'}: ${e?.message ?? String(e)}`;
+				}
 			);
-		}
-		const parked = await this.serviceParks(first);
-		if (!parked) {
-			throw new AtomsError('internal', this.runError ?? 'the PHP bootstrap exited before its first turn.await');
-		}
 
-		this.markIdentity(type, id);
-		this.activations++;
-		this.phpBootMs = now() - t0;
-		this.log('info', {
-			msg: 'atoms.do.activated',
-			boot_ms: this.phpBootMs,
-			constructions: this.constructions,
-		});
+			const first = await this.waitForPark(this.config.activationTimeoutMs);
+			if (!first) {
+				throw new AtomsError(
+					'internal',
+					this.runError ?? 'the PHP bootstrap never parked within the activation budget'
+				);
+			}
+			const parked = await this.serviceParks(first);
+			if (!parked) {
+				throw new AtomsError('internal', this.runError ?? 'the PHP bootstrap exited before its first turn.await');
+			}
+
+			this.markIdentity(type, id);
+			this.activations++;
+			this.phpBootMs = now() - t0;
+			this.log('info', {
+				msg: 'atoms.do.activated',
+				boot_ms: this.phpBootMs,
+				constructions: this.constructions,
+			});
+		} finally {
+			// `finally`, for the same reason `invoke()` settles with `.finally`:
+			// a job dispatched before a failing activation is as durable as a
+			// non-transactional write and must still be awaited (design §3.4).
+			// Settlement itself never rejects, so this cannot mask the real
+			// activation error.
+			await this.settleDeliveries(activationCollector);
+			this.turnBudget = null;
+		}
 	}
 
 	/**
@@ -897,6 +1026,10 @@ export class AtomDurableObject extends DurableObject {
 		this.pending = null;
 		this.parkedTurn = null;
 		this.activationPromise = null;
+		// Whatever window was open died with the PHP instance. Leaving the
+		// budget behind would hand the next residency's first guest code a
+		// latched, already-exhausted one.
+		this.turnBudget = null;
 		this.tx.reset();
 		// The connId -> socket memo is residency-local and must not outlive the
 		// PHP instance it was warmed for (design §5/§7E) — but the sockets
@@ -974,8 +1107,7 @@ export class AtomDurableObject extends DurableObject {
 		// and returns.
 		const due = this.timers.dueRows(now(), this.config.timersMaxPerAlarm);
 		if (due.length === 0) {
-			await this.timers.rearm();
-			this.timers.touched = false;
+			await this.timers.rearmForAlarm();
 			return;
 		}
 
@@ -1016,13 +1148,13 @@ export class AtomDurableObject extends DurableObject {
 		// One re-arm after the whole batch: if more rows were due than
 		// ATOMS_TIMERS_MAX_PER_ALARM allowed, MIN(due_at_ms) is still in the
 		// past and the platform fires again immediately — never an unbounded
-		// loop inside one alarm() invocation. Reset touched explicitly:
-		// nothing above relies on the flag (this rearm is unconditional), and
-		// a timer.schedule from inside onTimer (the "chain" case) may have
-		// left it set — clearing it here keeps the NEXT ordinary turn from
-		// paying for a redundant rearm.
-		await this.timers.rearm();
-		this.timers.touched = false;
+		// loop inside one alarm() invocation. `rearmForAlarm()` clears the
+		// touched flag BEFORE its own query and re-checks it after, so a
+		// `timer.schedule` that lands while the re-arm is in flight is either
+		// covered by a second pass here or left flagged for the next turn's
+		// `rearmIfTouched()` — never swallowed by a clear this alarm does not
+		// own (which is how a concurrent schedule used to lose its alarm).
+		await this.timers.rearmForAlarm();
 	}
 
 	/**
@@ -1041,10 +1173,10 @@ export class AtomDurableObject extends DurableObject {
 		const collector = this.callbacks.newCollector();
 		const run = this.enqueue(async () => {
 			await this.ensureActive(identity.type, identity.id);
-			this.turnBudget = this.callbacks.beginTurn(this.config.turnDeadlineMs, collector);
+			this.beginWindow(collector);
 			return this.runTurn({ ok: true, kind: 'timer', name: timerName });
 		});
-		return run.finally(() => this.callbacks.settleTurn(collector));
+		return run.finally(() => this.settleDeliveries(collector));
 	}
 
 	/**

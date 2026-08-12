@@ -11,7 +11,7 @@
 >
 > **Note, 2026-08-12.** M2 landed `app()`, `dispatch()`, WebSockets,
 > `broadcast()` and timers/alarms — the "Explicitly stubbed" line and "What's
-> next" item 3 below are corrected inline; the conformance suite is now 24
+> next" item 3 below are corrected inline; the conformance suite is now 25
 > checks, not 12. See `docs/mvp-spec.md` (§The callback channel, §The
 > WebSocket seam, §Timers) for the binding detail; this file's other figures
 > (measured latencies, the file table) describe the pre-M2 tree and are left
@@ -23,7 +23,7 @@ An end-to-end working MVP of Atoms on Cloudflare Durable Objects: an unmodified
 customer Atom class (frozen `atoms/core` ABI) executing as PHP 8.3 in Wasm
 inside a generic SQLite-backed Durable Object, with durable SQL, real
 transactions, migrations, lifecycle, and lossless 64-bit integers — validated
-by a 12-check conformance suite (now 24 — see the 2026-08-12 note above) that
+by a 12-check conformance suite (now 25 — see the 2026-08-12 note above) that
 passes both locally under `wrangler dev` and against the real deployed
 Worker.
 

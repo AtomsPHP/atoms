@@ -34,7 +34,7 @@ import { AtomsError } from './errors.js';
  * @property {string}   logLevel              Minimum level emitted by the `log` op.
  * @property {string}   configEnvPrefix       Env prefix that forms the `config.get` allowlist.
  * @property {string[]} configEnvKeys         Extra exact env names readable through `config.get`.
- * @property {string[]} configEnvDenyKeys     Names never readable through `config.get`, whatever else says.
+ * @property {string[]} configEnvDenyKeys     Names never readable through `config.get`, whatever else says. Always includes the built-in defaults; `ATOMS_CONFIG_ENV_DENY_KEYS` is additive to them, never a replacement.
  * @property {string}   bootstrapPath         Guest path of the PHP bootstrap script.
  * @property {string}   bootPayloadPath       Guest path the boot payload JSON is written to.
  * @property {string}   runtimeDir            Guest directory holding the `Atoms\\Cf` prelude.
@@ -114,6 +114,36 @@ function int(env, name, dflt) {
 	if (typeof v !== 'string' || v.trim() === '') return dflt;
 	const n = Number(v);
 	return Number.isFinite(n) ? Math.trunc(n) : dflt;
+}
+
+/**
+ * `int()`, plus the design's "int, default, **>0 else default**" rule for the
+ * values where zero or negative is not a tighter setting but a broken one: a
+ * deadline of 0 would make every `app()` fail before it started, a dispatch
+ * cap of 0 would refuse every `dispatch()`, and a size cap of 0 would refuse
+ * every body — none of which is a configuration anyone means. An operator
+ * typo lands on the documented default instead, and says so in the log.
+ *
+ * @param {Env} env
+ * @param {string} name
+ * @param {number} dflt must itself be > 0
+ * @returns {number}
+ */
+function posInt(env, name, dflt) {
+	const n = int(env, name, dflt);
+	if (n > 0) return n;
+	console.log(
+		JSON.stringify({
+			ts: new Date().toISOString(),
+			level: 'warning',
+			source: 'host',
+			msg: 'atoms.config.non_positive',
+			var: name,
+			value: n,
+			using: dflt,
+		})
+	);
+	return dflt;
 }
 
 /**
@@ -276,12 +306,13 @@ export function loadConfig(env) {
 
 		configEnvPrefix: str(env, 'ATOMS_CONFIG_ENV_PREFIX', 'ATOMS_CONFIG_'),
 		configEnvKeys: list(env, 'ATOMS_CONFIG_ENV_KEYS', []),
-		configEnvDenyKeys: list(env, 'ATOMS_CONFIG_ENV_DENY_KEYS', [
-			'ATOMS_APP_KEY',
-			'ATOMS_CALLBACK_SIGNING_KEY',
-			'ATOMS_CONFIG_ENV_KEYS',
-			'ATOMS_CONFIG_ENV_DENY_KEYS',
-		]),
+		// MERGED, never replaced: the built-in entries below are the two
+		// credentials the Worker holds (the bearer key and the callback signing
+		// seed) plus the two lists that decide the allowlist itself. An operator
+		// who sets ATOMS_CONFIG_ENV_DENY_KEYS is adding names, not choosing a
+		// new set — a replacement would let a single well-meant "deny my own
+		// secret" setting hand the signing seed to `config.get()`.
+		configEnvDenyKeys: mergeDenyKeys(list(env, 'ATOMS_CONFIG_ENV_DENY_KEYS', [])),
 
 		bootstrapPath: str(env, 'ATOMS_BOOTSTRAP_PATH', '/atoms/runtime/bootstrap.php'),
 		bootPayloadPath: str(env, 'ATOMS_BOOT_PAYLOAD_PATH', '/atoms/boot.json'),
@@ -300,11 +331,11 @@ export function loadConfig(env) {
 
 		callbackUrl,
 		callbackSigningKey,
-		turnDeadlineMs: int(env, 'ATOMS_TURN_DEADLINE_MS', 30000),
-		callbackTimeoutMs: int(env, 'ATOMS_CALLBACK_TIMEOUT_MS', 10000),
-		callbackMaxRequestBytes: int(env, 'ATOMS_CALLBACK_MAX_REQUEST_BYTES', 1024 * 1024),
-		callbackMaxResponseBytes: int(env, 'ATOMS_CALLBACK_MAX_RESPONSE_BYTES', 1024 * 1024),
-		maxDispatchesPerTurn: int(env, 'ATOMS_MAX_DISPATCHES_PER_TURN', 100),
+		turnDeadlineMs: posInt(env, 'ATOMS_TURN_DEADLINE_MS', 30000),
+		callbackTimeoutMs: posInt(env, 'ATOMS_CALLBACK_TIMEOUT_MS', 10000),
+		callbackMaxRequestBytes: posInt(env, 'ATOMS_CALLBACK_MAX_REQUEST_BYTES', 1024 * 1024),
+		callbackMaxResponseBytes: posInt(env, 'ATOMS_CALLBACK_MAX_RESPONSE_BYTES', 1024 * 1024),
+		maxDispatchesPerTurn: posInt(env, 'ATOMS_MAX_DISPATCHES_PER_TURN', 100),
 		callbackState: callback.state,
 		callbackConfigError: callback.error,
 
@@ -330,6 +361,26 @@ export function loadConfig(env) {
 	assertWsPrefixesDisjoint(config.wsChannelTagPrefix, config.wsConnTagPrefix);
 
 	return config;
+}
+
+/**
+ * Names `config.get()` must never resolve, whatever the environment says.
+ * Kept beside `loadConfig()` rather than inline so the guarantee has a name:
+ * the operator list is additive to this one, never a replacement for it.
+ */
+const BUILT_IN_CONFIG_DENY_KEYS = [
+	'ATOMS_APP_KEY',
+	'ATOMS_CALLBACK_SIGNING_KEY',
+	'ATOMS_CONFIG_ENV_KEYS',
+	'ATOMS_CONFIG_ENV_DENY_KEYS',
+];
+
+/**
+ * @param {string[]} operatorKeys
+ * @returns {string[]} the built-in deny list plus the operator's, de-duplicated
+ */
+function mergeDenyKeys(operatorKeys) {
+	return [...new Set([...BUILT_IN_CONFIG_DENY_KEYS, ...operatorKeys])];
 }
 
 /**

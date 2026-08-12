@@ -21,6 +21,8 @@ use Atoms\Websocket\Message;
  *   - any BINARY frame     -> echoed back verbatim, `stats().lastBinary = true`
  *   - "echo:<text>"        -> `send('echo:' . $text)`
  *   - "bcast:<ch>:<text>"  -> `broadcast($ch, ['text' => $text])`
+ *   - "bcasttx:<ch>:<t>"   -> the same broadcast, from inside a COMMITTED
+ *                             `db()->transaction()` (the V3 hazard, pinned)
  *   - "id?"                -> `send('id:' . $conn->id())`
  *   - "poke:<connId>"      -> `send()` on a Connection for that id, catching
  *                             ConnectionClosed and recording the outcome
@@ -79,6 +81,32 @@ final class Room extends Atom
 
         if (str_starts_with($payload, 'echo:')) {
             $conn->send('echo:' . substr($payload, 5));
+            return;
+        }
+
+        if (str_starts_with($payload, 'bcasttx:')) {
+            $rest = substr($payload, 8);
+            $sep = strpos($rest, ':');
+            if ($sep !== false) {
+                $channel = substr($rest, 0, $sep);
+                $text = substr($rest, $sep + 1);
+                // broadcast() from INSIDE a committed transaction. `ws.*` are
+                // sync ops and the host's transaction guard only rejects park
+                // ops, so this executes immediately rather than at commit —
+                // the documented hazard in mvp-spec.md §WebSocket ops inside a
+                // transaction, and the measurement its appendix records. The
+                // conformance suite asserts the frame is delivered; the hazard
+                // (a frame already gone when the transaction rolls back) is
+                // exactly why the runtime does not pretend to buffer it.
+                $this->db()->transaction(function () use ($channel, $text): void {
+                    $this->db()->execute(
+                        'INSERT INTO room_events (kind, conn_id, detail) VALUES (?, ?, ?)',
+                        ['bcasttx', '', $text]
+                    );
+
+                    $this->broadcast($channel, ['text' => $text]);
+                });
+            }
             return;
         }
 

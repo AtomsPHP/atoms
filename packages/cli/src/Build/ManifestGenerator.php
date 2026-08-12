@@ -55,7 +55,7 @@ final class ManifestGenerator
         $out = [];
         foreach ($this->discovery->ofKind(ClassKind::Atom) as $atom) {
             $methods = SignatureReader::publicMethods($atom->node, self::WS_HANDLERS);
-            $out[] = [
+            $entry = [
                 'type' => $atom->basename(),
                 'class' => $atom->fqcn,
                 // Bundle-relative path of the file declaring the class. A
@@ -65,9 +65,16 @@ final class ManifestGenerator
                 // another language, work the build already did correctly.
                 'file' => $atom->relativePath,
                 'methods' => array_map(static fn (MethodSignature $m): array => $m->toManifest(), $methods),
-                'websocket' => $this->overridesWebsocket($atom),
-                'migrations' => $this->migrations->forAtom($atom->fqcn),
             ];
+
+            $websocket = $this->websocketFlag($atom);
+            if ($websocket !== null) {
+                $entry['websocket'] = $websocket;
+            }
+
+            $entry['migrations'] = $this->migrations->forAtom($atom->fqcn);
+
+            $out[] = $entry;
         }
 
         return $out;
@@ -129,14 +136,45 @@ final class ManifestGenerator
         return $out;
     }
 
-    private function overridesWebsocket(DiscoveredClass $atom): bool
+    /**
+     * The manifest's `websocket` flag, or **null to omit the key entirely**.
+     *
+     * The runtime reads this as: absent => allowed, `true` => allowed,
+     * `false` => refuse `GET /ws/:type/:id` with 501 before any Durable Object
+     * is touched. `false` is therefore a claim, not a default, and this
+     * generator may only make it when it can actually see the whole class:
+     *
+     * - the class declares a handler itself             => `true`;
+     * - the class extends `Atoms\Atom` DIRECTLY and declares none => `false`
+     *   (the base-class handlers are no-ops, so there is genuinely nothing to
+     *   reach);
+     * - the class extends anything else                 => **omitted**.
+     *
+     * That last case is the one this exists for. Discovery parses files, it
+     * does not load classes, so for `final class Room extends BaseRoom` it
+     * cannot see whether `BaseRoom` (possibly in a vendor package, possibly
+     * itself extending something else) overrides `onMessage`. Emitting `false`
+     * there produced a wrongful 501 on a type whose handlers work perfectly —
+     * a build-time guess breaking a runtime that would have been correct. When
+     * the generator cannot see the hierarchy it declines to answer, and the
+     * runtime's own dispatch decides.
+     *
+     * Handler names are matched case-insensitively, because PHP method names
+     * are: a class declaring `onmessage()` really does override
+     * `Atom::onMessage()`.
+     */
+    private function websocketFlag(DiscoveredClass $atom): ?bool
     {
         foreach ($atom->node->getMethods() as $method) {
-            if (\in_array($method->name->toString(), self::WS_HANDLERS, true)) {
-                return true;
+            foreach (self::WS_HANDLERS as $handler) {
+                if (strcasecmp($method->name->toString(), $handler) === 0) {
+                    return true;
+                }
             }
         }
 
-        return false;
+        $parent = $atom->parent === null ? null : ltrim($atom->parent, '\\');
+
+        return $parent === Discovery::ATOM_BASE ? false : null;
     }
 }

@@ -167,7 +167,7 @@ reasoning from scratch:
   updating in the same PR — do not leave them disagreeing.
 - CI must be green. One workflow (`.github/workflows/ci.yml`) covers both
   halves from one clone: the PHP suites on 8.3 and 8.4, PHPStan, manifest
-  validation, and the 24-check conformance suite against a local
+  validation, and the 25-check conformance suite against a local
   `wrangler dev`. No job needs a Cloudflare account or a token, and none may
   be made to need one. A red run is not "flaky" until you have shown it is.
 

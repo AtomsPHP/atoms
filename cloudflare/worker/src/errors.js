@@ -35,6 +35,8 @@
  *   | 'turn_deadline_exceeded'
  *   | 'ws_conn_gone'
  *   | 'ws_fanout_limit'
+ *   | 'timer_invalid_name'
+ *   | 'timer_limit'
  *   | 'internal'
  * )} AtomsErrorCode
  */
@@ -65,6 +67,13 @@ const CODE_TABLE = {
 	// or the cap needs raising — so both are non-retryable.
 	ws_conn_gone: { status: 500, retryable: false },
 	ws_fanout_limit: { status: 500, retryable: false },
+	// Timer refusals (§Timers). Both are raised on the sync door and become
+	// ATOMS-E085/E086 in the guest, so neither should ever reach an HTTP
+	// envelope — they are tabulated anyway so that if one ever escapes through
+	// `normalizeError()` it maps to a truthful status instead of being silently
+	// reclassified as a retryable `internal`. A bad timer name is not retryable.
+	timer_invalid_name: { status: 500, retryable: false },
+	timer_limit: { status: 500, retryable: false },
 	// Matches the retired platform contract's table and what atoms/client
 	// already expects (AtomsClient.php maps this to TurnDeadlineExceeded and
 	// only retries when the call site opts in) — see design doc §9.4.

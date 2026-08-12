@@ -37,6 +37,14 @@
       "migrations": [
         "/app/migrations/scheduler/001_init.sql"
       ]
+    },
+    "Boot": {
+      "class": "App\\Atoms\\Boot",
+      "file": "/app/Boot.php",
+      "websocket": false,
+      "migrations": [
+        "/app/migrations/boot/001_init.sql"
+      ]
     }
   }
 }

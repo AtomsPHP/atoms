@@ -23,6 +23,7 @@ import bundle from './bundle.generated.js';
 import { loadConfig } from './config.js';
 import { AtomsError, normalizeError, retryableFor, statusFor } from './errors.js';
 import { decodeInt64Deep } from './int64.js';
+import { WS_CONN_ID_PLACEHOLDER, attachmentByteLength, buildAttachment } from './websockets.js';
 
 export { AtomDurableObject } from './atom-do.js';
 
@@ -329,6 +330,7 @@ async function wsUpgrade(request, env, config, url, type, id) {
 
 	const params = parseWsParams(url, config);
 	const channels = parseWsChannels(params.channels, config);
+	assertWsAcceptBudgets(channels, config);
 
 	const ns = env.ATOMS;
 	if (!ns || typeof ns.idFromName !== 'function') {
@@ -357,8 +359,14 @@ const CHANNEL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/;
  * @returns {Record<string, string>}
  */
 function parseWsParams(url, config) {
+	// Null-prototype on purpose: with an ordinary object literal, a client
+	// sending `?__proto__=x` writes the one key whose assignment is not an own
+	// property, so the param would be silently dropped from the map the spec
+	// calls "every query key as sent". `Object.create(null)` has no `__proto__`
+	// setter to intercept it, and JSON.stringify()/Object.entries() treat a
+	// null-prototype object exactly like any other plain object.
 	/** @type {Record<string, string>} */
-	const params = {};
+	const params = Object.create(null);
 	let count = 0;
 	for (const [key, value] of url.searchParams) {
 		if (!Object.prototype.hasOwnProperty.call(params, key)) count++;
@@ -434,6 +442,60 @@ function parseWsChannels(raw, config) {
 	}
 
 	return channels;
+}
+
+/**
+ * The two host-side budgets an accepted connection has to fit, checked at the
+ * EDGE — before any Durable Object is addressed.
+ *
+ * Both were previously enforced only inside the DO, after `ensureActive()` had
+ * already booted PHP, applied migrations and run `onActivation()`: a request
+ * that was always going to be refused could therefore provoke (and be billed
+ * for) a full activation, and one that named 8 long channels could do it
+ * repeatedly. `ATOMS_WS_MAX_TAG_BYTES` was not enforced anywhere at all.
+ *
+ * The attachment is sized against a placeholder id of exactly the length the
+ * real `crypto.randomUUID()` will have, so the number checked here is the
+ * number the accept path will produce. `atom-do.js` keeps its own attachment
+ * check as defence in depth — it is the side that actually calls
+ * `serializeAttachment()`.
+ *
+ * @param {string[]} channels already validated, de-duplicated, in accepted order
+ * @param {import('./config.js').AtomsConfig} config
+ * @throws {AtomsError} `invalid_request`
+ */
+function assertWsAcceptBudgets(channels, config) {
+	const encoder = new TextEncoder();
+
+	const connTagBytes = encoder.encode(config.wsConnTagPrefix + WS_CONN_ID_PLACEHOLDER).length;
+	if (connTagBytes > config.wsMaxTagBytes) {
+		throw new AtomsError(
+			'invalid_request',
+			`the connection tag (ATOMS_WS_CONN_TAG_PREFIX + a connection id) is ${connTagBytes} bytes, ` +
+				`over ATOMS_WS_MAX_TAG_BYTES (${config.wsMaxTagBytes})`
+		);
+	}
+
+	for (const name of channels) {
+		const tag = config.wsChannelTagPrefix + name;
+		const bytes = encoder.encode(tag).length;
+		if (bytes > config.wsMaxTagBytes) {
+			throw new AtomsError(
+				'invalid_request',
+				`the tag for channel ${JSON.stringify(name)} is ${bytes} bytes, over ` +
+					`ATOMS_WS_MAX_TAG_BYTES (${config.wsMaxTagBytes})`
+			);
+		}
+	}
+
+	const attachmentBytes = attachmentByteLength(buildAttachment(WS_CONN_ID_PLACEHOLDER, channels));
+	if (attachmentBytes > config.wsMaxAttachmentBytes) {
+		throw new AtomsError(
+			'invalid_request',
+			`this connection's channel list makes its attachment ${attachmentBytes} bytes, over ` +
+				`ATOMS_WS_MAX_ATTACHMENT_BYTES (${config.wsMaxAttachmentBytes})`
+		);
+	}
 }
 
 /**

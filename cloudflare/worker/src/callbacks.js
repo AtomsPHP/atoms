@@ -133,11 +133,23 @@ export class CallbackChannel {
 	}
 
 	/**
-	 * Start a turn's budget and make `collector` the target for any
-	 * `dispatch()` this turn initiates. Placement matters (design §4.1): call
-	 * this AFTER `ensureActive()` and BEFORE `runTurn()`, so the budget exists
-	 * before any guest code can consume it but activation itself is not turn
-	 * budgeted.
+	 * Open a callback window: a FRESH budget, and `collector` as the target for
+	 * any `dispatch()` initiated while the window is open.
+	 *
+	 * Placement matters (design §4.1). There are exactly two kinds of window,
+	 * and between them they cover every moment guest code can run:
+	 *
+	 *   - a **turn** window — opened after `ensureActive()` and before
+	 *     `runTurn()` delivers the envelope, settled by `settlePostTurn()`;
+	 *   - the **activation** window — opened before `php.run()` starts, so the
+	 *     bootstrap, the migrations and `onActivation()` (customer code on the
+	 *     legal ABI, which may call `app()`/`dispatch()`) all run inside one,
+	 *     and settled by `activate()` before `ensureActive()` returns.
+	 *
+	 * The budget is always newly minted here and never reused: a budget that
+	 * outlived its window would arrive at the next one already spent, and
+	 * `exhausted` latches (§2.2), so the reuse is permanent rather than
+	 * transient.
 	 *
 	 * @param {number} deadlineMs
 	 * @param {TurnCollector} collector
@@ -222,8 +234,6 @@ export class CallbackChannel {
 			return;
 		}
 
-		const perCallMs = Math.min(remaining, this.config.callbackTimeoutMs);
-
 		/** @type {{bodyBytes: Uint8Array, headers: Record<string, string>}} */
 		let signed;
 		try {
@@ -232,6 +242,25 @@ export class CallbackChannel {
 			reply(fail('callback_unsigned', `could not sign the callback request: ${errorMessage(e)}`));
 			return;
 		}
+
+		// Recomputed HERE, after the (awaited) key import and signature, not
+		// before: arming the abort with a `remaining` measured earlier would
+		// hand the fetch a bound the turn no longer has. `importSigningKey()`
+		// is memoized, so this only ever matters on the first callback of a
+		// residency — which is exactly the one where the import cost is paid.
+		const remainingAtFetch = budget.deadlineMs - (Date.now() - budget.startedAt);
+		if (remainingAtFetch <= 0) {
+			const elapsed = Date.now() - budget.startedAt;
+			this.latch(budget, elapsed);
+			reply(
+				fail('turn_deadline_exceeded', 'the turn budget was exhausted before app() could be sent', {
+					elapsed_ms: elapsed,
+					budget_ms: budget.deadlineMs,
+				})
+			);
+			return;
+		}
+		const perCallMs = Math.min(remainingAtFetch, this.config.callbackTimeoutMs);
 
 		this.callbackCalls++;
 		/** @type {Response} */
@@ -245,6 +274,28 @@ export class CallbackChannel {
 				headers: signed.headers,
 				signal: AbortSignal.timeout(perCallMs),
 			});
+			// Refuse an over-cap response BEFORE reading it, when the monolith
+			// declared its size. The post-read check below is still the one that
+			// catches a chunked (or lying) response — the full fix is a
+			// streaming bounded reader that stops at the cap mid-body, which is
+			// deliberately deferred: it changes the "response text is relayed
+			// verbatim" shape of this method and needs its own conformance
+			// cover. Until then a chunked response is buffered whole before it
+			// is refused.
+			const declared = Number(res.headers.get('content-length') ?? '');
+			if (Number.isFinite(declared) && declared > this.config.callbackMaxResponseBytes) {
+				// Drain-and-discard so the connection can be reused; the body is
+				// never handed to the guest.
+				await res.body?.cancel().catch(() => {});
+				reply(
+					fail(
+						'callback_too_large',
+						`response declares ${declared} bytes, over ATOMS_CALLBACK_MAX_RESPONSE_BYTES ` +
+							`(${this.config.callbackMaxResponseBytes})`
+					)
+				);
+				return;
+			}
 			text = await res.text();
 		} catch (e) {
 			const elapsed = Date.now() - budget.startedAt;
@@ -310,8 +361,17 @@ export class CallbackChannel {
 		const bodyString = /** @type {string} */ (body);
 
 		if (!this.collector) {
-			// dispatch.enqueue reached the bridge outside any turn — a protocol
-			// bug, not a customer failure; the sync door still must not throw.
+			// Unreachable: every moment guest code can run is inside a callback
+			// window (`beginTurn()`), the activation window included, so a
+			// `dispatch.enqueue` always has a collector to attach its delivery
+			// to. Kept as a loud refusal rather than a silent drop — the sync
+			// door must not throw, and the guest gets a typed failure it can see
+			// rather than a job that quietly never left.
+			this.log('error', {
+				msg: 'atoms.callback.dispatch_outside_window',
+				job: this.logLabel(job),
+				error: 'dispatch.enqueue reached the bridge with no callback window open',
+			});
 			return fail('bad_host_message', 'dispatch.enqueue received outside a turn');
 		}
 		if (this.collector.dispatchCount >= this.config.maxDispatchesPerTurn) {
@@ -336,16 +396,39 @@ export class CallbackChannel {
 		const buffered = this.txBuffer;
 		this.txBuffer = [];
 		if (buffered.length === 0) return;
+
 		const collector = this.collector;
-		if (!collector) return; // defensive: a transaction implies an active turn
+		if (!collector) {
+			// Unreachable for the same reason as `enqueueJob`'s guard: a
+			// transaction can only be open while guest code is running, which is
+			// always inside a callback window. There is nowhere to attach these
+			// deliveries that anything would await — starting them anyway would
+			// orphan them across the DO event (design §5) — so they are dropped
+			// LOUDLY, one line per job, never silently.
+			for (const { job } of buffered) {
+				this.dispatchFailures++;
+				this.logDeliveryFailure(job, 'no_callback_window', null, 0, null);
+			}
+			return;
+		}
+
 		for (const { body, job } of buffered) {
 			this.startDelivery(body, job, collector);
 		}
 	}
 
-	/** Drop buffered dispatches. Called by TransactionMachine on rollback/abandon (design §3.4). */
+	/**
+	 * Drop buffered dispatches. Called by TransactionMachine on rollback/abandon
+	 * (design §3.4). The per-turn dispatch cap is refunded for them: a job the
+	 * runtime itself decided never happened must not consume the budget of the
+	 * turn that retries it inside the same residency.
+	 */
 	onTransactionRollback() {
+		const dropped = this.txBuffer.length;
 		this.txBuffer = [];
+		if (dropped > 0 && this.collector) {
+			this.collector.dispatchCount = Math.max(0, this.collector.dispatchCount - dropped);
+		}
 	}
 
 	/**
@@ -411,12 +494,28 @@ export class CallbackChannel {
 	logDeliveryFailure(job, reason, status, elapsedMs, e) {
 		this.log('error', {
 			msg: 'atoms.callback.delivery_failed',
-			job,
+			job: this.logLabel(job),
 			reason,
 			status,
 			elapsed_ms: elapsedMs,
 			...(e ? { error: errorMessage(e) } : {}),
 		});
+	}
+
+	/**
+	 * The job label is guest-supplied (`{"op":"dispatch.enqueue","job":...}`)
+	 * and reaches the log verbatim, so it obeys the same `ATOMS_LOG_MAX_FIELD_BYTES`
+	 * cap every other logged field does — a customer must not be able to write a
+	 * megabyte class name into a log line.
+	 *
+	 * @param {string} job
+	 * @returns {string}
+	 */
+	logLabel(job) {
+		const max = this.config.logMaxFieldBytes;
+		const bytes = encoder.encode(job);
+		if (bytes.length <= max) return job;
+		return new TextDecoder().decode(bytes.subarray(0, max)) + '…';
 	}
 
 	// -------------------------------------------------------------- helpers

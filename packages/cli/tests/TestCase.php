@@ -33,6 +33,17 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
+     * Four Atom shapes that exercise every answer the manifest's `websocket`
+     * key can give (declared handler / directly extends Atom with none /
+     * inherited-and-unknowable / case-variant handler name). Kept apart from
+     * sample-app, whose atom count and ordering several tests assert exactly.
+     */
+    protected function websocketShapesApp(): AtomsJson
+    {
+        return AtomsJson::load($this->fixtureDir('ws-app') . '/atoms.json');
+    }
+
+    /**
      * Recursively copy a fixture into a fresh temp dir; returns the copy's root.
      */
     protected function tempCopy(string $fixture): string

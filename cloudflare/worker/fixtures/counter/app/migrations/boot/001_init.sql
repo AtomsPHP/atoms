@@ -1,0 +1,5 @@
+CREATE TABLE boot_activations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    atom_id TEXT NOT NULL,
+    activated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

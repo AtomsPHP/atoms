@@ -134,13 +134,14 @@ not direction.
 
 - **One CI workflow tests everything, from one clone.** `.github/workflows/ci.yml`
   runs the PHP suites (`composer test` on 8.3 and 8.4), `composer stan`,
-  manifest lint, *and* the Worker's 24-check conformance suite under a
+  manifest lint, *and* the Worker's 25-check conformance suite under a
   local `wrangler dev`. Keep that true: a change to either half must leave the
   whole workflow green, and no job may need a Cloudflare account, an API
   token, or a cross-repo fetch of any kind.
 - **The conformance suite is the acceptance gate for `cloudflare/`.** Its
-  assertions are not edited to accommodate an implementation. Check 12 waits
-  out a real eviction, so the run takes minutes — shortening
+  assertions are not edited to accommodate an implementation; the only legal
+  edits are ADDITIVE ones that make a check assert more. Checks 12, 21, 24 and
+  25 each wait out a real eviction, so the run takes minutes — shortening
   `ATOMS_EVICTION_WAIT_MS` does not make it faster, it makes it assert nothing.
 - **Tests never hit the network.** HTTP is tested against an in-memory PSR-18
   fake; SQLite tests use `:memory:` or a temp dir. The Worker suite talks only
@@ -180,5 +181,7 @@ endpoints, which checks 5/10/12 need, are gated on the worker's own
 own loopback listener port; default is the port `dev-with-callback.mjs`
 recorded in the gitignored `test/.callback-key.json`) and, for check 15,
 `ATOMS_TURN_DEADLINE_MS` set to the same value the Worker was started with —
-both absent just skips those checks rather than failing the run. No
-Cloudflare account is needed for any of it.
+both absent just skips those checks rather than failing the run — unless
+`ATOMS_REQUIRE_CALLBACK_CHECKS=1` (which CI sets), which turns those skips into
+failures so a broken harness cannot quietly delete five checks. No Cloudflare
+account is needed for any of it.

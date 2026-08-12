@@ -8,12 +8,19 @@
  * scanner that looks at this repository, and this tree already goes out of
  * its way not to ship credentials (README.md §Licensing, THIRD_PARTY_NOTICES.md).
  * So this script generates a fresh Ed25519 keypair every time it runs, passes
- * the seed to the Worker as a `--var` (never a file, never a log — it lives
- * only in this process's argv and the wrangler child's env for the life of
- * one dev session), and writes the PUBLIC half plus the listener port to
- * `test/.callback-key.json`, which is gitignored. `test/conformance.mjs`
- * reads that file to stand up its own in-suite monolith listener and verify
- * signatures against the matching public key.
+ * the seed to the Worker as a `--var`, and writes the PUBLIC half plus the
+ * listener port to `test/.callback-key.json`, which is gitignored.
+ * `test/conformance.mjs` reads that file to stand up its own in-suite monolith
+ * listener and verify signatures against the matching public key.
+ *
+ * Where the seed actually lives, stated plainly rather than politely: it is an
+ * ARGV element of the wrangler child process (`--var
+ * ATOMS_CALLBACK_SIGNING_KEY:<seed>`), so it is visible to anything on the
+ * machine that can read `/proc/<pid>/cmdline` or run `ps`. Never a file, never
+ * a log, never committed — but not private from a local user either. That is
+ * accepted for the scope this script has: a throwaway key, generated per run,
+ * for local development and CI. It is not a pattern to copy for a deployed
+ * Worker, where the seed belongs in `wrangler secret put`.
  *
  * Do not "harden" this into a committed key file. The generated-per-run
  * design costs one script and one CI step; a committed key costs a private

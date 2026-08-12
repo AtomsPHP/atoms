@@ -285,9 +285,12 @@ scheme's exception `http:` only when the host is `127.0.0.1`, `localhost` or
 `[::1]` — plain `http` to a public host would send customer arguments in the
 clear (the signature protects integrity and authenticity, never
 confidentiality); the loopback exemption is what keeps the conformance harness
-and `atoms dev` legal. `ATOMS_CALLBACK_SIGNING_KEY` is added to the default
+and `atoms dev` legal. `ATOMS_CALLBACK_SIGNING_KEY` is in the built-in
 `ATOMS_CONFIG_ENV_DENY_KEYS`, alongside `ATOMS_APP_KEY`, so a misconfigured
-`ATOMS_CONFIG_ENV_KEYS` can never expose it through `$this->config()`.
+`ATOMS_CONFIG_ENV_KEYS` can never expose it through `$this->config()`. The
+operator's `ATOMS_CONFIG_ENV_DENY_KEYS` is **merged with** the built-in list,
+never a replacement for it: an operator adding one name of their own must not
+be able to un-deny the Worker's own credentials as a side effect.
 
 **Never send unsigned.** There is no "development mode" that skips the
 signature — a monolith with `CallbackKernel` mounted would reject an unsigned
@@ -433,6 +436,26 @@ Atom stays resident and healthy.
   runs after activation and before `runTurn()` delivers the envelope, so the
   budget exists before any guest code can consume it, for `invoke`, `ws.*` and
   `timer` turns alike.
+- **Activation is a callback window of its own.** `onActivation()` is customer
+  code on the frozen ABI: it may call `$this->app()` and `$this->dispatch()`
+  like any other method, and the runtime supports it. Because it runs during
+  the activation gate — before any turn exists — `activate()` opens its own
+  window (a fresh `ATOMS_TURN_DEADLINE_MS` budget and a fresh delivery
+  collector) **before `php.run()` starts**, so the PHP bootstrap, the
+  migrations and `onActivation()` are all inside it, and **settles that
+  collector in a `finally` before `ensureActive()` returns**. Activation-time
+  deliveries are therefore awaited inside the activation event, exactly like a
+  turn's are awaited inside the turn's — the §Worker layout rule that no
+  callback fetch ever runs outside an awaited event has no activation-shaped
+  hole in it. The settle runs inside `blockConcurrencyWhile` and is bounded by
+  `ATOMS_CALLBACK_TIMEOUT_MS`. The activation window's budget is separate from
+  the first turn's: the two never share one.
+- **A budget never outlives its window.** It is cleared at the end of
+  `runTurn()`, at the end of `activate()`, and in `discardPhp()`. This is not
+  hygiene: `exhausted` **latches** (below), so a budget carried into the next
+  window arrives permanently spent, and every subsequent `app()` in that
+  residency fails instantly with a `turn_deadline_exceeded` measured against a
+  turn that ended long ago.
 - **Measured host-side** with `Date.now()`, at the await boundaries inside
   `serviceAppCall()` — where the clock is known to advance on both local and
   deployed workerd (appendix item 3: Cloudflare moves time forward only on
@@ -658,6 +681,12 @@ in PHP against the manifest.
   durable; `onActivation()` runs once per residency by construction. There is
   still no deactivation hook on eviction (best-effort by contract) — nothing
   in M2 changes that.
+- The activation gate opens a **callback window** before `php.run()` starts and
+  settles it before returning, so `onActivation()` may use `app()`/`dispatch()`
+  — see §The turn deadline. A throw from `onActivation()` still fails the
+  activation (an Atom whose activation did not complete must not serve turns),
+  but the guest classifies it as `atom_exception` and names the customer class
+  and message rather than unwinding `php.run()` as an unnamed fatal.
 
 **The WebSocket accept path (M2).** `AtomDurableObject.fetch()` branches on
 `url.pathname === '/ws'` before it ever reads a JSON body (an upgrade has
@@ -844,6 +873,18 @@ accept. 512 is deliberately far under both the measured local platform limit
 (16384 bytes) and whatever smaller number production may enforce — see
 §Appendix.
 
+**Where the size refusals happen.** Both the attachment cap and
+`ATOMS_WS_MAX_TAG_BYTES` (default 256, the measured platform ceiling on one
+tag) are checked at the **edge**, in `index.js`, during channel validation —
+against a placeholder connection id of exactly the length the real
+`crypto.randomUUID()` will have, so the number checked is the number the
+accept path will produce. Checking them only inside the DO would mean the
+refusal arrives after `ensureActive()` has already booted PHP, applied
+migrations and run `onActivation()`, so a request that was always going to be
+refused could still provoke a full activation. `atom-do.js` keeps the
+attachment check as defence in depth — it is the side that actually calls
+`serializeAttachment()`.
+
 ### Channel membership and tags
 
 Channels are **fixed at connect time** from one query parameter,
@@ -931,6 +972,21 @@ learn a message was not delivered. `Connection::close()` on an already-gone
 connection is the opposite: a **silent success**, because asking an
 already-closed thing to close got the outcome the caller wanted (and a second
 platform-level `close()` does not throw either — measured, §Appendix).
+
+**`onDisconnect` fires at most once per connection, ever.** The platform may
+deliver `webSocketError` *and* `webSocketClose` for the same socket, and a
+close that arrives while the residency is hibernating wakes it (measured —
+§Appendix — and pinned by conformance check 25). The host de-duplicates on the
+connection id in a **residency-lived** set: an entry is added when a
+disconnect event is accepted and is **never removed** while the residency
+lives. Removing it when the event finishes would defeat the guard entirely,
+because the second of the two events arrives *after* the first has completed.
+The set is unbounded only in the sense that connection ids are UUIDs of
+sockets that have already gone, and it dies with the residency — which is
+exactly the lifetime the platform guarantees both events land inside. An
+inbound frame whose connection is already in that set is **dropped**, not
+dispatched: `onMessage` after `onDisconnect` is an ordering the ABI does not
+allow.
 
 **Honesty caveat.** The host can only detect "gone" when the id resolves to no
 socket at all. If the socket is mid-teardown, `ws.send()` can still succeed
@@ -1032,7 +1088,7 @@ See `docs/cloudflare-toolchain.md` §3.
 
 ## Fixture app (conformance subject)
 
-`fixtures/counter/` defines four Atom types and one job class:
+`fixtures/counter/` defines five Atom types and one job class:
 
 - `Counter` — `increment(int $by): int` (SQL update + returns new value),
   `getValue(): int`, `getStats(): array` (exercises Serializer arrays),
@@ -1054,7 +1110,9 @@ See `docs/cloudflare-toolchain.md` §3.
   undisturbed by M2), manifest entry `"websocket": true`. `onConnect` records
   a `room_events` row and sends a `{"kind":"welcome",...}` frame;
   `onMessage`'s protocol is driven by the frame prefix (`echo:`, `bcast:`,
-  `id?`, `poke:<connId>` — the last catching `ConnectionClosed` and recording
+  `bcasttx:` — the same broadcast from inside a committed
+  `db()->transaction()`, which is the V3 hazard made observable — `id?`,
+  `poke:<connId>` — the last catching `ConnectionClosed` and recording
   the outcome); `onDisconnect` records a row; `stats(): array` is invocable
   over plain `/invoke`, which is how the suite observes the WebSocket side
   through the route it already trusts. Migration creates `room_events(kind,
@@ -1067,6 +1125,17 @@ See `docs/cloudflare-toolchain.md` §3.
   `onTimer($name)` hook writes to — except for a name starting with `boom`,
   which throws instead (proves at-most-once consumption of a failing timer),
   and `chain-1`, which reschedules `chain-2` from inside `onTimer` itself.
+- `Boot` — a fixture whose whole subject is `onActivation()`. Its hook reads a
+  durable row count, writes a `boot_activations` row, and **unconditionally**
+  `dispatch()`es `App\Jobs\Notify`; `ping()` returns the activation count. It
+  is a separate type for the same reason `Room` is: a dispatch added to
+  `Counter`/`Vault` would perturb the exact residency counters and listener
+  record counts checks 3/11/12/16/17 assert. The dispatch is deliberately not
+  wrapped in a `try`/`catch` — a runtime that cannot serve `dispatch()` from
+  `onActivation()` must fail this Atom's activation loudly. Consequence,
+  stated so it is not mistaken for a bug: with no callback channel configured,
+  `Boot` does not activate, and only check 16 (which skips without a listener)
+  uses it.
 - `App\Jobs\Notify` (`fixtures/counter/app/Jobs/Notify.php`) — an `AtomJob`
   with promoted public `$atomId`/`$note` properties, the dispatch contract
   `dispatch()`'s encoder and `CallbackKernel::constructJob()` must agree on.
@@ -1074,9 +1143,9 @@ See `docs/cloudflare-toolchain.md` §3.
 ## Conformance suite
 
 `test/conformance.mjs` runs against any base URL (`ATOMS_BASE_URL`), so the
-same suite runs against `wrangler dev` and the deployed Worker. It is 24
+same suite runs against `wrangler dev` and the deployed Worker. It is 25
 checks: the original 12 (1–12, untouched, not renumbered, not weakened) plus
-12 more added across M2's three waves.
+13 more added across M2's three waves and its review round.
 
 1. healthz; 2. invoke + result envelope; 3. warm-residency (in-memory counter
 increments across turns); 4. isolation between two IDs; 5. migrations applied
@@ -1097,28 +1166,48 @@ committed key). **13.** `app()` round trip, int64-exact across the boundary
 matrix, every request signed with a fresh nonce and a fresh timestamp.
 **14.** `app()` rejected inside a transaction: `ATOMS-E082`, and the listener
 saw **no request at all** (the guest-side guard fires before crossing).
-**15.** deadline overrun: 15a uncaught → 504 `turn_deadline_exceeded`,
-residency stays healthy; 15b caught, then a second `app()` that fails
-immediately on the latched budget with exactly one request ever reaching the
-listener. **16.** `dispatch()` delivered, signed `X-Atoms-Kind: job`, args
-keyed by promoted property name, delivered **before** the turn's HTTP
-response is read. **17.** `dispatch()` transaction semantics: dropped on
-rollback, delivered on commit, and delivered even when dispatched outside a
-transaction followed by an uncaught throw (the documented asymmetry). **13–17
-skip (not fail) when no callback listener is configured** —
-`test/.callback-key.json` absent — so a run against a Worker with no callback
-channel configured is still honest; 15 additionally skips when
-`ATOMS_TURN_DEADLINE_MS` is not set in the runner's own environment.
+**15.** deadline overrun: 15a uncaught → 504 `turn_deadline_exceeded` within
+`ATOMS_TURN_DEADLINE_MS` **and not far past it**, residency stays healthy, and
+a later `app()` on the same Atom still works (the exhausted budget did not
+leak out of the turn that latched it); 15b caught, then a second `app()` that
+fails immediately on the latched budget with exactly one request ever reaching
+the listener, then a **next turn** whose `app()` succeeds — proving the latch
+is per turn, not per residency. **16.** `dispatch()` signed `X-Atoms-Kind:
+job`, args keyed by promoted property name, and **awaited**: the suite's
+listener holds the job response open for `ATOMS_TEST_JOB_DELAY_MS`, and the
+check asserts the turn's HTTP response arrived *after* that response was
+sent — receipt alone would also be satisfied by an orphaned, never-awaited
+delivery. The same check then does it from `onActivation()`, on a fresh
+`Boot` atom, which is the one call site with no turn to belong to.
+**17.** `dispatch()` transaction semantics: dropped on rollback, delivered on
+commit, and delivered — with the same awaited-before-the-response
+assertion — even when dispatched outside a transaction followed by an uncaught
+throw (the documented asymmetry). **13–17 skip (not fail) when no callback
+listener is configured** — `test/.callback-key.json` absent — so a run against
+a Worker with no callback channel configured is still honest; 15 additionally
+skips when `ATOMS_TURN_DEADLINE_MS` is not set in the runner's own
+environment. **`ATOMS_REQUIRE_CALLBACK_CHECKS=1` turns those skips into
+failures**, and CI sets it: a skip is the right answer for a Worker with no
+callback channel and the wrong one for a job that starts one.
 
 **18–22 — WebSockets and `broadcast()`.** Node's built-in global `WebSocket`
 (no `ws` dependency — `worker/package.json` is GPL-assembled, so every
 dependency is a licensing question). **18.** connect, `onConnect` observed,
 the full query string delivered as `params`, then a bad upgrade (too many
-channels; a type with no WebSocket handler) refused before any DO work.
-**19.** echo round trip through `onMessage` + `Connection::send()`, text and
-binary. **20.** `broadcast()` reaches every connection on the channel and
-only that channel, exact wire shape asserted, an empty channel is not an
-error. **21. THE BIG ONE** — survival across a **real** hibernation: connect,
+channels; a type with no WebSocket handler) refused before any DO work; then
+the `invocable_method()` denylist in full — all six runtime handlers
+(`onConnect`/`onMessage`/`onDisconnect`/`onTimer`/`onActivation`/
+`onDeactivation`) refused with 404 `method_not_found` on a type that
+**overrides** one and a type that does not, **case variants included**
+(`ONMESSAGE` reaches `onMessage()` in PHP, so the denylist compares the
+canonical reflected name), and the refusals asserted **indistinguishable** so
+the response is not an oracle for the Atom's private shape. **19.** echo round
+trip through `onMessage` + `Connection::send()`, text and binary.
+**20.** `broadcast()` reaches every connection on the channel and only that
+channel, exact wire shape asserted, an empty channel is not an error, and a
+broadcast issued from **inside a committed `db()->transaction()`** is
+delivered (the V3 measurement, §Appendix). **21. THE BIG ONE** — survival
+across a **real** hibernation: connect,
 echo, wait the full (never-shortened) `ATOMS_EVICTION_WAIT_MS`, assert
 `constructions` actually grew (otherwise the check fails rather than passing
 vacuously on a warm residency), echo again on the **same** socket, same
@@ -1137,12 +1226,30 @@ names are `ATOMS-E085`. **24. THE HONEST ONE** — a Durable Object **alarm**
 wakes an evicted Atom with no HTTP request involved: arm a timer due after the
 full eviction wait, idle the unshortened `ATOMS_EVICTION_WAIT_MS`, assert
 `constructions` grew (the same honesty gate as 12/21), then confirm the timer
-fired exactly once via the alarm alone.
+fired exactly once via the alarm alone. `timers.fired_this_residency` is
+asserted **exactly**, not `>= 1`: it counts dispatches in the residency the
+alarm created, and a run where that residency did not survive to be observed
+proved less than the check claims. It fails closed on purpose — investigate
+the timing rather than relaxing the assertion, which would make it vacuous in
+exactly the way a shortened eviction wait makes check 12 vacuous.
 
-**21 and 24 both reuse the same unshortened `ATOMS_EVICTION_WAIT_MS`** check
-12 uses — they are the hibernation-honesty gates for the WebSocket and timer
-seams respectively, and shortening the wait for either would make them assert
-nothing, for the same reason check 12 must not be shortened.
+**25 — a close that has to WAKE a hibernated Durable Object.** Connect,
+exchange one frame, then idle the full unshortened `ATOMS_EVICTION_WAIT_MS`
+**with no traffic at all**, then close the client socket and touch nothing for
+a further wake window. The first request afterwards is a passive
+`GET /debug/.../info` (which never activates PHP): `constructions` must have
+grown, `ws.turns_this_residency` must be ≥ 1 — nothing but the close could
+have produced a WebSocket turn — and `ws.connects_this_residency` must be 0,
+because a wake is not an accept. `onDisconnect` must then read as having fired
+exactly once, and `onConnect` not to have re-run. Check 21 cannot cover this:
+it sends a frame across the eviction first, so its close lands on a residency
+that is warm again.
+
+**21, 24 and 25 all reuse the same unshortened `ATOMS_EVICTION_WAIT_MS`**
+check 12 uses — they are the hibernation-honesty gates for the WebSocket,
+timer, and quiet-disconnect paths respectively, and shortening the wait for
+any of them would make them assert nothing, for the same reason check 12 must
+not be shortened.
 
 Remote-only additions: measure cold activation, warm turn, and
 post-hibernation wake latencies; record them in `test/results/remote.json`.
@@ -1278,6 +1385,24 @@ otherwise unchanged and still binding.
      the dead-connection semantics documented in §The WebSocket seam:
      `ConnectionClosed` for a failed send, silent success for a redundant
      close.
+   - **A `ws.send()`/`ws.broadcast()` issued while the guest is parked inside
+     `ctx.storage.transactionSync()`'s callback is legal, and the frame goes
+     out immediately** (probed 2026-08-12 on a scratch Durable Object, then
+     pinned by conformance check 20's `bcasttx:` leg against the real
+     fixture). This was the WebSocket design's V3, and it is what allows the
+     decided behaviour in §WebSocket ops inside a transaction rather than the
+     pre-agreed fallback (refusing ws ops with `tx_state` while a transaction
+     is open). The hazard it creates is unchanged and is the reason the
+     measurement is recorded rather than celebrated: the frame is **already
+     gone** if the transaction later rolls back. WebSocket sends are not
+     transactional and are not buffered to commit.
+   - **A close delivered to a HIBERNATED Durable Object wakes it**, with no
+     HTTP request and no prior traffic since the eviction: after a full
+     `ATOMS_EVICTION_WAIT_MS` idle, closing the client socket alone
+     re-constructs the object, re-activates PHP and runs the `ws.close` turn.
+     This was V2, and conformance check 25 pins it — check 21 could not,
+     because it sends a frame across the eviction first and is therefore warm
+     again by the time it closes.
    - **Local workerd fires Durable Object alarms, and a due alarm
      re-activates an evicted DO** — the mechanism §Timers depends on for
      "the alarm wakes an evicted residency with no HTTP request involved at
