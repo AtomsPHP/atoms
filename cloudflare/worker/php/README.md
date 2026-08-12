@@ -142,6 +142,10 @@ and expects the host to resume it with the turn envelope's fields **alongside
 ```json
 {"ok": true, "kind": "invoke", "method": "increment", "args": [1]}
 {"ok": true, "kind": "shutdown"}
+{"ok": true, "kind": "ws.connect", "conn": {"id": "…", "channels": ["lobby"]}, "params": {"channels": "lobby"}}
+{"ok": true, "kind": "ws.message", "conn": {…}, "payload": "hi", "binary": false, "encoding": "utf8"}
+{"ok": true, "kind": "ws.close", "conn": {…}, "code": 1000, "reason": "", "wasClean": true}
+{"ok": true, "kind": "timer", "name": "…"}
 ```
 
 The result carried into the *next* park is one of:
@@ -153,9 +157,19 @@ The result carried into the *next* park is one of:
 
 `code` is `atom_exception` (the customer method threw, including a boundary
 type mismatch on its args or return), `method_not_found` (no such public
-customer method — `class` is then `null`), or `internal` (a runtime bug, or a
-turn envelope the guest could not understand). Traces never appear in an
-envelope; they go out on the `log` door.
+customer method — `class` is then `null`), `turn_deadline_exceeded` (an
+uncaught `app()` deadline overrun — `invoke` turns only), or `internal` (a
+runtime bug, or a turn envelope the guest could not understand). Traces never
+appear in an envelope; they go out on the `log` door.
+
+`ws.*`/`timer` turns dispatch through `run_ws_turn()`/`run_timer_turn()`
+(`bootstrap.php`) rather than `run_turn()`: no `invocable_method()`, no
+`Serializer::denormalizeArguments()` (the arguments are runtime-constructed,
+nothing to coerce), and the success envelope is always
+`{"ok": true, "result": null}` — the handlers return `void`. An uncaught
+exception in one is logged and becomes `atom_exception`, same as an invoke,
+but is **never** relayed to the socket peer in any form (`mvp-spec.md`
+§Turn-result envelope).
 
 ---
 
@@ -165,24 +179,36 @@ Load order matters and is encoded in `bootstrap.php`; this is what each file is.
 
 | File | Role |
 |---|---|
-| `host.php` | The two doors: `host_sync()`/`host_park()` over `post_message_to_js` with `'!'`/`'~'`, plus `host_sync_raw()` (SQL, which maps its own errors) and best-effort `host_log()` |
+| `host.php` | The four doors: `host_sync()`/`host_park()` over `post_message_to_js` with `'!'`/`'~'`, plus `host_sync_raw()`/`host_park_raw()` (raw-reply variants used where the caller maps `error.code` onto a typed exception itself — SQL, and the callback channel) and best-effort `host_log()` |
 | `int64.php` | `{"$atoms_int64":"<decimal>"}` ⇄ native int, recursive, refusing anything lossy |
 | `BootstrapError.php` | Activation-path failure carrying a spec error code |
 | `MigrationsGlobShim.php` | Host shim: this php-wasm build has no `GLOB_BRACE`, so the verbatim `MigrationSet::fromDirectory()` would find **zero** migrations. Shadows `glob()`/`GLOB_BRACE` inside `Atoms\Migrations` only |
-| `AtomsNotSupported.php` | The MVP's one honest failure mode (`extends \PDOException`) |
+| `AtomsNotSupported.php` | The permanently-unsupported PDO surface's one honest failure mode (`extends \PDOException`) — see §Documented leaks below |
 | `FetchMode.php` | The PDO fetch modes the shim serves, and the row reshaping |
 | `NamedParams.php` | `:name` → `?` rewriting, in PHP, skipping literals and comments |
-| `SqlBridge.php` | Sole owner of `sql.exec` and the `tx.*` ops, and of the one shared transaction flag |
+| `SqlBridge.php` | Sole owner of `sql.exec` and the `tx.*` ops, and of the one shared transaction flag `CfAtomContext`'s `app()` guard also reads |
 | `AtomsStatement.php` | `\PDOStatement` subclass; routes to the bridge or throws |
 | `AtomsPDO.php` | `\PDO` subclass; same rule, plus SQLite-correct `quote()` |
 | `BridgeDatabase.php` | `Atoms\Database`: `query`/`execute`/`transaction`/`pdo` |
-| `CfAtomContext.php` | `Atoms\Runtime\AtomContext`: `db()`, `config()`, and typed stubs for `app()`/`dispatch()`/`broadcast()` |
-| `bootstrap.php` | Activation + the parked turn loop; the only file the host requires by name |
+| `CallbackError.php` | Base `\RuntimeException` for the callback channel's typed failures, formatted through `ErrorCatalog::format()` |
+| `CallbackNotConfigured.php` / `CallbackUnsigned.php` / `CallbackInTransaction.php` / `CallbackFailed.php` / `JobNotEncodable.php` | ATOMS-E080–E084 — see `mvp-spec.md` §The callback channel |
+| `TurnDeadlineExceeded.php` | Reuses ATOMS-E061; thrown by `CallbackAppProxy` on an `app()` deadline overrun |
+| `CallbackChannel.php` | The one place that maps a host door failure onto the typed exception above, shared by `app()` and `dispatch()` |
+| `CallbackAppProxy.php` | `app()`'s `__call()` proxy: the transaction guard, body encoding, the `app.call` park, result decoding |
+| `ConnectionClosed.php` | Thrown by `CfConnection::send()` on `ws_conn_gone` — not a catalog code (see below) |
+| `CfConnection.php` | `Atoms\Websocket\Connection`: a connection id string and nothing else, `send()`/`close()` over `ws.send`/`ws.close` |
+| `CfMessage.php` | `Atoms\Websocket\Message`: the decoded bytes + `isBinary()` of one inbound frame |
+| `InvalidTimerName.php` / `TimerLimitExceeded.php` | ATOMS-E085 / ATOMS-E086 |
+| `CfTimers.php` | `Atoms\Timers\Timers`: `schedule()`/`cancel()`/`scheduledAt()` over `timer.schedule`/`timer.cancel`/`timer.get` |
+| `CfAtomContext.php` | `Atoms\Runtime\AtomContext`: `db()`, `config()`, `app()`, `dispatch()`, `broadcast()`, `timers()` — all real as of M2 |
+| `bootstrap.php` | Activation + the parked turn loop (`run_turn()`/`run_ws_turn()`/`run_timer_turn()`); the only file the host requires by name |
 
 ### Documented leaks and limits
 
-Recorded here rather than hidden, because `db()->pdo()` is a hand-written
-subclass with no driver behind it:
+**The PDO shim (`db()->pdo()`).** Recorded here rather than hidden, because it
+is a hand-written subclass with no driver behind it — this is the one corner
+of the runtime surface that stays a permanent, typed restriction rather than a
+milestone stub:
 
 - `PDOStatement::$queryString` is set best-effort; PDO treats it as a
   driver-owned read-only property, so it may stay uninitialized.
@@ -202,3 +228,47 @@ subclass with no driver behind it:
   than a quietly wrong integer, which reaches PHP as a `\PDOException`. Select
   such a column as `CAST(col AS TEXT)` (the fixture `Vault` does) — writing them
   is exact, only reading needs the cast. See the spec appendix.
+
+**The callback channel (`app()`/`dispatch()`, M2).**
+
+- `app()->foo()` returns the decoded wire tree — scalars, lists,
+  string-keyed maps — **not** hydrated back into `Payload` DTOs,
+  `\DateTimeImmutable` or `\BackedEnum` return values. A documented gap, not a
+  bug; see `mvp-spec.md` §The callback channel's result-hydration gap.
+- `dispatch()` is **at-most-once, unordered, and unretried**: a delivery
+  failure (transport error, timeout, non-2xx) is logged and dropped, silently
+  from the customer's point of view, because `dispatch(): void` cannot report
+  one without becoming a blocking call. Initiation failures (bad channel
+  config, an unencodable job) are the opposite — loud, thrown from
+  `dispatch()` itself.
+- `manifest_hash` is omitted from the `methods` request body in M2 — see
+  `docs/conventions.md` §Callback signing.
+
+**WebSockets and `broadcast()` (M2).**
+
+- **A frame sent inside a transaction that later rolls back has already gone
+  out.** `$conn->send()`/`close()`/`broadcast()` are sync ops, not gated by
+  transaction state — buffering them to commit would change `send()`'s timing
+  semantics for every caller to guard a case the customer can avoid by moving
+  the send after the commit.
+- **`send()` returning normally means accepted for delivery, never
+  delivered.** The host can only detect "gone" when a connection id resolves
+  to no socket at all; a socket mid-teardown accepts a `ws.send()` and the
+  platform silently drops the frame. The absence of `ConnectionClosed` is not
+  a delivery guarantee.
+- **Channel membership is immutable after connect.** There is no
+  subscribe/unsubscribe — reconnecting is the only way to change channels
+  (the frozen `Connection` interface gained no method).
+- `ConnectionClosed` is a plain `\RuntimeException`, not a catalog entry — the
+  `Atoms\Cf` prelude has never carried `ATOMS-E###` codes, and neither does
+  `AtomsNotSupported`.
+
+**Timers (M2).**
+
+- `dispatch()` from inside `onTimer()` and `broadcast()` from a timer turn
+  both work identically to an invoke — a timer turn is an ordinary turn
+  (same deadline budget, same `app()`/`dispatch()` availability).
+- Firing is **at-most-once**: the due row is deleted *before* the timer turn
+  dispatches, so a throwing (or residency-poisoning) `onTimer` still consumes
+  the timer rather than being retried by a later alarm. This is deliberately
+  not an at-least-once queue.

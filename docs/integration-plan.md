@@ -271,13 +271,16 @@ atoms deploy --env staging
 
 ### 6.2 Local development runtime
 
-> **Superseded (M3).** `atoms local` is gone, and with it the Docker image and
-> the state-inspection UI. `atoms dev` builds the bundle, stages it into the
-> Worker project and runs `wrangler dev` — the real runtime, locally, with no
-> Cloudflare account. The callback loopback described below is plumbed but
-> inert until M2 implements `Atom::app()`. The paragraph is kept because the
-> *requirements* it states (real runtime, fast rebuild, callbacks reaching the
-> host app) are the ones `atoms dev` still has to meet.
+> **Superseded (M3; callback channel corrected for M2).** `atoms local` is
+> gone, and with it the Docker image and the state-inspection UI. `atoms dev`
+> builds the bundle, stages it into the Worker project and runs
+> `wrangler dev` — the real runtime, locally, with no Cloudflare account. The
+> callback loopback described below is wired and real as of M2: `--callback-url`
+> reaches the Worker and `Atom::app()`/`dispatch()` call back through it (see
+> `docs/cloudflare-toolchain.md` §"The callback channel's two variables"). The
+> paragraph is kept because the *requirements* it states (real runtime, fast
+> rebuild, callbacks reaching the host app) are the ones `atoms dev` still has
+> to meet.
 
 `atoms local` runs the **real Amp runtime image** (same Docker image the platform boots, local-mode flag) with `app/Atoms` bind-mounted and a file-watcher that hot-drains and re-activates Atoms on change. It performs the real build pipeline in `--fast` mode (skip scoper) so boundary violations surface on save, not on deploy. Callbacks loop back to the host app (`host.docker.internal`, configured from `atoms.json`). A `--platform-parity` flag runs the full pipeline including scoper for pre-deploy confidence. Includes a local state-inspection UI (browse each Atom's SQLite) — the dashboard's little sibling.
 

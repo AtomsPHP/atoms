@@ -39,12 +39,14 @@ the consistency boundary.
 
 - The seven PHP packages are **not published on Packagist**. Install is from
   source, out of this repository.
-- The Cloudflare runtime is an **MVP**, validated by a twelve-check conformance
+- The Cloudflare runtime is an **MVP**, validated by a 24-check conformance
   suite that passes locally and against a real deployed Worker. It is not a
   managed service; you deploy it to your own account.
-- Not yet implemented in the Worker runtime: `app()`, `dispatch()`,
-  `broadcast()`, WebSockets, and alarms. Each throws a typed
-  `AtomsNotSupported` rather than failing quietly.
+- `app()`, `dispatch()`, `broadcast()`, WebSockets and timers/alarms are
+  implemented in the Worker runtime (M2). The one remaining typed
+  `AtomsNotSupported` surface is the permanently-unsupported corner of the
+  `db()->pdo()` shim (see `cloudflare/worker/php/README.md` §Documented leaks
+  and limits) — a restriction, not a stub.
 - `atoms/client` and `atoms/cli` still speak the earlier hosted-platform HTTP
   contract (`docs/platform/api-contract.md`), which the Cloudflare direction
   supersedes. Rewiring the deploy path is outstanding work.

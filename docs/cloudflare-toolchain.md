@@ -146,6 +146,47 @@ sentence above false at the very first hop. The environment is the only inlet.
 `atoms dev` requires neither: `wrangler dev` runs workerd locally, so a
 developer with no Cloudflare account can still work.
 
+### The callback channel's two variables (M2)
+
+`app()`/`dispatch()` need two Worker vars, and they travel to the Worker by
+two different, deliberately asymmetric paths (`packages/cli/src/Command/
+DevCommand.php`):
+
+- **`ATOMS_CALLBACK_URL`** — not a secret, the monolith's callback endpoint.
+  `atoms dev --callback-url <url>` (or `atoms.json`'s
+  `callback_urls.<env>`) passes it to `wrangler dev` as an ordinary
+  `--var ATOMS_CALLBACK_URL:<url>`, exactly the way any other var reaches the
+  Worker. `DevCommand` echoes the URL it wired at startup, so it is visible in
+  the same terminal that started the dev server.
+- **`ATOMS_CALLBACK_SIGNING_KEY`** — a secret (the base64 of a 32-byte Ed25519
+  seed), and the CLI **never** passes it. Locally it must already be in the
+  Worker project's `.dev.vars`, which `wrangler dev` loads on its own; in
+  production it is `wrangler secret put ATOMS_CALLBACK_SIGNING_KEY`, run
+  directly, the same as any other Worker secret. `atoms dev` only performs a
+  best-effort check that `.dev.vars` has an `ATOMS_CALLBACK_SIGNING_KEY` line
+  and warns — it does not fail the command — when it looks absent, because the
+  key may be provisioned some other way the CLI cannot see.
+
+**Why the CLI never carries the key.** Putting a private key on `atoms dev`'s
+argv or behind a `--var` flag would place it in the process table and in
+shell history — precisely what the CLI-never-holds-a-credential rule (root
+`AGENTS.md`) exists to prevent. `.dev.vars` and `wrangler secret put` are
+Wrangler's own delivery vehicles for a secret; `atoms dev` only ever reaches
+for the one variable (`ATOMS_CALLBACK_URL`) that is not one.
+
+**Known gap: `atoms secrets:set` cannot set this key, or any other
+operational (non-`ATOMS_CONFIG_`) secret.** `SecretsSetCommand` always maps a
+name through `SecretName::toWorker()`, which prefixes it with
+`ATOMS_CONFIG_` (§"Secrets carry a prefix", above) — so
+`atoms secrets:set ATOMS_CALLBACK_SIGNING_KEY` would store
+`ATOMS_CONFIG_ATOMS_CALLBACK_SIGNING_KEY`, a name the callback channel never
+reads, and would raise `ATOMS-E077` besides, since that prefixed name is on
+the config deny list for a different reason. There is no CLI path for an
+operational secret today; direct `wrangler secret put`/`wrangler dev
+--var`/`.dev.vars` is the documented way to set one, exactly as this section
+describes. An `--operational` flag that bypasses the prefix is a candidate
+follow-up, not something M2 built.
+
 ### Deploying does not mean deployed
 
 Cloudflare propagates a new Worker version and its variables **eventually**.
@@ -314,8 +355,10 @@ needs `php/runtime/` and `php/atoms-core/`, which are the Worker's own.
 
 **Nothing under `cloudflare/worker/src/**` or `cloudflare/worker/php/**`
 changed.** The emitted module is exactly the shape the host already reads, so
-the twelve-check conformance suite is untouched by the CLI integration and the
-vendored `atoms/core` copy needed no re-vendor on this account.
+the conformance suite (twelve checks at the time; 24 as of M2 — see
+`cloudflare/docs/mvp-spec.md` §Conformance suite) was untouched by the CLI
+integration and the vendored `atoms/core` copy needed no re-vendor on this
+account.
 
 `build-bundle.mjs` stays, with its scope corrected: it is the conformance
 fixture builder, not — as its header used to say — a stand-in for the real
@@ -361,16 +404,20 @@ atoms deploy --env production
 
 Nothing in this sequence contacts a service operated by Atoms.
 
-## Known gaps at M3
+## Known gaps at M3 (callback URL wiring corrected for M2)
 
 - **The Worker project is placed by hand** (see §2). `@atomsphp/runtime-cloudflare`
   needs M7.
-- **`atoms dev`'s callback URL is plumbed, not wired.** `--callback-url`
-  reaches the Worker as an `ATOMS_CALLBACK_URL` var and the Worker ignores it:
-  the monolith half of the callback channel is real (`CallbackKernel` verifies
-  Ed25519-signed callbacks today), but the Worker half is `Atom::app()`, which
-  throws `AtomsNotSupported` by design until M2. `atoms dev` says so at
-  startup.
+- **`atoms dev`'s callback URL is wired, as of M2.** `--callback-url` (or
+  `atoms.json`'s `callback_urls.<env>`) reaches the Worker as an
+  `ATOMS_CALLBACK_URL` var via `wrangler dev --var`, and the Worker half is
+  real: `Atom::app()`/`dispatch()` call back through it (`cloudflare/docs/
+  mvp-spec.md` §The callback channel). `DevCommand` prints the URL it wired
+  and, best-effort, checks the Worker project's `.dev.vars` for an
+  `ATOMS_CALLBACK_SIGNING_KEY` entry — if it looks absent, it warns that
+  `app()`/`dispatch()` will fail with `ATOMS-E081` rather than silently
+  leaving the operator to discover it mid-request. See §2a below for the two
+  variables and why the CLI never carries the key itself.
 - **`AtomsClient::destroy()` has no Worker route.** It targets
   `DELETE {baseUrl}/atoms/{type}/{id}`, which the Worker answers `not_found`.
   The URL shape is settled; the route is not implemented.

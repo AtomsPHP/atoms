@@ -8,6 +8,14 @@
 > now lives here, in `AtomsPHP/atoms`, rather than in the repository it was
 > built in, and the php-wasm runtime is no longer carried in `worker/vendor/`.
 > The measured figures below are unchanged.
+>
+> **Note, 2026-08-12.** M2 landed `app()`, `dispatch()`, WebSockets,
+> `broadcast()` and timers/alarms — the "Explicitly stubbed" line and "What's
+> next" item 3 below are corrected inline; the conformance suite is now 24
+> checks, not 12. See `docs/mvp-spec.md` (§The callback channel, §The
+> WebSocket seam, §Timers) for the binding detail; this file's other figures
+> (measured latencies, the file table) describe the pre-M2 tree and are left
+> as dated history.
 
 ## What was built
 
@@ -15,8 +23,9 @@ An end-to-end working MVP of Atoms on Cloudflare Durable Objects: an unmodified
 customer Atom class (frozen `atoms/core` ABI) executing as PHP 8.3 in Wasm
 inside a generic SQLite-backed Durable Object, with durable SQL, real
 transactions, migrations, lifecycle, and lossless 64-bit integers — validated
-by a 12-check conformance suite that passes both locally under `wrangler dev`
-and against the real deployed Worker.
+by a 12-check conformance suite (now 24 — see the 2026-08-12 note above) that
+passes both locally under `wrangler dev` and against the real deployed
+Worker.
 
 | Piece | Path (under `cloudflare/`) | What it does |
 |---|---|---|
@@ -27,14 +36,16 @@ and against the real deployed Worker.
 | Pinned runtime artifact | *(not in the repo — staged into `worker/.php-wasm/`)* | WordPress Playground PHP 8.3 Asyncify build (64-bit ints). Originally carried in `worker/vendor/`; since the 2026-08-08 licensing work `npm ci` fetches it from `@php-wasm/web-8-3` and `scripts/prepare-runtime.mjs` stages and hash-verifies it into a gitignored directory, so no GPL binary is committed. JSPI deliberately dropped — synchronous guest re-entry inside `transactionSync` is Asyncify-only. |
 | Fixture app | `worker/fixtures/counter/` | `Counter` and `Vault` Atoms + migrations: warm-residency state, lifecycle rows, tx commit/rollback, int64 matrix, PDO usage — the conformance subject. |
 | Bundle builder | `worker/scripts/build-bundle.mjs` | Deterministic assembly of runtime + ABI + fixture into `src/bundle.generated.js` (bundle format v0; stand-in for the future `atoms build`). |
-| Conformance | `worker/test/` | 12 checks (envelope, warm residency, isolation, migrations, tx commit/rollback, exception recovery, int64, reserved tables, turn serialization, eviction/wake) against any base URL; `measure-remote.mjs` for latencies; results in `test/results/remote.json`. |
+| Conformance | `worker/test/` | 12 checks as of this snapshot (envelope, warm residency, isolation, migrations, tx commit/rollback, exception recovery, int64, reserved tables, turn serialization, eviction/wake) against any base URL; `measure-remote.mjs` for latencies; results in `test/results/remote.json`. M2 added 12 more (callback channel, WebSockets, timers) — see `docs/mvp-spec.md` §Conformance suite. |
 
 **Measured on real Durable Objects:** cold activation ~740ms median, warm turn
 ~59ms median, post-hibernation wake ~604ms; 7.1MB gzipped upload (Workers Paid
 required).
 
-**Explicitly stubbed (typed `AtomsNotSupported`, never silent):** `app()`,
-`dispatch()`, `broadcast()`, WebSockets, alarms.
+**Explicitly stubbed as of this 2026-08-04 snapshot (typed `AtomsNotSupported`,
+never silent):** `app()`, `dispatch()`, `broadcast()`, WebSockets, alarms —
+**all five implemented in M2 (2026-08-12)**; see the note at the top of this
+file and `docs/mvp-spec.md`.
 
 **Platform facts discovered the hard way** (details in the spec appendix):
 the guest clock is frozen inside a turn on deployed workerd (any sleeping or
@@ -72,5 +83,5 @@ GitHub Action at Wrangler + customer Cloudflare credentials, and the
 
 1. Owned php-wasm build (hermetic, reproducible, trimmed extensions) replacing the Playground artifact.
 2. Native `pdo_atoms` driver + host ABI as compiled imports — this is also what genuinely fixes the int64-read limitation.
-3. Lifecycle completion: WebSockets (Hibernation API), alarms, `app()`/`dispatch()`/`broadcast()`.
-4. Customer toolchain: `atoms build/dev/deploy/status/rollback/secrets` over Wrangler; GitHub Action on Cloudflare credentials.
+3. ~~Lifecycle completion: WebSockets (Hibernation API), alarms, `app()`/`dispatch()`/`broadcast()`.~~ Landed in M2 (2026-08-12) — see `docs/mvp-spec.md`.
+4. Customer toolchain: `atoms build/dev/deploy/status/rollback/secrets` over Wrangler; GitHub Action on Cloudflare credentials. (`build/dev/deploy/status/rollback/secrets` shipped in M3/M4; the GitHub Action is `action/`.)

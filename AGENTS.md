@@ -112,10 +112,17 @@ not direction.
   and deliberately removed. The grant files are the grant. The one exception
   is `worker/package.json`, which declares `GPL-2.0-or-later` because a
   manifest describes the package *as assembled*.
-- **`app()`, `dispatch()`, `broadcast()`, WebSockets and alarms are stubs**
-  that throw a typed `AtomsNotSupported` (`worker/php/runtime/`). That is the
-  designed MVP state, not a bug. Do not "fix" one by inventing a
-  half-implementation; implementing one is a spec change first.
+- **`app()`, `dispatch()`, `broadcast()`, WebSockets and timers/alarms are
+  implemented (M2)**, over a signed callback channel, the Hibernation API and
+  a multiplexed Durable Object alarm respectively — see
+  `cloudflare/docs/mvp-spec.md` §The callback channel, §The WebSocket seam and
+  §Timers. `AtomsNotSupported` (`worker/php/runtime/`) now legitimately
+  remains only on the permanently-unsupported corner of the PDO shim
+  (`AtomsPDO.php`/`AtomsStatement.php` — see `worker/php/README.md`
+  §Documented leaks and limits); that restriction is not a stub awaiting a
+  later milestone. Adding to the runtime surface beyond what M2 landed is
+  still a spec change first — do not "fix" a gap by inventing a
+  half-implementation.
 - **No capacity numbers in code.** Every TTL, cap, deadline, limit and poll
   interval comes from an environment variable with a default, resolved in
   `worker/src/config.js` and nowhere else.
@@ -127,7 +134,7 @@ not direction.
 
 - **One CI workflow tests everything, from one clone.** `.github/workflows/ci.yml`
   runs the PHP suites (`composer test` on 8.3 and 8.4), `composer stan`,
-  manifest lint, *and* the Worker's twelve-check conformance suite under a
+  manifest lint, *and* the Worker's 24-check conformance suite under a
   local `wrangler dev`. Keep that true: a change to either half must leave the
   whole workflow green, and no job may need a Cloudflare account, an API
   token, or a cross-repo fetch of any kind.
@@ -159,6 +166,8 @@ npm run prepare-runtime              # stage the runtime unconditionally
 npm run bundle                       # build src/bundle.generated.js from the conformance fixture
 npm run bundle:cli -- B M src/bundle.generated.js   # ...or from an `atoms build` bundle + manifest
 npx wrangler dev                     # serves on 127.0.0.1:8787 (wrangler.jsonc)
+npm run dev:callback                 # same, plus a per-run callback keypair wired in
+                                      # (ATOMS_CALLBACK_URL/ATOMS_CALLBACK_SIGNING_KEY), for checks 13-17
 ATOMS_BASE_URL=http://127.0.0.1:8787 node test/conformance.mjs
 ```
 
@@ -166,5 +175,10 @@ The conformance runner reads `ATOMS_BASE_URL` (required), `ATOMS_APP_KEY`
 (optional bearer token; unset means auth is off), `ATOMS_EVICTION_WAIT_MS`
 (default 12500) and `ATOMS_SKIP` (comma-separated check numbers). Debug
 endpoints, which checks 5/10/12 need, are gated on the worker's own
-`ATOMS_DEBUG_ENDPOINTS` var, already set in `wrangler.jsonc`. No Cloudflare
-account is needed for any of it.
+`ATOMS_DEBUG_ENDPOINTS` var, already set in `wrangler.jsonc`. Checks 13-17
+(the callback channel) additionally need `ATOMS_CALLBACK_PORT` (the runner's
+own loopback listener port; default is the port `dev-with-callback.mjs`
+recorded in the gitignored `test/.callback-key.json`) and, for check 15,
+`ATOMS_TURN_DEADLINE_MS` set to the same value the Worker was started with —
+both absent just skips those checks rather than failing the run. No
+Cloudflare account is needed for any of it.
