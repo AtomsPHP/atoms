@@ -206,6 +206,19 @@ function wsHandshakeAttempt(path) {
         };
         if (APP_KEY) headers.Authorization = `Bearer ${APP_KEY}`;
         const requestFn = url.protocol === 'https:' ? httpsRequest : httpRequest;
+
+        // The probe must SETTLE on every path, or a regression turns a failed
+        // assertion into a hung suite. Guard against double-settle and always
+        // clear the timeout backstop.
+        let settled = false;
+        let timer = null;
+        const finish = (fn, arg) => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            fn(arg);
+        };
+
         const req = requestFn(url, { method: 'GET', headers }, (res) => {
             const chunks = [];
             res.on('data', (c) => chunks.push(c));
@@ -217,10 +230,29 @@ function wsHandshakeAttempt(path) {
                 } catch {
                     data = { _raw: text };
                 }
-                resolve({ status: res.statusCode, data });
+                finish(resolve, { status: res.statusCode, data });
             });
         });
-        req.on('error', reject);
+
+        // A '101 Switching Protocols' means the Worker WRONGLY accepted a bad
+        // upgrade — Node emits 'upgrade' (not the 'response' callback) for it,
+        // so without this handler the promise never settles and the check
+        // hangs instead of failing. Surface it as a 101 result so the caller's
+        // status assertion (which expects a 4xx refusal) fails loudly. Destroy
+        // the socket so the accepted connection does not leak.
+        req.on('upgrade', (res, socket) => {
+            socket.destroy();
+            finish(resolve, { status: res.statusCode, data: { _unexpectedUpgrade: true } });
+        });
+
+        req.on('error', (e) => finish(reject, e));
+
+        // Backstop: no path may hang the suite.
+        timer = setTimeout(() => {
+            req.destroy();
+            finish(reject, new Error(`ws handshake probe timed out for ${path}`));
+        }, 5000);
+
         req.end();
     });
 }

@@ -201,9 +201,11 @@ new value before the other.
 
 Two consequences the commands cannot paper over. Ordering a monolith deploy
 immediately after `atoms deploy` can have the monolith calling methods the
-serving bundle does not have yet; and a rotated credential is not in force for
-Atoms that are already resident. `atoms deploy` and `atoms secrets:set` say so
-on completion rather than reporting a success that overstates what happened.
+serving bundle does not have yet; and a rotated credential may not yet be in
+force for any given Atom — warm or freshly addressed — until propagation
+converges, so neither can be assumed to have picked it up. `atoms deploy` and
+`atoms secrets:set` say so on completion rather than reporting a success that
+overstates what happened.
 Neither waits for convergence: there is no readiness signal to wait on, and
 inventing a poll loop would assert something Cloudflare does not promise.
 
