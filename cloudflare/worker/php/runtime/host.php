@@ -115,6 +115,20 @@ function host_park(array $req)
 }
 
 /**
+ * Parking host call that hands the raw envelope back, `ok: false` included.
+ * Used by the callback channel (`app.call`), which maps the reply's
+ * `error.code` onto a typed exception (TurnDeadlineExceeded, CallbackFailed,
+ * ...) rather than a generic \RuntimeException from host_park().
+ *
+ * @param array<string, mixed> $req
+ * @return array<string, mixed>
+ */
+function host_park_raw(array $req)
+{
+    return host_call(DOOR_PARK, $req);
+}
+
+/**
  * Turn an `ok: false` envelope into an exception; pass `ok: true` through.
  *
  * @param array<string, mixed> $reply

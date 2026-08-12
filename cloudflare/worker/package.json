@@ -18,6 +18,7 @@
     "bundle": "node scripts/build-bundle.mjs",
     "bundle:cli": "node scripts/bundle-from-cli.mjs",
     "dev": "wrangler dev",
+    "dev:callback": "node scripts/dev-with-callback.mjs",
     "deploy": "wrangler deploy",
     "test": "node test/conformance.mjs"
   }

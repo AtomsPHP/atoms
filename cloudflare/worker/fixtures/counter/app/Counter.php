@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Atoms;
 
+use App\Jobs\Notify;
 use Atoms\Atom;
 
 /**
@@ -129,6 +130,20 @@ final class Counter extends Atom
         $this->turnsThisResidency++;
 
         throw new \RuntimeException($message);
+    }
+
+    /**
+     * dispatch() a job to notify the monolith, and return normally (conformance
+     * check 16: dispatch() delivered, signed, kind=job — and the Atom's own
+     * response is unaffected by the delivery running alongside it).
+     */
+    public function notify(string $note): string
+    {
+        $this->turnsThisResidency++;
+
+        $this->dispatch(new Notify($this->id, $note));
+
+        return 'notified:' . $note;
     }
 
     /**

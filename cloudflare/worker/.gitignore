@@ -12,3 +12,8 @@ wrangler.pid
 # than vendoring is that this repository does not redistribute Playground's
 # GPL-licensed PHP binary.
 .php-wasm/
+
+# Written by scripts/dev-with-callback.mjs: a fresh Ed25519 keypair generated
+# for that one dev/CI session (public half + listener port only — the private
+# seed never touches disk). Never commit a callback signing key.
+test/.callback-key.json

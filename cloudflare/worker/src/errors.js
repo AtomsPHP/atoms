@@ -32,6 +32,7 @@
  *   | 'unsupported_value'
  *   | 'tx_state'
  *   | 'bad_host_message'
+ *   | 'turn_deadline_exceeded'
  *   | 'internal'
  * )} AtomsErrorCode
  */
@@ -56,6 +57,10 @@ const CODE_TABLE = {
 	unsupported_value: { status: 500, retryable: false },
 	tx_state: { status: 500, retryable: false },
 	bad_host_message: { status: 500, retryable: false },
+	// Matches the retired platform contract's table and what atoms/client
+	// already expects (AtomsClient.php maps this to TurnDeadlineExceeded and
+	// only retries when the call site opts in) — see design doc §9.4.
+	turn_deadline_exceeded: { status: 504, retryable: true },
 	internal: { status: 500, retryable: true },
 };
 

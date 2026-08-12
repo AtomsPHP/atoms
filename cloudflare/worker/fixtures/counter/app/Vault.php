@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Atoms;
 
+use App\Jobs\Notify;
 use Atoms\Atom;
 
 /**
@@ -258,6 +259,107 @@ final class Vault extends Atom
         $stmt->execute([$key]);
         $result = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         return $result;
+    }
+
+    /**
+     * Round-trip a value through $this->app() (conformance check 13:
+     * int64-exact app() calls). The in-suite listener's `echoBig` handler
+     * echoes the argument back textually, so the value that comes back must
+     * equal what went in even at the int64 boundary.
+     */
+    public function echoViaApp(int $value): int
+    {
+        return $this->app()->echoBig($value);
+    }
+
+    /**
+     * Call app() from inside an open transaction. Must throw before any
+     * request leaves the Worker (conformance check 14): the guest-side guard
+     * in CallbackAppProxy fires before the write below is even attempted.
+     */
+    public function appInsideTransaction(): mixed
+    {
+        return $this->db()->transaction(function () {
+            $this->db()->execute(
+                'INSERT OR REPLACE INTO vault_data (key, value) VALUES (?, ?)',
+                ['app-inside-tx', 1]
+            );
+
+            return $this->app()->echoBig(1);
+        });
+    }
+
+    /**
+     * Call app() against an endpoint the conformance listener never answers,
+     * uncaught (conformance check 15a: deadline overrun). With a small
+     * ATOMS_TURN_DEADLINE_MS the turn budget exhausts and $this->app() throws;
+     * left uncaught, the turn reports turn_deadline_exceeded.
+     */
+    public function stallViaApp(): mixed
+    {
+        return $this->app()->stall();
+    }
+
+    /**
+     * The same stalled call, caught — then a second app() call, also caught
+     * (conformance check 15b: the budget latches). A customer who degrades
+     * gracefully on a slow monolith must not be punished for it: the turn is
+     * an ordinary 200, and the second call fails immediately without another
+     * round trip once the budget is exhausted.
+     */
+    public function stallCaught(): string
+    {
+        try {
+            $this->app()->stall();
+
+            return 'unexpected-success';
+        } catch (\RuntimeException $e) {
+            // Expected: the turn budget exhausted while awaiting stall().
+        }
+
+        try {
+            $this->app()->echoBig(1);
+
+            return 'second-call-unexpectedly-succeeded';
+        } catch (\RuntimeException $e) {
+            return 'stall-caught-budget-latched';
+        }
+    }
+
+    /**
+     * dispatch() a job inside a transaction, then optionally fail (conformance
+     * check 17). The job must be exactly as durable as the row next to it:
+     * delivered on commit, dropped on rollback.
+     */
+    public function transferAndNotify(bool $fail): bool
+    {
+        $this->db()->transaction(function () use ($fail) {
+            $this->db()->execute(
+                'INSERT OR REPLACE INTO vault_data (key, value) VALUES (?, ?)',
+                ['transfer-and-notify', 1]
+            );
+
+            $this->dispatch(new Notify($this->id, $fail ? 'transfer-failed' : 'transfer-ok'));
+
+            if ($fail) {
+                throw new \RuntimeException('Deliberate transferAndNotify failure for rollback testing.');
+            }
+        });
+
+        return true;
+    }
+
+    /**
+     * dispatch() a job outside any transaction, then throw (conformance check
+     * 17). The documented asymmetry: a job dispatched outside a transaction is
+     * as durable as a non-transactional write, so it is delivered even though
+     * the turn that dispatched it goes on to fail.
+     */
+    public function notifyThenThrow(): void
+    {
+        $this->dispatch(new Notify($this->id, 'notify-then-throw'));
+
+        throw new \RuntimeException('Deliberate notifyThenThrow failure.');
     }
 
     /**

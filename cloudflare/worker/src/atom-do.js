@@ -25,6 +25,7 @@ import { DurableObject } from 'cloudflare:workers';
 
 import bundle from './bundle.generated.js';
 import { Bridge, TransactionMachine, errorReply } from './bridge.js';
+import { CallbackChannel } from './callbacks.js';
 import { loadConfig, META_KEYS } from './config.js';
 import { AtomsError, normalizeError } from './errors.js';
 import { bootPHP, composeBootCode, guestMemoryBytes, mkdirp, writeGuestFile } from './php-host.js';
@@ -79,15 +80,30 @@ export class AtomDurableObject extends DurableObject {
 		/** @type {Promise<unknown>|null} */
 		this.runPromise = null;
 
+		// Bumped by discardPhp(). Lets a callback in flight across an await
+		// (serviceAppCall) detect that the PHP instance it would resume is gone,
+		// rather than resuming a dead Emscripten module (design §5.3).
+		this.phpGeneration = 0;
+
+		/** @type {import('./callbacks.js').TurnBudget|null} the current turn's budget, set by beginTurn() */
+		this.turnBudget = null;
+
 		this.turnChain = Promise.resolve();
 
+		this.callbacks = new CallbackChannel({
+			config: this.config,
+			log: (level, fields) => this.log(level, fields),
+			phpGenerationRef: () => this.phpGeneration,
+		});
 		this.bridge = new Bridge({
 			ctx,
 			env,
 			config: this.config,
 			identityRef: () => this.identity,
+			callbacks: this.callbacks,
+			inTransactionRef: () => this.tx.open,
 		});
-		this.tx = new TransactionMachine({ ctx, config: this.config, host: this });
+		this.tx = new TransactionMachine({ ctx, config: this.config, host: this, callbacks: this.callbacks });
 
 		this.bridge.ensureSchema();
 		this.constructions = this.bridge.bumpConstructions();
@@ -146,11 +162,17 @@ export class AtomDurableObject extends DurableObject {
 	 * @returns {Promise<any>} the PHP turn-result envelope, plus `atom`
 	 */
 	invoke(type, id, method, args) {
-		return this.enqueue(async () => {
+		const collector = this.callbacks.newCollector();
+		const run = this.enqueue(async () => {
 			await this.ensureActive(type, id);
+			this.turnBudget = this.callbacks.beginTurn(this.config.turnDeadlineMs, collector);
 			const result = await this.runTurn({ ok: true, kind: 'invoke', method, args });
 			return { ...result, atom: { type, id } };
 		});
+		// Outside the mutex, inside the DO event: the next turn may start while
+		// this turn's dispatch() deliveries are in flight, but this turn's
+		// response does not go out until they have settled (design §4.1).
+		return run.finally(() => this.callbacks.settleTurn(collector));
 	}
 
 	/**
@@ -239,6 +261,17 @@ export class AtomDurableObject extends DurableObject {
 				this.tx.begin(p);
 			} else if (op === 'tx.commit' || op === 'tx.rollback') {
 				p.reply(errorReply('tx_state', `${op} received with no transaction open`));
+			} else if (op === 'app.call') {
+				// This is the first `await` inside serviceParks(), and the reason
+				// the method is already `async` and already awaited by runTurn()
+				// (design §1.2). Normally set by invoke() before runTurn(); a null
+				// budget here means the guest called app() during activation
+				// (before any turn has begun), which still deserves a real budget
+				// rather than a crash.
+				if (!this.turnBudget) {
+					this.turnBudget = this.callbacks.beginTurn(this.config.turnDeadlineMs, this.callbacks.newCollector());
+				}
+				await this.callbacks.serviceAppCall(p, this.turnBudget);
 			} else {
 				p.reply(errorReply('bad_host_message', `unknown park op ${JSON.stringify(op)}`));
 			}
@@ -530,6 +563,10 @@ export class AtomDurableObject extends DurableObject {
 		this.parkedTurn = null;
 		this.activationPromise = null;
 		this.tx.reset();
+		// Invalidates any serviceAppCall() awaiting a fetch with this generation
+		// captured (design §5.3): its reply is dropped rather than resuming a
+		// discarded PHP instance.
+		this.phpGeneration++;
 		if (php) {
 			try {
 				php.exit();
@@ -587,6 +624,11 @@ export class AtomDurableObject extends DurableObject {
 			transaction_open: this.tx.open,
 			last_poison: this.lastPoison,
 			bundle_format: this.config.bundleFormat,
+			callback_channel: this.callbacks.state,
+			callback_calls_this_residency: this.callbacks.callbackCalls,
+			dispatches_this_residency: this.callbacks.dispatches,
+			dispatch_failures_this_residency: this.callbacks.dispatchFailures,
+			turn_deadline_ms: this.config.turnDeadlineMs,
 		};
 	}
 

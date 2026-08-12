@@ -87,6 +87,21 @@ function runtime_files()
         'AtomsStatement.php',
         'AtomsPDO.php',
         'BridgeDatabase.php',
+        // The callback channel (app()/dispatch()). No autoloader is active yet
+        // at this point in boot, so this really is dependency order: the
+        // CallbackError base before its subclasses, and the shared cross
+        // helper/proxy last, since they reference the exception classes only
+        // inside method bodies (which PHP resolves lazily) but read most
+        // naturally after them.
+        'CallbackError.php',
+        'CallbackNotConfigured.php',
+        'CallbackUnsigned.php',
+        'CallbackInTransaction.php',
+        'CallbackFailed.php',
+        'JobNotEncodable.php',
+        'TurnDeadlineExceeded.php',
+        'CallbackChannel.php',
+        'CallbackAppProxy.php',
         'CfAtomContext.php',
     ];
 }
@@ -464,6 +479,15 @@ function run_turn($atom, Serializer $serializer, SqlBridge $bridge, array $ident
             // throwable is still what the caller is told about.
             settle_open_transaction($bridge, $identity, $method);
 
+            // An uncaught turn-deadline overrun is reported as its own
+            // turn-result code, not folded into atom_exception, so the client
+            // can retry it (atoms/client already maps turn_deadline_exceeded ->
+            // TurnDeadlineExceeded and only retries when the call site opts in
+            // — design doc §2.4).
+            if ($e instanceof TurnDeadlineExceeded) {
+                return error_envelope('turn_deadline_exceeded', $e->getMessage(), get_class($e));
+            }
+
             return error_envelope('atom_exception', $e->getMessage(), get_class($e));
         }
 
@@ -632,7 +656,7 @@ function activate(array $cfg)
 
     $bridge = new SqlBridge();
     $db = new BridgeDatabase($bridge);
-    $context = new CfAtomContext($db);
+    $context = new CfAtomContext($db, $bridge, $identity);
 
     $ownMigrations = isset($entry['migrations']) && is_array($entry['migrations'])
         ? array_map('strval', array_values($entry['migrations']))

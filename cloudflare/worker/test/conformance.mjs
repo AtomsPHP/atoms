@@ -3,18 +3,33 @@
 /**
  * Conformance suite for Atoms-on-Cloudflare MVP.
  *
- * Runs 12 conformance checks against a live worker URL per the spec.
+ * Runs 17 conformance checks against a live worker URL per the spec: 1-12
+ * against the Worker alone, 13-17 against the callback channel (app()/
+ * dispatch()), for which this suite itself plays the monolith — a
+ * `node:http` listener bound to 127.0.0.1 that verifies Ed25519 signatures
+ * with `node:crypto` (design doc §10).
  *
  * Config via env:
  *   ATOMS_BASE_URL (required)
  *   ATOMS_APP_KEY (optional bearer token)
  *   ATOMS_EVICTION_WAIT_MS (default 12500)
+ *   ATOMS_CALLBACK_PORT (default: the port recorded in test/.callback-key.json)
+ *   ATOMS_TURN_DEADLINE_MS (required for checks 15a/15b; must match the value
+ *     the Worker was started with — never defaulted here, so no capacity
+ *     number is written into the suite)
  *   ATOMS_SKIP=n,m (comma-separated check numbers to skip)
  */
+
+import { createPublicKey, verify as verifyEd25519 } from 'node:crypto';
+import { createServer } from 'node:http';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const BASE_URL = process.env.ATOMS_BASE_URL;
 const APP_KEY = process.env.ATOMS_APP_KEY;
 const EVICTION_WAIT_MS = parseInt(process.env.ATOMS_EVICTION_WAIT_MS || '12500');
+const TURN_DEADLINE_MS = process.env.ATOMS_TURN_DEADLINE_MS ? parseInt(process.env.ATOMS_TURN_DEADLINE_MS, 10) : null;
 const SKIP = (process.env.ATOMS_SKIP || '')
     .split(',')
     .map(s => parseInt(s.trim()))
@@ -26,6 +41,7 @@ if (!BASE_URL) {
 }
 
 const baseUrl = BASE_URL.replace(/\/$/, '');
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ---------------------------------------------------------------- utilities
 
@@ -43,6 +59,16 @@ function fail(checkNum, name, msg = '') {
     failCount++;
     results.push({ checkNum, name, status: 'FAIL', msg });
     console.log(`✗ CHECK ${checkNum}: ${name}${msg ? ` — ${msg}` : ''}`);
+}
+
+/**
+ * A check that could not run for a reason that is not the Worker's fault (no
+ * callback listener, no configured turn deadline). Not a failure: it must not
+ * fail a run against a Worker that legitimately has no callback channel.
+ */
+function skip(checkNum, name, msg = '') {
+    results.push({ checkNum, name, status: 'SKIP', msg });
+    console.log(`⊘ CHECK ${checkNum}: ${name} — skipped${msg ? ` (${msg})` : ''}`);
 }
 
 /** Make an HTTP request. */
@@ -116,6 +142,175 @@ function wire(v) {
 /** A fresh atom id per run, so a re-run never inherits durable state. */
 const RUN = `r${Date.now().toString(36)}`;
 const atomId = (name) => `${name}-${RUN}`;
+
+// ------------------------------------------------------- callback listener
+
+/**
+ * Wrap a raw 32-byte Ed25519 public key in the fixed SPKI DER header so
+ * node:crypto can import it. Mirrors the PKCS8 trick on the signing side
+ * (design doc §6.1) — same idea, the public-key encoding.
+ */
+function importRawEd25519PublicKey(b64) {
+    const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+    const raw = Buffer.from(b64, 'base64');
+    return createPublicKey({ key: Buffer.concat([SPKI_PREFIX, raw]), format: 'der', type: 'spki' });
+}
+
+/**
+ * The in-suite "monolith": verifies every callback the Worker sends and
+ * answers the fixture's two Methods (`echoBig`, `stall`) and its one job
+ * kind. Bound to 127.0.0.1 only — this keeps "tests never hit the network"
+ * literally true (design doc §10.1).
+ *
+ * Inherits the opaque-body invariant (design doc §10.3): the wide-integer
+ * argument to `echoBig` is extracted and echoed back TEXTUALLY, via regex on
+ * the raw body, never through `JSON.parse` — which would silently round an
+ * int64-range value the same way a buggy host implementation would, making
+ * the check meaningless. Everything else (headers, signature, kind, job
+ * class, argument names) is parsed normally.
+ */
+class CallbackListener {
+    constructor(publicKeyB64) {
+        this.publicKey = importRawEd25519PublicKey(publicKeyB64);
+        /** @type {object[]} */
+        this.records = [];
+        this.seenNonces = new Set();
+        this.server = null;
+    }
+
+    clear() {
+        this.records = [];
+    }
+
+    async start(port) {
+        this.server = createServer((req, res) => this.onRequest(req, res));
+        await new Promise((resolve, reject) => {
+            this.server.once('error', reject);
+            this.server.listen(port, '127.0.0.1', () => resolve());
+        });
+    }
+
+    async stop() {
+        if (!this.server) return;
+        const server = this.server;
+        this.server = null;
+        await new Promise((resolve) => {
+            server.closeAllConnections?.();
+            server.close(() => resolve());
+            setTimeout(resolve, 2000).unref();
+        });
+    }
+
+    onRequest(req, res) {
+        const chunks = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', () => {
+            try {
+                this.handle(req, res, Buffer.concat(chunks));
+            } catch (e) {
+                try {
+                    res.writeHead(500, { 'content-type': 'application/json' });
+                    res.end(JSON.stringify({ error: { code: 'internal', message: String(e) } }));
+                } catch {
+                    /* the socket may already be gone */
+                }
+            }
+        });
+    }
+
+    handle(req, res, rawBody) {
+        if (req.method !== 'POST' || req.url !== '/atoms/callback') {
+            res.writeHead(404);
+            res.end();
+            return;
+        }
+
+        const timestamp = String(req.headers['x-atoms-timestamp'] ?? '');
+        const nonce = String(req.headers['x-atoms-nonce'] ?? '');
+        const signatureB64 = String(req.headers['x-atoms-signature'] ?? '');
+        const kind = String(req.headers['x-atoms-kind'] ?? '');
+
+        const message = Buffer.concat([Buffer.from(`v1\n${timestamp}\n${nonce}\n`, 'utf8'), rawBody]);
+        let signatureValid = false;
+        try {
+            signatureValid = verifyEd25519(null, message, this.publicKey, Buffer.from(signatureB64, 'base64'));
+        } catch {
+            signatureValid = false;
+        }
+
+        const timestampFresh = /^-?\d+$/.test(timestamp) && Math.abs(Date.now() / 1000 - Number(timestamp)) <= 300;
+        const nonceValid = /^[0-9a-f]{32}$/.test(nonce);
+        const nonceRepeated = nonce !== '' && this.seenNonces.has(nonce);
+        if (nonce !== '') this.seenNonces.add(nonce);
+
+        const rawText = rawBody.toString('utf8');
+        let parsed = null;
+        try {
+            parsed = JSON.parse(rawText);
+        } catch {
+            /* left null — a malformed body is still recorded for the check to see */
+        }
+
+        this.records.push({
+            kind,
+            headers: { timestamp, nonce, signatureB64 },
+            rawText,
+            parsed,
+            signatureValid,
+            timestampFresh,
+            nonceValid,
+            nonceRepeated,
+        });
+
+        if (kind === 'methods') {
+            const method = parsed?.method;
+            if (method === 'stall') {
+                // Never respond: the client's AbortSignal.timeout() is what ends
+                // this exchange (conformance check 15).
+                return;
+            }
+            if (method === 'echoBig') {
+                // Opaque-body invariant: extract the wide integer TEXTUALLY.
+                const m = /"args"\s*:\s*\[\s*(-?\d+)\s*\]/.exec(rawText);
+                const literal = m ? m[1] : '0';
+                res.writeHead(200, { 'content-type': 'application/json' });
+                res.end(`{"result":${literal}}`);
+                return;
+            }
+            res.writeHead(422, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: { code: 'ATOMS-E066', message: `no fixture handler for method ${method}` } }));
+            return;
+        }
+
+        if (kind === 'job') {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end('{"queued":true}');
+            return;
+        }
+
+        res.writeHead(422, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { code: 'invalid_request', message: `unknown X-Atoms-Kind ${JSON.stringify(kind)}` } }));
+    }
+}
+
+/**
+ * Load the per-run key file scripts/dev-with-callback.mjs wrote. Absent means
+ * the suite is running against a Worker with no callback channel configured
+ * (or against a deployed Worker) — checks 13-17 skip rather than fail.
+ */
+function loadCallbackKeyFile() {
+    const path = join(__dirname, '.callback-key.json');
+    if (!existsSync(path)) return null;
+    try {
+        return JSON.parse(readFileSync(path, 'utf-8'));
+    } catch (e) {
+        console.error(`Warning: could not read ${path}: ${e.message}`);
+        return null;
+    }
+}
+
+/** Set inside run(), before the check loop, once the listener (if any) is up. */
+let listener = null;
 
 // ---------------------------------------------------------------- checks
 
@@ -800,6 +995,292 @@ checks.push(async () => {
     );
 });
 
+// CHECK 13: app() round trip, int64-exact
+checks.push(async () => {
+    const checkNum = 13;
+    const name = 'app() round trip, int64-exact';
+    if (!listener) {
+        skip(checkNum, name, 'no callback listener — test/.callback-key.json is missing; run via `npm run dev:callback`');
+        return;
+    }
+
+    const id = atomId('app-echo');
+    const cases = [
+        { label: '0', val: 0n },
+        { label: '2^31', val: 2147483648n },
+        { label: '-2^31', val: -2147483648n },
+        { label: '2^53-1', val: 9007199254740991n },
+        { label: '2^63-1', val: 9223372036854775807n },
+        { label: '-(2^63-1)', val: -9223372036854775807n },
+    ];
+
+    const problems = [];
+    for (const tc of cases) {
+        const before = listener.records.length;
+        const res = await invoke('Vault', id, 'echoViaApp', [wire(tc.val)]);
+        if (res.status !== 200 || res.data?.error) {
+            problems.push(`${tc.label}: invoke ${res.status} ${JSON.stringify(res.data?.error ?? res.data)}`);
+            continue;
+        }
+        const got = parseInt64(res.data.result);
+        if (got !== tc.val) {
+            problems.push(`${tc.label}: round-trip ${got} !== ${tc.val}`);
+        }
+
+        const made = listener.records.slice(before);
+        if (made.length !== 1) {
+            problems.push(`${tc.label}: listener recorded ${made.length} requests (expected 1)`);
+            continue;
+        }
+        const rec = made[0];
+        if (rec.kind !== 'methods') problems.push(`${tc.label}: X-Atoms-Kind=${rec.kind} (expected methods)`);
+        if (!rec.signatureValid) problems.push(`${tc.label}: signature did not verify`);
+        if (!rec.timestampFresh) problems.push(`${tc.label}: timestamp not within +-300s`);
+        if (!rec.nonceValid) problems.push(`${tc.label}: nonce ${JSON.stringify(rec.headers.nonce)} is not 32 lowercase hex`);
+        if (rec.nonceRepeated) problems.push(`${tc.label}: nonce repeated`);
+        if (rec.parsed?.atom?.type !== 'Vault' || rec.parsed?.atom?.id !== id || rec.parsed?.method !== 'echoBig') {
+            problems.push(`${tc.label}: body mismatch ${JSON.stringify(rec.parsed)}`);
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, `${cases.length} int64 boundary values round-tripped through app(), signed, no nonce reuse`);
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 14: app() rejected inside a transaction
+checks.push(async () => {
+    const checkNum = 14;
+    const name = 'app() rejected inside a transaction';
+    if (!listener) {
+        skip(checkNum, name, 'no callback listener');
+        return;
+    }
+
+    const id = atomId('app-tx');
+    listener.clear();
+
+    const res = await invoke('Vault', id, 'appInsideTransaction', []);
+    if (res.status !== 500 || res.data?.error?.code !== 'atom_exception') {
+        fail(checkNum, name, `status=${res.status} code=${res.data?.error?.code} (expected 500/atom_exception)`);
+        return;
+    }
+    if (!String(res.data.error.message).includes('ATOMS-E082')) {
+        fail(checkNum, name, `message did not carry ATOMS-E082: ${res.data.error.message}`);
+        return;
+    }
+    if (listener.records.length !== 0) {
+        fail(
+            checkNum,
+            name,
+            `listener saw ${listener.records.length} request(s) — the guest-side guard must fire before crossing`
+        );
+        return;
+    }
+    const row = await invoke('Vault', id, 'getBig', ['app-inside-tx']);
+    if (parseInt64(row.data?.result) !== 0n) {
+        fail(checkNum, name, `the open transaction's write survived: ${JSON.stringify(row.data)}`);
+        return;
+    }
+    const after = await invoke('Vault', id, 'getBig', ['anything']);
+    if (after.status !== 200 || after.data?.error) {
+        fail(checkNum, name, `residency unhealthy after the rejection: ${JSON.stringify(after.data)}`);
+        return;
+    }
+
+    pass(checkNum, name, `ATOMS-E082, no request left the Worker, write rolled back, residency healthy`);
+});
+
+// CHECK 15: deadline overrun (uncaught, and caught with the budget latched)
+checks.push(async () => {
+    const checkNum = 15;
+    const name = 'deadline overrun (uncaught 504, caught + budget latched)';
+    if (!listener) {
+        skip(checkNum, name, 'no callback listener');
+        return;
+    }
+    if (!TURN_DEADLINE_MS) {
+        skip(checkNum, name, 'ATOMS_TURN_DEADLINE_MS not set in the runner env — must match the value the Worker was started with');
+        return;
+    }
+
+    const problems = [];
+
+    // 15a — uncaught: the turn reports turn_deadline_exceeded, and the
+    // residency stays healthy for the next invoke.
+    const idA = atomId('deadline-uncaught');
+    listener.clear();
+    const t0 = Date.now();
+    const stalled = await invoke('Vault', idA, 'stallViaApp', []);
+    const elapsed = Date.now() - t0;
+
+    if (stalled.status !== 504) problems.push(`15a: status=${stalled.status} (expected 504)`);
+    if (stalled.data?.error?.code !== 'turn_deadline_exceeded') {
+        problems.push(`15a: code=${stalled.data?.error?.code} (expected turn_deadline_exceeded)`);
+    }
+    if (stalled.data?.error?.retryable !== true) problems.push(`15a: retryable=${stalled.data?.error?.retryable} (expected true)`);
+    if (elapsed < TURN_DEADLINE_MS) {
+        problems.push(`15a: observed elapsed ${elapsed}ms is less than the configured deadline ${TURN_DEADLINE_MS}ms`);
+    }
+    const afterA = await invoke('Vault', idA, 'getBig', ['anything']);
+    if (afterA.status !== 200 || afterA.data?.error) {
+        problems.push(`15a: next invoke on the same Atom failed: ${JSON.stringify(afterA.data)}`);
+    }
+
+    // 15b — caught, then a second app() call that fails immediately on the
+    // latched budget: an ordinary 200, and exactly one request ever reached
+    // the listener.
+    const idB = atomId('deadline-caught');
+    listener.clear();
+    const caught = await invoke('Vault', idB, 'stallCaught', []);
+    if (caught.status !== 200 || caught.data?.error) {
+        problems.push(`15b: status=${caught.status} error=${JSON.stringify(caught.data?.error)} (expected 200)`);
+    }
+    if (caught.data?.result !== 'stall-caught-budget-latched') {
+        problems.push(`15b: result=${JSON.stringify(caught.data?.result)} (expected 'stall-caught-budget-latched')`);
+    }
+    if (listener.records.length !== 1) {
+        problems.push(
+            `15b: listener recorded ${listener.records.length} requests (expected 1 — the second app() must not ` +
+                're-reach the network once the budget is latched)'
+        );
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            `15a: 504/turn_deadline_exceeded after ${elapsed}ms, residency healthy; 15b: 200 with 1 request`
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 16: dispatch() delivered, signed, kind=job
+checks.push(async () => {
+    const checkNum = 16;
+    const name = 'dispatch() delivered, signed, kind=job';
+    if (!listener) {
+        skip(checkNum, name, 'no callback listener');
+        return;
+    }
+
+    const id = atomId('notify');
+    listener.clear();
+
+    const res = await invoke('Counter', id, 'notify', ['hello-16']);
+    if (res.status !== 200 || res.data?.error) {
+        fail(checkNum, name, `notify failed: ${JSON.stringify(res.data)}`);
+        return;
+    }
+    // By the time the HTTP response was read, the delivery had already been
+    // recorded — settleTurn() awaits it before the turn's response goes out
+    // (design doc §4.1).
+    if (res.data.result !== 'notified:hello-16') {
+        fail(checkNum, name, `the Atom's own response was affected: ${JSON.stringify(res.data.result)}`);
+        return;
+    }
+    if (listener.records.length !== 1) {
+        fail(checkNum, name, `listener recorded ${listener.records.length} requests (expected 1, delivered before the response)`);
+        return;
+    }
+    const rec = listener.records[0];
+    if (rec.kind !== 'job') {
+        fail(checkNum, name, `X-Atoms-Kind=${rec.kind} (expected job)`);
+        return;
+    }
+    if (!rec.signatureValid) {
+        fail(checkNum, name, 'signature did not verify');
+        return;
+    }
+    if (rec.parsed?.job !== 'App\\Jobs\\Notify') {
+        fail(checkNum, name, `job=${JSON.stringify(rec.parsed?.job)} (expected App\\Jobs\\Notify)`);
+        return;
+    }
+    if (rec.parsed?.args?.atomId !== id || rec.parsed?.args?.note !== 'hello-16') {
+        fail(checkNum, name, `args=${JSON.stringify(rec.parsed?.args)} did not match the promoted constructor properties`);
+        return;
+    }
+
+    pass(checkNum, name, `kind=job, signed, args keyed by promoted property name, delivered before the response`);
+});
+
+// CHECK 17: dispatch() transaction semantics
+checks.push(async () => {
+    const checkNum = 17;
+    const name = 'dispatch() transaction semantics (buffer/drop/deliver)';
+    if (!listener) {
+        skip(checkNum, name, 'no callback listener');
+        return;
+    }
+
+    const problems = [];
+
+    // fail=true: the transaction rolls back, so the job must never be
+    // delivered — as durable as the row it was dispatched next to.
+    {
+        const id = atomId('transfer-fail');
+        listener.clear();
+        const res = await invoke('Vault', id, 'transferAndNotify', [true]);
+        if (res.status !== 500 || res.data?.error?.code !== 'atom_exception') {
+            problems.push(`fail=true: status=${res.status}/${res.data?.error?.code} (expected 500/atom_exception)`);
+        }
+        if (listener.records.length !== 0) {
+            problems.push(`fail=true: listener recorded ${listener.records.length} requests (expected 0 — rolled back)`);
+        }
+        const row = await invoke('Vault', id, 'getBig', ['transfer-and-notify']);
+        if (parseInt64(row.data?.result) !== 0n) {
+            problems.push(`fail=true: the rolled-back row survived: ${JSON.stringify(row.data)}`);
+        }
+    }
+
+    // fail=false: the transaction commits, so exactly one delivery happens
+    // and the row is present.
+    {
+        const id = atomId('transfer-ok');
+        listener.clear();
+        const res = await invoke('Vault', id, 'transferAndNotify', [false]);
+        if (res.status !== 200 || res.data?.result !== true) {
+            problems.push(`fail=false: status=${res.status} result=${JSON.stringify(res.data)}`);
+        }
+        if (listener.records.length !== 1) {
+            problems.push(`fail=false: listener recorded ${listener.records.length} requests (expected 1)`);
+        } else if (listener.records[0].kind !== 'job') {
+            problems.push(`fail=false: X-Atoms-Kind=${listener.records[0].kind} (expected job)`);
+        }
+        const row = await invoke('Vault', id, 'getBig', ['transfer-and-notify']);
+        if (parseInt64(row.data?.result) !== 1n) {
+            problems.push(`fail=false: the committed row is missing: ${JSON.stringify(row.data)}`);
+        }
+    }
+
+    // Dispatched outside any transaction, then an uncaught throw: the
+    // documented asymmetry — as durable as a non-transactional write, so it
+    // is delivered despite the turn failing.
+    {
+        const id = atomId('notify-then-throw');
+        listener.clear();
+        const res = await invoke('Vault', id, 'notifyThenThrow', []);
+        if (res.status !== 500 || res.data?.error?.code !== 'atom_exception') {
+            problems.push(`notifyThenThrow: status=${res.status}/${res.data?.error?.code} (expected 500/atom_exception)`);
+        }
+        if (listener.records.length !== 1) {
+            problems.push(
+                `notifyThenThrow: listener recorded ${listener.records.length} requests (expected 1 — delivered despite the throw)`
+            );
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, `buffered-on-commit/dropped-on-rollback inside tx; delivered-despite-throw outside tx`);
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
 // ---------------------------------------------------------------- run
 
 async function run() {
@@ -807,27 +1288,42 @@ async function run() {
     console.log(`Base URL: ${baseUrl}`);
     console.log(`Skip: ${SKIP.length ? SKIP.join(', ') : 'none'}`);
     console.log(`Eviction wait: ${EVICTION_WAIT_MS}ms`);
+
+    const keyFile = loadCallbackKeyFile();
+    if (keyFile) {
+        const port = parseInt(process.env.ATOMS_CALLBACK_PORT || '', 10) || keyFile.port;
+        listener = new CallbackListener(keyFile.publicKey);
+        await listener.start(port);
+        console.log(`Callback listener: 127.0.0.1:${port} (checks 13-17 enabled)`);
+    } else {
+        console.log(`Callback listener: none (test/.callback-key.json missing — checks 13-17 will skip)`);
+    }
+    console.log(`Turn deadline (checks 15a/15b): ${TURN_DEADLINE_MS ? `${TURN_DEADLINE_MS}ms` : 'not set — 15 will skip'}`);
     console.log('');
 
-    for (let i = 0; i < checks.length; i++) {
-        const checkNum = i + 1;
-        if (SKIP.includes(checkNum)) {
-            console.log(`⊘ CHECK ${checkNum}: skipped`);
-            continue;
-        }
+    try {
+        for (let i = 0; i < checks.length; i++) {
+            const checkNum = i + 1;
+            if (SKIP.includes(checkNum)) {
+                console.log(`⊘ CHECK ${checkNum}: skipped`);
+                continue;
+            }
 
-        try {
-            await checks[i]();
-        } catch (err) {
-            failCount++;
-            results.push({
-                checkNum,
-                name: '(unknown)',
-                status: 'FAIL',
-                msg: `${err.name}: ${err.message}`,
-            });
-            console.log(`✗ CHECK ${checkNum}: ${err.name}: ${err.message}`);
+            try {
+                await checks[i]();
+            } catch (err) {
+                failCount++;
+                results.push({
+                    checkNum,
+                    name: '(unknown)',
+                    status: 'FAIL',
+                    msg: `${err.name}: ${err.message}`,
+                });
+                console.log(`✗ CHECK ${checkNum}: ${err.name}: ${err.message}`);
+            }
         }
+    } finally {
+        if (listener) await listener.stop();
     }
 
     console.log('');

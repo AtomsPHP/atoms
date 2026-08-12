@@ -39,6 +39,15 @@
  * @property {string}   coreDir               Guest directory holding the verbatim atoms/core sources.
  * @property {string[]} guestDirs             Directories created in MEMFS before files are written.
  * @property {number}   bundleFormat          Bundle format version this host understands.
+ * @property {string}   callbackUrl           The monolith's callback endpoint. '' = unconfigured.
+ * @property {string}   callbackSigningKey    Base64 of the 32-byte Ed25519 seed used to sign callbacks.
+ * @property {number}   turnDeadlineMs        Aggregate budget for one turn's time spent awaiting the callback channel.
+ * @property {number}   callbackTimeoutMs     Per-POST abort bound for one callback.
+ * @property {number}   callbackMaxRequestBytes  Reject an app()/dispatch() request body larger than this.
+ * @property {number}   callbackMaxResponseBytes Reject an app() response body larger than this (it is copied into guest memory).
+ * @property {number}   maxDispatchesPerTurn  dispatch() calls allowed in one turn before `dispatch_limit`.
+ * @property {'configured'|'unconfigured'|'misconfigured'} callbackState  Derived from callbackUrl/callbackSigningKey.
+ * @property {string|null} callbackConfigError Human-readable reason when callbackState is 'misconfigured'.
  */
 
 /** Levels understood by the `log` sync op, lowest first. */
@@ -130,6 +139,86 @@ function unsafeIntegerPolicy(raw) {
 }
 
 /**
+ * Decode base64 into raw bytes, without throwing: an operator's typo in a
+ * secret must classify as `'misconfigured'`, never crash `loadConfig()` (which
+ * must stay total — `/healthz` has to answer on a broken Worker).
+ *
+ * @param {string} b64
+ * @returns {Uint8Array|null}
+ */
+export function base64ToBytes(b64) {
+	try {
+		const binary = atob(b64);
+		const bytes = new Uint8Array(binary.length);
+		for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+		return bytes;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * `ATOMS_CALLBACK_URL` validation (design doc §8): absolute, `https:`, or
+ * `http:` only when the host is a loopback address. Plain `http` to a public
+ * host would send customer arguments in the clear — the Ed25519 signature
+ * protects integrity and authenticity, never confidentiality. The loopback
+ * exemption is what keeps the conformance harness and `atoms dev` legal.
+ *
+ * @param {string} raw
+ * @returns {string|null} a human-readable reason, or null when valid
+ */
+function validateCallbackUrl(raw) {
+	/** @type {URL} */
+	let url;
+	try {
+		url = new URL(raw);
+	} catch {
+		return `ATOMS_CALLBACK_URL ${JSON.stringify(raw)} is not a valid absolute URL`;
+	}
+	if (url.protocol === 'https:') return null;
+	const loopback = url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]';
+	if (url.protocol === 'http:' && loopback) return null;
+	return (
+		`ATOMS_CALLBACK_URL must use "https:", or "http:" only for a loopback host ` +
+		`(127.0.0.1, localhost, [::1]); got "${url.protocol}//${url.hostname}"`
+	);
+}
+
+/**
+ * Classify the callback channel from the two raw env values, per the three
+ * states in the design doc's §6.3 table. Never throws: `loadConfig()` stays
+ * total so `/healthz` answers on a misconfigured Worker; the typed failure is
+ * raised only when `app()`/`dispatch()` is actually used.
+ *
+ * @param {string} callbackUrl
+ * @param {string} callbackSigningKey
+ * @returns {{state: 'configured'|'unconfigured'|'misconfigured', error: string|null}}
+ */
+function classifyCallbackChannel(callbackUrl, callbackSigningKey) {
+	if (callbackUrl === '') {
+		return { state: 'unconfigured', error: null };
+	}
+
+	const urlError = validateCallbackUrl(callbackUrl);
+	if (urlError) {
+		return { state: 'misconfigured', error: urlError };
+	}
+
+	if (callbackSigningKey === '') {
+		return { state: 'misconfigured', error: 'ATOMS_CALLBACK_SIGNING_KEY is not set' };
+	}
+	const seed = base64ToBytes(callbackSigningKey);
+	if (!seed || seed.length !== 32) {
+		return {
+			state: 'misconfigured',
+			error: 'ATOMS_CALLBACK_SIGNING_KEY does not decode to exactly 32 bytes of base64',
+		};
+	}
+
+	return { state: 'configured', error: null };
+}
+
+/**
  * Resolve the whole configuration for one Worker/DO invocation.
  *
  * @param {Env} env
@@ -137,6 +226,9 @@ function unsafeIntegerPolicy(raw) {
  */
 export function loadConfig(env) {
 	const level = str(env, 'ATOMS_LOG_LEVEL', 'info').toLowerCase();
+	const callbackUrl = str(env, 'ATOMS_CALLBACK_URL', '');
+	const callbackSigningKey = str(env, 'ATOMS_CALLBACK_SIGNING_KEY', '');
+	const callback = classifyCallbackChannel(callbackUrl, callbackSigningKey);
 
 	return {
 		appKey: str(env, 'ATOMS_APP_KEY', ''),
@@ -165,6 +257,7 @@ export function loadConfig(env) {
 		configEnvKeys: list(env, 'ATOMS_CONFIG_ENV_KEYS', []),
 		configEnvDenyKeys: list(env, 'ATOMS_CONFIG_ENV_DENY_KEYS', [
 			'ATOMS_APP_KEY',
+			'ATOMS_CALLBACK_SIGNING_KEY',
 			'ATOMS_CONFIG_ENV_KEYS',
 			'ATOMS_CONFIG_ENV_DENY_KEYS',
 		]),
@@ -183,5 +276,15 @@ export function loadConfig(env) {
 		]),
 
 		bundleFormat: int(env, 'ATOMS_BUNDLE_FORMAT', 0),
+
+		callbackUrl,
+		callbackSigningKey,
+		turnDeadlineMs: int(env, 'ATOMS_TURN_DEADLINE_MS', 30000),
+		callbackTimeoutMs: int(env, 'ATOMS_CALLBACK_TIMEOUT_MS', 10000),
+		callbackMaxRequestBytes: int(env, 'ATOMS_CALLBACK_MAX_REQUEST_BYTES', 1024 * 1024),
+		callbackMaxResponseBytes: int(env, 'ATOMS_CALLBACK_MAX_RESPONSE_BYTES', 1024 * 1024),
+		maxDispatchesPerTurn: int(env, 'ATOMS_MAX_DISPATCHES_PER_TURN', 100),
+		callbackState: callback.state,
+		callbackConfigError: callback.error,
 	};
 }
