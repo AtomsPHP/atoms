@@ -18,6 +18,7 @@ namespace Atoms\Cf;
 use Atoms\AtomJob;
 use Atoms\Database;
 use Atoms\Runtime\AtomContext;
+use Atoms\Timers\Timers;
 
 final class CfAtomContext implements AtomContext
 {
@@ -84,6 +85,17 @@ final class CfAtomContext implements AtomContext
                 'WebSockets are out of scope for the Cloudflare MVP, so there is nothing subscribed to "%s".',
                 $channel
             )
+        );
+    }
+
+    // Replaced by the timers wave.
+    public function timers(): Timers
+    {
+        throw new AtomsNotSupported(
+            'Atom::timers()',
+            'M2 wave 0 adds Atoms\Timers\Timers to the AtomContext ABI so atoms-core '
+            . 'vendors cleanly, but a later M2 wave is what actually schedules timers '
+            . 'on this Worker runtime.'
         );
     }
 }

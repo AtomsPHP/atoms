@@ -38,4 +38,15 @@ final class LifecycleInvoker
             $this->onDeactivation();
         })->call($atom);
     }
+
+    /**
+     * @param Atom<\Atoms\AtomMethods> $atom
+     */
+    public static function timer(Atom $atom, string $name): void
+    {
+        (function (string $name): void {
+            /** @var Atom<\Atoms\AtomMethods> $this */
+            $this->onTimer($name);
+        })->call($atom, $name);
+    }
 }

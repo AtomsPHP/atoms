@@ -7,12 +7,14 @@ namespace Atoms\Testing\Internal;
 use Atoms\AtomJob;
 use Atoms\Database;
 use Atoms\Runtime\AtomContext;
+use Atoms\Testing\FakeTimers;
+use Atoms\Timers\Timers;
 
 /**
  * The {@see AtomContext} implementation an {@see \Atoms\Testing\AtomHarness}
  * hands to the Atom it constructs: a real temp-file SQLite database, the fake
- * app() proxy, provided config values, and closures recording dispatch()/
- * broadcast() calls back into the harness.
+ * app() proxy, provided config values, closures recording dispatch()/
+ * broadcast() calls back into the harness, and a {@see FakeTimers}.
  *
  * @internal
  */
@@ -29,6 +31,7 @@ final class HarnessAtomContext implements AtomContext
         private readonly array $config,
         private readonly \Closure $onDispatch,
         private readonly \Closure $onBroadcast,
+        private readonly FakeTimers $timers,
     ) {
     }
 
@@ -55,5 +58,10 @@ final class HarnessAtomContext implements AtomContext
     public function broadcast(string $channel, array $payload): void
     {
         ($this->onBroadcast)($channel, $payload);
+    }
+
+    public function timers(): Timers
+    {
+        return $this->timers;
     }
 }

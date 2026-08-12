@@ -352,6 +352,62 @@
             "fix": "The bundle is a ustar tar: a path needs a \"/\" positioned so the tail is at most 100 bytes and the head at most 155. Shorten the class or directory name.",
             "severity": "error",
             "phase": "build"
+        },
+        {
+            "code": "ATOMS-E080",
+            "title": "Callback channel not configured",
+            "message": "$this->app()/dispatch() requires the Worker's callback channel, which is not configured.",
+            "fix": "Set ATOMS_CALLBACK_URL on the Worker to your monolith's callback endpoint (the route where Atoms\\Client\\Callback\\CallbackKernel is mounted), and ATOMS_CALLBACK_SIGNING_KEY to the base64 of a 32-byte Ed25519 seed. `atoms dev --callback-url` sets the first for local runs.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E081",
+            "title": "Callback signing key missing or unusable",
+            "message": "ATOMS_CALLBACK_URL is set but the Worker has no usable Ed25519 signing key.",
+            "fix": "ATOMS_CALLBACK_URL is set but the Worker has no usable signing key, and Atoms never sends an unsigned callback. Set ATOMS_CALLBACK_SIGNING_KEY (wrangler secret put) to the base64 of a 32-byte Ed25519 seed, and give the matching public key to Ed25519Verifier in your app.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E082",
+            "title": "app() called inside a database transaction",
+            "message": "$this->app()->{method}() cannot be called inside $this->db()->transaction(): the transaction holds a synchronous Durable Object callback that cannot wait for an HTTP round trip.",
+            "fix": "Read what you need from the monolith before opening the transaction, or close the transaction and re-open it after the call. $this->dispatch() is allowed inside a transaction — it is queued on commit and dropped on rollback.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E083",
+            "title": "Callback request to the monolith failed",
+            "message": "Callback to the monolith for {atom}::{method} failed: {reason}.",
+            "fix": "The Atom reached your app but the call did not succeed. Check that the callback route is mounted and reachable from Cloudflare, that the Methods class exists for this Atom type, and that ATOMS_CALLBACK_TIMEOUT_MS is long enough for the endpoint.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E084",
+            "title": "Dispatched job cannot be encoded from its promoted properties",
+            "message": "{class} cannot be dispatched: {reason}.",
+            "fix": "An AtomJob's constructor parameters are its dispatch contract and must be promoted public properties. Declare public function __construct(public readonly int $orderId) — non-promoted state cannot cross the boundary.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E085",
+            "title": "Invalid timer name",
+            "message": "Timer name {name} is invalid: it must be a non-empty string within the runtime's byte limit.",
+            "fix": "Pick a name for $this->timers()->schedule($name, $at) that is non-empty and within the runtime's byte limit for timer names.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E086",
+            "title": "Timer limit exceeded",
+            "message": "{type}/{id} already has {count} scheduled timers, at the per-Atom limit.",
+            "fix": "Raise the per-Atom cap on scheduled timers (ATOMS_TIMERS_MAX on the Worker), or cancel/coalesce timers you no longer need before scheduling new ones.",
+            "severity": "error",
+            "phase": "runtime"
         }
     ]
 }

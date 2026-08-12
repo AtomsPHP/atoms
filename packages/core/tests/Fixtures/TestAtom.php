@@ -7,6 +7,7 @@ namespace Atoms\Core\Tests\Fixtures;
 use Atoms\Atom;
 use Atoms\AtomJob;
 use Atoms\Database;
+use Atoms\Timers\Timers;
 
 /**
  * Exercises every protected accessor and lifecycle hook of the Atom base class.
@@ -19,6 +20,9 @@ final class TestAtom extends Atom
     public int $activations = 0;
 
     public int $deactivations = 0;
+
+    /** @var list<string> */
+    public array $timerFires = [];
 
     public function callDb(): Database
     {
@@ -48,6 +52,11 @@ final class TestAtom extends Atom
         $this->broadcast($channel, $payload);
     }
 
+    public function callTimers(): Timers
+    {
+        return $this->timers();
+    }
+
     protected function onActivation(): void
     {
         $this->activations++;
@@ -56,5 +65,10 @@ final class TestAtom extends Atom
     protected function onDeactivation(): void
     {
         $this->deactivations++;
+    }
+
+    protected function onTimer(string $name): void
+    {
+        $this->timerFires[] = $name;
     }
 }

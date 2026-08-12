@@ -58,6 +58,7 @@ function core_files()
         'AtomMethods.php',
         'Websocket/Connection.php',
         'Websocket/Message.php',
+        'Timers/Timers.php',
         'Runtime/AtomContext.php',
         'Atom.php',
         'Runtime/LifecycleInvoker.php',

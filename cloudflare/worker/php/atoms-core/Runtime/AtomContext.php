@@ -6,6 +6,7 @@ namespace Atoms\Runtime;
 
 use Atoms\AtomJob;
 use Atoms\Database;
+use Atoms\Timers\Timers;
 
 /**
  * Everything an Atom needs from its host runtime, behind one interface. The
@@ -29,4 +30,9 @@ interface AtomContext
      * @param array<string, mixed> $payload
      */
     public function broadcast(string $channel, array $payload): void;
+
+    /**
+     * Named one-shot timers scheduled against this Atom.
+     */
+    public function timers(): Timers;
 }

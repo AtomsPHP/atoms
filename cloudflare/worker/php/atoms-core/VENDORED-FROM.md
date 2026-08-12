@@ -10,6 +10,7 @@ reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 | Source of `resources/errors.json` | `packages/core/resources/errors.json` |
 | Vendored on | 2026-08-04 (from the then-separate framework repository) |
 | Re-verified | 2026-08-09, on the M3 Cloudflare toolchain change — all 22 files byte-identical to `packages/core`. `Errors/ErrorCode.php` and `resources/errors.json` were re-vendored (ATOMS-E073–E077 added, E072 reworded); the other 20 digests are unchanged |
+| Re-verified | 2026-08-12, on M2 wave 0 (timers ABI) — `Atom.php`, `Errors/ErrorCode.php`, `Runtime/AtomContext.php`, `Runtime/LifecycleInvoker.php` and `resources/errors.json` re-vendored (`AtomContext::timers()`, `Atom::timers()`/`onTimer()`, `LifecycleInvoker::timer()`, ATOMS-E080–E086 added); new file `Timers/Timers.php` added, 23 files total; the other 17 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -51,10 +52,14 @@ Re-vendor by re-copying from upstream, then re-check the digests below.
 ## What is here, and why
 
 Required by the runtime: `Atom.php`, `AtomJob.php`, `AtomMethods.php`,
-`Database.php`, `Runtime/{AtomContext,LifecycleInvoker}.php`, `Migrations/*`,
-`Serialization/*`, `Websocket/{Connection,Message}.php`, and the `Errors/*`
-closure that `AtomsError` → `ErrorCatalog` → `CatalogEntry` pulls in (plus its
-`resources/errors.json` data file).
+`Database.php`, `Runtime/{AtomContext,LifecycleInvoker}.php`, `Timers/Timers.php`,
+`Migrations/*`, `Serialization/*`, `Websocket/{Connection,Message}.php`, and the
+`Errors/*` closure that `AtomsError` → `ErrorCatalog` → `CatalogEntry` pulls in
+(plus its `resources/errors.json` data file). `Timers/Timers.php` is required
+because `Runtime/AtomContext.php` now declares `timers(): Timers\Timers` —
+`CfAtomContext` (`worker/php/runtime/CfAtomContext.php`) still throws
+`AtomsNotSupported` from its `timers()` method; only the ABI shape is vendored
+in this wave.
 
 Two deliberate additions beyond the strict transitive closure:
 `Attributes/MethodsFor.php` and `Attributes/SharedWithAtoms.php`. Nothing in
@@ -71,7 +76,7 @@ of `Atoms\Database` in this runtime. It is still the reference for
 ## Digests (sha256)
 
 ```
-d9211327e890f2ebe551d40b2460dce095b57c0ba5e320203fffb683bfe494a2  Atom.php
+db10a4ba03e4d3cd723de9106908497a66539821fa0935a40572269ef633e736  Atom.php
 e1cf8cea48ad7525422c43e4c7422c250ed66028b9d4cf3bf97f5fce5fe9e624  AtomJob.php
 4a4da51d856e552242a045b68d04e7e5754e48b1825c708d0736a0b8fadc87e9  AtomMethods.php
 efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/MethodsFor.php
@@ -80,17 +85,18 @@ efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/Met
 7c996f6c31cff9bf210040f311bb534a140e79ae3c62b721c6266ad6d78353e2  Errors/AtomsError.php
 0b4bfcf9ea74ed277614139157b03696f4eae42dc85f420120f96663cf654283  Errors/CatalogEntry.php
 ee937355bb4a22b02287215525faabf25d2fd0b9427f160352953a65eda13b34  Errors/ErrorCatalog.php
-d125f3ad08b7f17def1c9dbc426c9a81e93688799754d0ebefb4345361dc5b91  Errors/ErrorCode.php
+4e95ddad6279b472f10f5ead621e54540942e7d895c053a8ea1ec36a3ada123f  Errors/ErrorCode.php
 e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Migration.php
 f433e85e2449339b31bf806c4c8dde1afbd9e06dda005a2dc5a3df62fcd1252e  Migrations/MigrationEntry.php
 addfe71f9472e7f2e76422227ef06586818b546e09842cdcba8e8a97a1dcd690  Migrations/MigrationSet.php
 50af83b416b9dec8f9c16e4b0fa635ef4fb5be8e38134571f66d910bded18b9d  Migrations/Migrator.php
-22ae1e11a76bb727294732f8ca7fa458d7531d6097cc5229ddbf020964f96e87  resources/errors.json
-a79559d5f3c3f2c6e50817daca583d21222aa13e10e90da317bd9cf12b4aa102  Runtime/AtomContext.php
-2f7038814942c735af5d501ad51a59520237d55f848dfb6c3603ff7370fddcf4  Runtime/LifecycleInvoker.php
+c895fb97d6ad578600f69f8cb6143b5020868c74e9d68aad5771080d38f8b410  resources/errors.json
+21a55572c112697f7594ba24b0dfece42183e11d2ba5027e2d4ab42ec0abb2be  Runtime/AtomContext.php
+bad340c4631a86b8b0d33df013854e5494f7e639917c71e103ce0635cb47dc41  Runtime/LifecycleInvoker.php
 b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/Payload.php
 1486ab89bf416b88929159b6014b2a268b081f2efd1d46a314fe4d86948d8bc8  Serialization/SerializationException.php
 0b3224c2173e0fcde24b433a9373a5a1268f72a7a94e232f214e1c6bb15ec1d4  Serialization/Serializer.php
+1fde1d8fa58f1bf741d746d8f82fd3dc847fb0ae44b04baa4c2eccd033df3295  Timers/Timers.php
 9976931fc24b29337ddddbb686432d537e45524f388cfbc60b37554af8db46f5  Websocket/Connection.php
 c0a739e750b0b2558133cb5c33e6ac119ed1f1526be41587a4f2bf21b5ba63d9  Websocket/Message.php
 ```
