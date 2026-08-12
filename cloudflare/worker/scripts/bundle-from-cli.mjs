@@ -196,6 +196,23 @@ function hostManifest(cli) {
 		atoms[atom.type] = {
 			class: atom.class,
 			file: path.posix.join(APP_PREFIX, atom.file),
+			// Additive manifest field (docs/cloudflare-toolchain.md §3), carried
+			// through as the TRI-STATE the CLI emits, never collapsed to a
+			// definite bool. `ManifestGenerator::websocketFlag()` produces three
+			// shapes and the runtime reads all three:
+			//   - present `true`  => the Atom declares a WS handler        => allowed;
+			//   - present `false` => it extends Atoms\Atom DIRECTLY and declares
+			//                        none, a claim discovery could prove     => 501;
+			//   - ABSENT          => it extends something discovery cannot follow,
+			//                        so an inherited handler is unknowable to a
+			//                        file-parser => allowed, runtime dispatch decides.
+			// Collapsing the absent case to `false` here (the old
+			// `websocket: atom.websocket === true`) re-manufactured the wrongful
+			// 501 that the omission exists to avoid: index.js refuses
+			// `websocket === false` before any Durable Object is touched. So the
+			// key is spread only when the CLI actually emitted it — absence is
+			// preserved as absence.
+			...(atom.websocket === undefined ? {} : { websocket: atom.websocket === true }),
 			migrations,
 		};
 	}

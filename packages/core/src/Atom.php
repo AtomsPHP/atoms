@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms;
 
 use Atoms\Runtime\AtomContext;
+use Atoms\Timers\Timers;
 use Atoms\Websocket\Connection;
 use Atoms\Websocket\Message;
 
@@ -63,6 +64,11 @@ abstract class Atom
         $this->context->broadcast($channel, $payload);
     }
 
+    protected function timers(): Timers
+    {
+        return $this->context->timers();
+    }
+
     // Lifecycle hooks — invoked by the runtime via Atoms\Runtime\LifecycleInvoker.
 
     protected function onActivation(): void
@@ -70,6 +76,14 @@ abstract class Atom
     }
 
     protected function onDeactivation(): void
+    {
+    }
+
+    /**
+     * Invoked by the runtime via {@see \Atoms\Runtime\LifecycleInvoker} when a
+     * scheduled timer fires.
+     */
+    protected function onTimer(string $name): void
     {
     }
 

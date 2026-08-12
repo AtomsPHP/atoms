@@ -29,11 +29,15 @@ verbatim, hash-recorded copy of `packages/core/src`. Never edit it in place:
 fix `packages/core/` and re-vendor.
 
 Read `cloudflare/docs/mvp-spec.md` before changing the Worker, in particular
-its appendix of *measured* platform deviations. Several things there are
-deliberately unimplemented rather than broken: `app()`, `dispatch()`,
-`broadcast()`, WebSockets and alarms throw a typed `AtomsNotSupported`. That
-is the designed MVP state. Implementing one is a spec change first and a diff
-second; a half-implementation in a pull request will be declined.
+its appendix of *measured* platform deviations. `app()`, `dispatch()`,
+`broadcast()`, WebSockets and timers/alarms are implemented (M2) — see the
+spec's §The callback channel, §The WebSocket seam and §Timers. The one
+surface that deliberately stays a typed `AtomsNotSupported` is the
+permanently-unsupported corner of the `db()->pdo()` shim
+(`cloudflare/worker/php/README.md` §Documented leaks and limits); that is a
+restriction, not a milestone stub. Extending the runtime surface further is a
+spec change first and a diff second; a half-implementation in a pull request
+will be declined.
 
 ## The PHP side
 
@@ -163,7 +167,7 @@ reasoning from scratch:
   updating in the same PR — do not leave them disagreeing.
 - CI must be green. One workflow (`.github/workflows/ci.yml`) covers both
   halves from one clone: the PHP suites on 8.3 and 8.4, PHPStan, manifest
-  validation, and the twelve-check conformance suite against a local
+  validation, and the 25-check conformance suite against a local
   `wrangler dev`. No job needs a Cloudflare account or a token, and none may
   be made to need one. A red run is not "flaky" until you have shown it is.
 

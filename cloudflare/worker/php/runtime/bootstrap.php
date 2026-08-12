@@ -58,6 +58,7 @@ function core_files()
         'AtomMethods.php',
         'Websocket/Connection.php',
         'Websocket/Message.php',
+        'Timers/Timers.php',
         'Runtime/AtomContext.php',
         'Atom.php',
         'Runtime/LifecycleInvoker.php',
@@ -86,6 +87,34 @@ function runtime_files()
         'AtomsStatement.php',
         'AtomsPDO.php',
         'BridgeDatabase.php',
+        // The callback channel (app()/dispatch()). No autoloader is active yet
+        // at this point in boot, so this really is dependency order: the
+        // CallbackError base before its subclasses, and the shared cross
+        // helper/proxy last, since they reference the exception classes only
+        // inside method bodies (which PHP resolves lazily) but read most
+        // naturally after them.
+        'CallbackError.php',
+        'CallbackNotConfigured.php',
+        'CallbackUnsigned.php',
+        'CallbackInTransaction.php',
+        'CallbackFailed.php',
+        'JobNotEncodable.php',
+        'TurnDeadlineExceeded.php',
+        'CallbackChannel.php',
+        'CallbackAppProxy.php',
+        // The WebSocket seam: ConnectionClosed before
+        // CfConnection, which throws it, for the same "base before what
+        // references it" reason as the callback classes above — though PHP
+        // resolves it lazily (inside a method body) either way.
+        'ConnectionClosed.php',
+        'CfConnection.php',
+        'CfMessage.php',
+        // The timers seam (M2 wave 3): the two typed exceptions before the
+        // class that throws them, for the same "base before what references
+        // it" reason as the callback classes above.
+        'InvalidTimerName.php',
+        'TimerLimitExceeded.php',
+        'CfTimers.php',
         'CfAtomContext.php',
     ];
 }
@@ -238,9 +267,35 @@ function apply_migrations(BridgeDatabase $db, array $paths, $type)
 }
 
 /**
+ * Every lifecycle handler the RUNTIME dispatches, and therefore every name a
+ * client must never reach through `POST /invoke/:type/:id/:method`:
+ *
+ *   - onConnect/onMessage/onDisconnect — dispatched by `run_ws_dispatch()`,
+ *     reachable only through a socket, never through `/invoke`;
+ *   - onTimer                          — dispatched by `run_timer_turn()`,
+ *     reachable only through a Durable Object alarm;
+ *   - onActivation/onDeactivation      — the residency lifecycle hooks,
+ *     dispatched by `activate()` / not at all.
+ *
+ * The last three are `protected` on `Atoms\Atom` today, so visibility alone
+ * refuses them — but visibility is the SUBCLASS's to widen, and a customer who
+ * writes `public function onTimer(string $name)` (to call it from a test, say)
+ * would otherwise hand every client a way to fire it with arbitrary arguments.
+ * Naming them here makes the refusal a property of the name, not of a modifier
+ * the customer controls.
+ *
+ * @return list<string>
+ */
+function runtime_handler_names()
+{
+    return ['onConnect', 'onMessage', 'onDisconnect', 'onTimer', 'onActivation', 'onDeactivation'];
+}
+
+/**
  * Resolve an invocable Atom method, refusing anything that is not a customer
- * method: private/protected/static/abstract members, magic methods, and the
- * base class's own surface (the constructor and the WebSocket handlers, which
+ * method: private/protected/static/abstract members, magic methods, the
+ * runtime's own lifecycle handlers (see {@see runtime_handler_names()}), and
+ * the base class's own surface (the constructor and the lifecycle hooks, which
  * are out of scope for the MVP).
  *
  * @param object $atom
@@ -262,11 +317,31 @@ function invocable_method($atom, $method)
 
     $reflection = new \ReflectionMethod($atom, $method);
 
+    // Compared against the CANONICAL name, never against the client's spelling.
+    // PHP method names are case-insensitive, so `method_exists($atom,
+    // 'ONMESSAGE')` is true and `$atom->ONMESSAGE(...)` calls onMessage() — a
+    // denylist that compares the request string walks straight past. The
+    // reflection normalises it to the name as declared, which is the only
+    // spelling that can be compared meaningfully.
+    //
+    // Placed BEFORE the visibility check on purpose: an atom that widened a
+    // protected handler to public must be refused for the same reason and with
+    // the SAME message as one that did not, so the response is never an oracle
+    // for whether this Atom overrides (or widens) a handler.
+    $canonical = $reflection->getName();
+
+    if (in_array($canonical, runtime_handler_names(), true)) {
+        throw new BootstrapError(
+            'method_not_found',
+            sprintf('%s::%s() is an Atoms lifecycle handler, dispatched only by the runtime.', $class, $canonical)
+        );
+    }
+
     if (!$reflection->isPublic() || $reflection->isStatic() || $reflection->isAbstract()) {
         throw new BootstrapError('method_not_found', sprintf('%s::%s() is not an invocable Atom method.', $class, $method));
     }
 
-    if (strncmp($reflection->getName(), '__', 2) === 0) {
+    if (strncmp($canonical, '__', 2) === 0) {
         throw new BootstrapError('method_not_found', sprintf('%s::%s() is a magic method.', $class, $method));
     }
 
@@ -463,6 +538,14 @@ function run_turn($atom, Serializer $serializer, SqlBridge $bridge, array $ident
             // throwable is still what the caller is told about.
             settle_open_transaction($bridge, $identity, $method);
 
+            // An uncaught turn-deadline overrun is reported as its own
+            // turn-result code, not folded into atom_exception, so the client
+            // can retry it (atoms/client already maps turn_deadline_exceeded ->
+            // TurnDeadlineExceeded and only retries when the call site opts in).
+            if ($e instanceof TurnDeadlineExceeded) {
+                return error_envelope('turn_deadline_exceeded', $e->getMessage(), get_class($e));
+            }
+
             return error_envelope('atom_exception', $e->getMessage(), get_class($e));
         }
 
@@ -480,6 +563,183 @@ function run_turn($atom, Serializer $serializer, SqlBridge $bridge, array $ident
             'atom_type' => $identity['type'],
             'atom_id' => $identity['id'],
             'method' => is_string($method) ? $method : '',
+            'class' => get_class($e),
+            'message' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+
+        return error_envelope('internal', $e->getMessage(), get_class($e));
+    }
+}
+
+/**
+ * `run_turn()`'s sibling for the three WebSocket lifecycle handlers.
+ * Shares its two-layer guard exactly — an uncaught exception in
+ * `onConnect`/`onMessage`/`onDisconnect` becomes an `atom_exception`
+ * turn-result envelope, logged host-side, is NEVER sent to the socket peer in
+ * any form, and does not close the socket or poison the residency — but
+ * differs from `run_turn()` in three deliberate ways:
+ *
+ *   1. No invocable_method(), no reflection, no Closure::bind: the three
+ *      handlers are public on Atoms\Atom, always exist (the base class
+ *      defines no-op bodies), and their argument list is built by the
+ *      runtime, not by a client — `$atom->onMessage($conn, $msg)` is a direct
+ *      call.
+ *   2. No Serializer::denormalizeArguments(): the arguments are a
+ *      runtime-constructed CfConnection/CfMessage/array — there is nothing to
+ *      coerce, and running them through the serializer would fail on the
+ *      interface types.
+ *   3. The success envelope is {"ok":true,"result":null}: the handlers
+ *      return void.
+ *
+ * @param object $atom
+ * @param SqlBridge $bridge the shared SQL seam, so an abandoned transaction
+ *                          can be settled before the turn boundary is reached
+ * @param array<string, mixed> $identity {type, id}
+ * @param string $method one of onConnect/onMessage/onDisconnect
+ * @param list<mixed> $args already runtime-constructed; nothing to decode
+ * @return array<string, mixed>
+ */
+function run_ws_turn($atom, SqlBridge $bridge, array $identity, $method, array $args)
+{
+    try {
+        try {
+            $atom->{$method}(...$args);
+        } catch (\Throwable $e) {
+            host_log('error', [
+                'event' => 'ws_turn_failed',
+                'atom_type' => $identity['type'],
+                'atom_id' => $identity['id'],
+                'method' => $method,
+                'class' => get_class($e),
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            // Same rule as run_turn(): a throw that escaped the customer's own
+            // transaction handling can leave one open; settle it before the
+            // turn boundary.
+            settle_open_transaction($bridge, $identity, $method);
+
+            return error_envelope('atom_exception', $e->getMessage(), get_class($e));
+        }
+
+        $leaked = settle_open_transaction($bridge, $identity, $method);
+        if ($leaked !== null) {
+            return error_envelope('atom_exception', $leaked, null);
+        }
+
+        return ['ok' => true, 'result' => null];
+    } catch (\Throwable $e) {
+        // Anything that escapes the inner handler is a runtime bug, not the
+        // customer's — same outer guard as run_turn(). This is what makes
+        // "the turn loop never throws" true for a ws turn the same way it is
+        // true for an invoke.
+        host_log('error', [
+            'event' => 'ws_turn_internal_error',
+            'atom_type' => $identity['type'],
+            'atom_id' => $identity['id'],
+            'method' => is_string($method) ? $method : '',
+            'class' => get_class($e),
+            'message' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+
+        return error_envelope('internal', $e->getMessage(), get_class($e));
+    }
+}
+
+/**
+ * Build the right handler call for one `ws.*` turn envelope and run it
+ * through {@see run_ws_turn()}. `conn.id`/`conn.channels` are host-minted;
+ * only the id is ever handed to the guest, wrapped in a fresh
+ * {@see CfConnection} — never a cached one, so a wake-path CfConnection is
+ * exactly as cheap to build as a first-turn one.
+ *
+ * @param object $atom
+ * @param SqlBridge $bridge
+ * @param array<string, mixed> $identity
+ * @param string $kind one of ws.connect/ws.message/ws.close
+ * @param array<string, mixed> $envelope the full turn envelope from the host
+ * @return array<string, mixed>
+ */
+function run_ws_dispatch($atom, SqlBridge $bridge, array $identity, $kind, array $envelope)
+{
+    $connId = isset($envelope['conn']['id']) ? (string) $envelope['conn']['id'] : '';
+    $conn = new CfConnection($connId);
+
+    if ($kind === 'ws.connect') {
+        $params = isset($envelope['params']) && is_array($envelope['params']) ? $envelope['params'] : [];
+
+        return run_ws_turn($atom, $bridge, $identity, 'onConnect', [$conn, $params]);
+    }
+
+    if ($kind === 'ws.message') {
+        $binary = !empty($envelope['binary']);
+        $payload = isset($envelope['payload']) && is_string($envelope['payload']) ? $envelope['payload'] : '';
+        // The host base64-encodes a binary frame (ArrayBuffer -> string);
+        // a text frame arrives already decoded.
+        $decoded = $binary ? (string) base64_decode($payload, true) : $payload;
+
+        return run_ws_turn($atom, $bridge, $identity, 'onMessage', [$conn, new CfMessage($decoded, $binary)]);
+    }
+
+    // ws.close
+    return run_ws_turn($atom, $bridge, $identity, 'onDisconnect', [$conn]);
+}
+
+/**
+ * `run_ws_turn()`'s sibling for the timer lifecycle hook (M2 wave 3). Same
+ * two-layer guard, same void success envelope: the host's alarm-driven
+ * dispatch already deleted the due row before this turn was ever handed to
+ * the guest (at-most-once — see atom-do.js's runAlarm()), so there is
+ * nothing here for the guest to acknowledge or retry.
+ *
+ * @param object $atom
+ * @param SqlBridge $bridge
+ * @param array<string, mixed> $identity
+ * @param string $name
+ * @return array<string, mixed>
+ */
+function run_timer_turn($atom, SqlBridge $bridge, array $identity, $name)
+{
+    try {
+        try {
+            LifecycleInvoker::timer($atom, $name);
+        } catch (\Throwable $e) {
+            host_log('error', [
+                'event' => 'timer_turn_failed',
+                'atom_type' => $identity['type'],
+                'atom_id' => $identity['id'],
+                'timer_name' => $name,
+                'class' => get_class($e),
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            // Same rule as run_turn()/run_ws_turn(): a throw that escaped the
+            // customer's own transaction handling can leave one open; settle
+            // it before the turn boundary.
+            settle_open_transaction($bridge, $identity, 'onTimer');
+
+            return error_envelope('atom_exception', $e->getMessage(), get_class($e));
+        }
+
+        $leaked = settle_open_transaction($bridge, $identity, 'onTimer');
+        if ($leaked !== null) {
+            return error_envelope('atom_exception', $leaked, null);
+        }
+
+        return ['ok' => true, 'result' => null];
+    } catch (\Throwable $e) {
+        // Anything that escapes the inner handler is a runtime bug, not the
+        // customer's — same outer guard as run_turn()/run_ws_turn(). This is
+        // what makes "the turn loop never throws" true for a timer turn too.
+        host_log('error', [
+            'event' => 'timer_turn_internal_error',
+            'atom_type' => $identity['type'],
+            'atom_id' => $identity['id'],
+            'timer_name' => is_string($name) ? $name : '',
             'class' => get_class($e),
             'message' => $e->getMessage(),
             'trace' => $e->getTraceAsString(),
@@ -545,23 +805,41 @@ function turn_loop($atom, SqlBridge $bridge, array $identity)
             return;
         }
 
-        if ($kind !== 'invoke') {
-            // A host-side protocol bug. Answer it and stay resident rather than
-            // taking the whole residency down.
-            $result = error_envelope(
-                'internal',
-                sprintf('turn.await resumed with unknown envelope kind %s.', var_export($kind, true)),
-                null
+        if ($kind === 'invoke') {
+            $args = isset($envelope['args']) && is_array($envelope['args']) ? array_values($envelope['args']) : [];
+            $method = isset($envelope['method']) ? $envelope['method'] : null;
+
+            $result = encodable_envelope(
+                run_turn($atom, $serializer, $bridge, $identity, $method, $args),
+                $method
             );
             continue;
         }
 
-        $args = isset($envelope['args']) && is_array($envelope['args']) ? array_values($envelope['args']) : [];
-        $method = isset($envelope['method']) ? $envelope['method'] : null;
+        if ($kind === 'ws.connect' || $kind === 'ws.message' || $kind === 'ws.close') {
+            $result = encodable_envelope(
+                run_ws_dispatch($atom, $bridge, $identity, $kind, $envelope),
+                $kind
+            );
+            continue;
+        }
 
-        $result = encodable_envelope(
-            run_turn($atom, $serializer, $bridge, $identity, $method, $args),
-            $method
+        if ($kind === 'timer') {
+            $timerName = isset($envelope['name']) && is_string($envelope['name']) ? $envelope['name'] : '';
+
+            $result = encodable_envelope(
+                run_timer_turn($atom, $bridge, $identity, $timerName),
+                'onTimer'
+            );
+            continue;
+        }
+
+        // A host-side protocol bug. Answer it and stay resident rather than
+        // taking the whole residency down.
+        $result = error_envelope(
+            'internal',
+            sprintf('turn.await resumed with unknown envelope kind %s.', var_export($kind, true)),
+            null
         );
     }
 }
@@ -631,7 +909,7 @@ function activate(array $cfg)
 
     $bridge = new SqlBridge();
     $db = new BridgeDatabase($bridge);
-    $context = new CfAtomContext($db);
+    $context = new CfAtomContext($db, $bridge, $identity);
 
     $ownMigrations = isset($entry['migrations']) && is_array($entry['migrations'])
         ? array_map('strval', array_values($entry['migrations']))
@@ -666,13 +944,38 @@ function activate(array $cfg)
 
     $atom = new $class($id, $context);
 
-    LifecycleInvoker::activate($atom);
+    // onActivation() is customer code on the legal ABI: it may write SQL, and
+    // — since the host opens a callback window before php.run() starts
+    // (mvp-spec.md §The turn deadline) — it may call app() and dispatch() too.
+    // A throw from it still fails the activation, which is the existing
+    // contract: an Atom whose onActivation() did not complete must not go on to
+    // serve turns. What changes here is only that the failure is CLASSIFIED
+    // rather than unwinding php.run() as an unnamed fatal — any transaction it
+    // left open is settled first, and the host's activation_failed line names
+    // the customer's class and message instead of reporting 'internal'.
+    try {
+        LifecycleInvoker::activate($atom);
+    } catch (\Throwable $e) {
+        settle_open_transaction($bridge, $identity, 'onActivation');
+
+        throw new BootstrapError(
+            'atom_exception',
+            sprintf(
+                'onActivation() for %s threw %s: %s',
+                $class,
+                get_class($e),
+                ascii_excerpt($e->getMessage(), 300)
+            ),
+            $e
+        );
+    }
 
     // Same reasoning as in run_turn(): the first park is turn.await, which the
-    // host refuses while a transaction is open. onActivation() is best-effort by
-    // contract, so an abandoned one is rolled back and logged rather than made
-    // to fail the activation — failing it would cold-boot the residency on every
-    // request, forever, for a deterministic customer bug.
+    // host refuses while a transaction is open. A RETURNING onActivation() that
+    // merely forgot to commit is best-effort by contract, so an abandoned
+    // transaction is rolled back and logged rather than made to fail the
+    // activation — failing it would cold-boot the residency on every request,
+    // forever, for a deterministic customer bug.
     settle_open_transaction($bridge, $identity, 'onActivation');
 
     host_log('info', [

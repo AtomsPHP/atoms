@@ -3,10 +3,15 @@
 /**
  * The MVP's one honest failure mode.
  *
- * Everything the Cloudflare MVP does not implement — `app()`, `dispatch()`,
- * `broadcast()`, WebSockets, alarms, and the parts of the PDO surface a
- * hand-written subclass cannot serve — raises this. It is never a silent
- * no-op and never a carrier-database answer (mvp-spec.md §Scope, §PHP-side db()).
+ * As of M2 this is raised from exactly one place: the parts of the PDO surface
+ * a hand-written subclass over a Durable Object's SQLite cannot serve —
+ * `AtomsPDO`/`AtomsStatement`'s attribute, cursor and driver-level members
+ * (see `php/README.md` §Documented leaks and limits). That restriction is
+ * permanent for this runtime, not a stub awaiting a later milestone: `app()`,
+ * `dispatch()`, `broadcast()`, the WebSocket handlers and timers are all
+ * implemented (mvp-spec.md §The callback channel, §The WebSocket seam,
+ * §Timers). It is never a silent no-op and never a carrier-database answer
+ * (mvp-spec.md §Scope, §PHP-side db()).
  *
  * It extends \PDOException so that it satisfies the PDO surface's declared
  * failure type; \PDOException extends \RuntimeException, so a customer Atom

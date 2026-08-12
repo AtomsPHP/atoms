@@ -18,7 +18,7 @@
  * Every failure becomes an `{"ok":false,"error":{...}}` reply, which the PHP
  * helpers turn into exceptions.
  */
-import { LOG_LEVELS, META_TABLE, META_KEYS, RESERVED_TABLE_PREFIX } from './config.js';
+import { LOG_LEVELS, META_TABLE, META_KEYS, RESERVED_TABLE_PREFIX, TIMERS_TABLE } from './config.js';
 import { AtomsError, normalizeError } from './errors.js';
 import {
 	decodeInt64Deep,
@@ -67,22 +67,38 @@ export class Bridge {
 	 * @param {Record<string, unknown>} opts.env
 	 * @param {import('./config.js').AtomsConfig} opts.config
 	 * @param {() => ({type: string, id: string}|null)} opts.identityRef
+	 * @param {import('./callbacks.js').CallbackChannel} opts.callbacks
+	 * @param {import('./websockets.js').WebSocketHost} opts.ws
+	 * @param {import('./timers.js').TimersHost} opts.timers
+	 * @param {() => boolean} opts.inTransactionRef
 	 */
-	constructor({ ctx, env, config, identityRef }) {
+	constructor({ ctx, env, config, identityRef, callbacks, ws, timers, inTransactionRef }) {
 		this.ctx = ctx;
 		this.env = env;
 		this.config = config;
 		this.sql = ctx.storage.sql;
 		this.identityRef = identityRef;
+		this.callbacks = callbacks;
+		this.ws = ws;
+		this.timers = timers;
+		this.inTransactionRef = inTransactionRef;
 		this.sqlCalls = 0;
 	}
 
 	// ------------------------------------------------------------------ schema
 
-	/** Create the host-owned metadata table. Idempotent, safe in a constructor. */
+	/**
+	 * Create the host-owned tables. Idempotent, safe in a constructor.
+	 * `__atoms_timers` lives here alongside `__atoms_meta` (M2 wave 3): one
+	 * place creates every host-owned table, so the reserved-prefix guard
+	 * below only ever has to agree with itself.
+	 */
 	ensureSchema() {
 		this.sql.exec(
 			`CREATE TABLE IF NOT EXISTS ${META_TABLE} (key TEXT PRIMARY KEY, value TEXT NOT NULL)`
+		);
+		this.sql.exec(
+			`CREATE TABLE IF NOT EXISTS ${TIMERS_TABLE} (name TEXT PRIMARY KEY, due_at_ms INTEGER NOT NULL)`
 		);
 	}
 
@@ -168,6 +184,19 @@ export class Bridge {
 			return fail('bad_host_message', 'sync message must be an object with an "op" string');
 		}
 
+		// The three ws.* ops are a self-contained module (src/websockets.js)
+		// with their own try/catch-to-reply contract identical to this one;
+		// delegating whole avoids duplicating that contract here.
+		if (msg.op === 'ws.send' || msg.op === 'ws.close' || msg.op === 'ws.broadcast') {
+			return this.ws.handleSync(msg.op, msg);
+		}
+
+		// Same delegation for the three timer.* ops (src/timers.js, M2 wave 3):
+		// its own try/catch-to-reply contract, identical to this one.
+		if (msg.op === 'timer.schedule' || msg.op === 'timer.cancel' || msg.op === 'timer.get') {
+			return this.timers.handleSync(msg.op, msg);
+		}
+
 		try {
 			switch (msg.op) {
 				case 'sql.exec':
@@ -180,6 +209,8 @@ export class Bridge {
 					return this.opMetaSet(msg);
 				case 'log':
 					return this.opLog(msg);
+				case 'dispatch.enqueue':
+					return this.opDispatchEnqueue(msg);
 				default:
 					return fail('bad_host_message', `unknown sync op "${msg.op}"`);
 			}
@@ -447,6 +478,22 @@ export class Bridge {
 		);
 		return ok({ emitted: true });
 	}
+
+	/**
+	 * `{"op":"dispatch.enqueue","body":string,"job":string}` — the sync door
+	 * half of `dispatch()`. Genuinely synchronous: it
+	 * validates and either buffers the body (a transaction is open) or
+	 * initiates the signed POST without awaiting it. Delegates everything to
+	 * the shared `CallbackChannel`, which never throws out of this call —
+	 * "nothing here throws out of the sync door" holds by construction.
+	 *
+	 * @param {any} msg
+	 * @returns {string}
+	 */
+	opDispatchEnqueue(msg) {
+		const job = typeof msg.job === 'string' ? msg.job : '(unknown)';
+		return this.callbacks.enqueueJob({ body: msg.body, job, inTransaction: this.inTransactionRef() });
+	}
 }
 
 /**
@@ -460,11 +507,13 @@ export class TransactionMachine {
 	 * @param {any} opts.ctx
 	 * @param {import('./config.js').AtomsConfig} opts.config
 	 * @param {ParkHost} opts.host
+	 * @param {import('./callbacks.js').CallbackChannel} opts.callbacks
 	 */
-	constructor({ ctx, config, host }) {
+	constructor({ ctx, config, host, callbacks }) {
 		this.ctx = ctx;
 		this.config = config;
 		this.host = host;
+		this.callbacks = callbacks;
 		/** @type {boolean} */
 		this.open = false;
 		/** Unique sentinel: thrown inside the callback to force a rollback. */
@@ -518,11 +567,14 @@ export class TransactionMachine {
 		} catch (e) {
 			this.open = false;
 			if (e === this.SENTINEL && rollbackParked) {
-				// Cloudflare discarded the write set; tell the guest.
+				// Cloudflare discarded the write set; drop any buffered dispatch()
+				// bodies and tell the guest.
+				this.callbacks?.onTransactionRollback();
 				/** @type {ParkedCall} */ (rollbackParked).reply(ok({ rolledBack: true }));
 				return;
 			}
 			if (e === this.SENTINEL && abandonedParked) {
+				this.callbacks?.onTransactionRollback();
 				this.finishAbandoned(/** @type {ParkedCall} */ (abandonedParked));
 				return;
 			}
@@ -534,6 +586,9 @@ export class TransactionMachine {
 		if (!commitParked) {
 			throw new AtomsError('internal', 'transaction committed without a parked tx.commit');
 		}
+		// The write set is durable; buffered dispatch() bodies become deliverable
+		// now, overlapping with the rest of the guest's work.
+		this.callbacks?.onTransactionCommit();
 		/** @type {ParkedCall} */ (commitParked).reply(ok({ committed: true }));
 	}
 
@@ -591,11 +646,16 @@ export class TransactionMachine {
 			if (op === 'tx.commit') return { kind: 'commit', parked: p };
 			if (op === 'tx.rollback') return { kind: 'rollback', parked: p };
 			if (op === 'turn.await') return { kind: 'abandoned', parked: p };
+			// app.call is the common case reaching this branch: the
+			// guest-side guard in CallbackAppProxy is supposed to catch it first,
+			// so this is defence in depth, and the message says why rejecting it
+			// is safe where rejecting turn.await (above) is not.
 			p.reply(
 				fail(
 					'tx_state',
-					`park op "${op}" is not allowed while a transaction is open; ` +
-						'only tx.commit and tx.rollback are'
+					`park op ${JSON.stringify(op)} is not allowed while a database transaction is open: ` +
+						'the transaction runs inside ctx.storage.transactionSync(), whose callback cannot ' +
+						'await. Only tx.commit and tx.rollback are.'
 				)
 			);
 		}

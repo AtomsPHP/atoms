@@ -3,18 +3,53 @@
 /**
  * Conformance suite for Atoms-on-Cloudflare MVP.
  *
- * Runs 12 conformance checks against a live worker URL per the spec.
+ * Runs 25 conformance checks against a live worker URL per the spec: 1-12
+ * against the Worker alone, 13-17 against the callback channel (app()/
+ * dispatch()), for which this suite itself plays the monolith — a
+ * `node:http` listener bound to 127.0.0.1 that verifies Ed25519 signatures
+ * with `node:crypto` — 18-22 against the WebSocket seam and
+ * `broadcast()`, 23-24 against timers and the Durable Object alarm, and 25
+ * against a close that has to WAKE a hibernated Durable Object. The WebSocket
+ * checks use Node's built-in global `WebSocket` so no `ws` dependency is
+ * ever added to a GPL-assembled package.json.
  *
  * Config via env:
  *   ATOMS_BASE_URL (required)
  *   ATOMS_APP_KEY (optional bearer token)
  *   ATOMS_EVICTION_WAIT_MS (default 12500)
+ *   ATOMS_CALLBACK_PORT (default: the port recorded in test/.callback-key.json)
+ *   ATOMS_TURN_DEADLINE_MS (required for checks 15a/15b; must match the value
+ *     the Worker was started with — never defaulted here, so no capacity
+ *     number is written into the suite)
+ *   ATOMS_REQUIRE_CALLBACK_CHECKS=1 (turn the callback-channel skips into
+ *     failures — CI sets it, so 13-17 can never go quietly missing)
+ *   ATOMS_TEST_JOB_DELAY_MS (default 400; how long this suite's listener holds
+ *     a `kind=job` response open. A TEST-HARNESS value, not a Worker setting:
+ *     it exists so checks 16/17 can prove the Worker AWAITED the delivery
+ *     rather than merely started it, by comparing when the job response was
+ *     sent against when the invoke response arrived)
  *   ATOMS_SKIP=n,m (comma-separated check numbers to skip)
  */
+
+import { createPublicKey, randomBytes, verify as verifyEd25519 } from 'node:crypto';
+import { createServer, request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const BASE_URL = process.env.ATOMS_BASE_URL;
 const APP_KEY = process.env.ATOMS_APP_KEY;
 const EVICTION_WAIT_MS = parseInt(process.env.ATOMS_EVICTION_WAIT_MS || '12500');
+const TURN_DEADLINE_MS = process.env.ATOMS_TURN_DEADLINE_MS ? parseInt(process.env.ATOMS_TURN_DEADLINE_MS, 10) : null;
+// A skip is the right answer for a Worker that legitimately has no callback
+// channel, and the wrong answer in CI — where a missing key file would silently
+// delete five checks from the run. Set it there; unset everywhere it is honest.
+const REQUIRE_CALLBACK_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_CALLBACK_CHECKS || '');
+// Harness-side, not Worker-side: how long the in-suite listener holds a job
+// response open (see the header). Long enough that "the invoke response came
+// back first" is unambiguous, short enough not to lengthen the run.
+const JOB_DELAY_MS = parseInt(process.env.ATOMS_TEST_JOB_DELAY_MS || '400', 10);
 const SKIP = (process.env.ATOMS_SKIP || '')
     .split(',')
     .map(s => parseInt(s.trim()))
@@ -26,6 +61,7 @@ if (!BASE_URL) {
 }
 
 const baseUrl = BASE_URL.replace(/\/$/, '');
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ---------------------------------------------------------------- utilities
 
@@ -43,6 +79,24 @@ function fail(checkNum, name, msg = '') {
     failCount++;
     results.push({ checkNum, name, status: 'FAIL', msg });
     console.log(`✗ CHECK ${checkNum}: ${name}${msg ? ` — ${msg}` : ''}`);
+}
+
+/**
+ * A check that could not run for a reason that is not the Worker's fault (no
+ * callback listener, no configured turn deadline). Not a failure: it must not
+ * fail a run against a Worker that legitimately has no callback channel.
+ *
+ * Unless `ATOMS_REQUIRE_CALLBACK_CHECKS` is set, in which case the caller
+ * asserted this environment DOES have a callback channel, and a skip means the
+ * harness is broken rather than the check inapplicable — so it fails.
+ */
+function skip(checkNum, name, msg = '') {
+    if (REQUIRE_CALLBACK_CHECKS) {
+        fail(checkNum, name, `${msg || 'unavailable'} — but ATOMS_REQUIRE_CALLBACK_CHECKS is set, so this must run`);
+        return;
+    }
+    results.push({ checkNum, name, status: 'SKIP', msg });
+    console.log(`⊘ CHECK ${checkNum}: ${name} — skipped${msg ? ` (${msg})` : ''}`);
 }
 
 /** Make an HTTP request. */
@@ -116,6 +170,368 @@ function wire(v) {
 /** A fresh atom id per run, so a re-run never inherits durable state. */
 const RUN = `r${Date.now().toString(36)}`;
 const atomId = (name) => `${name}-${RUN}`;
+
+// -------------------------------------------------------------- websockets
+
+/**
+ * A SYNTACTICALLY COMPLETE WebSocket upgrade — valid `Sec-WebSocket-Key`,
+ * `Sec-WebSocket-Version: 13`, `Connection: Upgrade`, `Upgrade: websocket` —
+ * carrying a WORKER-LEVEL violation (too many channels, or a type that declares
+ * no WebSocket handler) that the route must refuse with an ordinary JSON error
+ * envelope BEFORE any DO is touched. The handshake is complete
+ * on purpose: a deployed `https://` target sits behind Cloudflare's edge, which
+ * rejects an INCOMPLETE handshake (e.g. a missing `Sec-WebSocket-Key`) itself,
+ * before the Worker can answer — so the probe would never reach the code it is
+ * meant to exercise. A complete handshake passes the edge's own check and lands
+ * on the Worker, where the worker-level violation yields the 400/501 JSON the
+ * check asserts (an error case never becomes a 101, on http or https alike).
+ *
+ * Built on `node:http`/`node:https` rather than `fetch()` because
+ * `Upgrade`/`Connection` are the two headers a spec-compliant fetch
+ * implementation may refuse to let a caller set by hand; the client is chosen
+ * from the base URL's scheme so a deployed `https://` base URL works instead of
+ * dying with Node's `Protocol "https:" not supported`.
+ *
+ * @param {string} path
+ * @returns {Promise<{status: number, data: any}>}
+ */
+function wsHandshakeAttempt(path) {
+    return new Promise((resolve, reject) => {
+        const url = new URL(path, baseUrl);
+        const headers = {
+            Connection: 'Upgrade',
+            Upgrade: 'websocket',
+            'Sec-WebSocket-Key': randomBytes(16).toString('base64'),
+            'Sec-WebSocket-Version': '13',
+        };
+        if (APP_KEY) headers.Authorization = `Bearer ${APP_KEY}`;
+        const requestFn = url.protocol === 'https:' ? httpsRequest : httpRequest;
+
+        // The probe must SETTLE on every path, or a regression turns a failed
+        // assertion into a hung suite. Guard against double-settle and always
+        // clear the timeout backstop.
+        let settled = false;
+        let timer = null;
+        const finish = (fn, arg) => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            fn(arg);
+        };
+
+        const req = requestFn(url, { method: 'GET', headers }, (res) => {
+            const chunks = [];
+            res.on('data', (c) => chunks.push(c));
+            res.on('end', () => {
+                const text = Buffer.concat(chunks).toString('utf8');
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch {
+                    data = { _raw: text };
+                }
+                finish(resolve, { status: res.statusCode, data });
+            });
+        });
+
+        // A '101 Switching Protocols' means the Worker WRONGLY accepted a bad
+        // upgrade — Node emits 'upgrade' (not the 'response' callback) for it,
+        // so without this handler the promise never settles and the check
+        // hangs instead of failing. Surface it as a 101 result so the caller's
+        // status assertion (which expects a 4xx refusal) fails loudly. Destroy
+        // the socket so the accepted connection does not leak.
+        req.on('upgrade', (res, socket) => {
+            socket.destroy();
+            finish(resolve, { status: res.statusCode, data: { _unexpectedUpgrade: true } });
+        });
+
+        req.on('error', (e) => finish(reject, e));
+
+        // Backstop: no path may hang the suite.
+        timer = setTimeout(() => {
+            req.destroy();
+            finish(reject, new Error(`ws handshake probe timed out for ${path}`));
+        }, 5000);
+
+        req.end();
+    });
+}
+
+/**
+ * Open a WebSocket to the worker's `/ws` route and wait for it to connect.
+ * Node 22's global `WebSocket` accepts `{headers: {Authorization: ...}}`
+ * (an undici extension), so this works identically whether
+ * `ATOMS_APP_KEY` is set or not — no ticket, no query-string credential.
+ *
+ * The returned handle collects inbound frames into arrival order; `.next()`
+ * awaits (and consumes) the next one, whether it already arrived or is still
+ * to come, with a bounded timeout so a check fails instead of hanging.
+ *
+ * @param {string} path e.g. `/ws/Room/<id>?channels=lobby`
+ * @returns {Promise<{
+ *   send: (data: string|Uint8Array) => void,
+ *   next: (timeoutMs?: number) => Promise<string|ArrayBuffer>,
+ *   close: (code?: number, reason?: string) => Promise<void>,
+ * }>}
+ */
+function openSocket(path) {
+    const url = new URL(path, baseUrl).toString().replace(/^http/, 'ws');
+    const opts = APP_KEY ? { headers: { Authorization: `Bearer ${APP_KEY}` } } : undefined;
+    const ws = opts ? new WebSocket(url, opts) : new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+
+    /** @type {(string|ArrayBuffer)[]} */
+    const frames = [];
+    /** @type {((frame: string|ArrayBuffer) => void)[]} */
+    const waiters = [];
+
+    ws.addEventListener('message', (e) => {
+        if (waiters.length) waiters.shift()(e.data);
+        else frames.push(e.data);
+    });
+
+    const opened = new Promise((resolve, reject) => {
+        ws.addEventListener('open', () => resolve(), { once: true });
+        ws.addEventListener('error', () => reject(new Error(`ws open failed for ${path}`)), { once: true });
+        setTimeout(() => reject(new Error(`ws open timed out for ${path}`)), 5000);
+    });
+
+    return opened.then(() => ({
+        send(data) {
+            ws.send(data);
+        },
+        async next(timeoutMs = 3000) {
+            if (frames.length) return frames.shift();
+            return new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    const i = waiters.indexOf(onFrame);
+                    if (i !== -1) waiters.splice(i, 1);
+                    reject(new Error(`timed out waiting for a frame on ${path} after ${timeoutMs}ms`));
+                }, timeoutMs);
+                const onFrame = (frame) => {
+                    clearTimeout(timer);
+                    resolve(frame);
+                };
+                waiters.push(onFrame);
+            });
+        },
+        async close(code = 1000, reason = '') {
+            // 0 = CONNECTING, 1 = OPEN — only those are legal to close().
+            if (ws.readyState === 0 || ws.readyState === 1) {
+                try {
+                    ws.close(code, reason);
+                } catch {
+                    /* already closing */
+                }
+            }
+            if (ws.readyState === 3) return; // CLOSED
+            await new Promise((resolve) => {
+                ws.addEventListener('close', () => resolve(), { once: true });
+                setTimeout(resolve, 3000);
+            });
+        },
+    }));
+}
+
+// ------------------------------------------------------- callback listener
+
+/**
+ * Wrap a raw 32-byte Ed25519 public key in the fixed SPKI DER header so
+ * node:crypto can import it. Mirrors the PKCS8 trick on the signing side —
+ * same idea, the public-key encoding.
+ */
+function importRawEd25519PublicKey(b64) {
+    const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+    const raw = Buffer.from(b64, 'base64');
+    return createPublicKey({ key: Buffer.concat([SPKI_PREFIX, raw]), format: 'der', type: 'spki' });
+}
+
+/**
+ * The in-suite "monolith": verifies every callback the Worker sends and
+ * answers the fixture's two Methods (`echoBig`, `stall`) and its one job
+ * kind. Bound to 127.0.0.1 only — this keeps "tests never hit the network"
+ * literally true.
+ *
+ * Inherits the opaque-body invariant: the wide-integer
+ * argument to `echoBig` is extracted and echoed back TEXTUALLY, via regex on
+ * the raw body, never through `JSON.parse` — which would silently round an
+ * int64-range value the same way a buggy host implementation would, making
+ * the check meaningless. Everything else (headers, signature, kind, job
+ * class, argument names) is parsed normally.
+ *
+ * A `kind=job` response is held open for `ATOMS_TEST_JOB_DELAY_MS` and the
+ * moment it is finally sent is recorded on the record as `respondedAt`. That
+ * delay is what makes checks 16/17 able to tell an AWAITED delivery from an
+ * orphaned one: asserting the listener merely RECEIVED the request proves only
+ * that the POST was started, which a fire-and-forget implementation that never
+ * awaits anything also satisfies. Comparing "job response sent" against "invoke
+ * response received" is the observable that distinguishes them, and orphaned
+ * deliveries are the failure that passes locally and silently drops jobs on
+ * deployed workerd (mvp-spec.md §Appendix item 4).
+ */
+class CallbackListener {
+    constructor(publicKeyB64) {
+        this.publicKey = importRawEd25519PublicKey(publicKeyB64);
+        /** @type {object[]} */
+        this.records = [];
+        this.seenNonces = new Set();
+        this.server = null;
+    }
+
+    clear() {
+        this.records = [];
+    }
+
+    async start(port) {
+        this.server = createServer((req, res) => this.onRequest(req, res));
+        await new Promise((resolve, reject) => {
+            this.server.once('error', reject);
+            this.server.listen(port, '127.0.0.1', () => resolve());
+        });
+    }
+
+    async stop() {
+        if (!this.server) return;
+        const server = this.server;
+        this.server = null;
+        await new Promise((resolve) => {
+            server.closeAllConnections?.();
+            server.close(() => resolve());
+            setTimeout(resolve, 2000).unref();
+        });
+    }
+
+    onRequest(req, res) {
+        const chunks = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', () => {
+            try {
+                this.handle(req, res, Buffer.concat(chunks));
+            } catch (e) {
+                try {
+                    res.writeHead(500, { 'content-type': 'application/json' });
+                    res.end(JSON.stringify({ error: { code: 'internal', message: String(e) } }));
+                } catch {
+                    /* the socket may already be gone */
+                }
+            }
+        });
+    }
+
+    handle(req, res, rawBody) {
+        if (req.method !== 'POST' || req.url !== '/atoms/callback') {
+            res.writeHead(404);
+            res.end();
+            return;
+        }
+
+        const timestamp = String(req.headers['x-atoms-timestamp'] ?? '');
+        const nonce = String(req.headers['x-atoms-nonce'] ?? '');
+        const signatureB64 = String(req.headers['x-atoms-signature'] ?? '');
+        const kind = String(req.headers['x-atoms-kind'] ?? '');
+
+        const message = Buffer.concat([Buffer.from(`v1\n${timestamp}\n${nonce}\n`, 'utf8'), rawBody]);
+        let signatureValid = false;
+        try {
+            signatureValid = verifyEd25519(null, message, this.publicKey, Buffer.from(signatureB64, 'base64'));
+        } catch {
+            signatureValid = false;
+        }
+
+        const timestampFresh = /^-?\d+$/.test(timestamp) && Math.abs(Date.now() / 1000 - Number(timestamp)) <= 300;
+        const nonceValid = /^[0-9a-f]{32}$/.test(nonce);
+        const nonceRepeated = nonce !== '' && this.seenNonces.has(nonce);
+        if (nonce !== '') this.seenNonces.add(nonce);
+
+        const rawText = rawBody.toString('utf8');
+        let parsed = null;
+        try {
+            parsed = JSON.parse(rawText);
+        } catch {
+            /* left null — a malformed body is still recorded for the check to see */
+        }
+
+        const record = {
+            kind,
+            headers: { timestamp, nonce, signatureB64 },
+            rawText,
+            parsed,
+            signatureValid,
+            timestampFresh,
+            nonceValid,
+            nonceRepeated,
+            receivedAt: Date.now(),
+            /** Set when this request's response has actually been written. */
+            respondedAt: null,
+        };
+        this.records.push(record);
+
+        /** Send a response and stamp the moment it went out. */
+        const respond = (status, body) => {
+            record.respondedAt = Date.now();
+            res.writeHead(status, { 'content-type': 'application/json' });
+            res.end(body);
+        };
+
+        if (kind === 'methods') {
+            const method = parsed?.method;
+            if (method === 'stall') {
+                // Never respond: the client's AbortSignal.timeout() is what ends
+                // this exchange (conformance check 15).
+                return;
+            }
+            if (method === 'echoBig') {
+                // Opaque-body invariant: extract the wide integer TEXTUALLY.
+                const m = /"args"\s*:\s*\[\s*(-?\d+)\s*\]/.exec(rawText);
+                const literal = m ? m[1] : '0';
+                respond(200, `{"result":${literal}}`);
+                return;
+            }
+            respond(
+                422,
+                JSON.stringify({ error: { code: 'ATOMS-E066', message: `no fixture handler for method ${method}` } })
+            );
+            return;
+        }
+
+        if (kind === 'job') {
+            // Deliberately slow — see the class docblock. The Worker's turn
+            // response must not come back before this does.
+            setTimeout(() => {
+                try {
+                    respond(200, '{"queued":true}');
+                } catch {
+                    /* the socket may already be gone */
+                }
+            }, JOB_DELAY_MS).unref();
+            return;
+        }
+
+        respond(
+            422,
+            JSON.stringify({ error: { code: 'invalid_request', message: `unknown X-Atoms-Kind ${JSON.stringify(kind)}` } })
+        );
+    }
+}
+
+/**
+ * Load the per-run key file scripts/dev-with-callback.mjs wrote. Absent means
+ * the suite is running against a Worker with no callback channel configured
+ * (or against a deployed Worker) — checks 13-17 skip rather than fail.
+ */
+function loadCallbackKeyFile() {
+    const path = join(__dirname, '.callback-key.json');
+    if (!existsSync(path)) return null;
+    try {
+        return JSON.parse(readFileSync(path, 'utf-8'));
+    } catch (e) {
+        console.error(`Warning: could not read ${path}: ${e.message}`);
+        return null;
+    }
+}
+
+/** Set inside run(), before the check loop, once the listener (if any) is up. */
+let listener = null;
 
 // ---------------------------------------------------------------- checks
 
@@ -800,6 +1216,1317 @@ checks.push(async () => {
     );
 });
 
+// CHECK 13: app() round trip, int64-exact
+checks.push(async () => {
+    const checkNum = 13;
+    const name = 'app() round trip, int64-exact';
+    if (!listener) {
+        skip(checkNum, name, 'no callback listener — test/.callback-key.json is missing; run via `npm run dev:callback`');
+        return;
+    }
+
+    const id = atomId('app-echo');
+    const cases = [
+        { label: '0', val: 0n },
+        { label: '2^31', val: 2147483648n },
+        { label: '-2^31', val: -2147483648n },
+        { label: '2^53-1', val: 9007199254740991n },
+        { label: '2^63-1', val: 9223372036854775807n },
+        { label: '-(2^63-1)', val: -9223372036854775807n },
+    ];
+
+    const problems = [];
+    for (const tc of cases) {
+        const before = listener.records.length;
+        const res = await invoke('Vault', id, 'echoViaApp', [wire(tc.val)]);
+        if (res.status !== 200 || res.data?.error) {
+            problems.push(`${tc.label}: invoke ${res.status} ${JSON.stringify(res.data?.error ?? res.data)}`);
+            continue;
+        }
+        const got = parseInt64(res.data.result);
+        if (got !== tc.val) {
+            problems.push(`${tc.label}: round-trip ${got} !== ${tc.val}`);
+        }
+
+        const made = listener.records.slice(before);
+        if (made.length !== 1) {
+            problems.push(`${tc.label}: listener recorded ${made.length} requests (expected 1)`);
+            continue;
+        }
+        const rec = made[0];
+        if (rec.kind !== 'methods') problems.push(`${tc.label}: X-Atoms-Kind=${rec.kind} (expected methods)`);
+        if (!rec.signatureValid) problems.push(`${tc.label}: signature did not verify`);
+        if (!rec.timestampFresh) problems.push(`${tc.label}: timestamp not within +-300s`);
+        if (!rec.nonceValid) problems.push(`${tc.label}: nonce ${JSON.stringify(rec.headers.nonce)} is not 32 lowercase hex`);
+        if (rec.nonceRepeated) problems.push(`${tc.label}: nonce repeated`);
+        if (rec.parsed?.atom?.type !== 'Vault' || rec.parsed?.atom?.id !== id || rec.parsed?.method !== 'echoBig') {
+            problems.push(`${tc.label}: body mismatch ${JSON.stringify(rec.parsed)}`);
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, `${cases.length} int64 boundary values round-tripped through app(), signed, no nonce reuse`);
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 14: app() rejected inside a transaction
+checks.push(async () => {
+    const checkNum = 14;
+    const name = 'app() rejected inside a transaction';
+    if (!listener) {
+        skip(checkNum, name, 'no callback listener');
+        return;
+    }
+
+    const id = atomId('app-tx');
+    listener.clear();
+
+    const res = await invoke('Vault', id, 'appInsideTransaction', []);
+    if (res.status !== 500 || res.data?.error?.code !== 'atom_exception') {
+        fail(checkNum, name, `status=${res.status} code=${res.data?.error?.code} (expected 500/atom_exception)`);
+        return;
+    }
+    if (!String(res.data.error.message).includes('ATOMS-E082')) {
+        fail(checkNum, name, `message did not carry ATOMS-E082: ${res.data.error.message}`);
+        return;
+    }
+    if (listener.records.length !== 0) {
+        fail(
+            checkNum,
+            name,
+            `listener saw ${listener.records.length} request(s) — the guest-side guard must fire before crossing`
+        );
+        return;
+    }
+    const row = await invoke('Vault', id, 'getBig', ['app-inside-tx']);
+    if (parseInt64(row.data?.result) !== 0n) {
+        fail(checkNum, name, `the open transaction's write survived: ${JSON.stringify(row.data)}`);
+        return;
+    }
+    const after = await invoke('Vault', id, 'getBig', ['anything']);
+    if (after.status !== 200 || after.data?.error) {
+        fail(checkNum, name, `residency unhealthy after the rejection: ${JSON.stringify(after.data)}`);
+        return;
+    }
+
+    pass(checkNum, name, `ATOMS-E082, no request left the Worker, write rolled back, residency healthy`);
+});
+
+// CHECK 15: deadline overrun (uncaught, and caught with the budget latched)
+checks.push(async () => {
+    const checkNum = 15;
+    const name = 'deadline overrun (uncaught 504, caught + budget latched)';
+    if (!listener) {
+        skip(checkNum, name, 'no callback listener');
+        return;
+    }
+    if (!TURN_DEADLINE_MS) {
+        skip(checkNum, name, 'ATOMS_TURN_DEADLINE_MS not set in the runner env — must match the value the Worker was started with');
+        return;
+    }
+
+    const problems = [];
+
+    // 15a — uncaught: the turn reports turn_deadline_exceeded, and the
+    // residency stays healthy for the next invoke.
+    const idA = atomId('deadline-uncaught');
+    listener.clear();
+    const t0 = Date.now();
+    const stalled = await invoke('Vault', idA, 'stallViaApp', []);
+    const elapsed = Date.now() - t0;
+
+    if (stalled.status !== 504) problems.push(`15a: status=${stalled.status} (expected 504)`);
+    if (stalled.data?.error?.code !== 'turn_deadline_exceeded') {
+        problems.push(`15a: code=${stalled.data?.error?.code} (expected turn_deadline_exceeded)`);
+    }
+    if (stalled.data?.error?.retryable !== true) problems.push(`15a: retryable=${stalled.data?.error?.retryable} (expected true)`);
+    if (elapsed < TURN_DEADLINE_MS) {
+        problems.push(`15a: observed elapsed ${elapsed}ms is less than the configured deadline ${TURN_DEADLINE_MS}ms`);
+    }
+    // The upper bound is half the point: without it the check passes on a
+    // Worker whose per-call abort is armed against a stale `remaining`, or
+    // whose budget is not actually bounding anything and the turn ended because
+    // ATOMS_CALLBACK_TIMEOUT_MS happened to fire. The slack covers wasm boot on
+    // a cold residency plus a loaded runner, and nothing else.
+    const DEADLINE_SLACK_MS = 3000;
+    if (elapsed >= TURN_DEADLINE_MS + DEADLINE_SLACK_MS) {
+        problems.push(
+            `15a: observed elapsed ${elapsed}ms is not within ${DEADLINE_SLACK_MS}ms of the configured deadline ` +
+                `${TURN_DEADLINE_MS}ms — the turn ran long past its budget`
+        );
+    }
+
+    // Same Atom, same residency, next turn. Two invokes, in this order,
+    // because they fail differently if the exhausted budget leaked out of the
+    // turn that latched it: a turn that touches the callback channel at all
+    // would come straight back as turn_deadline_exceeded on a budget it never
+    // spent, while one that does not would still be fine — so the first proves
+    // the residency lives, and the second proves the BUDGET was reset.
+    const afterA = await invoke('Vault', idA, 'getBig', ['anything']);
+    if (afterA.status !== 200 || afterA.data?.error) {
+        problems.push(`15a: next invoke on the same Atom failed: ${JSON.stringify(afterA.data)}`);
+    }
+    const afterAppA = await invoke('Vault', idA, 'echoViaApp', [7]);
+    if (afterAppA.status !== 200 || afterAppA.data?.error) {
+        problems.push(
+            `15a: a later app() on the same Atom failed: ${JSON.stringify(afterAppA.data)} — the exhausted turn ` +
+                'budget leaked past the turn that latched it'
+        );
+    } else if (Number(afterAppA.data.result) !== 7) {
+        problems.push(`15a: a later app() returned ${JSON.stringify(afterAppA.data.result)} (expected 7)`);
+    }
+
+    // 15b — caught, then a second app() call that fails immediately on the
+    // latched budget: an ordinary 200, and exactly one request ever reached
+    // the listener.
+    const idB = atomId('deadline-caught');
+    listener.clear();
+    const caught = await invoke('Vault', idB, 'stallCaught', []);
+    if (caught.status !== 200 || caught.data?.error) {
+        problems.push(`15b: status=${caught.status} error=${JSON.stringify(caught.data?.error)} (expected 200)`);
+    }
+    if (caught.data?.result !== 'stall-caught-budget-latched') {
+        problems.push(`15b: result=${JSON.stringify(caught.data?.result)} (expected 'stall-caught-budget-latched')`);
+    }
+    if (listener.records.length !== 1) {
+        problems.push(
+            `15b: listener recorded ${listener.records.length} requests (expected 1 — the second app() must not ` +
+                're-reach the network once the budget is latched)'
+        );
+    }
+
+    // The latch is PER TURN, not per residency. Nothing in 15b proves that on
+    // its own: a budget that latched permanently would produce exactly the
+    // same 200 and the same single request. The next turn on the SAME Atom
+    // doing a successful app() is what tells the two apart.
+    const afterB = await invoke('Vault', idB, 'echoViaApp', [11]);
+    if (afterB.status !== 200 || afterB.data?.error) {
+        problems.push(
+            `15b: the next turn's app() failed: ${JSON.stringify(afterB.data)} — the latch outlived its turn`
+        );
+    } else if (Number(afterB.data.result) !== 11) {
+        problems.push(`15b: the next turn's app() returned ${JSON.stringify(afterB.data.result)} (expected 11)`);
+    }
+    if (listener.records.length !== 2) {
+        problems.push(
+            `15b: listener recorded ${listener.records.length} requests after the follow-up (expected 2 — the ` +
+                'next turn must reach the network again)'
+        );
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            `15a: 504/turn_deadline_exceeded after ${elapsed}ms (within ${DEADLINE_SLACK_MS}ms of the budget), ` +
+                'residency healthy and a later app() still works; 15b: 200 with 1 request, latch released next turn'
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 16: dispatch() delivered, signed, kind=job — AWAITED, not merely
+// started; and the same from onActivation(), which runs before any turn exists.
+checks.push(async () => {
+    const checkNum = 16;
+    const name = 'dispatch() awaited before the response, signed, kind=job — from a turn and from onActivation()';
+    if (!listener) {
+        skip(checkNum, name, 'no callback listener');
+        return;
+    }
+
+    const id = atomId('notify');
+    listener.clear();
+
+    const res = await invoke('Counter', id, 'notify', ['hello-16']);
+    const invokeDoneAt = Date.now();
+    if (res.status !== 200 || res.data?.error) {
+        fail(checkNum, name, `notify failed: ${JSON.stringify(res.data)}`);
+        return;
+    }
+    if (res.data.result !== 'notified:hello-16') {
+        fail(checkNum, name, `the Atom's own response was affected: ${JSON.stringify(res.data.result)}`);
+        return;
+    }
+    if (listener.records.length !== 1) {
+        fail(checkNum, name, `listener recorded ${listener.records.length} requests (expected 1, delivered before the response)`);
+        return;
+    }
+    const rec = listener.records[0];
+    if (rec.kind !== 'job') {
+        fail(checkNum, name, `X-Atoms-Kind=${rec.kind} (expected job)`);
+        return;
+    }
+    if (!rec.signatureValid) {
+        fail(checkNum, name, 'signature did not verify');
+        return;
+    }
+    if (rec.parsed?.job !== 'App\\Jobs\\Notify') {
+        fail(checkNum, name, `job=${JSON.stringify(rec.parsed?.job)} (expected App\\Jobs\\Notify)`);
+        return;
+    }
+    if (rec.parsed?.args?.atomId !== id || rec.parsed?.args?.note !== 'hello-16') {
+        fail(checkNum, name, `args=${JSON.stringify(rec.parsed?.args)} did not match the promoted constructor properties`);
+        return;
+    }
+    // AWAITED, not merely started. The listener held this response open for
+    // ATOMS_TEST_JOB_DELAY_MS; if the turn's 200 came back before the job
+    // response was sent, the Worker returned without awaiting the delivery —
+    // which works locally and silently drops jobs on deployed workerd
+    // (mvp-spec.md §Appendix item 4). Receipt alone proves nothing here.
+    if (rec.respondedAt === null) {
+        fail(checkNum, name, 'the listener never finished responding to the job delivery');
+        return;
+    }
+    if (!(invokeDoneAt >= rec.respondedAt)) {
+        fail(
+            checkNum,
+            name,
+            `the invoke response arrived ${rec.respondedAt - invokeDoneAt}ms BEFORE the job response was sent — ` +
+                'the delivery was started but not awaited'
+        );
+        return;
+    }
+
+    // The activation window: onActivation() runs before any turn exists, so a
+    // dispatch() from it has no turn budget and no turn collector unless the
+    // host opened one for activation itself. Getting this wrong is not a
+    // degraded case — the refusal escapes the bootstrap, php.run() unwinds, and
+    // the residency is poisoned on every re-activation, forever. A fresh id
+    // makes this a genuinely cold activation.
+    const bootId = atomId('boot');
+    listener.clear();
+    const booted = await invoke('Boot', bootId, 'ping', []);
+    const bootDoneAt = Date.now();
+    if (booted.status !== 200 || booted.data?.error) {
+        fail(
+            checkNum,
+            name,
+            `invoking a fresh Boot atom failed: ${JSON.stringify(booted.data)} — dispatch() from onActivation() ` +
+                'must not fail the activation'
+        );
+        return;
+    }
+    if (booted.data.result?.activations !== 1) {
+        fail(checkNum, name, `Boot.ping().activations=${JSON.stringify(booted.data.result)} (expected 1)`);
+        return;
+    }
+    const bootJobs = listener.records.filter((r) => r.kind === 'job');
+    if (bootJobs.length !== 1) {
+        fail(
+            checkNum,
+            name,
+            `the listener saw ${bootJobs.length} job deliveries from onActivation() (expected 1): ` +
+                JSON.stringify(listener.records.map((r) => r.kind))
+        );
+        return;
+    }
+    if (bootJobs[0].parsed?.args?.note !== 'boot:0' || bootJobs[0].parsed?.args?.atomId !== bootId) {
+        fail(checkNum, name, `the activation job's args were ${JSON.stringify(bootJobs[0].parsed?.args)}`);
+        return;
+    }
+    if (!bootJobs[0].signatureValid) {
+        fail(checkNum, name, "the activation job's signature did not verify");
+        return;
+    }
+    if (bootJobs[0].respondedAt === null || !(bootDoneAt >= bootJobs[0].respondedAt)) {
+        fail(
+            checkNum,
+            name,
+            'the invoke response arrived before the activation-time job response was sent — the activation window ' +
+                'started a delivery it did not await'
+        );
+        return;
+    }
+
+    // The activation window's app() leg (park op app.call, X-Atoms-Kind=methods).
+    // Boot.onActivation() calls $this->app()->echoBig(1) BEFORE it dispatches, so
+    // the listener must have seen exactly one signed methods request from the
+    // activation — which also proves the activation budget was re-stamped past
+    // wasm boot + migrations (mvp-spec.md §The turn deadline): under this run's
+    // small ATOMS_TURN_DEADLINE_MS a budget still charged for boot would have
+    // thrown TurnDeadlineExceeded in onActivation and failed the invoke above.
+    const bootMethods = listener.records.filter((r) => r.kind === 'methods');
+    if (bootMethods.length !== 1) {
+        fail(
+            checkNum,
+            name,
+            `the listener saw ${bootMethods.length} app() (methods) requests from onActivation() (expected 1): ` +
+                JSON.stringify(listener.records.map((r) => r.kind))
+        );
+        return;
+    }
+    if (!bootMethods[0].signatureValid) {
+        fail(checkNum, name, "the activation app() call's signature did not verify");
+        return;
+    }
+    if (bootMethods[0].parsed?.method !== 'echoBig' || bootMethods[0].parsed?.atom?.type !== 'Boot') {
+        fail(
+            checkNum,
+            name,
+            `the activation app() call was ${JSON.stringify({
+                method: bootMethods[0].parsed?.method,
+                atom: bootMethods[0].parsed?.atom,
+            })} (expected echoBig on Boot — the app() budget was not fresh past boot+migrations)`
+        );
+        return;
+    }
+
+    pass(
+        checkNum,
+        name,
+        'kind=job, signed, args keyed by promoted property name; the turn AND the activation both held their ' +
+            'response until the delivery completed, and onActivation()’s app() reached the monolith on a fresh budget'
+    );
+});
+
+// CHECK 17: dispatch() transaction semantics
+checks.push(async () => {
+    const checkNum = 17;
+    const name = 'dispatch() transaction semantics (buffer/drop/deliver)';
+    if (!listener) {
+        skip(checkNum, name, 'no callback listener');
+        return;
+    }
+
+    const problems = [];
+
+    // fail=true: the transaction rolls back, so the job must never be
+    // delivered — as durable as the row it was dispatched next to.
+    {
+        const id = atomId('transfer-fail');
+        listener.clear();
+        const res = await invoke('Vault', id, 'transferAndNotify', [true]);
+        if (res.status !== 500 || res.data?.error?.code !== 'atom_exception') {
+            problems.push(`fail=true: status=${res.status}/${res.data?.error?.code} (expected 500/atom_exception)`);
+        }
+        if (listener.records.length !== 0) {
+            problems.push(`fail=true: listener recorded ${listener.records.length} requests (expected 0 — rolled back)`);
+        }
+        const row = await invoke('Vault', id, 'getBig', ['transfer-and-notify']);
+        if (parseInt64(row.data?.result) !== 0n) {
+            problems.push(`fail=true: the rolled-back row survived: ${JSON.stringify(row.data)}`);
+        }
+    }
+
+    // fail=false: the transaction commits, so exactly one delivery happens
+    // and the row is present.
+    {
+        const id = atomId('transfer-ok');
+        listener.clear();
+        const res = await invoke('Vault', id, 'transferAndNotify', [false]);
+        if (res.status !== 200 || res.data?.result !== true) {
+            problems.push(`fail=false: status=${res.status} result=${JSON.stringify(res.data)}`);
+        }
+        if (listener.records.length !== 1) {
+            problems.push(`fail=false: listener recorded ${listener.records.length} requests (expected 1)`);
+        } else if (listener.records[0].kind !== 'job') {
+            problems.push(`fail=false: X-Atoms-Kind=${listener.records[0].kind} (expected job)`);
+        }
+        const row = await invoke('Vault', id, 'getBig', ['transfer-and-notify']);
+        if (parseInt64(row.data?.result) !== 1n) {
+            problems.push(`fail=false: the committed row is missing: ${JSON.stringify(row.data)}`);
+        }
+    }
+
+    // Dispatched outside any transaction, then an uncaught throw: the
+    // documented asymmetry — as durable as a non-transactional write, so it
+    // is delivered despite the turn failing.
+    {
+        const id = atomId('notify-then-throw');
+        listener.clear();
+        const res = await invoke('Vault', id, 'notifyThenThrow', []);
+        const invokeDoneAt = Date.now();
+        if (res.status !== 500 || res.data?.error?.code !== 'atom_exception') {
+            problems.push(`notifyThenThrow: status=${res.status}/${res.data?.error?.code} (expected 500/atom_exception)`);
+        }
+        if (listener.records.length !== 1) {
+            problems.push(
+                `notifyThenThrow: listener recorded ${listener.records.length} requests (expected 1 — delivered despite the throw)`
+            );
+        } else {
+            // A FAILING turn settles its deliveries too — `.finally`, not
+            // `.then`. Same ordering assertion as check 16:
+            // the 500 must not go out before the job response came back.
+            const rec = listener.records[0];
+            if (rec.respondedAt === null) {
+                problems.push('notifyThenThrow: the listener never finished responding to the job delivery');
+            } else if (!(invokeDoneAt >= rec.respondedAt)) {
+                problems.push(
+                    `notifyThenThrow: the 500 arrived ${rec.respondedAt - invokeDoneAt}ms before the job response ` +
+                        'was sent — a failing turn started its delivery without awaiting it'
+                );
+            }
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, `buffered-on-commit/dropped-on-rollback inside tx; delivered-despite-throw outside tx`);
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 18: connect, onConnect observed, params delivered; bad upgrades
+// refused before any DO work; the invocable_method() denylist for socket
+// handlers.
+checks.push(async () => {
+    const checkNum = 18;
+    const name = 'ws connect: onConnect observed, params delivered, refusals, invocable_method denylist';
+    const problems = [];
+    const id = atomId('room-connect');
+
+    const sock = await openSocket(`/ws/Room/${id}?channels=lobby&hello=world`);
+    try {
+        const frame = await sock.next();
+        let welcome = null;
+        try {
+            welcome = JSON.parse(/** @type {string} */ (frame));
+        } catch {
+            problems.push(`welcome frame was not JSON: ${frame}`);
+        }
+        if (welcome) {
+            if (welcome.kind !== 'welcome') problems.push(`welcome.kind=${JSON.stringify(welcome.kind)} (expected "welcome")`);
+            if (typeof welcome.conn !== 'string' || welcome.conn === '') {
+                problems.push(`welcome.conn=${JSON.stringify(welcome.conn)} (expected a non-empty string)`);
+            }
+            if (JSON.stringify(welcome.params) !== JSON.stringify({ channels: 'lobby', hello: 'world' })) {
+                problems.push(
+                    `welcome.params=${JSON.stringify(welcome.params)} (expected {"channels":"lobby","hello":"world"})`
+                );
+            }
+        }
+
+        const stats = await invoke('Room', id, 'stats', []);
+        if (stats.data?.result?.connects !== 1) {
+            problems.push(`stats().connects=${stats.data?.result?.connects} (expected 1)`);
+        }
+    } finally {
+        await sock.close();
+    }
+
+    // A bad upgrade must be refused before any DO is touched.
+    const tooManyChannels = Array.from({ length: 40 }, (_, i) => `c${i}`).join(',');
+    const badChannels = await wsHandshakeAttempt(`/ws/Room/${atomId('room-badchan')}?channels=${tooManyChannels}`);
+    if (badChannels.status !== 400 || badChannels.data?.error?.code !== 'invalid_request') {
+        problems.push(
+            `40 channels gave ${badChannels.status}/${badChannels.data?.error?.code} (expected 400/invalid_request)`
+        );
+    }
+
+    // Counter declares no WebSocket handlers ("websocket": false).
+    const noHandlers = await wsHandshakeAttempt(`/ws/Counter/${atomId('room-nohandlers')}`);
+    if (noHandlers.status !== 501 || noHandlers.data?.error?.code !== 'not_supported') {
+        problems.push(`/ws/Counter gave ${noHandlers.status}/${noHandlers.data?.error?.code} (expected 501/not_supported)`);
+    }
+
+    // The invocable_method() denylist. Every handler the
+    // RUNTIME dispatches must be unreachable through POST /invoke, whatever
+    // its visibility and whatever case the client spells it in:
+    //
+    //   - onConnect/onMessage/onDisconnect are public on Atom and Room
+    //     overrides all three;
+    //   - onTimer/onActivation/onDeactivation are protected on Atom, so they
+    //     must be refused on a type that overrides one (Scheduler::onTimer)
+    //     and on one that does not (Room);
+    //   - PHP method names are case-insensitive, so `ONMESSAGE` really does
+    //     reach onMessage() unless the denylist compares canonical names. That
+    //     spelling is the bypass this check exists to close.
+    //
+    // The refusals must also be indistinguishable: identical status, identical
+    // code, identical message for a type that overrides a handler and one that
+    // does not, or the response is an oracle for the Atom's private shape.
+    /** @type {{label: string, res: any}[]} */
+    const refusals = [];
+    for (const [type, method] of /** @type {const} */ ([
+        ['Room', 'onConnect'],
+        ['Room', 'onMessage'],
+        ['Room', 'onDisconnect'],
+        ['Room', 'ONMESSAGE'],
+        ['Room', 'onmessage'],
+        ['Room', 'onTimer'],
+        ['Room', 'onActivation'],
+        ['Room', 'onDeactivation'],
+        ['Scheduler', 'onTimer'],
+        ['Scheduler', 'onMessage'],
+    ])) {
+        const res = await invoke(type, type === 'Room' ? id : atomId('sched-denylist'), method, []);
+        refusals.push({ label: `${type}::${method}`, res });
+        if (res.status !== 404 || res.data?.error?.code !== 'method_not_found') {
+            problems.push(
+                `POST /invoke .../${type}/${method} gave ${res.status}/${res.data?.error?.code} ` +
+                    '(expected 404/method_not_found)'
+            );
+        }
+    }
+
+    // No oracle: Room OVERRIDES onMessage and Scheduler does not; Scheduler
+    // OVERRIDES onTimer and Room does not. Each pair must read identically
+    // apart from the class name the message names.
+    const messageOf = (label) =>
+        String(refusals.find((r) => r.label === label)?.res?.data?.error?.message ?? '').replace(
+            /App\\Atoms\\\w+/g,
+            '<Atom>'
+        );
+    for (const [a, b] of /** @type {const} */ ([
+        ['Room::onMessage', 'Scheduler::onMessage'],
+        ['Scheduler::onTimer', 'Room::onTimer'],
+        ['Room::onMessage', 'Room::ONMESSAGE'],
+    ])) {
+        if (messageOf(a) !== messageOf(b)) {
+            problems.push(
+                `the refusal for ${a} (${JSON.stringify(messageOf(a))}) differs from ${b} ` +
+                    `(${JSON.stringify(messageOf(b))}) — the response is an oracle for whether the Atom overrides it`
+            );
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            'welcome frame observed with full params, bad upgrades refused pre-DO, all six runtime handlers ' +
+                'refused on both an overriding and a non-overriding type (case variants included), with ' +
+                'indistinguishable responses'
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 19: echo round trip through onMessage + Connection::send(), text and binary
+checks.push(async () => {
+    const checkNum = 19;
+    const name = 'ws echo round trip through onMessage + Connection::send() (text + binary)';
+    const problems = [];
+    const id = atomId('room-echo');
+
+    const sock = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    try {
+        await sock.next(); // welcome
+
+        sock.send('echo:hi');
+        const textFrame = await sock.next();
+        if (textFrame !== 'echo:hi') problems.push(`text echo: got ${JSON.stringify(textFrame)} (expected "echo:hi")`);
+
+        // Genuinely non-UTF-8 bytes: 0xFF/0xFE are invalid lead bytes and 0x80
+        // is a lone continuation byte, so CfConnection::send()'s
+        // content-based opcode rule (text iff valid UTF-8)
+        // is guaranteed to answer with a binary frame. Low ASCII bytes like
+        // [1,2,3,4,5] would come back as TEXT instead, by that same rule —
+        // deliberately, not a bug — so they would not exercise this path.
+        const bin = new Uint8Array([0xff, 0xfe, 0x80, 0x00, 0xfd]);
+        sock.send(bin);
+        const binFrame = await sock.next();
+        if (!(binFrame instanceof ArrayBuffer)) {
+            problems.push(`binary echo: got a ${typeof binFrame} frame, not an ArrayBuffer`);
+        } else {
+            const got = new Uint8Array(/** @type {ArrayBuffer} */ (binFrame));
+            if (got.length !== bin.length || !bin.every((b, i) => got[i] === b)) {
+                problems.push(`binary echo: got [${got}] (expected [${bin}])`);
+            }
+        }
+
+        const stats = await invoke('Room', id, 'stats', []);
+        if (stats.data?.result?.lastBinary !== true) {
+            problems.push(`stats().lastBinary=${stats.data?.result?.lastBinary} (expected true)`);
+        }
+        if (stats.data?.result?.messages !== 2) {
+            problems.push(`stats().messages=${stats.data?.result?.messages} (expected 2)`);
+        }
+    } finally {
+        await sock.close();
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, 'text frame and 5-byte binary frame both echoed exactly; lastBinary observed');
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 20: broadcast reaches the channel and only the channel
+checks.push(async () => {
+    const checkNum = 20;
+    const name = 'broadcast() reaches the channel and only the channel';
+    const problems = [];
+    const id = atomId('room-bcast');
+
+    const a = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    const b = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    const c = await openSocket(`/ws/Room/${id}?channels=other`);
+    try {
+        await a.next();
+        await b.next();
+        await c.next(); // welcomes
+
+        a.send('bcast:lobby:hello');
+
+        const want = { kind: 'broadcast', channel: 'lobby', payload: { text: 'hello' } };
+        for (const [label, sock] of /** @type {const} */ ([
+            ['A', a],
+            ['B', b],
+        ])) {
+            const frame = await sock.next();
+            let parsed = null;
+            try {
+                parsed = JSON.parse(/** @type {string} */ (frame));
+            } catch {
+                problems.push(`${label}: broadcast frame was not JSON: ${frame}`);
+                continue;
+            }
+            if (JSON.stringify(parsed) !== JSON.stringify(want)) {
+                problems.push(`${label}: broadcast frame ${JSON.stringify(parsed)} !== ${JSON.stringify(want)}`);
+            }
+        }
+
+        // C, on a different channel, must receive nothing within a bounded wait.
+        try {
+            const spurious = await c.next(800);
+            problems.push(`C (channel "other") received a frame it should not have: ${JSON.stringify(spurious)}`);
+        } catch {
+            /* expected: the wait times out */
+        }
+
+        // broadcast() to a channel with no members is not an error, and the
+        // turn still succeeds — proved by the sender staying healthy.
+        a.send('bcast:nobody:x');
+        try {
+            const spurious = await b.next(600);
+            problems.push(`B received an unexpected frame from the empty-channel broadcast: ${JSON.stringify(spurious)}`);
+        } catch {
+            /* expected */
+        }
+        a.send('echo:still-alive');
+        const echoed = await a.next();
+        if (echoed !== 'echo:still-alive') {
+            problems.push(`A unhealthy after the empty-channel broadcast: ${JSON.stringify(echoed)}`);
+        }
+
+        // broadcast() from INSIDE a committed db()->transaction() — the
+        // documented transaction-send hazard: a ws op is legal at all while the
+        // guest is parked inside ctx.storage.transactionSync()'s callback. It
+        // was probed and found legal (mvp-spec.md §Appendix item 4); the
+        // assertion here is what keeps it from silently regressing into the
+        // pre-decided fallback (a tx_state refusal), which would be a
+        // behaviour change no test would have caught.
+        a.send('bcasttx:lobby:in-a-transaction');
+        const wantTx = { kind: 'broadcast', channel: 'lobby', payload: { text: 'in-a-transaction' } };
+        for (const [label, sock] of /** @type {const} */ ([
+            ['A', a],
+            ['B', b],
+        ])) {
+            const frame = await sock.next();
+            let parsed = null;
+            try {
+                parsed = JSON.parse(/** @type {string} */ (frame));
+            } catch {
+                problems.push(`${label}: transactional broadcast frame was not JSON: ${frame}`);
+                continue;
+            }
+            if (JSON.stringify(parsed) !== JSON.stringify(wantTx)) {
+                problems.push(
+                    `${label}: transactional broadcast frame ${JSON.stringify(parsed)} !== ${JSON.stringify(wantTx)}`
+                );
+            }
+        }
+
+        // ...and the transaction it ran inside really did commit.
+        const txStats = await invoke('Room', id, 'stats', []);
+        if (txStats.status !== 200 || txStats.data?.error) {
+            problems.push(`stats() after the transactional broadcast failed: ${JSON.stringify(txStats.data)}`);
+        }
+    } finally {
+        await a.close();
+        await b.close();
+        await c.close();
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            'broadcast reached A and B on "lobby" with the exact pinned wire shape, not C on "other"; ' +
+                'an empty-channel broadcast is a no-op, not an error; a broadcast from inside a committed ' +
+                'transaction is delivered'
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 21: THE BIG ONE — survival across a real hibernation
+checks.push(async () => {
+    const checkNum = 21;
+    const name = 'ws survival across a real hibernation (THE BIG ONE)';
+    const problems = [];
+    const id = atomId('room-evict');
+
+    const sock = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    try {
+        const welcome = JSON.parse(/** @type {string} */ (await sock.next()));
+        const connId = welcome.conn;
+
+        sock.send('echo:before');
+        const before = await sock.next();
+        if (before !== 'echo:before') problems.push(`pre-eviction echo: ${JSON.stringify(before)} (expected "echo:before")`);
+
+        const beforeInfo = await debugInfo('Room', id);
+
+        console.log(`   (waiting ${EVICTION_WAIT_MS}ms for eviction...)`);
+        await new Promise((r) => setTimeout(r, EVICTION_WAIT_MS));
+
+        const afterInfo = await debugInfo('Room', id);
+
+        // This is what makes the check honest. Without it the check passes on
+        // a warm residency and asserts nothing — see CHECK 12's identical rule.
+        if (!(afterInfo.constructions > beforeInfo.constructions)) {
+            fail(
+                checkNum,
+                name,
+                `constructions did not increase (${beforeInfo.constructions} -> ${afterInfo.constructions}): ` +
+                    'the Durable Object was never evicted, so nothing was proved'
+            );
+            return;
+        }
+
+        sock.send('echo:after');
+        const after = await sock.next();
+        if (after !== 'echo:after') problems.push(`post-wake echo on the SAME socket: ${JSON.stringify(after)}`);
+
+        sock.send('id?');
+        const idFrame = await sock.next();
+        if (idFrame !== `id:${connId}`) {
+            problems.push(`post-wake id: ${JSON.stringify(idFrame)} (expected "id:${connId}") — the connection id changed`);
+        }
+
+        const stats = await invoke('Room', id, 'stats', []);
+        if (stats.data?.result?.connects !== 1) {
+            problems.push(`stats().connects=${stats.data?.result?.connects} (expected 1 — onConnect must not re-run)`);
+        }
+        if (stats.data?.result?.connectsThisResidency !== 0) {
+            problems.push(
+                `stats().connectsThisResidency=${stats.data?.result?.connectsThisResidency} (expected 0 — ` +
+                    'this residency is new, cross-checking constructions)'
+            );
+        }
+
+        if (!(afterInfo.ws?.sockets >= 1)) problems.push(`afterInfo.ws.sockets=${afterInfo.ws?.sockets} (expected >=1)`);
+        const afterConn = (afterInfo.ws?.connections ?? []).find((/** @type {any} */ c) => c.id === connId);
+        if (!afterConn || JSON.stringify(afterConn.channels) !== JSON.stringify(['lobby'])) {
+            problems.push(`post-wake debug channels for ${connId}: ${JSON.stringify(afterConn?.channels)} (expected ["lobby"])`);
+        }
+        if (!afterConn || !(afterConn.tags ?? []).includes('ch:lobby')) {
+            problems.push(`getTags() after the wake did not include "ch:lobby": ${JSON.stringify(afterConn?.tags)}`);
+        }
+
+        await sock.close(1000, 'done');
+        let disconnects = 0;
+        const deadline = Date.now() + 8000;
+        while (Date.now() < deadline) {
+            const s = await invoke('Room', id, 'stats', []);
+            disconnects = s.data?.result?.disconnects;
+            if (disconnects === 1) break;
+            await new Promise((r) => setTimeout(r, 200));
+        }
+        if (disconnects !== 1) {
+            problems.push(`stats().disconnects=${disconnects} (expected 1 — onDisconnect must fire after a wake)`);
+        }
+    } finally {
+        try {
+            await sock.close();
+        } catch {
+            /* already closed */
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            'constructions grew across the wait, same conn id and channels survived (tags intact), ' +
+                'onConnect did not re-run, onDisconnect fired post-wake'
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 22: send() to a dead connection
+checks.push(async () => {
+    const checkNum = 22;
+    const name = "send() to a dead connection: ConnectionClosed, scoped to the call";
+    const problems = [];
+    const id = atomId('room-poke');
+
+    const a = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    const b = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    try {
+        await a.next();
+        await b.next(); // welcomes
+
+        a.send('id?');
+        const aId = String(await a.next()).replace(/^id:/, '');
+        b.send('id?');
+        const bId = String(await b.next()).replace(/^id:/, '');
+
+        await b.close(1000, 'bye');
+
+        let disconnects = 0;
+        let deadline = Date.now() + 8000;
+        while (Date.now() < deadline) {
+            const s = await invoke('Room', id, 'stats', []);
+            disconnects = s.data?.result?.disconnects;
+            if (disconnects === 1) break;
+            await new Promise((r) => setTimeout(r, 200));
+        }
+        if (disconnects !== 1) problems.push(`stats().disconnects=${disconnects} (expected 1 before poking)`);
+
+        a.send(`poke:${bId}`);
+        let lastPoke = null;
+        deadline = Date.now() + 8000;
+        while (Date.now() < deadline) {
+            const s = await invoke('Room', id, 'stats', []);
+            lastPoke = s.data?.result?.lastPoke;
+            if (lastPoke !== null && lastPoke !== undefined) break;
+            await new Promise((r) => setTimeout(r, 150));
+        }
+        if (lastPoke !== 'ConnectionClosed') {
+            problems.push(`stats().lastPoke=${JSON.stringify(lastPoke)} (expected "ConnectionClosed")`);
+        }
+
+        // The failure is scoped to the call, not the connection or the
+        // residency: A's own socket must still be open and still echo.
+        a.send('echo:still-here');
+        const echoed = await a.next();
+        if (echoed !== 'echo:still-here') {
+            problems.push(`A's socket unhealthy after poking a dead connection: ${JSON.stringify(echoed)}`);
+        }
+        void aId; // captured for symmetry/debuggability; not itself asserted on
+    } finally {
+        await a.close();
+        try {
+            await b.close();
+        } catch {
+            /* already closed */
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            'poke to a closed connection produced ConnectionClosed (typed, catchable), scoped to the call — ' +
+                "A's socket kept working"
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 23: timers fire, are consumed, are transactional, cancel works,
+// errors are contained (M2 wave 3 — Durable Object alarms behind the Timers
+// ABI).
+checks.push(async () => {
+    const checkNum = 23;
+    const name = 'timers: fire, consume, transactional, cancel, errors contained';
+    const problems = [];
+    const id = atomId('scheduler');
+
+    async function timerLog() {
+        const r = await invoke('Scheduler', id, 'timerLog', []);
+        if (r.status !== 200 || r.data?.error) {
+            throw new Error(`timerLog failed: ${JSON.stringify(r.data)}`);
+        }
+        return (r.data.result ?? []).map((e) => e.name);
+    }
+
+    async function scheduledMs(timerName) {
+        const r = await invoke('Scheduler', id, 'scheduledMs', [timerName]);
+        if (r.status !== 200 || r.data?.error) {
+            throw new Error(`scheduledMs failed: ${JSON.stringify(r.data)}`);
+        }
+        return r.data.result;
+    }
+
+    async function waitUntilLogged(timerName, timeoutMs = 15000) {
+        const deadline = Date.now() + timeoutMs;
+        let log = await timerLog();
+        while (!log.includes(timerName) && Date.now() < deadline) {
+            await new Promise((res) => setTimeout(res, 300));
+            log = await timerLog();
+        }
+        return log;
+    }
+
+    // t1 fires once, and is consumed (no longer scheduled) afterwards.
+    const armT1 = await invoke('Scheduler', id, 'arm', ['t1', 1500]);
+    if (armT1.status !== 200 || armT1.data?.error) {
+        problems.push(`arm(t1) failed: ${JSON.stringify(armT1.data)}`);
+    }
+    const afterT1 = await waitUntilLogged('t1');
+    if (!afterT1.includes('t1')) {
+        problems.push(`t1 did not fire within the poll window: log=${JSON.stringify(afterT1)}`);
+    }
+    if ((await scheduledMs('t1')) !== null) {
+        problems.push('t1 is still scheduled after firing (expected consumed/null)');
+    }
+
+    // A timer scheduled from inside onTimer() fires too (chain-1 -> chain-2).
+    const armChain = await invoke('Scheduler', id, 'arm', ['chain-1', 500]);
+    if (armChain.status !== 200 || armChain.data?.error) {
+        problems.push(`arm(chain-1) failed: ${JSON.stringify(armChain.data)}`);
+    }
+    const afterChain = await waitUntilLogged('chain-2');
+    if (!afterChain.includes('chain-1') || !afterChain.includes('chain-2')) {
+        problems.push(`chain did not complete: log=${JSON.stringify(afterChain)}`);
+    }
+
+    // A schedule() made inside a transaction that rolls back never fires.
+    const rolled = await invoke('Scheduler', id, 'armInsideRollback', ['never', 500]);
+    if (rolled.status !== 500 || rolled.data?.error?.code !== 'atom_exception') {
+        problems.push(
+            `armInsideRollback gave ${rolled.status}/${rolled.data?.error?.code} (expected 500/atom_exception)`
+        );
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+    const afterRollback = await timerLog();
+    if (afterRollback.includes('never')) {
+        problems.push("'never' fired despite its schedule() being inside a rolled-back transaction");
+    }
+    if ((await scheduledMs('never')) !== null) {
+        problems.push("'never' is still scheduled after its transaction rolled back");
+    }
+
+    // cancel() actually prevents the fire.
+    await invoke('Scheduler', id, 'arm', ['t-cancel', 4000]);
+    await invoke('Scheduler', id, 'cancelTimer', ['t-cancel']);
+    await new Promise((r) => setTimeout(r, 4500));
+    const afterCancel = await timerLog();
+    if (afterCancel.includes('t-cancel')) {
+        problems.push('t-cancel fired despite being cancelled');
+    }
+
+    // A throwing onTimer is still consumed at-most-once, and the residency
+    // stays healthy for the atom's other timers/turns.
+    await invoke('Scheduler', id, 'arm', ['boom-1', 500]);
+    {
+        const deadline = Date.now() + 8000;
+        let ms = await scheduledMs('boom-1');
+        while (ms !== null && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 300));
+            ms = await scheduledMs('boom-1');
+        }
+        if (ms !== null) {
+            problems.push(`boom-1 was never consumed (still scheduled): ${ms}`);
+        }
+    }
+    const afterBoom = await timerLog();
+    if (afterBoom.includes('boom-1')) {
+        problems.push('boom-1 wrote a log row despite throwing');
+    }
+    const healthy = await invoke('Scheduler', id, 'scheduledMs', ['nothing-scheduled-by-this-name']);
+    if (healthy.status !== 200 || healthy.data?.error || healthy.data.result !== null) {
+        problems.push(`residency unhealthy after a throwing onTimer: ${JSON.stringify(healthy.data)}`);
+    }
+
+    // __atoms_timers is reserved, exactly like __atoms_meta (check 10).
+    const reserved = await invoke('Scheduler', id, 'readReservedTimers', []);
+    if (reserved.status !== 200 || reserved.data?.error) {
+        problems.push(`readReservedTimers failed: ${JSON.stringify(reserved.data)}`);
+    } else if (
+        reserved.data.result?.rejected !== true ||
+        !String(reserved.data.result.message).includes('reserved_table')
+    ) {
+        problems.push(`__atoms_timers was not rejected: ${JSON.stringify(reserved.data.result)}`);
+    }
+
+    // Name validation: empty and over-long names are ATOMS-E085, not silently
+    // accepted.
+    const emptyName = await invoke('Scheduler', id, 'arm', ['', 100]);
+    if (
+        emptyName.status !== 500 ||
+        emptyName.data?.error?.code !== 'atom_exception' ||
+        !String(emptyName.data.error.message).includes('ATOMS-E085')
+    ) {
+        problems.push(
+            `empty timer name gave ${emptyName.status}/${emptyName.data?.error?.code}: ` +
+                `${JSON.stringify(emptyName.data?.error)} (expected 500/atom_exception carrying ATOMS-E085)`
+        );
+    }
+    const longName = await invoke('Scheduler', id, 'arm', ['x'.repeat(300), 100]);
+    if (
+        longName.status !== 500 ||
+        longName.data?.error?.code !== 'atom_exception' ||
+        !String(longName.data.error.message).includes('ATOMS-E085')
+    ) {
+        problems.push(
+            `over-long timer name gave ${longName.status}/${longName.data?.error?.code}: ` +
+                `${JSON.stringify(longName.data?.error)} (expected 500/atom_exception carrying ATOMS-E085)`
+        );
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            't1/chain fired and consumed, rollback+cancel honored, throwing onTimer contained, ' +
+                '__atoms_timers reserved, ATOMS-E085 validated'
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 24: THE HONEST ONE — a Durable Object alarm wakes an evicted atom.
+checks.push(async () => {
+    const checkNum = 24;
+    const name = 'alarm wakes an evicted atom (THE HONEST ONE)';
+    const problems = [];
+    const id = atomId('scheduler-wake');
+
+    const beforeInfo = await debugInfo('Scheduler', id);
+
+    const armed = await invoke('Scheduler', id, 'arm', ['wake-1', EVICTION_WAIT_MS + 4000]);
+    if (armed.status !== 200 || armed.data?.error) {
+        fail(checkNum, name, `arm(wake-1) failed: ${JSON.stringify(armed.data)}`);
+        return;
+    }
+
+    // Idle the FULL eviction wait, exactly like checks 12/21 — never
+    // shortened — so the residency genuinely gets evicted rather than merely
+    // asserting on a warm one.
+    console.log(`   (idling ${EVICTION_WAIT_MS}ms for eviction...)`);
+    await new Promise((r) => setTimeout(r, EVICTION_WAIT_MS));
+
+    // wake-1 is not due for another ~4s past the idle wait. Give the alarm a
+    // window to fire entirely on its own — nothing from this suite has
+    // touched the atom yet — before any poll request below could reactivate
+    // it first via the ordinary invoke path and blur what actually woke it.
+    await new Promise((r) => setTimeout(r, 4500));
+
+    // Poll (bounded): confirms the alarm actually delivered wake-1, whether
+    // it had already fired by the line above or fires during this window.
+    const deadline = Date.now() + 15000;
+    let log = [];
+    for (;;) {
+        const r = await invoke('Scheduler', id, 'timerLog', []);
+        if (r.status !== 200 || r.data?.error) {
+            fail(checkNum, name, `timerLog failed: ${JSON.stringify(r.data)}`);
+            return;
+        }
+        log = (r.data.result ?? []).map((e) => e.name);
+        if (log.includes('wake-1') || Date.now() >= deadline) break;
+        await new Promise((res) => setTimeout(res, 300));
+    }
+    if (!log.includes('wake-1')) {
+        fail(checkNum, name, 'wake-1 did not fire within the poll window');
+        return;
+    }
+
+    const afterInfo = await debugInfo('Scheduler', id);
+
+    // This is what makes the check honest. Without it the check passes on a
+    // warm residency and asserts nothing — see CHECK 12/21's identical rule.
+    if (!(afterInfo.constructions > beforeInfo.constructions)) {
+        fail(
+            checkNum,
+            name,
+            `constructions did not increase (${beforeInfo.constructions} -> ${afterInfo.constructions}): ` +
+                'the Durable Object was never evicted, so nothing was proved'
+        );
+        return;
+    }
+
+    const fired = log.filter((n) => n === 'wake-1').length;
+    if (fired !== 1) {
+        problems.push(`wake-1 appears ${fired} times in the log (expected exactly 1)`);
+    }
+    // `fired_this_residency` is the whole point of this check, and it is
+    // deliberately exact rather than `>= 1`. It counts timer dispatches in the
+    // residency the debug read lands in — which is the residency the ALARM
+    // created, because nothing else touched this Atom across the idle wait.
+    // If that residency were evicted again between the poll above and this
+    // read, the counter would come back 0 and the check would fail. That is
+    // the correct direction to fail in: a 0 means the alarm's own residency
+    // did not survive to be observed, so this run proved less than it claims,
+    // and the honest response is to investigate the timing rather than to
+    // relax the assertion to `>= 0` — which would make it vacuous, exactly
+    // like a shortened ATOMS_EVICTION_WAIT_MS makes check 12 vacuous. Do not
+    // weaken it.
+    if (afterInfo.timers?.fired_this_residency !== 1) {
+        problems.push(`timers.fired_this_residency=${afterInfo.timers?.fired_this_residency} (expected 1)`);
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            `constructions ${beforeInfo.constructions} -> ${afterInfo.constructions} across the idle wait, ` +
+                'wake-1 fired exactly once via the alarm'
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 25: a CLOSE has to wake a hibernated Durable Object.
+//
+// Check 21 proves a socket survives eviction and that onDisconnect fires after
+// a wake — but it sends a frame across the eviction first, which re-activates
+// the residency, so by the time it closes, the DO is warm again. This is the
+// case check 21 doesn't cover: the close itself is the
+// FIRST event after the hibernation, with no traffic in between. That is the
+// path a real client takes when it goes away quietly (a laptop lid, a mobile
+// network drop), and it is the one that would leave connections leaked forever
+// if the platform did not deliver it.
+checks.push(async () => {
+    const checkNum = 25;
+    const name = 'close wakes a hibernated Durable Object';
+    const problems = [];
+    const id = atomId('room-closewake');
+
+    const sock = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    let closed = false;
+    try {
+        await sock.next(); // welcome
+
+        sock.send('echo:before-idle');
+        const before = await sock.next();
+        if (before !== 'echo:before-idle') {
+            problems.push(`pre-idle echo: ${JSON.stringify(before)} (expected "echo:before-idle")`);
+        }
+
+        const beforeInfo = await debugInfo('Room', id);
+
+        // The full wait, never shortened — same rule as checks 12/21/24. And
+        // NOTHING may touch this Atom during it, or afterwards until the
+        // observation below: a debug read or a stats() invoke would re-activate
+        // the residency and turn the close into an ordinary warm-path event,
+        // which is precisely what this check exists NOT to assert on.
+        console.log(`   (idling ${EVICTION_WAIT_MS}ms with no traffic at all, then closing...)`);
+        await new Promise((r) => setTimeout(r, EVICTION_WAIT_MS));
+
+        await sock.close(1000, 'quiet-exit');
+        closed = true;
+
+        // The close, and nothing else, now has to wake the Durable Object and
+        // run a ws.close turn on it.
+        //
+        // The observation window is bounded on BOTH sides, which is why it is
+        // polled rather than slept: a wake costs a full activation, so reading
+        // too early sees nothing — but the woken residency starts its own idle
+        // clock the moment its close turn ends, so a long silent sleep can
+        // watch it get evicted AGAIN and land on a third, empty residency.
+        // Measured 2026-08-12: the close activated the object ~170ms after it
+        // was issued (host log `atoms.do.activated`, constructions 2, ordered
+        // BEFORE the first debug request), and a fully silent 8s window was
+        // long enough for that residency to be evicted before it was read.
+        //
+        // `GET /debug` never activates PHP and never dispatches a WebSocket
+        // turn, so polling it cannot manufacture the observation being made.
+        const WAKE_WINDOW_MS = 6000;
+        console.log(`   (watching ${WAKE_WINDOW_MS}ms for the close alone to wake it...)`);
+        let afterInfo = null;
+        // Wall-clock just before our first debug read after the close. GET /debug
+        // constructs the DO (constructions bumps in the constructor) even though
+        // it never activates PHP, so the residency we later observe must be shown
+        // to have existed BEFORE this instant — otherwise our own first poll,
+        // not the close, could be what created it (F2 attribution assertion).
+        let firstPollAt = null;
+        const wakeDeadline = Date.now() + WAKE_WINDOW_MS;
+        for (;;) {
+            await new Promise((r) => setTimeout(r, 250));
+            if (firstPollAt === null) firstPollAt = Date.now();
+            afterInfo = await debugInfo('Room', id);
+            const woke = afterInfo.constructions > beforeInfo.constructions && afterInfo.ws?.turns_this_residency >= 1;
+            if (woke || Date.now() >= wakeDeadline) break;
+        }
+
+        // The honesty assertion, the same one checks 12/21/24 carry: without
+        // it this passes on a residency that was never evicted and proves
+        // nothing about waking at all.
+        if (!(afterInfo.constructions > beforeInfo.constructions)) {
+            fail(
+                checkNum,
+                name,
+                `constructions did not increase (${beforeInfo.constructions} -> ${afterInfo.constructions}): ` +
+                    'the Durable Object was never evicted, so nothing was proved'
+            );
+            return;
+        }
+        // ...and the assertion that makes it about the CLOSE. This residency
+        // has served a WebSocket turn, and no request from this suite caused
+        // one: the close did.
+        if (!(afterInfo.ws?.turns_this_residency >= 1)) {
+            problems.push(
+                `ws.turns_this_residency=${afterInfo.ws?.turns_this_residency} (expected >=1 — the close did not ` +
+                    'wake the Durable Object on its own)'
+            );
+        }
+        // A wake is not a new connection: nothing accepted a socket here.
+        if (afterInfo.ws?.connects_this_residency !== 0) {
+            problems.push(
+                `ws.connects_this_residency=${afterInfo.ws?.connects_this_residency} (expected 0 — the residency ` +
+                    'that ran onDisconnect was created by the close, not by an accept)'
+            );
+        }
+        // The attribution assertion: the wake we observed must NOT be creditable
+        // to our own first debug poll. `resident_ms` is the residency's own age
+        // (`now() - bornAt`); if it is already GREATER than the time elapsed
+        // since our first poll, the residency necessarily existed before that
+        // poll, so the poll did not construct it — the close did. If instead the
+        // first `GET /debug` were what constructed the DO (a slow close-wake),
+        // `resident_ms` would be at most the time since that poll, and this
+        // fails. This is the same shape of honesty guard as the constructions
+        // check above, aimed at the one residency the suite itself could have
+        // manufactured.
+        const sincePoll = Date.now() - firstPollAt;
+        if (!(afterInfo.resident_ms > sincePoll)) {
+            problems.push(
+                `resident_ms=${afterInfo.resident_ms} is not greater than the ${sincePoll}ms since the first debug ` +
+                    'poll — the observed residency was born no earlier than that poll, so this run cannot attribute ' +
+                    'the wake to the close rather than to the poll'
+            );
+        }
+
+        // The durable cross-check: onDisconnect actually ran, exactly once, and
+        // onConnect did not re-run.
+        const stats = await invoke('Room', id, 'stats', []);
+        if (stats.data?.result?.disconnects !== 1) {
+            problems.push(
+                `stats().disconnects=${stats.data?.result?.disconnects} (expected 1 — a close on a hibernated DO ` +
+                    'must still deliver onDisconnect, exactly once)'
+            );
+        }
+        if (stats.data?.result?.connects !== 1) {
+            problems.push(`stats().connects=${stats.data?.result?.connects} (expected 1 — onConnect must not re-run)`);
+        }
+    } finally {
+        if (!closed) {
+            try {
+                await sock.close();
+            } catch {
+                /* already closed */
+            }
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            'constructions grew across a fully idle wait, the close alone woke the DO, onDisconnect fired exactly ' +
+                'once and onConnect did not re-run'
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
 // ---------------------------------------------------------------- run
 
 async function run() {
@@ -807,27 +2534,42 @@ async function run() {
     console.log(`Base URL: ${baseUrl}`);
     console.log(`Skip: ${SKIP.length ? SKIP.join(', ') : 'none'}`);
     console.log(`Eviction wait: ${EVICTION_WAIT_MS}ms`);
+
+    const keyFile = loadCallbackKeyFile();
+    if (keyFile) {
+        const port = parseInt(process.env.ATOMS_CALLBACK_PORT || '', 10) || keyFile.port;
+        listener = new CallbackListener(keyFile.publicKey);
+        await listener.start(port);
+        console.log(`Callback listener: 127.0.0.1:${port} (checks 13-17 enabled)`);
+    } else {
+        console.log(`Callback listener: none (test/.callback-key.json missing — checks 13-17 will skip)`);
+    }
+    console.log(`Turn deadline (checks 15a/15b): ${TURN_DEADLINE_MS ? `${TURN_DEADLINE_MS}ms` : 'not set — 15 will skip'}`);
     console.log('');
 
-    for (let i = 0; i < checks.length; i++) {
-        const checkNum = i + 1;
-        if (SKIP.includes(checkNum)) {
-            console.log(`⊘ CHECK ${checkNum}: skipped`);
-            continue;
-        }
+    try {
+        for (let i = 0; i < checks.length; i++) {
+            const checkNum = i + 1;
+            if (SKIP.includes(checkNum)) {
+                console.log(`⊘ CHECK ${checkNum}: skipped`);
+                continue;
+            }
 
-        try {
-            await checks[i]();
-        } catch (err) {
-            failCount++;
-            results.push({
-                checkNum,
-                name: '(unknown)',
-                status: 'FAIL',
-                msg: `${err.name}: ${err.message}`,
-            });
-            console.log(`✗ CHECK ${checkNum}: ${err.name}: ${err.message}`);
+            try {
+                await checks[i]();
+            } catch (err) {
+                failCount++;
+                results.push({
+                    checkNum,
+                    name: '(unknown)',
+                    status: 'FAIL',
+                    msg: `${err.name}: ${err.message}`,
+                });
+                console.log(`✗ CHECK ${checkNum}: ${err.name}: ${err.message}`);
+            }
         }
+    } finally {
+        if (listener) await listener.stop();
     }
 
     console.log('');

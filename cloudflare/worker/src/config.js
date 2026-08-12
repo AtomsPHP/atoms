@@ -10,6 +10,8 @@
  * variable is absent or unparseable.
  */
 
+import { AtomsError } from './errors.js';
+
 /** @typedef {Record<string, unknown>} Env */
 
 /**
@@ -32,13 +34,38 @@
  * @property {string}   logLevel              Minimum level emitted by the `log` op.
  * @property {string}   configEnvPrefix       Env prefix that forms the `config.get` allowlist.
  * @property {string[]} configEnvKeys         Extra exact env names readable through `config.get`.
- * @property {string[]} configEnvDenyKeys     Names never readable through `config.get`, whatever else says.
+ * @property {string[]} configEnvDenyKeys     Names never readable through `config.get`, whatever else says. Always includes the built-in defaults; `ATOMS_CONFIG_ENV_DENY_KEYS` is additive to them, never a replacement.
  * @property {string}   bootstrapPath         Guest path of the PHP bootstrap script.
  * @property {string}   bootPayloadPath       Guest path the boot payload JSON is written to.
  * @property {string}   runtimeDir            Guest directory holding the `Atoms\\Cf` prelude.
  * @property {string}   coreDir               Guest directory holding the verbatim atoms/core sources.
  * @property {string[]} guestDirs             Directories created in MEMFS before files are written.
  * @property {number}   bundleFormat          Bundle format version this host understands.
+ * @property {string}   callbackUrl           The monolith's callback endpoint. '' = unconfigured.
+ * @property {string}   callbackSigningKey    Base64 of the 32-byte Ed25519 seed used to sign callbacks.
+ * @property {number}   turnDeadlineMs        Aggregate budget for one turn's time spent awaiting the callback channel.
+ * @property {number}   callbackTimeoutMs     Per-POST abort bound for one callback.
+ * @property {number}   callbackMaxRequestBytes  Reject an app()/dispatch() request body larger than this.
+ * @property {number}   callbackMaxResponseBytes Reject an app() response body larger than this (it is copied into guest memory).
+ * @property {number}   maxDispatchesPerTurn  dispatch() calls allowed in one turn before `dispatch_limit`.
+ * @property {'configured'|'unconfigured'|'misconfigured'} callbackState  Derived from callbackUrl/callbackSigningKey.
+ * @property {string|null} callbackConfigError Human-readable reason when callbackState is 'misconfigured'.
+ * @property {number}   wsMaxTagsPerConnection  Platform hard limit on tags per hibernatable socket (measured: 10).
+ * @property {number}   wsMaxTagBytes           Platform hard limit on one tag's byte length (measured: 256).
+ * @property {number}   wsMaxChannels           Channels a single connection may join at connect time.
+ * @property {number}   wsMaxChannelNameBytes   Per-channel-name cap, before the "ch:" prefix.
+ * @property {string}   wsChannelTagPrefix      Tag prefix for channel membership. Disjoint from wsConnTagPrefix by construction (asserted below).
+ * @property {string}   wsConnTagPrefix         Tag prefix for the one per-connection identity tag.
+ * @property {number}   wsMaxParams             Query parameters delivered to onConnect.
+ * @property {number}   wsMaxParamBytes         Total decoded bytes of all onConnect params.
+ * @property {number}   wsMaxAttachmentBytes    Host-side ceiling on the serialized {v,id,ch} attachment.
+ * @property {number}   wsMaxMessageBytes       Inbound frame cap, decoded bytes.
+ * @property {number}   wsMaxSendBytes          Outbound cap for one Connection::send() or one broadcast frame.
+ * @property {number}   wsMaxBroadcastSockets   Fan-out cap for one broadcast() call.
+ * @property {number}   wsDebugMaxConnections   Connection rows the debug endpoint will list.
+ * @property {number}   timersMax             Per-Atom cap on scheduled timers (ATOMS_TIMERS_MAX).
+ * @property {number}   timerNameMaxBytes     Byte-length cap on a timer name (ATOMS_TIMER_NAME_MAX_BYTES).
+ * @property {number}   timersMaxPerAlarm     Due timers processed by one alarm() invocation before it re-arms and returns, rather than looping unbounded (ATOMS_TIMERS_MAX_PER_ALARM).
  */
 
 /** Levels understood by the `log` sync op, lowest first. */
@@ -49,6 +76,9 @@ export const META_TABLE = '__atoms_meta';
 
 /** Prefix reserved for host-owned tables; customer SQL touching it is rejected. */
 export const RESERVED_TABLE_PREFIX = '__atoms_';
+
+/** Table that holds this Atom's scheduled timers inside the DO's SQLite. */
+export const TIMERS_TABLE = '__atoms_timers';
 
 /** Meta keys the host itself owns. */
 export const META_KEYS = {
@@ -84,6 +114,36 @@ function int(env, name, dflt) {
 	if (typeof v !== 'string' || v.trim() === '') return dflt;
 	const n = Number(v);
 	return Number.isFinite(n) ? Math.trunc(n) : dflt;
+}
+
+/**
+ * `int()`, plus the "int, default, **>0 else default**" rule for the
+ * values where zero or negative is not a tighter setting but a broken one: a
+ * deadline of 0 would make every `app()` fail before it started, a dispatch
+ * cap of 0 would refuse every `dispatch()`, and a size cap of 0 would refuse
+ * every body — none of which is a configuration anyone means. An operator
+ * typo lands on the documented default instead, and says so in the log.
+ *
+ * @param {Env} env
+ * @param {string} name
+ * @param {number} dflt must itself be > 0
+ * @returns {number}
+ */
+function posInt(env, name, dflt) {
+	const n = int(env, name, dflt);
+	if (n > 0) return n;
+	console.log(
+		JSON.stringify({
+			ts: new Date().toISOString(),
+			level: 'warning',
+			source: 'host',
+			msg: 'atoms.config.non_positive',
+			var: name,
+			value: n,
+			using: dflt,
+		})
+	);
+	return dflt;
 }
 
 /**
@@ -130,6 +190,87 @@ function unsafeIntegerPolicy(raw) {
 }
 
 /**
+ * Decode base64 into raw bytes, without throwing: an operator's typo in a
+ * secret must classify as `'misconfigured'`, never crash `loadConfig()` (which
+ * must stay total — `/healthz` has to answer on a broken Worker).
+ *
+ * @param {string} b64
+ * @returns {Uint8Array|null}
+ */
+export function base64ToBytes(b64) {
+	try {
+		const binary = atob(b64);
+		const bytes = new Uint8Array(binary.length);
+		for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+		return bytes;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * `ATOMS_CALLBACK_URL` validation: absolute, `https:`, or
+ * `http:` only when the host is a loopback address. Plain `http` to a public
+ * host would send customer arguments in the clear — the Ed25519 signature
+ * protects integrity and authenticity, never confidentiality. The loopback
+ * exemption is what keeps the conformance harness and `atoms dev` legal.
+ *
+ * @param {string} raw
+ * @returns {string|null} a human-readable reason, or null when valid
+ */
+function validateCallbackUrl(raw) {
+	/** @type {URL} */
+	let url;
+	try {
+		url = new URL(raw);
+	} catch {
+		return `ATOMS_CALLBACK_URL ${JSON.stringify(raw)} is not a valid absolute URL`;
+	}
+	if (url.protocol === 'https:') return null;
+	const loopback = url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]';
+	if (url.protocol === 'http:' && loopback) return null;
+	return (
+		`ATOMS_CALLBACK_URL must use "https:", or "http:" only for a loopback host ` +
+		`(127.0.0.1, localhost, [::1]); got "${url.protocol}//${url.hostname}"`
+	);
+}
+
+/**
+ * Classify the callback channel from the two raw env values into one of
+ * three states: configured, unconfigured, or misconfigured. Never throws:
+ * `loadConfig()` stays total so `/healthz` answers on a misconfigured
+ * Worker; the typed failure is raised only when `app()`/`dispatch()` is
+ * actually used.
+ *
+ * @param {string} callbackUrl
+ * @param {string} callbackSigningKey
+ * @returns {{state: 'configured'|'unconfigured'|'misconfigured', error: string|null}}
+ */
+function classifyCallbackChannel(callbackUrl, callbackSigningKey) {
+	if (callbackUrl === '') {
+		return { state: 'unconfigured', error: null };
+	}
+
+	const urlError = validateCallbackUrl(callbackUrl);
+	if (urlError) {
+		return { state: 'misconfigured', error: urlError };
+	}
+
+	if (callbackSigningKey === '') {
+		return { state: 'misconfigured', error: 'ATOMS_CALLBACK_SIGNING_KEY is not set' };
+	}
+	const seed = base64ToBytes(callbackSigningKey);
+	if (!seed || seed.length !== 32) {
+		return {
+			state: 'misconfigured',
+			error: 'ATOMS_CALLBACK_SIGNING_KEY does not decode to exactly 32 bytes of base64',
+		};
+	}
+
+	return { state: 'configured', error: null };
+}
+
+/**
  * Resolve the whole configuration for one Worker/DO invocation.
  *
  * @param {Env} env
@@ -137,8 +278,11 @@ function unsafeIntegerPolicy(raw) {
  */
 export function loadConfig(env) {
 	const level = str(env, 'ATOMS_LOG_LEVEL', 'info').toLowerCase();
+	const callbackUrl = str(env, 'ATOMS_CALLBACK_URL', '');
+	const callbackSigningKey = str(env, 'ATOMS_CALLBACK_SIGNING_KEY', '');
+	const callback = classifyCallbackChannel(callbackUrl, callbackSigningKey);
 
-	return {
+	const config = {
 		appKey: str(env, 'ATOMS_APP_KEY', ''),
 		debugEndpoints: bool(env, 'ATOMS_DEBUG_ENDPOINTS', false),
 
@@ -163,11 +307,13 @@ export function loadConfig(env) {
 
 		configEnvPrefix: str(env, 'ATOMS_CONFIG_ENV_PREFIX', 'ATOMS_CONFIG_'),
 		configEnvKeys: list(env, 'ATOMS_CONFIG_ENV_KEYS', []),
-		configEnvDenyKeys: list(env, 'ATOMS_CONFIG_ENV_DENY_KEYS', [
-			'ATOMS_APP_KEY',
-			'ATOMS_CONFIG_ENV_KEYS',
-			'ATOMS_CONFIG_ENV_DENY_KEYS',
-		]),
+		// MERGED, never replaced: the built-in entries below are the two
+		// credentials the Worker holds (the bearer key and the callback signing
+		// seed) plus the two lists that decide the allowlist itself. An operator
+		// who sets ATOMS_CONFIG_ENV_DENY_KEYS is adding names, not choosing a
+		// new set — a replacement would let a single well-meant "deny my own
+		// secret" setting hand the signing seed to `config.get()`.
+		configEnvDenyKeys: mergeDenyKeys(list(env, 'ATOMS_CONFIG_ENV_DENY_KEYS', [])),
 
 		bootstrapPath: str(env, 'ATOMS_BOOTSTRAP_PATH', '/atoms/runtime/bootstrap.php'),
 		bootPayloadPath: str(env, 'ATOMS_BOOT_PAYLOAD_PATH', '/atoms/boot.json'),
@@ -183,5 +329,83 @@ export function loadConfig(env) {
 		]),
 
 		bundleFormat: int(env, 'ATOMS_BUNDLE_FORMAT', 0),
+
+		callbackUrl,
+		callbackSigningKey,
+		turnDeadlineMs: posInt(env, 'ATOMS_TURN_DEADLINE_MS', 30000),
+		callbackTimeoutMs: posInt(env, 'ATOMS_CALLBACK_TIMEOUT_MS', 10000),
+		callbackMaxRequestBytes: posInt(env, 'ATOMS_CALLBACK_MAX_REQUEST_BYTES', 1024 * 1024),
+		callbackMaxResponseBytes: posInt(env, 'ATOMS_CALLBACK_MAX_RESPONSE_BYTES', 1024 * 1024),
+		maxDispatchesPerTurn: posInt(env, 'ATOMS_MAX_DISPATCHES_PER_TURN', 100),
+		callbackState: callback.state,
+		callbackConfigError: callback.error,
+
+		wsMaxTagsPerConnection: int(env, 'ATOMS_WS_MAX_TAGS_PER_CONNECTION', 10),
+		wsMaxTagBytes: int(env, 'ATOMS_WS_MAX_TAG_BYTES', 256),
+		wsMaxChannels: int(env, 'ATOMS_WS_MAX_CHANNELS', 8),
+		wsMaxChannelNameBytes: int(env, 'ATOMS_WS_MAX_CHANNEL_NAME_BYTES', 64),
+		wsChannelTagPrefix: str(env, 'ATOMS_WS_CHANNEL_TAG_PREFIX', 'ch:'),
+		wsConnTagPrefix: str(env, 'ATOMS_WS_CONN_TAG_PREFIX', 'c:'),
+		wsMaxParams: int(env, 'ATOMS_WS_MAX_PARAMS', 32),
+		wsMaxParamBytes: int(env, 'ATOMS_WS_MAX_PARAM_BYTES', 4096),
+		wsMaxAttachmentBytes: int(env, 'ATOMS_WS_MAX_ATTACHMENT_BYTES', 512),
+		wsMaxMessageBytes: int(env, 'ATOMS_WS_MAX_MESSAGE_BYTES', 131072),
+		wsMaxSendBytes: int(env, 'ATOMS_WS_MAX_SEND_BYTES', 131072),
+		wsMaxBroadcastSockets: int(env, 'ATOMS_WS_MAX_BROADCAST_SOCKETS', 1000),
+		wsDebugMaxConnections: int(env, 'ATOMS_WS_DEBUG_MAX_CONNECTIONS', 100),
+
+		timersMax: int(env, 'ATOMS_TIMERS_MAX', 10000),
+		timerNameMaxBytes: int(env, 'ATOMS_TIMER_NAME_MAX_BYTES', 256),
+		timersMaxPerAlarm: int(env, 'ATOMS_TIMERS_MAX_PER_ALARM', 100),
 	};
+
+	assertWsPrefixesDisjoint(config.wsChannelTagPrefix, config.wsConnTagPrefix);
+
+	return config;
+}
+
+/**
+ * Names `config.get()` must never resolve, whatever the environment says.
+ * Kept beside `loadConfig()` rather than inline so the guarantee has a name:
+ * the operator list is additive to this one, never a replacement for it.
+ */
+const BUILT_IN_CONFIG_DENY_KEYS = [
+	'ATOMS_APP_KEY',
+	'ATOMS_CALLBACK_SIGNING_KEY',
+	'ATOMS_CONFIG_ENV_KEYS',
+	'ATOMS_CONFIG_ENV_DENY_KEYS',
+];
+
+/**
+ * @param {string[]} operatorKeys
+ * @returns {string[]} the built-in deny list plus the operator's, de-duplicated
+ */
+function mergeDenyKeys(operatorKeys) {
+	return [...new Set([...BUILT_IN_CONFIG_DENY_KEYS, ...operatorKeys])];
+}
+
+/**
+ * The channel-tag prefix and the connection-tag prefix must never let a
+ * `ATOMS_WS_CHANNEL_TAG_PREFIX + <any channel name>` tag collide with a
+ * `ATOMS_WS_CONN_TAG_PREFIX + <any connection id>` tag. That is
+ * guaranteed for EVERY possible name/id, whatever charset they use, as long
+ * as neither prefix is a prefix of the other: a shared prefix is the only way
+ * two differently-sourced strings could ever compare equal. Checked once at
+ * config-resolution time so a misconfigured environment fails loudly at boot
+ * rather than mixing up connections and channels under load.
+ *
+ * @param {string} channelPrefix
+ * @param {string} connPrefix
+ */
+function assertWsPrefixesDisjoint(channelPrefix, connPrefix) {
+	const [shorter, longer] =
+		channelPrefix.length <= connPrefix.length ? [channelPrefix, connPrefix] : [connPrefix, channelPrefix];
+	if (shorter !== '' && longer.startsWith(shorter)) {
+		throw new AtomsError(
+			'internal',
+			`ATOMS_WS_CHANNEL_TAG_PREFIX (${JSON.stringify(channelPrefix)}) and ATOMS_WS_CONN_TAG_PREFIX ` +
+				`(${JSON.stringify(connPrefix)}) are not disjoint: one is a prefix of the other, which would let a ` +
+				'channel tag collide with a connection tag'
+		);
+	}
 }

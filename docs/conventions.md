@@ -79,10 +79,12 @@ abstract class Atom
     protected function dispatch(AtomJob $job): void;
     protected function config(string $key): mixed;
     protected function broadcast(string $channel, array $payload): void;
+    protected function timers(): Timers\Timers;
 
     // lifecycle (invoked by the runtime via Atoms\Runtime\LifecycleInvoker)
     protected function onActivation(): void {}
     protected function onDeactivation(): void {}
+    protected function onTimer(string $name): void {}
 
     // WebSocket handlers (optional overrides)
     public function onConnect(Websocket\Connection $conn, array $params): void {}
@@ -108,7 +110,12 @@ Supporting types in core (exact FQCNs — other packages reference these):
 
 - `Atoms\Runtime\AtomContext` — interface the runtime/harness implements:
   `db(): Database`, `app(): object`, `dispatch(AtomJob $job): void`,
-  `config(string $key): mixed`, `broadcast(string $channel, array $payload): void`.
+  `config(string $key): mixed`, `broadcast(string $channel, array $payload): void`,
+  `timers(): Timers\Timers`.
+- `Atoms\Timers\Timers` — interface for named one-shot timers:
+  `schedule(string $name, \DateTimeImmutable $at): void`, `cancel(string $name): void`,
+  `scheduledAt(string $name): ?\DateTimeImmutable`. Delivery invokes the Atom's
+  `onTimer($name)` hook.
 - `Atoms\Runtime\LifecycleInvoker` — static helpers to invoke the protected
   lifecycle hooks from outside (Closure::bind), used by runtime + harness.
 - `Atoms\Sqlite\SqliteDatabase implements Database` — PDO(sqlite) wrapper.
@@ -224,6 +231,16 @@ Methods resolution default: Atom class `App\Atoms\GameRoom` → Methods class
 `App\Atoms\GameRoom\Methods`; `#[MethodsFor]` or an explicit map overrides.
 (`Atoms\Client\Callback\MethodsResolver`.)
 
+As of M2 (2026-08-12), the Cloudflare Worker is the production signer of this
+channel (`cloudflare/worker/src/callbacks.js`, platform `Ed25519` WebCrypto —
+see `cloudflare/docs/mvp-spec.md` §The callback channel for headers, message
+construction and key handling). It omits `manifest_hash` from the `methods`
+body — a documented gap, safe today because `CallbackKernel::handleMethods()`
+never reads that key — and its dispatch job bodies are encoded dual to
+`CallbackKernel::constructJob()`: both sides walk the job's constructor
+parameters and key `args` by **parameter name**, resolved from a same-named
+**promoted public** constructor property on the guest side.
+
 ## `atoms.json` (toolchain anchor) and `atoms-composer.json`
 
 Exactly as integration plan §1. The CLI must not assume `app/Atoms` — always
@@ -268,6 +285,7 @@ it before inventing a code. Ranges:
 | E05x | migrations | cli + core |
 | E06x | client / callback runtime | client |
 | E07x | CLI / configuration | cli |
+| E08x | worker runtime seams (callback channel, timers) | worker runtime |
 
 Every user-facing failure message in every package includes its `ATOMS-E###`
 code and the catalog fix line. New codes: add to the JSON **and** the

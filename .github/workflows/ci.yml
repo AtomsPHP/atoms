@@ -69,7 +69,7 @@ jobs:
           exit "$status"
 
   # The Cloudflare Worker half: build it, run it locally under workerd, and put
-  # the twelve-check conformance suite through it. Everything here is local —
+  # the 25-check conformance suite through it. Everything here is local —
   # `wrangler dev` needs no Cloudflare account, API token or login, and nothing
   # in this job deploys. Do not add credentials or `--remote` to make it
   # "work"; if it stops working, something in the worker broke.
@@ -91,6 +91,20 @@ jobs:
       # passed to wrangler and spliced into ATOMS_BASE_URL from this one place
       # so the server and the suite cannot drift apart.
       WORKER_PORT: '8787'
+      # Must stay in step with each other: scripts/dev-with-callback.mjs binds
+      # the in-suite callback listener's Worker-facing URL to this port, and
+      # test/conformance.mjs's checks 13-17 bind their own listener to it too.
+      # ATOMS_TURN_DEADLINE_MS is passed to the Worker AND read by check 15 so
+      # the two never drift; small on purpose so the deadline check costs
+      # seconds, not minutes.
+      ATOMS_CALLBACK_PORT: '8789'
+      ATOMS_TURN_DEADLINE_MS: '2000'
+      # A missing test/.callback-key.json makes checks 13-17 SKIP rather than
+      # fail, which is right for a Worker with no callback channel and wrong
+      # here: this job starts one. Without this, a broken dev:callback would
+      # quietly delete five checks from the run and the job would still be
+      # green. Set it, and a skip becomes a failure.
+      ATOMS_REQUIRE_CALLBACK_CHECKS: '1'
     steps:
       - uses: actions/checkout@v4
 
@@ -139,10 +153,15 @@ jobs:
           fi
 
       # Backgrounded with its output on disk, so the log survives the step and
-      # can be printed whatever happens later.
+      # can be printed whatever happens later. dev:callback (not `wrangler dev`
+      # directly) so the Worker starts with a per-run Ed25519 keypair wired to
+      # ATOMS_CALLBACK_URL/ATOMS_CALLBACK_SIGNING_KEY — see
+      # scripts/dev-with-callback.mjs. No Cloudflare account, token or network
+      # involved: the keypair is generated locally and the callback URL is a
+      # loopback address the suite's own listener binds to.
       - name: Start wrangler dev
         run: |
-          npx wrangler dev --port "$WORKER_PORT" --ip 127.0.0.1 > wrangler.log 2>&1 &
+          npm run dev:callback -- --port "$WORKER_PORT" > wrangler.log 2>&1 &
           echo $! > wrangler.pid
 
       # Poll rather than sleep. Startup here is dominated by workerd compiling

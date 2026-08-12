@@ -35,6 +35,46 @@ final class ManifestTest extends TestCase
         self::assertSame('App\\Atoms\\Shared\\PlayerSnapshot', $join['return']);
     }
 
+    /**
+     * The `websocket` key is a claim the runtime acts on: `false` makes
+     * `GET /ws/:type/:id` a 501 before any Durable Object is touched, so the
+     * build may only assert it when it can actually see that no handler
+     * exists. Discovery parses files rather than loading classes, which is
+     * exactly why the inherited case has to be an omission rather than a
+     * guess.
+     */
+    public function testWebsocketFlagPerAtomShape(): void
+    {
+        $manifest = (new Validator())->validate($this->websocketShapesApp())->manifest;
+
+        $byType = [];
+        foreach ($manifest['atoms'] as $atom) {
+            $byType[$atom['type']] = $atom;
+        }
+
+        self::assertSame(
+            ['Plain', 'Roomish', 'Subroom', 'Talker'],
+            array_keys($byType),
+            'every discovered Atom should appear, ordered by FQCN',
+        );
+
+        // Declares onConnect itself.
+        self::assertTrue($byType['Roomish']['websocket']);
+        // Declares onmessage() — PHP method names are case-insensitive, so
+        // this overrides Atom::onMessage() and the handler really is reachable.
+        self::assertTrue($byType['Talker']['websocket']);
+        // Extends Atoms\Atom directly and declares nothing: a claim the build
+        // can prove.
+        self::assertFalse($byType['Plain']['websocket']);
+        // Extends Roomish, which the generator cannot follow: no key at all,
+        // which the runtime reads as "allowed".
+        self::assertArrayNotHasKey(
+            'websocket',
+            $byType['Subroom'],
+            'an Atom whose parent is not Atoms\\Atom must omit the key, not claim false',
+        );
+    }
+
     public function testMethodsAndJobsAndShared(): void
     {
         $manifest = $this->manifest();

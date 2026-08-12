@@ -7,6 +7,7 @@
     "Counter": {
       "class": "App\\Atoms\\Counter",
       "file": "/app/Counter.php",
+      "websocket": false,
       "migrations": [
         "/app/migrations/001_init.sql",
         "/app/migrations/002_add_stats.sql"
@@ -15,9 +16,34 @@
     "Vault": {
       "class": "App\\Atoms\\Vault",
       "file": "/app/Vault.php",
+      "websocket": false,
       "migrations": [
         "/app/migrations/vault/001_init.sql",
         "/app/migrations/vault/002_ledger.sql"
+      ]
+    },
+    "Room": {
+      "class": "App\\Atoms\\Room",
+      "file": "/app/Room.php",
+      "websocket": true,
+      "migrations": [
+        "/app/migrations/room/001_init.sql"
+      ]
+    },
+    "Scheduler": {
+      "class": "App\\Atoms\\Scheduler",
+      "file": "/app/Scheduler.php",
+      "websocket": false,
+      "migrations": [
+        "/app/migrations/scheduler/001_init.sql"
+      ]
+    },
+    "Boot": {
+      "class": "App\\Atoms\\Boot",
+      "file": "/app/Boot.php",
+      "websocket": false,
+      "migrations": [
+        "/app/migrations/boot/001_init.sql"
       ]
     }
   }

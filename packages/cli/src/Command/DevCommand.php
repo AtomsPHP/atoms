@@ -25,22 +25,23 @@ use Symfony\Component\Console\Output\OutputInterface;
  * why {@see CloudflareTarget::resolve()} is called with `requireCredentials`
  * false here and nowhere else.
  *
- * ## The callback URL is staged, not wired (M2)
+ * ## The callback channel
  *
  * `--callback-url` is passed to the Worker as an `ATOMS_CALLBACK_URL` var, and
- * the Worker currently ignores it. The monolith half of the callback channel is
- * real — `atoms/client`'s `CallbackKernel` verifies Ed25519-signed callbacks
- * today — but the Worker half is `Atom::app()`, which throws
- * `AtomsNotSupported` by design until M2 implements it. Passing the var now
- * means the loopback address is decided and plumbed; nothing calls back through
- * it yet. The command says so at startup rather than implying a working loop.
+ * the Worker calls back through it for `$this->app()` and `$this->dispatch()`.
+ * The signing key is never passed by this command: `ATOMS_CALLBACK_SIGNING_KEY`
+ * must already be in the Worker project's `.dev.vars`, which `wrangler dev`
+ * loads on its own — putting a private key on this command's argv or in a
+ * `--var` flag would put it in the process table and in shell history, which
+ * the CLI-never-holds-a-credential rule exists to prevent. This command only
+ * warns when the key looks to be missing.
  */
 #[AsCommand(name: 'dev', description: 'Run the Atoms Worker locally with wrangler dev')]
 final class DevCommand extends AbstractCommand
 {
     /**
-     * The Worker var carrying the monolith's callback endpoint. Inert until M2;
-     * named now so the Worker half has a name to implement against.
+     * The Worker var carrying the monolith's callback endpoint. The Worker
+     * consumes this for the signed callback channel (`$this->app()`/`dispatch()`).
      */
     public const CALLBACK_VAR = 'ATOMS_CALLBACK_URL';
 
@@ -92,9 +93,14 @@ final class DevCommand extends AbstractCommand
             $output->writeln('Starting wrangler dev on port ' . $port . '…');
             if ($callback !== null) {
                 $output->writeln('  ' . self::CALLBACK_VAR . '=' . $callback);
-                $output->writeln('  <comment>Note: the Worker does not call back yet — Atom::app() and dispatch()</comment>');
-                $output->writeln('  <comment>throw AtomsNotSupported until M2 implements them. The var is plumbed,</comment>');
-                $output->writeln('  <comment>not wired.</comment>');
+                $output->writeln('  The Worker will call back to this URL for $this->app() and $this->dispatch().');
+                if (!$this->hasCallbackSigningKeyConfigured($target)) {
+                    $output->writeln(
+                        '  <comment>Warning: the Worker has no ATOMS_CALLBACK_SIGNING_KEY configured — '
+                        . 'app()/dispatch() will fail with ATOMS-E081. Add it to '
+                        . $target->workerDir . '/.dev.vars.</comment>'
+                    );
+                }
             }
 
             $result = $this->wrangler->dev(
@@ -109,5 +115,24 @@ final class DevCommand extends AbstractCommand
         }
 
         return $result->ok() ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * Best-effort check for an `ATOMS_CALLBACK_SIGNING_KEY` entry in the
+     * Worker project's `.dev.vars` — the only local-dev delivery vehicle for
+     * the signing key, since this command never passes it itself (see the
+     * class docblock). Absence is not fatal here: it is a warning, because
+     * the key may be provisioned some other way this command cannot see.
+     */
+    private function hasCallbackSigningKeyConfigured(CloudflareTarget $target): bool
+    {
+        $path = $target->workerDir . '/.dev.vars';
+        if (!is_file($path)) {
+            return false;
+        }
+
+        $contents = file_get_contents($path);
+
+        return $contents !== false && preg_match('/^\s*ATOMS_CALLBACK_SIGNING_KEY\s*=/m', $contents) === 1;
     }
 }

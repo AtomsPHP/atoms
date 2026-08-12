@@ -57,4 +57,11 @@ enum ErrorCode: string
     case WorkerDirectoryInvalid = 'ATOMS-E076';
     case SecretNotReadable = 'ATOMS-E077';
     case BundlePathTooLong = 'ATOMS-E078';
+    case CallbackChannelNotConfigured = 'ATOMS-E080';
+    case CallbackSigningKeyUnusable = 'ATOMS-E081';
+    case CallbackInTransaction = 'ATOMS-E082';
+    case CallbackRequestFailed = 'ATOMS-E083';
+    case JobNotEncodable = 'ATOMS-E084';
+    case InvalidTimerName = 'ATOMS-E085';
+    case TimerLimitExceeded = 'ATOMS-E086';
 }

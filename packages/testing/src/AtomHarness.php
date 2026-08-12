@@ -56,6 +56,8 @@ final class AtomHarness
     /** @var list<array{channel: string, payload: array<string, mixed>}> */
     private array $broadcasts = [];
 
+    private readonly FakeTimers $timers;
+
     /**
      * @param class-string<TAtom> $atomClass
      */
@@ -63,6 +65,7 @@ final class AtomHarness
     {
         $this->atomClass = $atomClass;
         $this->serializer = new Serializer();
+        $this->timers = new FakeTimers();
     }
 
     /**
@@ -154,6 +157,7 @@ final class AtomHarness
             function (string $channel, array $payload): void {
                 $this->broadcasts[] = ['channel' => $channel, 'payload' => $payload];
             },
+            $this->timers,
         );
 
         $atomClass = $this->atomClass;
@@ -196,6 +200,17 @@ final class AtomHarness
         $database = $this->database;
 
         return $database;
+    }
+
+    /**
+     * The {@see FakeTimers} backing this Atom's `$this->timers()`, for
+     * asserting what was scheduled/cancelled.
+     */
+    public function timers(): FakeTimers
+    {
+        $this->boot();
+
+        return $this->timers;
     }
 
     /**

@@ -32,8 +32,12 @@ npx wrangler dev --port 8799
 ATOMS_BASE_URL=http://127.0.0.1:8799 ATOMS_DEBUG_ENDPOINTS=1 node test/conformance.mjs
 ```
 
-Twelve checks, all of which must pass. Check 12 waits out an eviction, so the
-run takes a couple of minutes. No Cloudflare account is needed for any of this.
+25 checks, all of which must pass (13–17, the callback channel, skip rather
+than fail when no callback listener/turn deadline is configured for the run —
+set `ATOMS_REQUIRE_CALLBACK_CHECKS=1`, as CI does, to make those skips
+failures; see `worker/test/README.md`). Checks 12, 21, 24 and 25 each wait out
+a real eviction, so the run takes a few minutes. No Cloudflare account is
+needed for any of this.
 
 ## Licensing
 

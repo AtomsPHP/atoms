@@ -90,6 +90,29 @@ final class AtomTest extends TestCase
         self::assertSame(1, $atom->deactivations);
     }
 
+    public function testLifecycleInvokerCallsOnTimer(): void
+    {
+        [$atom] = $this->atom();
+
+        self::assertSame([], $atom->timerFires);
+
+        LifecycleInvoker::timer($atom, 'reminder');
+
+        self::assertSame(['reminder'], $atom->timerFires);
+    }
+
+    public function testTimersPassThrough(): void
+    {
+        [$atom, $context] = $this->atom();
+        $at = new \DateTimeImmutable('2026-01-01T00:00:00+00:00');
+
+        $atom->callTimers()->schedule('reminder', $at);
+
+        self::assertSame($context, $atom->callTimers());
+        self::assertEquals($at, $context->scheduledAt('reminder'));
+        self::assertEquals(['reminder' => $at], $context->timers);
+    }
+
     public function testWebSocketHandlersAreOptionalNoops(): void
     {
         [$atom] = $this->atom();
