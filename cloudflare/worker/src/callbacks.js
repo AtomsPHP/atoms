@@ -162,6 +162,27 @@ export class CallbackChannel {
 	}
 
 	/**
+	 * Close the callback window: drop the reference to the window's collector so
+	 * a `dispatch.enqueue` (or a transaction-commit delivery) that somehow
+	 * reaches the bridge BETWEEN windows finds no collector and is refused
+	 * loudly by `enqueueJob()`/`onTransactionCommit()` rather than attaching a
+	 * delivery to a stale, already-settled collector — or silently dropping it.
+	 *
+	 * The mirror of `beginTurn()` setting `this.collector`. `atom-do.js` calls
+	 * it at the exact three seams it clears `turnBudget`: the `finally` of
+	 * `runTurn()`, the `finally` of `activate()`, and `discardPhp()` — always
+	 * AFTER the window's deliveries have been collected (they live on the
+	 * collector object `settleDeliveries()` already holds by reference, so
+	 * nulling this pointer never loses an in-flight delivery). Without it the
+	 * `!this.collector` guards were structurally dead: `collector` was set once
+	 * and never cleared, so the guards could not fire even if the A3 invariant
+	 * broke.
+	 */
+	endWindow() {
+		this.collector = null;
+	}
+
+	/**
 	 * Await every delivery THIS turn's `dispatch()` calls started. Per-turn
 	 * collectors are required (design §4.1): awaiting the wrong one would make
 	 * turn N wait on turn N+1's deliveries, or worse, never settle.
@@ -361,11 +382,16 @@ export class CallbackChannel {
 		const bodyString = /** @type {string} */ (body);
 
 		if (!this.collector) {
-			// Unreachable: every moment guest code can run is inside a callback
-			// window (`beginTurn()`), the activation window included, so a
-			// `dispatch.enqueue` always has a collector to attach its delivery
-			// to. Kept as a loud refusal rather than a silent drop — the sync
-			// door must not throw, and the guest gets a typed failure it can see
+			// Off the happy path: guest code only runs inside a callback window
+			// (`beginTurn()`), the activation window included, so a legitimate
+			// `dispatch.enqueue` always has a collector. But the collector is now
+			// cleared by `endWindow()` the moment each window closes, so this
+			// branch is a GENUINE guard rather than dead code: a dispatch that
+			// reaches the bridge between windows (a broken A3 invariant) finds
+			// `collector === null` and is refused here — loudly — instead of
+			// silently attaching a delivery to a settled window that nothing
+			// would await. Kept as a refusal rather than a throw: the sync door
+			// must not throw, and the guest gets a typed failure it can see
 			// rather than a job that quietly never left.
 			this.log('error', {
 				msg: 'atoms.callback.dispatch_outside_window',
@@ -399,12 +425,15 @@ export class CallbackChannel {
 
 		const collector = this.collector;
 		if (!collector) {
-			// Unreachable for the same reason as `enqueueJob`'s guard: a
+			// A genuine guard for the same reason as `enqueueJob`'s: a
 			// transaction can only be open while guest code is running, which is
-			// always inside a callback window. There is nowhere to attach these
-			// deliveries that anything would await — starting them anyway would
-			// orphan them across the DO event (design §5) — so they are dropped
-			// LOUDLY, one line per job, never silently.
+			// always inside a callback window — but `endWindow()` now nulls the
+			// collector the moment each window closes, so a commit that somehow
+			// lands between windows reaches this branch instead of finding a
+			// stale collector. There is nowhere to attach these deliveries that
+			// anything would await — starting them anyway would orphan them
+			// across the DO event (design §5) — so they are dropped LOUDLY, one
+			// line per job, never silently.
 			for (const { job } of buffered) {
 				this.dispatchFailures++;
 				this.logDeliveryFailure(job, 'no_callback_window', null, 0, null);

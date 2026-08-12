@@ -1492,11 +1492,44 @@ checks.push(async () => {
         return;
     }
 
+    // The activation window's app() leg (park op app.call, X-Atoms-Kind=methods).
+    // Boot.onActivation() calls $this->app()->echoBig(1) BEFORE it dispatches, so
+    // the listener must have seen exactly one signed methods request from the
+    // activation — which also proves the activation budget was re-stamped past
+    // wasm boot + migrations (mvp-spec.md §The turn deadline): under this run's
+    // small ATOMS_TURN_DEADLINE_MS a budget still charged for boot would have
+    // thrown TurnDeadlineExceeded in onActivation and failed the invoke above.
+    const bootMethods = listener.records.filter((r) => r.kind === 'methods');
+    if (bootMethods.length !== 1) {
+        fail(
+            checkNum,
+            name,
+            `the listener saw ${bootMethods.length} app() (methods) requests from onActivation() (expected 1): ` +
+                JSON.stringify(listener.records.map((r) => r.kind))
+        );
+        return;
+    }
+    if (!bootMethods[0].signatureValid) {
+        fail(checkNum, name, "the activation app() call's signature did not verify");
+        return;
+    }
+    if (bootMethods[0].parsed?.method !== 'echoBig' || bootMethods[0].parsed?.atom?.type !== 'Boot') {
+        fail(
+            checkNum,
+            name,
+            `the activation app() call was ${JSON.stringify({
+                method: bootMethods[0].parsed?.method,
+                atom: bootMethods[0].parsed?.atom,
+            })} (expected echoBig on Boot — the app() budget was not fresh past boot+migrations)`
+        );
+        return;
+    }
+
     pass(
         checkNum,
         name,
         'kind=job, signed, args keyed by promoted property name; the turn AND the activation both held their ' +
-            'response until the delivery completed'
+            'response until the delivery completed, and onActivation()’s app() reached the monolith on a fresh budget'
     );
 });
 
@@ -2348,9 +2381,16 @@ checks.push(async () => {
         const WAKE_WINDOW_MS = 6000;
         console.log(`   (watching ${WAKE_WINDOW_MS}ms for the close alone to wake it...)`);
         let afterInfo = null;
+        // Wall-clock just before our first debug read after the close. GET /debug
+        // constructs the DO (constructions bumps in the constructor) even though
+        // it never activates PHP, so the residency we later observe must be shown
+        // to have existed BEFORE this instant — otherwise our own first poll,
+        // not the close, could be what created it (F2 attribution assertion).
+        let firstPollAt = null;
         const wakeDeadline = Date.now() + WAKE_WINDOW_MS;
         for (;;) {
             await new Promise((r) => setTimeout(r, 250));
+            if (firstPollAt === null) firstPollAt = Date.now();
             afterInfo = await debugInfo('Room', id);
             const woke = afterInfo.constructions > beforeInfo.constructions && afterInfo.ws?.turns_this_residency >= 1;
             if (woke || Date.now() >= wakeDeadline) break;
@@ -2382,6 +2422,24 @@ checks.push(async () => {
             problems.push(
                 `ws.connects_this_residency=${afterInfo.ws?.connects_this_residency} (expected 0 — the residency ` +
                     'that ran onDisconnect was created by the close, not by an accept)'
+            );
+        }
+        // The attribution assertion: the wake we observed must NOT be creditable
+        // to our own first debug poll. `resident_ms` is the residency's own age
+        // (`now() - bornAt`); if it is already GREATER than the time elapsed
+        // since our first poll, the residency necessarily existed before that
+        // poll, so the poll did not construct it — the close did. If instead the
+        // first `GET /debug` were what constructed the DO (a slow close-wake),
+        // `resident_ms` would be at most the time since that poll, and this
+        // fails. This is the same shape of honesty guard as the constructions
+        // check above, aimed at the one residency the suite itself could have
+        // manufactured.
+        const sincePoll = Date.now() - firstPollAt;
+        if (!(afterInfo.resident_ms > sincePoll)) {
+            problems.push(
+                `resident_ms=${afterInfo.resident_ms} is not greater than the ${sincePoll}ms since the first debug ` +
+                    'poll — the observed residency was born no earlier than that poll, so this run cannot attribute ' +
+                    'the wake to the close rather than to the poll'
             );
         }
 

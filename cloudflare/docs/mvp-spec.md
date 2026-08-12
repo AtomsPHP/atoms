@@ -440,16 +440,41 @@ Atom stays resident and healthy.
   code on the frozen ABI: it may call `$this->app()` and `$this->dispatch()`
   like any other method, and the runtime supports it. Because it runs during
   the activation gate — before any turn exists — `activate()` opens its own
-  window (a fresh `ATOMS_TURN_DEADLINE_MS` budget and a fresh delivery
-  collector) **before `php.run()` starts**, so the PHP bootstrap, the
-  migrations and `onActivation()` are all inside it, and **settles that
-  collector in a `finally` before `ensureActive()` returns**. Activation-time
-  deliveries are therefore awaited inside the activation event, exactly like a
-  turn's are awaited inside the turn's — the §Worker layout rule that no
-  callback fetch ever runs outside an awaited event has no activation-shaped
-  hole in it. The settle runs inside `blockConcurrencyWhile` and is bounded by
-  `ATOMS_CALLBACK_TIMEOUT_MS`. The activation window's budget is separate from
-  the first turn's: the two never share one.
+  window (a delivery collector and a budget) **before `php.run()` starts**, so
+  the PHP bootstrap, the migrations and `onActivation()` are all inside it, and
+  **settles that collector in a `finally` before `ensureActive()` returns**.
+  Activation-time deliveries are therefore awaited inside the activation event,
+  exactly like a turn's are awaited inside the turn's — the §Worker layout rule
+  that no callback fetch ever runs outside an awaited event has no
+  activation-shaped hole in it. The settle runs inside `blockConcurrencyWhile`
+  and is bounded by `ATOMS_CALLBACK_TIMEOUT_MS`. The activation window's budget
+  is separate from the first turn's: the two never share one.
+  - **The budget's clock is re-stamped past boot.** The window is opened before
+    `php.run()` so the collector exists for the first line of guest code, but
+    `onActivation()` gets a **full, fresh `ATOMS_TURN_DEADLINE_MS`** rather than
+    whatever wasm boot and the migrations left of it: `activate()` resets
+    `budget.startedAt` to `Date.now()` at the first park the guest reaches,
+    which — because no park happens during boot or migrations (the SQL bridge
+    is a sync op) — is the first guest checkpoint after them, either
+    `onActivation()`'s own `app.call` or its `turn.await`. Without the reset a
+    slow boot could hand `onActivation()`'s `app()` an already-thin budget on
+    the very activation whose latency is least predictable.
+  - **Operator invariant — the activation window must fit under the platform's
+    `blockConcurrencyWhile` ceiling.** The gate and its settle both run inside
+    `blockConcurrencyWhile`, whose worst case on defaults is
+    `ATOMS_ACTIVATION_TIMEOUT_MS` (20000) waiting for the first park **plus**
+    `ATOMS_CALLBACK_TIMEOUT_MS` (10000) settling activation deliveries — and, if
+    `onActivation()` calls `app()`, a further `ATOMS_TURN_DEADLINE_MS` of
+    callback awaiting on top. Cloudflare resets a Durable Object whose
+    `blockConcurrencyWhile` runs past roughly 30s **rather than surfacing a
+    clean activation error** (the documented ceiling; the CPU-limit reset in
+    appendix item 3 is the same failure mode from the CPU side). Operators must
+    therefore keep `ATOMS_ACTIVATION_TIMEOUT_MS + ATOMS_CALLBACK_TIMEOUT_MS`
+    (`+ ATOMS_TURN_DEADLINE_MS` when `onActivation()` uses `app()`) comfortably
+    under that ceiling; the defaults do (30s exactly for a non-`app()`
+    activation, so a callback-using `onActivation()` needs a reduced
+    `ATOMS_TURN_DEADLINE_MS`). This is a derived bound from the documented
+    ceiling, not a fresh measurement (§Appendix).
 - **A budget never outlives its window.** It is cleared at the end of
   `runTurn()`, at the end of `activate()`, and in `discardPhp()`. This is not
   hygiene: `exhausted` **latches** (below), so a budget carried into the next
@@ -666,7 +691,10 @@ in PHP against the manifest.
   `__atoms_meta` (canonical type, id, abi versions), applies pending
   migrations via the real `Atoms\Migrations\Migrator` inside a transaction,
   constructs the customer Atom (`new $class($id, $context)`), calls
-  `LifecycleInvoker::activate()`, then parks at `turn.await`.
+  `LifecycleInvoker::activate()`, then parks at `turn.await`. `onActivation()`'s
+  callback budget is stamped at that first park, so it is not charged for boot
+  or migrations, and the whole gate must stay under the platform's
+  `blockConcurrencyWhile` ceiling (§The turn deadline, operator invariant).
 - Mismatched stored type/id vs request → 409, no PHP dispatch.
 - Turns are strictly serialized with a promise-chain mutex in the DO.
 - A turn: resume parked loop with the invoke envelope → PHP dispatches to the
@@ -973,18 +1001,28 @@ connection is the opposite: a **silent success**, because asking an
 already-closed thing to close got the outcome the caller wanted (and a second
 platform-level `close()` does not throw either — measured, §Appendix).
 
-**`onDisconnect` fires at most once per connection, ever.** The platform may
-deliver `webSocketError` *and* `webSocketClose` for the same socket, and a
-close that arrives while the residency is hibernating wakes it (measured —
-§Appendix — and pinned by conformance check 25). The host de-duplicates on the
-connection id in a **residency-lived** set: an entry is added when a
-disconnect event is accepted and is **never removed** while the residency
-lives. Removing it when the event finishes would defeat the guard entirely,
-because the second of the two events arrives *after* the first has completed.
-The set is unbounded only in the sense that connection ids are UUIDs of
-sockets that have already gone, and it dies with the residency — which is
-exactly the lifetime the platform guarantees both events land inside. An
-inbound frame whose connection is already in that set is **dropped**, not
+**`onDisconnect` fires at most once per residency.** The platform *may* deliver
+`webSocketError` *and* `webSocketClose` for the same socket; the host
+de-duplicates on the connection id in a **residency-lived** set — an entry is
+added when a disconnect event is accepted and is **never removed** while the
+residency lives. Removing it when the event finishes would defeat the guard
+entirely, because the second of two events arrives *after* the first has
+completed. The set is unbounded only in the sense that connection ids are UUIDs
+of sockets that have already gone, and it dies with the residency.
+
+The honest scope of the guarantee is one residency, not "ever": the de-dupe
+set is in-memory and best-effort, so it holds *within* a residency but cannot
+span one. In practice both events for a socket land inside the same residency —
+measured (§Appendix, M12), an abrupt client disconnect delivers only a single
+`webSocketClose(1006)`, no separate `webSocketError`, so the common case fires
+`onDisconnect` exactly once with nothing to de-dupe. A **second** `onDisconnect`
+for one socket would require the platform to deliver `webSocketError` *and*
+`webSocketClose` **with an eviction landing between them** — the wake path
+reconstructs the DO with an empty set, so the second event is no longer seen as
+a duplicate. That is a real but narrow best-effort gap, not a guarantee it
+cannot happen. A close that arrives while the residency is hibernating still
+wakes it (measured — §Appendix — and pinned by conformance check 25). An
+inbound frame whose connection is already in the set is **dropped**, not
 dispatched: `onMessage` after `onDisconnect` is an ordering the ABI does not
 allow.
 
@@ -1126,16 +1164,20 @@ See `docs/cloudflare-toolchain.md` §3.
   which throws instead (proves at-most-once consumption of a failing timer),
   and `chain-1`, which reschedules `chain-2` from inside `onTimer` itself.
 - `Boot` — a fixture whose whole subject is `onActivation()`. Its hook reads a
-  durable row count, writes a `boot_activations` row, and **unconditionally**
-  `dispatch()`es `App\Jobs\Notify`; `ping()` returns the activation count. It
-  is a separate type for the same reason `Room` is: a dispatch added to
-  `Counter`/`Vault` would perturb the exact residency counters and listener
-  record counts checks 3/11/12/16/17 assert. The dispatch is deliberately not
-  wrapped in a `try`/`catch` — a runtime that cannot serve `dispatch()` from
-  `onActivation()` must fail this Atom's activation loudly. Consequence,
-  stated so it is not mistaken for a bug: with no callback channel configured,
-  `Boot` does not activate, and only check 16 (which skips without a listener)
-  uses it.
+  durable row count, **unconditionally** calls `app()->echoBig(1)`, writes a
+  `boot_activations` row, and **unconditionally** `dispatch()`es
+  `App\Jobs\Notify`; `ping()` returns the activation count. It is a separate
+  type for the same reason `Room` is: a dispatch added to `Counter`/`Vault`
+  would perturb the exact residency counters and listener record counts checks
+  3/11/12/16/17 assert. Neither the `app()` nor the `dispatch()` is wrapped in
+  a `try`/`catch` — a runtime that cannot serve them from `onActivation()` must
+  fail this Atom's activation loudly. The `app()` leg additionally exercises the
+  activation budget being stamped fresh past boot+migrations (§The turn
+  deadline): under check 16's small `ATOMS_TURN_DEADLINE_MS` a budget still
+  charged for boot would leave `app()` no time and throw. Consequence, stated so
+  it is not mistaken for a bug: `Boot` is channel-required — with no callback
+  channel configured it does not activate, and only check 16 (which skips
+  without a listener) uses it.
 - `App\Jobs\Notify` (`fixtures/counter/app/Jobs/Notify.php`) — an `AtomJob`
   with promoted public `$atomId`/`$note` properties, the dispatch contract
   `dispatch()`'s encoder and `CallbackKernel::constructJob()` must agree on.
@@ -1240,10 +1282,14 @@ a further wake window. The first request afterwards is a passive
 `GET /debug/.../info` (which never activates PHP): `constructions` must have
 grown, `ws.turns_this_residency` must be ≥ 1 — nothing but the close could
 have produced a WebSocket turn — and `ws.connects_this_residency` must be 0,
-because a wake is not an accept. `onDisconnect` must then read as having fired
-exactly once, and `onConnect` not to have re-run. Check 21 cannot cover this:
-it sends a frame across the eviction first, so its close lands on a residency
-that is warm again.
+because a wake is not an accept. Because `GET /debug` *constructs* the DO even
+though it never activates PHP, the check also records the wall-clock instant of
+its first poll and asserts the observed residency's `resident_ms` exceeds the
+time elapsed since it — i.e. the residency was already alive before that poll,
+so the poll cannot have been what created it and the close therefore was.
+`onDisconnect` must then read as having fired exactly once, and `onConnect` not
+to have re-run. Check 21 cannot cover this: it sends a frame across the eviction
+first, so its close lands on a residency that is warm again.
 
 **21, 24 and 25 all reuse the same unshortened `ATOMS_EVICTION_WAIT_MS`**
 check 12 uses — they are the hibernation-honesty gates for the WebSocket,
@@ -1402,7 +1448,22 @@ otherwise unchanged and still binding.
      re-constructs the object, re-activates PHP and runs the `ws.close` turn.
      This was V2, and conformance check 25 pins it — check 21 could not,
      because it sends a frame across the eviction first and is therefore warm
-     again by the time it closes.
+     again by the time it closes. Check 25 additionally asserts the woken
+     residency's `resident_ms` exceeds the time since the suite's own first
+     `GET /debug`, so a wake that were actually manufactured by that poll (which
+     constructs the DO) cannot pass as the close's.
+   - **An abrupt disconnect delivers only `webSocketClose(1006, false)` (M12).**
+     A client that vanishes without a close handshake surfaces as a single
+     `webSocketClose` with code 1006 and `wasClean=false`, **not** a separate
+     `webSocketError`; `webSocketError` fires only on a genuine transport error.
+     So in the common case `onDisconnect` fires exactly once with nothing to
+     de-dupe. The double-delivery the platform documents (`webSocketError` *and*
+     `webSocketClose` for one socket) is what the residency-lived de-dupe set in
+     §The WebSocket seam guards — and the reason that guarantee is scoped "at
+     most once per residency," not "ever": only an eviction landing *between*
+     those two events, which rebuilds the DO with an empty set, could yield a
+     second `onDisconnect`. Best-effort, in-memory, not guaranteed against that
+     narrow interleaving.
    - **Local workerd fires Durable Object alarms, and a due alarm
      re-activates an evicted DO** — the mechanism §Timers depends on for
      "the alarm wakes an evicted residency with no HTTP request involved at

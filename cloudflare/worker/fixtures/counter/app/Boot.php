@@ -24,14 +24,20 @@ use Atoms\Atom;
  * counters and exact listener record counts that a new dispatch on those types
  * would perturb.
  *
- * The dispatch is unconditional and is deliberately NOT wrapped in a try/catch.
- * A runtime that cannot serve `dispatch()` from `onActivation()` must fail this
- * Atom's activation loudly — the defect this fixture exists to pin (a
- * `bad_host_message` refusal that escaped as a bootstrap fatal) bricked the
- * residency permanently, and swallowing it here would hide exactly that.
- * Consequence, stated so it is not mistaken for a bug: with no callback channel
- * configured, Boot does not activate at all. Only conformance check 16 uses it,
- * and that check skips without a listener.
+ * The app() call and the dispatch() are BOTH unconditional and deliberately
+ * NOT wrapped in a try/catch. A runtime that cannot serve `app()`/`dispatch()`
+ * from `onActivation()` must fail this Atom's activation loudly — the defect
+ * this fixture exists to pin (a `bad_host_message` refusal that escaped as a
+ * bootstrap fatal) bricked the residency permanently, and swallowing it here
+ * would hide exactly that. The `app()` leg additionally proves the activation
+ * budget is a FRESH `ATOMS_TURN_DEADLINE_MS` measured from after wasm boot and
+ * migrations, not whatever those left of it: with the tiny deadline check 16
+ * runs under (2000ms), an activation budget still charged for boot would leave
+ * app() no time and throw `TurnDeadlineExceeded` here, failing activation.
+ * Consequence, stated so it is not mistaken for a bug: Boot is a channel-required
+ * fixture — with no callback channel configured it does not activate at all.
+ * Only conformance check 16 uses it, and that check skips without a listener,
+ * so no channel-less run ever reaches this hook.
  */
 final class Boot extends Atom
 {
@@ -56,13 +62,22 @@ final class Boot extends Atom
     }
 
     /**
-     * Read durable state, write durable state, and dispatch a job — in that
-     * order, so the job is dispatched from a hook that has already proved the
-     * SQL bridge works during activation.
+     * Read durable state, call the monolith over the callback channel, write
+     * durable state, and dispatch a job — in that order. The `app()` call comes
+     * first so the round trip it makes (a full signed callback POST) happens on
+     * the activation budget, which check 16 relies on being freshly stamped
+     * after boot+migrations; the job is dispatched last, from a hook that has
+     * already proved both the callback channel and the SQL bridge work during
+     * activation.
      */
     protected function onActivation(): void
     {
         $seen = $this->activationCount();
+
+        // Exercises the activation callback WINDOW's app() path (park op
+        // `app.call`), the leg check 16 asserts the monolith saw. The Method
+        // name matches the conformance listener's `echoBig` handler.
+        $this->app()->echoBig(1);
 
         $this->db()->execute(
             'INSERT INTO boot_activations (atom_id, activated_at) VALUES (?, ?)',

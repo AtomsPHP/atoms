@@ -26,6 +26,15 @@ final class BundleBridgeTest extends TestCase
 {
     private const FIXTURE = 'packages/cli/tests/Fixtures/sample-app';
 
+    /**
+     * Four Atom shapes exercising every answer the manifest's `websocket` key
+     * can give — declared / directly-extends-Atom-with-none / inherited-and-
+     * unknowable / case-variant handler name. See ManifestTest for the
+     * generator side; this test drives the SAME fixture through the real
+     * bridge, which is the piece ManifestTest cannot see.
+     */
+    private const WS_FIXTURE = 'packages/cli/tests/Fixtures/ws-app';
+
     public function testCliBundleTranslatesIntoALoadableWorkerBundle(): void
     {
         $repo = \dirname(__DIR__, 2);
@@ -86,6 +95,89 @@ final class BundleBridgeTest extends TestCase
         self::assertStringNotContainsString('/app/app/Atoms/GameRoom/Methods.php', $module);
 
         self::rmrf($outDir);
+    }
+
+    /**
+     * The `websocket` tri-state must survive the bridge unchanged. The failure
+     * this pins: `bundle-from-cli.mjs` briefly wrote `websocket: atom.websocket
+     * === true`, which coerced the CLI's OMITTED key (the inherited-handler
+     * case ManifestGenerator declines to answer) into a definite `false`. The
+     * runtime refuses `websocket === false` with a 501 before any Durable
+     * Object is touched, so that collapse resurrected a wrongful 501 on the
+     * real `atoms deploy` path — on a type whose onConnect works perfectly.
+     */
+    public function testTheWebsocketTriStateSurvivesTheBridgeIncludingAnInheritedHandler(): void
+    {
+        $repo = \dirname(__DIR__, 2);
+        $node = (new \Symfony\Component\Process\ExecutableFinder())->find('node');
+        if ($node === null) {
+            self::markTestSkipped('node is not on PATH; the Worker bundle is built by a Node script.');
+        }
+
+        $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
+        $built = (new Builder())->build(AtomsJson::load($repo . '/' . self::WS_FIXTURE . '/atoms.json'), $outDir, fast: true);
+
+        $output = $outDir . '/bundle.generated.js';
+        $process = new \Symfony\Component\Process\Process(
+            [$node, $repo . '/cloudflare/worker/scripts/bundle-from-cli.mjs', $built->bundlePath, $built->manifestPath, $output],
+            $repo . '/cloudflare/worker',
+        );
+        $process->run();
+
+        self::assertSame(
+            0,
+            $process->getExitCode(),
+            "bundle-from-cli.mjs failed:\n" . $process->getErrorOutput(),
+        );
+
+        $module = (string) file_get_contents($output);
+
+        // Subroom extends Roomish (not Atoms\Atom), so its onConnect is INHERITED
+        // and unknowable to a file-parsing discovery: ManifestGenerator OMITS the
+        // key, and the bridge must preserve that absence. If the bridge collapses
+        // it to `false`, GET /ws/Subroom/:id would 501 before any DO.
+        self::assertStringContainsString('"Subroom": {', $module);
+        self::assertStringNotContainsString(
+            'websocket',
+            self::atomEntry($module, 'Subroom'),
+            'an inherited handler must OMIT the websocket key through the bridge, not have it collapsed to false',
+        );
+
+        // The other three shapes carry through with their definite value: Plain
+        // (extends Atoms\Atom directly, no handler) is a provable `false`;
+        // Roomish (declares onConnect) and Talker (declares onmessage, a
+        // case-variant that still overrides) are `true`.
+        self::assertStringContainsString('"websocket": false', self::atomEntry($module, 'Plain'));
+        self::assertStringContainsString('"websocket": true', self::atomEntry($module, 'Roomish'));
+        self::assertStringContainsString('"websocket": true', self::atomEntry($module, 'Talker'));
+
+        // Belt and braces on the collapse specifically: the only provable
+        // `false` in this app is Plain's. A second one would mean Subroom's
+        // omission was manufactured back into a claim.
+        self::assertSame(
+            1,
+            substr_count($module, '"websocket": false'),
+            'exactly one Atom (Plain) may carry a proven websocket:false; a second means an omitted key was collapsed',
+        );
+
+        self::rmrf($outDir);
+    }
+
+    /**
+     * The `{ ... }` block for one Atom entry in the generated bundle's
+     * `manifest.atoms` map. Atom values contain no nested objects (class/file
+     * are strings, migrations is an array of string paths), so a single
+     * brace-free capture is exact.
+     */
+    private static function atomEntry(string $module, string $type): string
+    {
+        self::assertSame(
+            1,
+            preg_match('/"' . preg_quote($type, '/') . '": \{([^{}]*)\}/', $module, $m),
+            "atom {$type} should appear exactly once in the bridge output",
+        );
+
+        return $m[1];
     }
 
     public function testTranslatorRefusesAnArchiveWhoseContentsDoNotMatchTheManifest(): void

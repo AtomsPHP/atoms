@@ -638,8 +638,12 @@ export class AtomDurableObject extends DurableObject {
 			// The window closes with the turn. A budget left set here would be
 			// found by the NEXT window's guest code already spent — and
 			// `exhausted` latches, so the damage would be permanent rather than
-			// transient (design §2.2, "reset on the next beginTurn()").
+			// transient (design §2.2, "reset on the next beginTurn()"). The
+			// collector is dropped in the same breath (endWindow): a dispatch
+			// that reaches the bridge between windows must hit the "no collector"
+			// refusal, not attach to this settled one.
 			this.turnBudget = null;
+			this.callbacks.endWindow();
 		}
 
 		if (!next) {
@@ -828,6 +832,16 @@ export class AtomDurableObject extends DurableObject {
 					this.runError ?? 'the PHP bootstrap never parked within the activation budget'
 				);
 			}
+			// Re-stamp the activation budget's clock to NOW. The window was opened
+			// before php.run() so it would exist before any guest code, but wasm
+			// boot and the migrations run inside php.run() ahead of onActivation,
+			// and they must not be charged to onActivation's app() budget. No park
+			// happens during boot or migrations (the SQL bridge is a sync op), so
+			// this first park is the first guest checkpoint AFTER them — either
+			// onActivation's own app.call or its final turn.await. Resetting
+			// startedAt here hands onActivation a FULL, fresh ATOMS_TURN_DEADLINE_MS
+			// exactly as §The turn deadline claims, instead of whatever boot left.
+			if (this.turnBudget) this.turnBudget.startedAt = now();
 			const parked = await this.serviceParks(first);
 			if (!parked) {
 				throw new AtomsError('internal', this.runError ?? 'the PHP bootstrap exited before its first turn.await');
@@ -849,6 +863,9 @@ export class AtomDurableObject extends DurableObject {
 			// activation error.
 			await this.settleDeliveries(activationCollector);
 			this.turnBudget = null;
+			// Deliveries are settled; drop the collector so nothing can attach to
+			// it between the activation window and the first turn window.
+			this.callbacks.endWindow();
 		}
 	}
 
@@ -1028,8 +1045,10 @@ export class AtomDurableObject extends DurableObject {
 		this.activationPromise = null;
 		// Whatever window was open died with the PHP instance. Leaving the
 		// budget behind would hand the next residency's first guest code a
-		// latched, already-exhausted one.
+		// latched, already-exhausted one; leaving the collector behind would let
+		// a stray dispatch attach a delivery to a window that no longer exists.
 		this.turnBudget = null;
+		this.callbacks.endWindow();
 		this.tx.reset();
 		// The connId -> socket memo is residency-local and must not outlive the
 		// PHP instance it was warmed for (design §5/§7E) — but the sockets
