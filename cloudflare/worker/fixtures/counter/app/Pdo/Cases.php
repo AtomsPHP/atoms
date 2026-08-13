@@ -2019,7 +2019,7 @@ final class Cases
                 'FETCH_CLASS | FETCH_CLASSTYPE where the CLASSNAME column itself is duplicated',
                 static function (\PDO $p) {
                     $stmt = $p->query(
-                        "SELECT 'App\\\\Pdo\\\\Fixtures\\\\Row' AS classname, 'bogus-classname' AS classname, "
+                        "SELECT 'App\\Pdo\\Fixtures\\Row' AS classname, 'bogus-classname' AS classname, "
                         . "k, i, r, s, n FROM probe_rows WHERE k = 'a'"
                     );
 
@@ -2249,6 +2249,20 @@ final class Cases
                 'PDO::sqliteCreateCollation()',
                 'same reasoning as sqlite_create_function',
                 static fn (\PDO $p) => $p->sqliteCreateCollation('probe_col', static fn ($a, $b) => strcmp($a, $b))
+            ),
+            self::c(
+                'stmt.pragma_column_count',
+                $g,
+                'PDOStatement::columnCount()',
+                'columnCount() on an intercepted PRAGMA result',
+                // M1 review round 3, R1 (FIX): the bridge's rows-mode PRAGMA
+                // replies previously omitted `columns` entirely, so
+                // columnCount() on `PRAGMA user_version` answered 0 where real
+                // pdo_sqlite answers 1. columnCount() only (not fetchColumn())
+                // deliberately, so this case cannot flake on the VALUE — our
+                // user_version lives in __atoms_meta while the comparator has
+                // its own native user_version, and those need not agree.
+                static fn (\PDO $p) => $p->query('PRAGMA user_version')->columnCount()
             ),
         ];
     }

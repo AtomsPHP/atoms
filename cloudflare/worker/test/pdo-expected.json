@@ -51,7 +51,7 @@
     },
     "dup.classtype": {
       "class": "refused_by_us",
-      "why": "FETCH_CLASS | FETCH_CLASSTYPE reads the class name from the FIRST column positionally (M1 review round 2, R1); when that column's own name is duplicated, this shim now refuses rather than risk answering from a value the wire's last-wins collapse may have silently substituted. Real pdo_sqlite answers a value here (falling back to stdClass, since the classname column's resolved value did not name a real class in this seeded case) — refused_by_us records that ours declines to guess which occurrence a real driver would have honoured in general, rather than relying on this one seed's coincidence."
+      "why": "FETCH_CLASS | FETCH_CLASSTYPE reads the class name from the FIRST column positionally (M1 review round 2, R1); when that column's own name is duplicated, this shim now refuses rather than risk answering from a value the wire's last-wins collapse may have silently substituted. Measured: real pdo_sqlite genuinely hydrates an App\\Pdo\\Fixtures\\Row instance from the first occurrence's value, with the object's own `classname` property left holding the SECOND occurrence's value ('bogus-classname') because property hydration collapses duplicate names the ordinary last-wins way, independent of the classtype resolution that reads column 0 positionally — refused_by_us records that ours declines to guess which occurrence a real driver would have honoured in general, rather than relying on this seed happening to name a resolvable class."
     },
     "dup.fetch_column_index_1": {
       "class": "refused_by_us",

@@ -441,7 +441,7 @@ export class Bridge {
 				const stored = Number(this.metaGet(META_KEYS.userVersion) ?? '0');
 				const version = Number.isFinite(stored) ? Math.trunc(stored) : 0;
 				return mode === 'rows'
-					? ok({ rows: [{ user_version: version }], ...empty, rows_read: 1 })
+					? ok({ rows: [{ user_version: version }], columns: ['user_version'], ...empty, rows_read: 1 })
 					: ok({ ...empty, rows_read: 1 });
 			}
 			if (!/^-?\d+$/.test(pragma.value)) {
@@ -450,7 +450,13 @@ export class Bridge {
 				});
 			}
 			this.metaSet(META_KEYS.userVersion, String(Math.trunc(Number(pragma.value))));
-			return mode === 'rows' ? ok({ rows: [], ...empty }) : ok(empty);
+			// Real pdo_sqlite reports columnCount() == 0 for the write form
+			// `PRAGMA user_version = N` — unlike the read form above and unlike
+			// `PRAGMA busy_timeout = N` below, which does echo a row back. `columns`
+			// must still be present (as `[]`): AtomsStatement::execute() reads
+			// $result['columns'] unconditionally, and a missing key would be a
+			// fatal (count() on null), not merely a wrong count.
+			return mode === 'rows' ? ok({ rows: [], columns: [], ...empty }) : ok(empty);
 		}
 
 		if (!SYNTHETIC_PRAGMAS.has(pragma.name)) return null;
@@ -469,7 +475,9 @@ export class Bridge {
 				row = { timeout: pragma.value !== null && /^\d+$/.test(pragma.value) ? Number(pragma.value) : 0 };
 				break;
 		}
-		return mode === 'rows' ? ok({ rows: [row], ...empty, rows_read: 1 }) : ok({ ...empty, rows_read: 1 });
+		return mode === 'rows'
+			? ok({ rows: [row], columns: [pragma.name === 'busy_timeout' ? 'timeout' : pragma.name], ...empty, rows_read: 1 })
+			: ok({ ...empty, rows_read: 1 });
 	}
 
 	/**
