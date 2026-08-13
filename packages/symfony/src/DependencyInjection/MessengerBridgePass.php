@@ -15,8 +15,6 @@ use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 use Symfony\Component\Messenger\MessageBusInterface;
 
 /**
- * @internal Phase 1 layering test — not yet a supported product
- *
  * Upgrades the QueueBridge from the bundle's NullQueueBridge default to
  * MessengerQueueBridge, but only when both conditions hold: symfony/messenger
  * is installed (interface_exists) AND the app has registered a message bus

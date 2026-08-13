@@ -9,8 +9,6 @@ use GuzzleHttp\Psr7\HttpFactory;
 use Psr\Http\Client\ClientInterface;
 
 /**
- * @internal Phase 1 layering test — not yet a supported product
- *
  * Lazy factories for the bundle's Guzzle-backed defaults. The bundle itself
  * declares no hard dependency on a concrete PSR-18/17 implementation (that
  * choice stays the app's, mirroring atoms/client's framework-free design —

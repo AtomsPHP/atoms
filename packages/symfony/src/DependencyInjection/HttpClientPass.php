@@ -9,8 +9,6 @@ use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 
 /**
- * @internal Phase 1 layering test — not yet a supported product
- *
  * Resolves the `atoms.http_client` alias at the compiler-pass phase — after
  * every bundle's extension has already loaded — so it never matters whether
  * this bundle or the one defining Psr\Http\Client\ClientInterface registers

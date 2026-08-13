@@ -1,6 +1,6 @@
 {
     "name": "atoms/symfony",
-    "description": "Symfony bundle for Atoms (Phase 1 internal skeleton — a layering test, not yet a supported product).",
+    "description": "Symfony bundle for Atoms: AtomsClient, the inbound callback stack, PSR-17/18 resolution, a Messenger queue bridge, and console wrappers around the atoms binary.",
     "version": "0.1.0",
     "license": "MIT",
     "type": "symfony-bundle",
@@ -8,14 +8,20 @@
     "require": {
         "php": "^8.3",
         "atoms/client": "^0.1",
+        "psr/container": "^1.1 || ^2.0",
+        "psr/http-factory": "^1.0",
+        "psr/http-message": "^1.1 || ^2.0",
+        "psr/log": "^2.0 || ^3.0",
         "symfony/config": "^6.4 || ^7.0",
         "symfony/dependency-injection": "^6.4 || ^7.0",
-        "symfony/http-kernel": "^6.4 || ^7.0"
+        "symfony/http-foundation": "^6.4 || ^7.0",
+        "symfony/http-kernel": "^6.4 || ^7.0",
+        "symfony/routing": "^6.4 || ^7.0"
     },
     "suggest": {
         "symfony/messenger": "Routes AtomJob callbacks through Messenger (MessengerQueueBridge); without it, NullQueueBridge throws on first use",
         "symfony/console": "Registers the atoms:deploy / atoms:rollback / atoms:list console wrappers",
-        "guzzlehttp/psr7": "Default PSR-17 factory, and the (bridge-free) PSR-7 conversion used by CallbackController",
+        "guzzlehttp/psr7": "Default PSR-17 factory when psr17_factory isn't configured and the app defines no factory service of its own",
         "guzzlehttp/guzzle": "Default PSR-18 client used when no atoms.http_client / ClientInterface service is configured"
     },
     "autoload": {

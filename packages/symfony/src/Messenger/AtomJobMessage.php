@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Atoms\Symfony\Messenger;
 
 /**
- * @internal Phase 1 layering test — not yet a supported product
- *
  * Wire envelope for an AtomJob dispatched through Symfony Messenger. Carries
  * the job's class name and its normalized (JSON-safe) constructor arguments —
  * never the object graph itself — so the message can safely cross Messenger

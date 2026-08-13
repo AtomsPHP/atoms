@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Atoms\Symfony\Tests\Controller;
 
+use Atoms\Client\Callback\CallbackKernelFactory;
 use Atoms\Symfony\AtomsBundle;
 use Atoms\Symfony\Controller\CallbackController;
+use GuzzleHttp\Psr7\HttpFactory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\HttpFoundation\Request;
@@ -111,5 +113,29 @@ final class CallbackControllerTest extends TestCase
         self::assertSame(401, $response->getStatusCode());
         $body = json_decode((string) $response->getContent(), true);
         self::assertSame('ATOMS-E064', $body['error']['code']);
+    }
+
+    /**
+     * The bundle isn't the only way to build this controller: its constructor
+     * takes plain PSR-17 interfaces, so any implementation — here Guzzle's,
+     * the bundle's own Guzzle-backed default and a root dev dependency —
+     * wires up directly, with no DI container involved at all.
+     */
+    public function testControllerConstructsDirectlyFromAnyPsr17Implementation(): void
+    {
+        $factory = new HttpFactory();
+        $kernel = CallbackKernelFactory::create(base64_encode($this->publicKey), $factory, $factory);
+        $controller = new CallbackController($kernel, $factory, $factory);
+
+        $request = $this->signedRequest('methods', [
+            'atom' => ['type' => \Atoms\Symfony\Tests\Fixtures\GameRoom::class, 'id' => 'g-1'],
+            'method' => 'add',
+            'args' => [2, 3],
+        ]);
+
+        $response = $controller($request);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(['result' => 5], json_decode((string) $response->getContent(), true));
     }
 }
