@@ -73,6 +73,20 @@ final class Normalize
             return self::throwable($v);
         }
 
+        if ($v instanceof \Closure) {
+            // M1 review round 2, R11: a Closure is an object, so without this
+            // arm it would fall into self::object() below and normalize as
+            // an (empty — Closures have no declared properties) object tree
+            // instead of failing loudly. Nothing in the matrix should ever
+            // produce one (design §2.4, the same rule resources/comment
+            // below already states for the truly-unnormalizable fallthrough);
+            // a case that returns one is a harness bug, not a value to
+            // compare, so this throws to classify as 'error' the same way.
+            throw new \RuntimeException(
+                'Normalize::value() cannot normalize a Closure — the matrix must never produce one'
+            );
+        }
+
         if (is_object($v)) {
             return self::object($v);
         }

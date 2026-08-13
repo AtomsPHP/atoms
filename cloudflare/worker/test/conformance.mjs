@@ -103,14 +103,22 @@ function fail(checkNum, name, msg = '') {
  * asserted the prerequisite exists" flag: when it is set, a skip means the
  * harness is broken rather than the check inapplicable — so it fails instead.
  * Check 29 passes `REQUIRE_SQL_CAP_CHECKS` for its own, independent gate.
+ *
+ * `envVar` (M1 review round 2, R12) names the specific environment variable
+ * whose absence caused the skip, so a reader of the failure/skip line (or of
+ * `results`) is told exactly what to set, rather than a generic "unavailable"
+ * that leaves them re-reading this file's setup docs to find it. Optional:
+ * some skips (e.g. a missing `test/.callback-key.json`, not itself an env
+ * var) have no single variable to name and pass none.
  */
-function skip(checkNum, name, msg = '', require_ = REQUIRE_CALLBACK_CHECKS) {
+function skip(checkNum, name, msg = '', require_ = REQUIRE_CALLBACK_CHECKS, envVar = null) {
+    const full = envVar ? `${msg} (env var: ${envVar})` : msg;
     if (require_) {
-        fail(checkNum, name, `${msg || 'unavailable'} — but the run asserted this must be available, so this must run`);
+        fail(checkNum, name, `${full || 'unavailable'} — but the run asserted this must be available, so this must run`);
         return;
     }
-    results.push({ checkNum, name, status: 'SKIP', msg });
-    console.log(`⊘ CHECK ${checkNum}: ${name} — skipped${msg ? ` (${msg})` : ''}`);
+    results.push({ checkNum, name, status: 'SKIP', msg: full });
+    console.log(`⊘ CHECK ${checkNum}: ${name} — skipped${full ? ` (${full})` : ''}`);
 }
 
 /** Make an HTTP request. */
@@ -1244,7 +1252,13 @@ checks.push(async () => {
     const checkNum = 13;
     const name = 'app() round trip, int64-exact';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener — test/.callback-key.json is missing; run via `npm run dev:callback`');
+        skip(
+            checkNum,
+            name,
+            'no callback listener — test/.callback-key.json is missing; run via `npm run dev:callback`',
+            REQUIRE_CALLBACK_CHECKS,
+            'ATOMS_CALLBACK_PORT'
+        );
         return;
     }
 
@@ -1299,7 +1313,7 @@ checks.push(async () => {
     const checkNum = 14;
     const name = 'app() rejected inside a transaction';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener');
+        skip(checkNum, name, 'no callback listener', REQUIRE_CALLBACK_CHECKS, 'ATOMS_CALLBACK_PORT');
         return;
     }
 
@@ -1342,7 +1356,7 @@ checks.push(async () => {
     const checkNum = 15;
     const name = 'deadline overrun (uncaught 504, caught + budget latched)';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener');
+        skip(checkNum, name, 'no callback listener', REQUIRE_CALLBACK_CHECKS, 'ATOMS_CALLBACK_PORT');
         return;
     }
     if (!TURN_DEADLINE_MS) {
@@ -1457,7 +1471,7 @@ checks.push(async () => {
     const checkNum = 16;
     const name = 'dispatch() awaited before the response, signed, kind=job — from a turn and from onActivation()';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener');
+        skip(checkNum, name, 'no callback listener', REQUIRE_CALLBACK_CHECKS, 'ATOMS_CALLBACK_PORT');
         return;
     }
 
@@ -1611,7 +1625,7 @@ checks.push(async () => {
     const checkNum = 17;
     const name = 'dispatch() transaction semantics (buffer/drop/deliver)';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener');
+        skip(checkNum, name, 'no callback listener', REQUIRE_CALLBACK_CHECKS, 'ATOMS_CALLBACK_PORT');
         return;
     }
 
@@ -2819,6 +2833,27 @@ checks.push(async () => {
                 `informational case-id set must be EXACTLY ${JSON.stringify([...INFORMATIONAL_IDS])}: ` +
                     `unexpected=${JSON.stringify(unexpected)} missing=${JSON.stringify(missing)}`
             );
+        }
+    }
+
+    // M1 review round 2, R8: case ids must be globally unique BEFORE any
+    // pin rule runs. A duplicate id would let two DIFFERENT cases share one
+    // pin-file entry — pin rule 1 could pass with one of the pair silently
+    // unpinned, and pin rule 2 could pass while masking a stale pin, both
+    // because `pins[c.id]` and `byId.get(pinId)` (below) can only ever see
+    // ONE of the colliding cases. Checked here, before pin rule 1, so a
+    // collision fails with its OWN clear message rather than surfacing (or
+    // not) as a confusing pin-rule mismatch.
+    if (problems.length === 0) {
+        const ids = allCases.map((c) => c.id);
+        if (new Set(ids).size !== ids.length) {
+            const seen = new Set();
+            const dupes = new Set();
+            for (const id of ids) {
+                if (seen.has(id)) dupes.add(id);
+                seen.add(id);
+            }
+            problems.push(`duplicate case id(s), must be globally unique: ${[...dupes].join(', ')}`);
         }
     }
 

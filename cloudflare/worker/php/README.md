@@ -272,8 +272,16 @@ Other differences worth knowing, not omissions:
   an 8.4 measurement predicted; see the differential matrix).
 - Statement error state is scoped to the statement that failed, not the
   connection: after a statement's `execute()` fails, that statement's
-  `errorCode()`/`errorInfo()` report the failure and the connection's stay
-  clean — matching real PDO, which does the same.
+  `errorCode()`/`errorInfo()` report the failure and the connection's own
+  triple is left UNCHANGED — matching real PDO, which does the same in both
+  directions (M1 review round 2, R4, measured): a statement's `execute()`,
+  whether it fails OR succeeds, never touches the connection's triple.
+  `AtomsPDO`'s own triple changes only through its own direct operations —
+  `exec()`/`query()`/`lastInsertId()`/`prepare()`/`quote()`/`getAttribute()`
+  reset it to clean on success (and set it on failure, where applicable);
+  `beginTransaction()`/`commit()`/`rollBack()` set it on failure but do
+  **not** reset it on success, so a stale error can survive a clean
+  begin/commit/rollback cycle.
 - `PDOException::getCode()` carries the SQLSTATE string (e.g. `'23000'`),
   matching real PDO's own exceptions — not the `0` a plain `\PDOException`
   defaults to.
@@ -308,7 +316,18 @@ Other differences worth knowing, not omissions:
   harness's `Cases.php` itself runs under `declare(strict_types=1)`, so this
   class of gap surfaces (and gets fixed, member by member, the way `quote()`
   just was) as the matrix's cases come to exercise it, rather than needing a
-  separate audit pass.
+  separate audit pass. **This declines the WEAK-typing axis almost entirely**
+  — `Cases.php`'s own `strict_types=1` means a weak-mode call boundary is
+  never exercised there, and that declining opened one measured, real
+  residue: under weak typing, `quote(null)` on a real (internal) `\PDO`
+  still coerces `null` to the empty string (PHP's legacy leniency for
+  internal functions, deprecated as of 8.1 but not an error), while our
+  `quote()` — a userland method — never had that leniency and throws a
+  `\TypeError` regardless of the caller's `strict_types` setting. See the
+  differential matrix's dedicated `Weak-mode type boundaries` group
+  (`fixtures/counter/app/Pdo/CasesWeak.php`, the one case file in the whole
+  matrix WITHOUT `declare(strict_types=1)`) — `pdo.quote.weak_null` is
+  pinned `refused_by_us` for exactly this gap.
 - An INTEGER wider than 2^53−1 cannot be **read back** from Durable Object SQL:
   workerd hands it to JS as a double, so the exact value is gone before the
   bridge sees it. The host answers with a typed `int64_precision` error rather

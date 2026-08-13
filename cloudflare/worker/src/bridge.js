@@ -302,6 +302,22 @@ export class Bridge {
 		// instead of guessing.
 		const columnNames = Array.isArray(cursor.columnNames) ? [...cursor.columnNames] : null;
 
+		// M1 review round 2, R13 (orchestrator-mandated, deploy-risk): rows
+		// mode is the ONLY mode that ships `columns` (see the reply below),
+		// and AtomsStatement's whole duplicate-column detection depends on
+		// that array surviving — silently falling back to `columns: []`
+		// here would DISARM every guard R1 added/strengthened without
+		// telling anyone: every fetch mode that should refuse under a
+		// detected duplicate would instead answer wrong, silently, the
+		// exact failure mode this milestone exists to eliminate. Fail
+		// loudly instead. No local conformance run can exercise this branch
+		// (`cursor.columnNames` exists on every workerd build measured for
+		// this milestone) — that is expected; this guards the DEPLOYED run
+		// against a future platform regression, not this one.
+		if (mode === 'rows' && columnNames === null) {
+			throw columnsUnavailable();
+		}
+
 		/** @type {unknown[]} */
 		const rows = [];
 		try {
@@ -395,7 +411,9 @@ export class Bridge {
 			}
 		}
 
-		return mode === 'rows' ? ok({ rows, columns: columnNames ?? [], ...reply }) : ok(reply);
+		// columnNames is guaranteed non-null here in rows mode — the guard
+		// above already threw otherwise.
+		return mode === 'rows' ? ok({ rows, columns: columnNames, ...reply }) : ok(reply);
 	}
 
 	/**
@@ -910,6 +928,26 @@ function resultTooLarge(cap, limit) {
 		'sql_result_too_large',
 		`result set exceeds ${cap === 'rows' ? 'ATOMS_SQL_MAX_ROWS' : 'ATOMS_SQL_MAX_RESULT_BYTES'} (${limit})`,
 		{ detail: { sqlstate: 'HY000', cap, limit } }
+	);
+}
+
+/**
+ * `cursor.columnNames` is missing on this platform build (M1 review round 2,
+ * R13). Named, not just message-worded, so it's distinguishable from an
+ * ordinary `sql_error` by every caller: AtomsStatement's duplicate-column
+ * detection (Branch A, design §2.7) has no other source for the result
+ * set's true column arity, so losing this capability silently would silently
+ * disarm every guard that depends on it instead of failing the statement
+ * that needed it.
+ *
+ * @returns {AtomsError}
+ */
+function columnsUnavailable() {
+	return new AtomsError(
+		'sql_columns_unavailable',
+		"this platform build's ctx.storage.sql cursor does not expose columnNames, so rows-mode column " +
+			'arity cannot be reported truthfully',
+		{ detail: { sqlstate: 'HY000' } }
 	);
 }
 

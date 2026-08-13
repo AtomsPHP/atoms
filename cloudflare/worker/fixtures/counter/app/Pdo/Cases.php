@@ -84,7 +84,12 @@ final class Cases
             self::valuesAndRoundTrips(),
             self::errors(),
             self::duplicateColumns(),
-            self::statementMisc()
+            self::statementMisc(),
+            // M1 review round 2, R5: the one group whose case CLOSURES are
+            // defined in a file WITHOUT declare(strict_types=1) — see
+            // CasesWeak's own docblock for why that is load-bearing rather
+            // than incidental.
+            CasesWeak::all()
         );
     }
 
@@ -142,7 +147,7 @@ final class Cases
                 'pdo.exec.ddl',
                 $g,
                 'PDO::exec()',
-                'exec() return value for a CREATE TABLE, self-contained with a known preceding INSERT (M1 review F-6/F-12: title reworded)',
+                'exec() return value for a CREATE TABLE, self-contained with a known preceding INSERT',
                 static function (\PDO $p) {
                     // M1 review F-12 (MINOR, fixed): the old closure used
                     // `CREATE TABLE IF NOT EXISTS`, so its return value
@@ -318,7 +323,7 @@ final class Cases
                 'pdo.getAvailableDrivers',
                 $g,
                 'PDO::getAvailableDrivers()',
-                'the declared static shadow answers identically to the parent (design §3 F-25)',
+                'the declared static shadow answers identically to the parent',
                 static fn (\PDO $p) => $p::getAvailableDrivers()
             ),
             self::c(
@@ -339,7 +344,7 @@ final class Cases
                 'pdo.attr.default_fetch_mode',
                 $g,
                 'PDO::getAttribute()',
-                'ATTR_DEFAULT_FETCH_MODE — the ASSOC-vs-BOTH default (design §3 F-30)',
+                'ATTR_DEFAULT_FETCH_MODE — the ASSOC-vs-BOTH default',
                 static fn (\PDO $p) => $p->getAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE)
             ),
             self::c(
@@ -367,35 +372,35 @@ final class Cases
                 'pdo.attr.server_version',
                 $g,
                 'PDO::getAttribute()',
-                'ATTR_SERVER_VERSION (M1 review F-6: title reworded)',
+                'ATTR_SERVER_VERSION',
                 static fn (\PDO $p) => $p->getAttribute(\PDO::ATTR_SERVER_VERSION)
             ),
             self::c(
                 'pdo.attr.client_version',
                 $g,
                 'PDO::getAttribute()',
-                'ATTR_CLIENT_VERSION (M1 review F-6: title reworded)',
+                'ATTR_CLIENT_VERSION',
                 static fn (\PDO $p) => $p->getAttribute(\PDO::ATTR_CLIENT_VERSION)
             ),
             self::c(
                 'pdo.attr.timeout',
                 $g,
                 'PDO::getAttribute()',
-                'ATTR_TIMEOUT (M1 review F-6: title reworded)',
+                'ATTR_TIMEOUT',
                 static fn (\PDO $p) => $p->getAttribute(\PDO::ATTR_TIMEOUT)
             ),
             self::c(
                 'pdo.attr.autocommit',
                 $g,
                 'PDO::getAttribute()',
-                'ATTR_AUTOCOMMIT (M1 review F-6: title reworded)',
+                'ATTR_AUTOCOMMIT',
                 static fn (\PDO $p) => $p->getAttribute(\PDO::ATTR_AUTOCOMMIT)
             ),
             self::c(
                 'pdo.attr.emulate_prepares',
                 $g,
                 'PDO::getAttribute()',
-                'ATTR_EMULATE_PREPARES (M1 review F-6: title reworded)',
+                'ATTR_EMULATE_PREPARES',
                 static fn (\PDO $p) => $p->getAttribute(\PDO::ATTR_EMULATE_PREPARES)
             ),
             self::c(
@@ -416,7 +421,7 @@ final class Cases
                 'pdo.setattr.default_fetch_mode',
                 $g,
                 'PDO::setAttribute()',
-                'ATTR_DEFAULT_FETCH_MODE round-trip through getAttribute(), then restored (M1 review F-7)',
+                'ATTR_DEFAULT_FETCH_MODE round-trip through getAttribute(), then restored',
                 static function (\PDO $p) {
                     // M1 review F-7: this connection is shared across every
                     // group's cases (Probe::differential()), so a case that
@@ -425,12 +430,22 @@ final class Cases
                     // rather than relying on a blanket reset elsewhere that
                     // would also hide a regression in the DEFAULT this same
                     // attribute reports (see pdo.attr.default_fetch_mode).
+                    //
+                    // M1 review round 2, R6: the restore is now in a
+                    // `finally` — before this, an exception between the set
+                    // and the restore (there is none TODAY, but a future
+                    // regression could add one) would leave FETCH_NUM
+                    // permanently in place for every later group sharing
+                    // this connection, corrupting cases far from this one.
                     $prior = $p->getAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE);
-                    $set = $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_NUM);
-                    $after = $p->getAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE);
-                    $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, $prior);
+                    try {
+                        $set = $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_NUM);
+                        $after = $p->getAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE);
 
-                    return [$set, $after];
+                        return [$set, $after];
+                    } finally {
+                        $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, $prior);
+                    }
                 }
             ),
             self::c(
@@ -470,42 +485,42 @@ final class Cases
                 'pdo.quote.param_int',
                 $g,
                 'PDO::quote()',
-                'quote() with PARAM_INT (M1 review F-6: title reworded)',
+                'quote() with PARAM_INT',
                 static fn (\PDO $p) => $p->quote('42', \PDO::PARAM_INT)
             ),
             self::c(
                 'pdo.quote.param_bool',
                 $g,
                 'PDO::quote()',
-                'quote() with PARAM_BOOL (M1 review F-6: title reworded)',
+                'quote() with PARAM_BOOL',
                 static fn (\PDO $p) => $p->quote(true, \PDO::PARAM_BOOL)
             ),
             self::c(
                 'pdo.quote.param_null',
                 $g,
                 'PDO::quote()',
-                'quote() with PARAM_NULL (M1 review F-6: title reworded)',
+                'quote() with PARAM_NULL',
                 static fn (\PDO $p) => $p->quote(null, \PDO::PARAM_NULL)
             ),
             self::c(
                 'pdo.quote.param_lob',
                 $g,
                 'PDO::quote()',
-                'quote() with PARAM_LOB (M1 review F-6: title reworded)',
+                'quote() with PARAM_LOB',
                 static fn (\PDO $p) => $p->quote('x', \PDO::PARAM_LOB)
             ),
             self::c(
                 'pdo.quote.unknown_type',
                 $g,
                 'PDO::quote()',
-                'quote() with an unrecognized $type (M1 review F-6: title reworded)',
+                'quote() with an unrecognized $type',
                 static fn (\PDO $p) => $p->quote('x', 999)
             ),
             self::c(
                 'pdo.quote.nul_byte',
                 $g,
                 'PDO::quote()',
-                'quote() on a value containing a NUL byte (M1 review F-6: title reworded)',
+                'quote() on a value containing a NUL byte',
                 static fn (\PDO $p) => $p->quote("a\0b")
             ),
             self::c(
@@ -629,7 +644,7 @@ final class Cases
                 'id.last_insert_id.string_type',
                 $g,
                 'PDO::lastInsertId()',
-                'the PDO contract is a string, never an int — TYPE and CONTENT both compared (M1 review F-20)',
+                'the PDO contract is a string, never an int — TYPE and CONTENT both compared',
                 static function (\PDO $p) {
                     $p->exec("INSERT INTO probe_rows (k, i, r, s, n) VALUES ('idtype', 100, 1.0, 'x', NULL)");
                     $id = $p->lastInsertId();
@@ -662,7 +677,7 @@ final class Cases
                 'id.last_insert_id.with_name',
                 $g,
                 'PDO::lastInsertId()',
-                'lastInsertId() with a sequence name argument (M1 review F-6: title reworded)',
+                'lastInsertId() with a sequence name argument',
                 static function (\PDO $p) {
                     $p->exec("INSERT INTO probe_rows (k, i, r, s, n) VALUES ('idname', 102, 1.0, 'x', NULL)");
 
@@ -721,7 +736,7 @@ final class Cases
                 'count.rowcount.select',
                 $g,
                 'PDOStatement::rowCount()',
-                'after a SELECT — UNDEFINED by PDO\'s own contract; recorded, never compared (design §2.5)',
+                'after a SELECT — UNDEFINED by PDO\'s own contract; recorded, never compared',
                 static function (\PDO $p) {
                     $stmt = $p->prepare("SELECT k FROM probe_rows WHERE k = 'no-such-select'");
                     $stmt->execute();
@@ -807,14 +822,14 @@ final class Cases
                 'bind.value.param_int_from_string',
                 $g,
                 'PDOStatement::bindValue()',
-                'PARAM_INT should coerce a numeric string to int (design §3 F-11)',
+                'PARAM_INT should coerce a numeric string to int',
                 static fn (\PDO $p) => $vt($p, '42', \PDO::PARAM_INT)
             ),
             self::c(
                 'bind.value.param_int_from_float',
                 $g,
                 'PDOStatement::bindValue()',
-                'PARAM_INT should truncate a float (design §3 F-11)',
+                'PARAM_INT should truncate a float',
                 static fn (\PDO $p) => $vt($p, 3.5, \PDO::PARAM_INT)
             ),
             self::c(
@@ -828,35 +843,35 @@ final class Cases
                 'bind.value.param_bool_empty_string',
                 $g,
                 'PDOStatement::bindValue()',
-                'PARAM_BOOL on an empty string should coerce through bool to integer 0 (design §3 F-11)',
+                'PARAM_BOOL on an empty string should coerce through bool to integer 0',
                 static fn (\PDO $p) => $vt($p, '', \PDO::PARAM_BOOL)
             ),
             self::c(
                 'bind.value.param_null_ignores_value',
                 $g,
                 'PDOStatement::bindValue()',
-                'PARAM_NULL should ignore the given value entirely and bind NULL (design §3 F-11)',
+                'PARAM_NULL should ignore the given value entirely and bind NULL',
                 static fn (\PDO $p) => $vt($p, 'ignored-value', \PDO::PARAM_NULL)
             ),
             self::c(
                 'bind.value.param_str_from_int',
                 $g,
                 'PDOStatement::bindValue()',
-                'PARAM_STR should stringify an int (design §3 F-11)',
+                'PARAM_STR should stringify an int',
                 static fn (\PDO $p) => $vt($p, 7, \PDO::PARAM_STR)
             ),
             self::c(
                 'bind.value.param_str_from_float',
                 $g,
                 'PDOStatement::bindValue()',
-                'PARAM_STR should stringify a float (design §3 F-11)',
+                'PARAM_STR should stringify a float',
                 static fn (\PDO $p) => $vt($p, 1.0, \PDO::PARAM_STR)
             ),
             self::c(
                 'bind.value.param_lob',
                 $g,
                 'PDOStatement::bindValue()',
-                'bindValue() with PARAM_LOB (M1 review F-6: title reworded)',
+                'bindValue() with PARAM_LOB',
                 static fn (\PDO $p) => $vt($p, 'binval', \PDO::PARAM_LOB)
             ),
             self::c(
@@ -877,14 +892,14 @@ final class Cases
                 'bind.value.wide_int_min',
                 $g,
                 'PDOStatement::bindValue()',
-                'the NEGATIVE end of the wide-int band (PHP_INT_MIN) bound as PARAM_INT and read back DIRECTLY (M1 review F-11)',
+                'the NEGATIVE end of the wide-int band (PHP_INT_MIN) bound as PARAM_INT and read back DIRECTLY',
                 static fn (\PDO $p) => $vt($p, PHP_INT_MIN, \PDO::PARAM_INT)
             ),
             self::c(
                 'bind.param.by_reference',
                 $g,
                 'PDOStatement::bindParam()',
-                'by-reference binding (design §3 F-1)',
+                'by-reference binding',
                 static function (\PDO $p) {
                     $var = 'ref-val';
                     $stmt = $p->prepare('SELECT ? AS v');
@@ -913,7 +928,7 @@ final class Cases
                 'bind.execute_array.types',
                 $g,
                 'PDOStatement::execute()',
-                'real PDO stringifies EVERYTHING passed to execute() — a PERMANENT pinned deviation (design §3 F-12)',
+                'real PDO stringifies EVERYTHING passed to execute() — a PERMANENT pinned deviation',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT ? AS v, typeof(?) AS t');
                     $stmt->execute([42, 42]);
@@ -938,7 +953,7 @@ final class Cases
                 'bind.execute_empty_array_keeps_bound',
                 $g,
                 'PDOStatement::execute()',
-                'execute() called with an explicit empty array, over a previously bound value (M1 review F-6: title reworded to describe what is exercised, not a verdict)',
+                'execute() called with an explicit empty array, over a previously bound value',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT ? AS v');
                     $stmt->bindValue(1, 'kept-val');
@@ -979,6 +994,43 @@ final class Cases
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT :a AS a1, :a AS a2');
                     $stmt->execute([':a' => 5]);
+
+                    return $stmt->fetch(\PDO::FETCH_ASSOC);
+                }
+            ),
+            self::c(
+                'bind.value.position_zero',
+                $g,
+                'PDOStatement::bindValue()',
+                'bindValue(0, ...) — position must be >= 1',
+                static function (\PDO $p) {
+                    $stmt = $p->prepare('SELECT ? AS v');
+                    $stmt->bindValue(0, 'x');
+
+                    return 'unreachable';
+                }
+            ),
+            self::c(
+                'bind.mixed_named_and_positional',
+                $g,
+                'PDOStatement::execute()',
+                'a named and a positional placeholder bound in the SAME statement',
+                static function (\PDO $p) {
+                    // M1 review round 2, R7 (orchestrator decision: do NOT
+                    // implement real PDO's ordinal model): real PDO executes
+                    // this via SQLite's own shared ordinal sequence (:k is
+                    // ordinal 1, the sole ? is ordinal 2 — the same fact
+                    // debugDumpParams()'s docblock measures for NUMBERING
+                    // purposes only). NamedParams::rewrite() treats a
+                    // bindings array with BOTH an int key and a string key as
+                    // entirely named (isPositional() requires every key be
+                    // int), so the ? placeholder is left unresolved and its
+                    // bound value (keyed 2) is reported as an unused named
+                    // binding — refused, not the ordinal answer.
+                    $stmt = $p->prepare('SELECT :k AS k, ? AS v FROM probe_rows WHERE k = :k LIMIT 1');
+                    $stmt->bindValue(':k', 'a', \PDO::PARAM_STR);
+                    $stmt->bindValue(2, 'positional-val', \PDO::PARAM_STR);
+                    $stmt->execute();
 
                     return $stmt->fetch(\PDO::FETCH_ASSOC);
                 }
@@ -1025,7 +1077,7 @@ final class Cases
                 'fetch.default_mode',
                 $g,
                 'PDOStatement::fetchAll()',
-                'fetchAll() called with no mode argument, so it uses the connection\'s ATTR_DEFAULT_FETCH_MODE (M1 review F-6: title reworded)',
+                'fetchAll() called with no mode argument, so it uses the connection\'s ATTR_DEFAULT_FETCH_MODE',
                 static fn (\PDO $p) => $p->query('SELECT k, i FROM probe_rows ORDER BY k')->fetchAll()
             ),
             self::c(
@@ -1039,14 +1091,14 @@ final class Cases
                 'fetch.column.index_1',
                 $g,
                 'PDOStatement::fetchAll()',
-                'FETCH_COLUMN with an explicit index argument (design §3 F-16)',
+                'FETCH_COLUMN with an explicit index argument',
                 static fn (\PDO $p) => $p->query('SELECT k, i FROM probe_rows ORDER BY k')->fetchAll(\PDO::FETCH_COLUMN, 1)
             ),
             self::c(
                 'fetch.column.out_of_range',
                 $g,
                 'PDOStatement::fetchColumn()',
-                'fetchColumn() with a column index past the end of the result set (M1 review F-6: title reworded)',
+                'fetchColumn() with a column index past the end of the result set',
                 static function (\PDO $p) {
                     $stmt = $p->query('SELECT k FROM probe_rows ORDER BY k LIMIT 1');
 
@@ -1064,21 +1116,21 @@ final class Cases
                 'fetch.key_pair.three_columns',
                 $g,
                 'PDOStatement::fetchAll()',
-                'FETCH_KEY_PAIR over a THREE-column result set (M1 review F-6: title reworded)',
+                'FETCH_KEY_PAIR over a THREE-column result set',
                 static fn (\PDO $p) => $p->query('SELECT k, i, r FROM probe_rows ORDER BY k')->fetchAll(\PDO::FETCH_KEY_PAIR)
             ),
             self::c(
                 'fetch.lazy',
                 $g,
                 'PDOStatement::fetch()',
-                'FETCH_LAZY (M1 review F-6: title reworded)',
+                'FETCH_LAZY',
                 static fn (\PDO $p) => $p->query('SELECT k FROM probe_rows ORDER BY k LIMIT 1')->fetch(\PDO::FETCH_LAZY)
             ),
             self::c(
                 'fetch.bound.default_type',
                 $g,
                 'PDOStatement::bindColumn() / FETCH_BOUND',
-                'default column type (design §3 F-2)',
+                'default column type',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT k, i FROM probe_rows WHERE k = ? LIMIT 1');
                     $stmt->execute(['b']);
@@ -1092,7 +1144,7 @@ final class Cases
                 'fetch.bound.param_int',
                 $g,
                 'PDOStatement::bindColumn() / FETCH_BOUND',
-                'PARAM_INT column type (design §3 F-2)',
+                'PARAM_INT column type',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT k, i FROM probe_rows WHERE k = ? LIMIT 1');
                     $stmt->execute(['b']);
@@ -1119,7 +1171,7 @@ final class Cases
                 'fetch.class.plain',
                 $g,
                 'PDOStatement::fetchAll()',
-                'FETCH_CLASS, no constructor args (design §3 F-3/F-4)',
+                'FETCH_CLASS, no constructor args',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT k, i, r, s, n FROM probe_rows WHERE k = :k');
                     $stmt->execute([':k' => 'a']);
@@ -1195,7 +1247,7 @@ final class Cases
                 'fetch.into',
                 $g,
                 'PDOStatement::setFetchMode() / fetch()',
-                'FETCH_INTO hydrates an existing object in place (design §3 F-5)',
+                'FETCH_INTO hydrates an existing object in place',
                 static function (\PDO $p) {
                     $obj = new Row();
                     $stmt = $p->prepare('SELECT k, i, r, s, n FROM probe_rows WHERE k = :k');
@@ -1210,7 +1262,7 @@ final class Cases
                 'fetch.func',
                 $g,
                 'PDOStatement::fetchAll()',
-                'FETCH_FUNC calls the given function with each column as a positional arg (design §3 F-7)',
+                'FETCH_FUNC calls the given function with each column as a positional arg',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT k, i FROM probe_rows WHERE k = :k');
                     $stmt->execute([':k' => 'a']);
@@ -1234,7 +1286,7 @@ final class Cases
                 'fetch.group.assoc',
                 $g,
                 'PDOStatement::fetchAll()',
-                'FETCH_GROUP | FETCH_ASSOC (design §3 F-8, measured E13)',
+                'FETCH_GROUP | FETCH_ASSOC',
                 static fn (\PDO $p) => $p->query('SELECT k, i FROM probe_rows ORDER BY k')->fetchAll(\PDO::FETCH_GROUP | \PDO::FETCH_ASSOC)
             ),
             self::c(
@@ -1269,7 +1321,7 @@ final class Cases
                 'fetch.object.stdclass',
                 $g,
                 'PDOStatement::fetchObject()',
-                'no class argument yields stdClass (design §3 F-3)',
+                'no class argument yields stdClass',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT k, i FROM probe_rows WHERE k = :k');
                     $stmt->execute([':k' => 'a']);
@@ -1383,7 +1435,7 @@ final class Cases
                 'fetch.iterator',
                 $g,
                 'PDOStatement::getIterator()',
-                'a plain foreach over the statement, using whatever the connection\'s default fetch mode is (M1 review F-6: title reworded)',
+                'a plain foreach over the statement, using whatever the connection\'s default fetch mode is',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT k FROM probe_rows ORDER BY k');
                     $stmt->execute();
@@ -1399,7 +1451,7 @@ final class Cases
                 'fetch.set_fetch_mode.column_index',
                 $g,
                 'PDOStatement::setFetchMode()',
-                'FETCH_COLUMN with an index argument (design §3 F-17)',
+                'FETCH_COLUMN with an index argument',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT k, i FROM probe_rows ORDER BY k');
                     $stmt->execute();
@@ -1412,7 +1464,7 @@ final class Cases
                 'fetch.set_fetch_mode.class',
                 $g,
                 'PDOStatement::setFetchMode()',
-                'FETCH_CLASS with a class name argument (design §3 F-17)',
+                'FETCH_CLASS with a class name argument',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT k, i, r, s, n FROM probe_rows ORDER BY k');
                     $stmt->execute();
@@ -1425,7 +1477,7 @@ final class Cases
                 'fetch.set_fetch_mode.into',
                 $g,
                 'PDOStatement::setFetchMode()',
-                'FETCH_INTO with an object argument (design §3 F-17)',
+                'FETCH_INTO with an object argument',
                 static function (\PDO $p) {
                     $obj = new Row();
                     $stmt = $p->prepare('SELECT k, i, r, s, n FROM probe_rows WHERE k = :k');
@@ -1491,7 +1543,7 @@ final class Cases
                 'value.float_integral',
                 $g,
                 'value round-trip',
-                'a REAL holding an integral value (2.0) — measured: real returns float(2), our wire loses the float-ness (design §3)',
+                'a REAL holding an integral value (2.0) — measured: real returns float(2), our wire loses the float-ness',
                 static fn (\PDO $p) => $vt($p, 2.0)
             ),
             self::c('value.text', $g, 'value round-trip', 'an ordinary string', static fn (\PDO $p) => $vt($p, 'hello')),
@@ -1535,7 +1587,7 @@ final class Cases
                 'int.safe.roundtrip',
                 $g,
                 'value round-trip',
-                '±2^31 and ±(2^53-1) — inside the JS-safe-integer band, no precision loss possible (M1 review F-11: negative end added)',
+                '±2^31 and ±(2^53-1) — inside the JS-safe-integer band, no precision loss possible',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT ? AS lo, ? AS hi, ? AS neg');
                     $stmt->bindValue(1, -2147483648, \PDO::PARAM_INT);
@@ -1593,7 +1645,7 @@ final class Cases
                 'int.wide.negative_direct_read',
                 $g,
                 'value round-trip',
-                'the NEGATIVE end of the wide-int band: a stored PHP_INT_MIN read WITHOUT a CAST — same int64 wall, opposite sign (M1 review F-11)',
+                'the NEGATIVE end of the wide-int band: a stored PHP_INT_MIN read WITHOUT a CAST — same int64 wall, opposite sign',
                 static function (\PDO $p) {
                     $p->exec("DELETE FROM probe_wide WHERE k = 'direct-neg'");
                     $p->exec('INSERT INTO probe_wide (k, v) VALUES (\'direct-neg\', ' . PHP_INT_MIN . ')');
@@ -1607,7 +1659,7 @@ final class Cases
                 'int.wide.negative_cast_read',
                 $g,
                 'value round-trip',
-                'the NEGATIVE end of the wide-int band, via CAST(v AS TEXT) — the documented supported path (M1 review F-11)',
+                'the NEGATIVE end of the wide-int band, via CAST(v AS TEXT) — the documented supported path',
                 static function (\PDO $p) {
                     $p->exec("DELETE FROM probe_wide WHERE k = 'wide-cast-neg'");
                     $p->exec('INSERT INTO probe_wide (k, v) VALUES (\'wide-cast-neg\', ' . PHP_INT_MIN . ')');
@@ -1621,7 +1673,7 @@ final class Cases
                 'int.wide.negative_write_exact',
                 $g,
                 'value round-trip',
-                'PHP_INT_MIN written through a BOUND PARAMETER round-trips exactly via CAST (M1 review F-11)',
+                'PHP_INT_MIN written through a BOUND PARAMETER round-trips exactly via CAST',
                 static function (\PDO $p) {
                     $p->exec("DELETE FROM probe_wide WHERE k = 'wide-exact-neg'");
                     $stmt = $p->prepare('INSERT INTO probe_wide (k, v) VALUES (?, ?)');
@@ -1658,7 +1710,7 @@ final class Cases
                 'err.unique_violation.exception_code',
                 $g,
                 'PDOException::getCode()',
-                'real PDO\'s getCode() IS the SQLSTATE string; ours defaults to int 0 (design §3 F-28)',
+                'real PDO\'s getCode() IS the SQLSTATE string; ours defaults to int 0',
                 static function (\PDO $p) {
                     try {
                         $p->exec("INSERT INTO probe_rows (k, i, r, s, n) VALUES ('a', 1, 1.0, 'dup2', NULL)");
@@ -1710,12 +1762,108 @@ final class Cases
                 'PDO::errorCode()',
                 'PDO::errorCode() on the CONNECTION after a STATEMENT failure',
                 static function (\PDO $p) {
+                    // M1 review round 2, R4: made order-independent. prepare()
+                    // itself now resets this connection's error state to
+                    // clean (measured), so preparing the failing statement
+                    // FIRST — before anything else touches the connection —
+                    // means this case's starting point is deterministic
+                    // regardless of what any earlier case in this shared
+                    // connection left behind, rather than merely assuming a
+                    // prior case happened to leave it clean.
+                    $stmt = $p->prepare("INSERT INTO probe_rows (k, i, r, s, n) VALUES ('a', 1, 1.0, 'dup3', NULL)");
                     try {
-                        $stmt = $p->prepare("INSERT INTO probe_rows (k, i, r, s, n) VALUES ('a', 1, 1.0, 'dup3', NULL)");
                         $stmt->execute();
                     } catch (\Throwable $e) {
                         // expected — checking the CONNECTION's state afterwards
                     }
+
+                    return $p->errorCode();
+                }
+            ),
+            self::c(
+                'err.connection_state_after_begin_commit',
+                $g,
+                'PDO::errorCode()',
+                'a clean beginTransaction()/commit() does NOT reset a stale connection error state',
+                static function (\PDO $p) {
+                    // M1 review round 2, R4 (measured): unlike prepare()/
+                    // quote()/getAttribute()/a successful statement execute()
+                    // (all of which DO reset), beginTransaction()/commit()/
+                    // rollBack() leave a stale connection error state alone
+                    // on success. Seeds its own known-dirty state first,
+                    // INSIDE this closure, so the case does not depend on
+                    // what any earlier case left behind (order-independent).
+                    try {
+                        $p->query('SELEKT 1');
+                    } catch (\Throwable $e) {
+                        // expected — seeding a stale HY000
+                    }
+
+                    $p->beginTransaction();
+                    $p->commit();
+
+                    return $p->errorCode();
+                }
+            ),
+            self::c(
+                'err.connection_state_after_prepare',
+                $g,
+                'PDO::errorCode()',
+                'prepare() resets a stale connection error state to clean',
+                static function (\PDO $p) {
+                    try {
+                        $p->query('SELEKT 1');
+                    } catch (\Throwable $e) {
+                        // expected — seeding a stale HY000
+                    }
+
+                    $p->prepare('SELECT 1');
+
+                    return $p->errorCode();
+                }
+            ),
+            self::c(
+                'err.connection_state_after_successful_statement_execute',
+                $g,
+                'PDO::errorCode()',
+                'a successful STATEMENT execute() does NOT reset a stale CONNECTION error state',
+                static function (\PDO $p) {
+                    // The statement is prepared BEFORE the dirty seed below —
+                    // prepare() itself resets (see
+                    // err.connection_state_after_prepare) — so the dirty
+                    // state this case seeds survives to be observed. Measured
+                    // (this case's own first run): a successful STATEMENT
+                    // execute() leaves it alone too, symmetric with
+                    // err.statement_error_does_not_leak_to_connection — the
+                    // connection's own triple changes only through its OWN
+                    // direct operations, never through a statement's
+                    // execute() in either direction.
+                    $stmt = $p->prepare('SELECT 1');
+
+                    try {
+                        $p->query('SELEKT 1');
+                    } catch (\Throwable $e) {
+                        // expected — seeding a stale HY000 AFTER prepare()
+                    }
+
+                    $stmt->execute();
+
+                    return $p->errorCode();
+                }
+            ),
+            self::c(
+                'err.connection_state_after_quote',
+                $g,
+                'PDO::errorCode()',
+                'quote() resets a stale connection error state to clean',
+                static function (\PDO $p) {
+                    try {
+                        $p->query('SELEKT 1');
+                    } catch (\Throwable $e) {
+                        // expected — seeding a stale HY000
+                    }
+
+                    $p->quote('x');
 
                     return $p->errorCode();
                 }
@@ -1740,7 +1888,7 @@ final class Cases
                 'err.connection_errorcode_after_failed_query',
                 $g,
                 'PDO::errorCode()',
-                'query() is a CONNECTION-level entry point — its own failure updates $pdo->errorCode() (M1 review F-8)',
+                'query() is a CONNECTION-level entry point — its own failure updates $pdo->errorCode()',
                 static function (\PDO $p) {
                     try {
                         $p->query('SELEKT 1');
@@ -1762,6 +1910,13 @@ final class Cases
 
         $dupSql = "SELECT a.k AS k, a.i AS i, b.k AS k, b.i AS i FROM probe_rows a, probe_rows b "
             . "WHERE a.k = 'a' AND b.k = 'b'";
+
+        // Exactly two columns, both named "k" — FETCH_KEY_PAIR's own arity
+        // requirement (exactly 2 columns) plus a duplicate name, so it
+        // exercises the KEY_PAIR-specific guard (M1 review round 2, R1)
+        // rather than the "wrong column count" guard already covered by
+        // fetch.key_pair.three_columns.
+        $dupKeyPairSql = "SELECT a.k AS k, b.k AS k FROM probe_rows a, probe_rows b WHERE a.k = 'a' AND b.k = 'b'";
 
         return [
             self::c(
@@ -1803,7 +1958,7 @@ final class Cases
                 'dup.column_count',
                 $g,
                 'PDOStatement::columnCount()',
-                'columnCount() over a result set with duplicate column names (M1 review F-6: title reworded)',
+                'columnCount() over a result set with duplicate column names',
                 static fn (\PDO $p) => $p->query($dupSql)->columnCount()
             ),
             self::c(
@@ -1819,6 +1974,57 @@ final class Cases
                 'PDOStatement::fetchColumn()',
                 'fetchColumn(1) over duplicate column names',
                 static fn (\PDO $p) => $p->query($dupSql)->fetchColumn(1)
+            ),
+            self::c(
+                'dup.key_pair',
+                $g,
+                'PDOStatement::fetchAll()',
+                'FETCH_KEY_PAIR over exactly two duplicate-named columns',
+                static fn (\PDO $p) => $p->query($dupKeyPairSql)->fetchAll(\PDO::FETCH_KEY_PAIR)
+            ),
+            self::c(
+                'dup.fetch_func',
+                $g,
+                'PDOStatement::fetchAll()',
+                'FETCH_FUNC over duplicate column names',
+                static fn (\PDO $p) => $p->query($dupSql)->fetchAll(
+                    \PDO::FETCH_FUNC,
+                    static fn ($a, $b, $c, $d) => [$a, $b, $c, $d]
+                )
+            ),
+            self::c(
+                'dup.bound_by_index',
+                $g,
+                'PDOStatement::bindColumn() / FETCH_BOUND',
+                'FETCH_BOUND binding a column BY INDEX over duplicate column names',
+                static function (\PDO $p) use ($dupSql) {
+                    $stmt = $p->query($dupSql);
+                    $stmt->bindColumn(3, $out);
+                    $ok = $stmt->fetch(\PDO::FETCH_BOUND);
+
+                    return [$ok, $out];
+                }
+            ),
+            self::c(
+                'dup.group_assoc',
+                $g,
+                'PDOStatement::fetchAll()',
+                'FETCH_GROUP | FETCH_ASSOC over duplicate column names',
+                static fn (\PDO $p) => $p->query($dupSql)->fetchAll(\PDO::FETCH_GROUP | \PDO::FETCH_ASSOC)
+            ),
+            self::c(
+                'dup.classtype',
+                $g,
+                'PDOStatement::fetchAll()',
+                'FETCH_CLASS | FETCH_CLASSTYPE where the CLASSNAME column itself is duplicated',
+                static function (\PDO $p) {
+                    $stmt = $p->query(
+                        "SELECT 'App\\\\Pdo\\\\Fixtures\\\\Row' AS classname, 'bogus-classname' AS classname, "
+                        . "k, i, r, s, n FROM probe_rows WHERE k = 'a'"
+                    );
+
+                    return $stmt->fetchAll(\PDO::FETCH_CLASS | \PDO::FETCH_CLASSTYPE);
+                }
             ),
             self::c(
                 'dup.aliased',
@@ -1854,7 +2060,7 @@ final class Cases
                 'stmt.queryString.is_writable',
                 $g,
                 'PDOStatement::$queryString',
-                'real driver statements refuse the write; ours (no property hooks on 8.3) accepts it — a PINNED deviation (design §0.2b, allowlist A1)',
+                'post-construction EXTERNAL reassignment of $queryString, measured on this build: refused on BOTH sides (not a pinned deviation)',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT 1 AS one');
                     try {
@@ -1882,7 +2088,7 @@ final class Cases
                 'stmt.next_rowset',
                 $g,
                 'PDOStatement::nextRowset()',
-                'nextRowset() after a single-result-set query (M1 review F-6: title reworded)',
+                'nextRowset() after a single-result-set query',
                 static fn (\PDO $p) => $p->query('SELECT 1')->nextRowset(),
                 false
             ),
@@ -1890,14 +2096,14 @@ final class Cases
                 'stmt.get_attribute',
                 $g,
                 'PDOStatement::getAttribute()',
-                'getAttribute(ATTR_CURSOR) on a prepared statement (M1 review F-6: title reworded)',
+                'getAttribute(ATTR_CURSOR) on a prepared statement',
                 static fn (\PDO $p) => $p->prepare('SELECT 1')->getAttribute(\PDO::ATTR_CURSOR)
             ),
             self::c(
                 'stmt.set_attribute',
                 $g,
                 'PDOStatement::setAttribute()',
-                'setAttribute(ATTR_CURSOR, CURSOR_FWDONLY) on a prepared statement (M1 review F-6: title reworded)',
+                'setAttribute(ATTR_CURSOR, CURSOR_FWDONLY) on a prepared statement',
                 static fn (\PDO $p) => $p->prepare('SELECT 1')->setAttribute(\PDO::ATTR_CURSOR, \PDO::CURSOR_FWDONLY)
             ),
             self::c(
@@ -1915,7 +2121,7 @@ final class Cases
                 'stmt.debug_dump_params.named_and_positional',
                 $g,
                 'PDOStatement::debugDumpParams()',
-                'debugDumpParams() with a bound named param and a bound positional param, exact captured-output byte comparison (design §3 F-10; M1 review F-4)',
+                'debugDumpParams() with a bound named param and a bound positional param, exact captured-output byte comparison',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT * FROM probe_rows WHERE k = :k AND i = ?');
                     // M1 review F-4: the SOLE `?` is SQLite ordinal 2 (:k is
@@ -1939,7 +2145,7 @@ final class Cases
                 'stmt.debug_dump_params.positional_bound',
                 $g,
                 'PDOStatement::debugDumpParams()',
-                'debugDumpParams() with two bound positional params, exact captured-output byte comparison (M1 review F-4)',
+                'debugDumpParams() with two bound positional params, exact captured-output byte comparison',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT * FROM probe_rows WHERE k = ? AND i = ?');
                     $stmt->bindValue(1, 'a', \PDO::PARAM_STR);
@@ -1960,9 +2166,49 @@ final class Cases
                 'stmt.debug_dump_params.no_params',
                 $g,
                 'PDOStatement::debugDumpParams()',
-                'debugDumpParams() with nothing bound, exact captured-output byte comparison (design §3 F-10)',
+                'debugDumpParams() with nothing bound, exact captured-output byte comparison',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT 1');
+                    ob_start();
+                    try {
+                        $stmt->debugDumpParams();
+
+                        return ob_get_clean();
+                    } catch (\Throwable $e) {
+                        ob_end_clean();
+
+                        throw $e;
+                    }
+                }
+            ),
+            self::c(
+                'stmt.debug_dump_params.via_execute_positional',
+                $g,
+                'PDOStatement::debugDumpParams()',
+                'debugDumpParams() after params supplied via execute() (positional array), exact captured-output byte comparison',
+                static function (\PDO $p) {
+                    $stmt = $p->prepare('SELECT ? AS a, ? AS b');
+                    $stmt->execute(['x', 'y']);
+                    ob_start();
+                    try {
+                        $stmt->debugDumpParams();
+
+                        return ob_get_clean();
+                    } catch (\Throwable $e) {
+                        ob_end_clean();
+
+                        throw $e;
+                    }
+                }
+            ),
+            self::c(
+                'stmt.debug_dump_params.via_execute_named',
+                $g,
+                'PDOStatement::debugDumpParams()',
+                'debugDumpParams() after params supplied via execute() (named array), exact captured-output byte comparison',
+                static function (\PDO $p) {
+                    $stmt = $p->prepare('SELECT :a AS a');
+                    $stmt->execute([':a' => 'x']);
                     ob_start();
                     try {
                         $stmt->debugDumpParams();
@@ -1979,14 +2225,14 @@ final class Cases
                 'stmt.sqlite_create_function',
                 $g,
                 'PDO::sqliteCreateFunction()',
-                'a real sqlite_create_function extension the guest cannot register a callback with (design §3 F-32)',
+                'a real sqlite_create_function extension the guest cannot register a callback with',
                 static fn (\PDO $p) => $p->sqliteCreateFunction('probe_fn', static fn ($x) => $x)
             ),
             self::c(
                 'stmt.sqlite_create_aggregate',
                 $g,
                 'PDO::sqliteCreateAggregate()',
-                'same reasoning as sqlite_create_function (design §3 F-32)',
+                'same reasoning as sqlite_create_function',
                 static fn (\PDO $p) => $p->sqliteCreateAggregate(
                     'probe_agg',
                     static function (&$ctx, $rowNumber, $value) {
@@ -2001,7 +2247,7 @@ final class Cases
                 'stmt.sqlite_create_collation',
                 $g,
                 'PDO::sqliteCreateCollation()',
-                'same reasoning as sqlite_create_function (design §3 F-32)',
+                'same reasoning as sqlite_create_function',
                 static fn (\PDO $p) => $p->sqliteCreateCollation('probe_col', static fn ($a, $b) => strcmp($a, $b))
             ),
         ];

@@ -72,7 +72,10 @@ prefix, JSON-decode the reply. Every reply is an object with `ok: true` or
   the SOURCE-ORDER column names, duplicates preserved — measured present on
   `SqlStorageCursor` (appendix, M1 item), the one place a duplicate-column
   result set's true arity survives once the `{col:val}` row maps have
-  collapsed it (last value wins). A result set exceeding `ATOMS_SQL_MAX_ROWS`
+  collapsed it (last value wins); rows mode fails loudly with
+  `sql_columns_unavailable` rather than silently degrading to `columns: []`
+  if a future platform build ever stops exposing `cursor.columnNames` (M1
+  review round 2, R13). A result set exceeding `ATOMS_SQL_MAX_ROWS`
   or `ATOMS_SQL_MAX_RESULT_BYTES` in rows mode fails with `sql_result_too_large`
   (`detail.cap` is `"rows"` or `"bytes"`, `detail.limit` the cap that fired);
   `run` mode, which buffers nothing, is unaffected by either cap. `mode:"rows"` returns all
@@ -1642,7 +1645,10 @@ otherwise unchanged and still binding.
      `AtomsStatement` report an exact `columnCount()` on an empty result set
      and refuse `FETCH_NUM`/`FETCH_BOTH`/`FETCH_COLUMN`-by-index/`FETCH_NAMED`
      *precisely* (only when the column list itself proves a duplicate) rather
-     than refusing the whole family unconditionally.
+     than refusing the whole family unconditionally; `bridge.js`'s `sql.exec`
+     now fails loudly with `sql_columns_unavailable` instead of silently
+     shipping `columns: []` if this capability is ever absent on a future
+     platform build (M1 review round 2, R13).
    - **`cursor.rowsWritten` counts underlying B-tree writes, not logical rows
      changed.** Measured (temporary instrumentation): a single-row `INSERT`
      into a table with a `UNIQUE` column and an `AUTOINCREMENT` primary key

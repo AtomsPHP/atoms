@@ -113,6 +113,12 @@ class AtomsPDO extends \PDO
             );
         }
 
+        // M1 review round 2, R4 (measured): real pdo_sqlite resets THIS
+        // connection's errorCode()/errorInfo() triple on every successful
+        // prepare() call — not just on exec()/query()/lastInsertId(). Only
+        // on the success path: the throw above never reaches this line.
+        $this->recordConnectionSuccess();
+
         return new AtomsStatement($this->bridge, $query, $this->fetchMode);
     }
 
@@ -203,6 +209,16 @@ class AtomsPDO extends \PDO
     }
 
     /**
+     * M1 review round 2, R4 (measured): unlike exec()/query()/
+     * lastInsertId()/prepare()/quote()/getAttribute(), a SUCCESSFUL
+     * beginTransaction() does NOT reset this connection's errorCode()/
+     * errorInfo() triple — a stale error from an earlier failure survives a
+     * clean begin/commit/rollback cycle on real pdo_sqlite. This is
+     * DELIBERATE: `recordConnectionSuccess()` was called here in 5d36945 and
+     * is now removed; failure recording (`recordConnectionFailure()` below)
+     * is unaffected — nesting a transaction, or committing/rolling back with
+     * none open, still records ITS OWN failure the same as before.
+     *
      * @return bool
      */
     #[\ReturnTypeWillChange]
@@ -214,8 +230,6 @@ class AtomsPDO extends \PDO
             $this->recordConnectionFailure($e);
             throw $e;
         }
-
-        $this->recordConnectionSuccess();
 
         return true;
     }
@@ -233,8 +247,6 @@ class AtomsPDO extends \PDO
             throw $e;
         }
 
-        $this->recordConnectionSuccess();
-
         return true;
     }
 
@@ -250,8 +262,6 @@ class AtomsPDO extends \PDO
             $this->recordConnectionFailure($e);
             throw $e;
         }
-
-        $this->recordConnectionSuccess();
 
         return true;
     }
@@ -310,6 +320,12 @@ class AtomsPDO extends \PDO
             );
         }
 
+        // M1 review round 2, R4 (measured): a successful quote() ALSO resets
+        // this connection's errorCode()/errorInfo() triple, same as
+        // prepare()/getAttribute() below. Only on the success path — the
+        // NUL-byte throw above never reaches this line.
+        $this->recordConnectionSuccess();
+
         return "'" . str_replace("'", "''", $s) . "'";
     }
 
@@ -350,33 +366,54 @@ class AtomsPDO extends \PDO
     #[\ReturnTypeWillChange]
     public function getAttribute($attribute)
     {
+        $known = true;
+
         switch ($attribute) {
             case \PDO::ATTR_DRIVER_NAME:
-                return 'sqlite';
+                $value = 'sqlite';
+                break;
 
             case \PDO::ATTR_ERRMODE:
-                return \PDO::ERRMODE_EXCEPTION;
+                $value = \PDO::ERRMODE_EXCEPTION;
+                break;
 
             case \PDO::ATTR_DEFAULT_FETCH_MODE:
-                return $this->fetchMode;
+                $value = $this->fetchMode;
+                break;
 
             case \PDO::ATTR_PERSISTENT:
-                return false;
+                $value = false;
+                break;
 
             case \PDO::ATTR_CASE:
-                return \PDO::CASE_NATURAL;
+                $value = \PDO::CASE_NATURAL;
+                break;
 
             case \PDO::ATTR_ORACLE_NULLS:
-                return \PDO::NULL_NATURAL;
+                $value = \PDO::NULL_NATURAL;
+                break;
+
+            default:
+                $known = false;
         }
 
-        throw new AtomsNotSupported(
-            sprintf('PDO::getAttribute(%d)', $attribute),
-            'Only ATTR_DRIVER_NAME, ATTR_ERRMODE, ATTR_DEFAULT_FETCH_MODE, ATTR_PERSISTENT, ATTR_CASE and '
-            . 'ATTR_ORACLE_NULLS describe the Atoms bridge; anything else (including the two version '
-            . 'attributes, which would have to answer for one of two different SQLite builds) would be the '
-            . 'inert carrier connection answering.'
-        );
+        if (!$known) {
+            throw new AtomsNotSupported(
+                sprintf('PDO::getAttribute(%d)', $attribute),
+                'Only ATTR_DRIVER_NAME, ATTR_ERRMODE, ATTR_DEFAULT_FETCH_MODE, ATTR_PERSISTENT, ATTR_CASE and '
+                . 'ATTR_ORACLE_NULLS describe the Atoms bridge; anything else (including the two version '
+                . 'attributes, which would have to answer for one of two different SQLite builds) would be the '
+                . 'inert carrier connection answering.'
+            );
+        }
+
+        // M1 review round 2, R4 (measured): a KNOWN attribute answered
+        // successfully ALSO resets this connection's errorCode()/
+        // errorInfo() triple, same as prepare()/quote(). The throw above
+        // (an unrecognized attribute) never reaches this line.
+        $this->recordConnectionSuccess();
+
+        return $value;
     }
 
     /**
