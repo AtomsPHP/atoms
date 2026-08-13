@@ -208,20 +208,126 @@ Load order matters and is encoded in `bootstrap.php`; this is what each file is.
 **The PDO shim (`db()->pdo()`).** Recorded here rather than hidden, because it
 is a hand-written subclass with no driver behind it — this is the one corner
 of the runtime surface that stays a permanent, typed restriction rather than a
-milestone stub:
+milestone stub. It used to be audited by hand; as of M1 it is audited by a
+reflection tripwire (conformance check 26) against the runtime `\PDO`/
+`\PDOStatement`, and measured member-by-member against a native in-guest
+`pdo_sqlite` by a differential harness (checks 27-28) whose result is
+published, generated, and drift-checked: **the full, member-by-member matrix
+is `cloudflare/docs/pdo-compatibility.md` (check 30) — prefer it to any prose
+list, including this one.** What follows is the short list of what stays
+permanently refused, not the whole surface:
 
-- `PDOStatement::$queryString` is set best-effort; PDO treats it as a
-  driver-owned read-only property, so it may stay uninitialized.
-- `bindParam()`, `bindColumn()`, `fetchObject()`, `getColumnMeta()`,
-  `nextRowset()`, `debugDumpParams()`, statement attributes, `PARAM_LOB`,
-  scrollable cursors, driver options, `sqliteCreate*()`, and every fetch mode
-  outside `ASSOC/NUM/BOTH/OBJ/COLUMN/KEY_PAIR` throw `AtomsNotSupported`.
-- `getAttribute()` answers only `ATTR_DRIVER_NAME`, `ATTR_ERRMODE` and
-  `ATTR_DEFAULT_FETCH_MODE`; anything else would be the inert
-  `sqlite::memory:` carrier connection answering instead of the Durable Object.
+- `getColumnMeta()`, `nextRowset()`, `PDOStatement::getAttribute()`/
+  `setAttribute()` — no driver-owned statement handle exists to answer any of
+  these from (the latter three refuse with the same `SQLSTATE[IM001]` real
+  pdo_sqlite itself answers, so they are a genuine `refused_by_both`, not a gap).
+- Scrollable cursors (`FETCH_ORI_*` other than the default `FETCH_ORI_NEXT`,
+  `ATTR_CURSOR => CURSOR_SCROLL`) — real pdo_sqlite has none either (measured:
+  it silently *ignores* the orientation on a forward-only cursor rather than
+  refusing it); this shim refuses loudly instead of reproducing that silent
+  wrong row.
+- `PARAM_LOB` — binary values do not cross the JSON bridge. Store them
+  base64-encoded as text.
+- `PDO::prepare()` driver options other than `[]` or
+  `[ATTR_CURSOR => CURSOR_FWDONLY]` (including `ATTR_STATEMENT_CLASS` and
+  `ATTR_TIMEOUT`) — real pdo_sqlite silently ignores or silently refuses these;
+  silently answering either way is the exact failure mode this shim exists to
+  avoid, so it refuses instead.
+- `sqliteCreateFunction()`/`sqliteCreateAggregate()`/`sqliteCreateCollation()`
+  — statements execute inside the Durable Object; a guest callback cannot be
+  registered with them.
+- `getAttribute()`/`setAttribute()` on the two version attributes
+  (`ATTR_SERVER_VERSION`, `ATTR_CLIENT_VERSION`) — the guest's SQLite and the
+  Durable Object's SQLite are different builds, so any single answer would
+  misrepresent one of them; there is also no client library on this side of
+  the wire.
+- `FETCH_LAZY` — returns a `PDORow`, an internal class bound to a live
+  statement and unconstructible from userland.
+- `FETCH_NAMED`, and positional fetch (`FETCH_NUM`/`FETCH_BOTH`/
+  `FETCH_COLUMN` by index) over a result set with **duplicate column names** —
+  the wire's `{column: value}` row maps have already collapsed duplicates
+  (last value wins) before this shim ever sees the row, so the values a
+  correct answer would need are gone. `FETCH_ASSOC`/`FETCH_OBJ` are unaffected
+  (they collapse identically on both sides) and `columnCount()` is exact even
+  under duplicates, because the column *names* (with duplicates preserved)
+  survive separately, out of band from the row data.
+
+Everything else that was on this list before M1 — `bindParam()`,
+`bindColumn()`/`FETCH_BOUND`, `fetchObject()`, `FETCH_CLASS`/`FETCH_INTO`/
+`FETCH_FUNC`/`FETCH_GROUP`/`FETCH_UNIQUE`, `debugDumpParams()`,
+`execute([])` keeping previously-bound values, `lastInsertId($name)`,
+`fetchColumn()` out-of-range, and typed bind coercion (`PARAM_INT`/`BOOL`/
+`NULL`/`STR`) — is now filled and measured, not thrown. See the generated
+matrix for exactly what each one does.
+
+Other differences worth knowing, not omissions:
+
+- `PDOStatement::$queryString` is asserted **set** by the reflection
+  tripwire's allowlist (entry A1): the constructor's own first write, to a
+  property PHP has never seen written before, always succeeds (there are no
+  property hooks in 8.3 to intercept it). Measured on THIS 8.3 build: a
+  *second* write from outside the class — after the property already holds a
+  value — is refused, matching a real driver statement's read-only property
+  exactly (`stmt.queryString.is_writable` observes `match`, not the deviation
+  an 8.4 measurement predicted; see the differential matrix).
+- Statement error state is scoped to the statement that failed, not the
+  connection: after a statement's `execute()` fails, that statement's
+  `errorCode()`/`errorInfo()` report the failure and the connection's own
+  triple is left UNCHANGED — matching real PDO, which does the same in both
+  directions (M1 review round 2, R4, measured): a statement's `execute()`,
+  whether it fails OR succeeds, never touches the connection's triple.
+  `AtomsPDO`'s own triple changes only through its own direct operations —
+  `exec()`/`query()`/`lastInsertId()`/`prepare()`/`quote()`/`getAttribute()`
+  reset it to clean on success (and set it on failure, where applicable);
+  `beginTransaction()`/`commit()`/`rollBack()` set it on failure but do
+  **not** reset it on success, so a stale error can survive a clean
+  begin/commit/rollback cycle.
+- `PDOException::getCode()` carries the SQLSTATE string (e.g. `'23000'`),
+  matching real PDO's own exceptions — not the `0` a plain `\PDOException`
+  defaults to.
+- `execute($array)` binds each value with its own native PHP type (int stays
+  an int, etc.), not PDO's own "stringify everything passed to `execute()`"
+  behaviour. Deliberate: replicating PDO's stringification would push wide
+  integers through as TEXT literals and put conformance check 9's int64
+  exactness at the mercy of column affinity. Pinned as a deviation; bind
+  explicitly with `bindValue()` for exact PDO-typed coercion.
+- `getAttribute()` answers `ATTR_DRIVER_NAME`, `ATTR_ERRMODE`,
+  `ATTR_DEFAULT_FETCH_MODE`, `ATTR_PERSISTENT`, `ATTR_CASE` and
+  `ATTR_ORACLE_NULLS` truthfully; `setAttribute()` on the latter two accepts
+  only their natural values (case folding and NULL/empty-string reshaping on
+  fetch are not implemented) and refuses the rest.
+- **Result-set caps.** `ATOMS_SQL_MAX_ROWS` and `ATOMS_SQL_MAX_RESULT_BYTES`
+  bound a single `sql.exec` in rows mode; either one firing raises
+  `sql_result_too_large`, which reaches PHP as a `\PDOException` exactly like
+  any other SQL failure. `run` mode (no buffered rows) is unaffected.
 - `PDOStatement::rowCount()` reports `rows_written`, i.e. PDO's documented
   meaning (affected rows), not the size of a SELECT's result set.
-- Binary values do not cross the JSON bridge. Store them base64-encoded.
+- **Parameter/return typing across the shim, in general.** `AtomsPDO::quote()`
+  was fixed (M1 review F-5) to declare the SAME parameter types real
+  `\PDO::quote()` does (`string $string, int $type = PARAM_STR`), because a
+  looser signature there let a call that real PDO refuses at the argument
+  boundary (`declare(strict_types=1)`, a non-string `$string`) fall through
+  silently on our side instead. That was fixed as a targeted case, not as a
+  blanket audit: other members of `AtomsPDO`/`AtomsStatement` may still keep
+  looser parameter or return types than the parent they subclass, so under a
+  `strict_types` call site a `\TypeError` real PDO would raise may not be
+  raised by Atoms for a member the differential matrix has not yet exercised
+  with a type-boundary-violating argument. Reviewed and accepted for M1: the
+  harness's `Cases.php` itself runs under `declare(strict_types=1)`, so this
+  class of gap surfaces (and gets fixed, member by member, the way `quote()`
+  just was) as the matrix's cases come to exercise it, rather than needing a
+  separate audit pass. **This declines the WEAK-typing axis almost entirely**
+  — `Cases.php`'s own `strict_types=1` means a weak-mode call boundary is
+  never exercised there, and that declining opened one measured, real
+  residue: under weak typing, `quote(null)` on a real (internal) `\PDO`
+  still coerces `null` to the empty string (PHP's legacy leniency for
+  internal functions, deprecated as of 8.1 but not an error), while our
+  `quote()` — a userland method — never had that leniency and throws a
+  `\TypeError` regardless of the caller's `strict_types` setting. See the
+  differential matrix's dedicated `Weak-mode type boundaries` group
+  (`fixtures/counter/app/Pdo/CasesWeak.php`, the one case file in the whole
+  matrix WITHOUT `declare(strict_types=1)`) — `pdo.quote.weak_null` is
+  pinned `refused_by_us` for exactly this gap.
 - An INTEGER wider than 2^53−1 cannot be **read back** from Durable Object SQL:
   workerd hands it to JS as a double, so the exact value is gone before the
   bridge sees it. The host answers with a typed `int64_precision` error rather

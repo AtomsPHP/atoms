@@ -360,10 +360,10 @@ needs `php/runtime/` and `php/atoms-core/`, which are the Worker's own.
 
 **Nothing under `cloudflare/worker/src/**` or `cloudflare/worker/php/**`
 changed.** The emitted module is exactly the shape the host already reads, so
-the conformance suite (twelve checks at the time; 25 as of M2 — see
-`cloudflare/docs/mvp-spec.md` §Conformance suite) was untouched by the CLI
-integration and the vendored `atoms/core` copy needed no re-vendor on this
-account.
+the conformance suite (twelve checks at the time; 25 as of M2, 30 as of M1's
+PDO surface honesty pass — see `cloudflare/docs/mvp-spec.md` §Conformance
+suite) was untouched by the CLI integration and the vendored `atoms/core`
+copy needed no re-vendor on this account.
 
 `build-bundle.mjs` stays, with its scope corrected: it is the conformance
 fixture builder, not — as its header used to say — a stand-in for the real

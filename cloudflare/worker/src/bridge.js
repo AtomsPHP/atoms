@@ -60,6 +60,10 @@ export { ok as okReply, fail as errorReply };
 /** Pragmas answered synthetically instead of being forwarded to the DO. */
 const SYNTHETIC_PRAGMAS = new Set(['journal_mode', 'synchronous', 'busy_timeout']);
 
+// Module scope, one instance: the result-set byte guard (M1 design §4.2)
+// encodes every row in rows mode, so this is on the hot path.
+const ENC = new TextEncoder();
+
 export class Bridge {
 	/**
 	 * @param {object} opts
@@ -288,19 +292,55 @@ export class Bridge {
 			throw sqlError(e);
 		}
 
+		// Branch A (M1 design §2.7, measured on this wrangler/workerd build:
+		// `cursor.columnNames` exists): captured now, before anything else
+		// touches `this.sql` and creates unrelated cursors, and before the
+		// cursor is drained. Source order, duplicates preserved — the wire's
+		// `{column: value}` row maps have already collapsed duplicate names
+		// (last-wins), so this is the only place arity survives to reach the
+		// guest, letting AtomsStatement refuse precisely (duplicate columns)
+		// instead of guessing.
+		const columnNames = Array.isArray(cursor.columnNames) ? [...cursor.columnNames] : null;
+
+		// M1 review round 2, R13 (orchestrator-mandated, deploy-risk): rows
+		// mode is the ONLY mode that ships `columns` (see the reply below),
+		// and AtomsStatement's whole duplicate-column detection depends on
+		// that array surviving — silently falling back to `columns: []`
+		// here would DISARM every guard R1 added/strengthened without
+		// telling anyone: every fetch mode that should refuse under a
+		// detected duplicate would instead answer wrong, silently, the
+		// exact failure mode this milestone exists to eliminate. Fail
+		// loudly instead. No local conformance run can exercise this branch
+		// (`cursor.columnNames` exists on every workerd build measured for
+		// this milestone) — that is expected; this guards the DEPLOYED run
+		// against a future platform regression, not this one.
+		if (mode === 'rows' && columnNames === null) {
+			throw columnsUnavailable();
+		}
+
 		/** @type {unknown[]} */
 		const rows = [];
 		try {
 			if (mode === 'rows') {
+				// The row cap is checked BEFORE push and the byte cap AFTER adding
+				// and BEFORE push (M1 design §4.2), so peak memory here is bounded
+				// by `cap + one row` and a single oversized row also trips it.
+				// "Bytes" is the sum, over rows, of the UTF-8 byte length of that
+				// row's JSON.stringify() output — deliberately not String.length
+				// (UTF-16 code units), which UNDER-counts UTF-8 by up to 3x for
+				// non-ASCII text, the wrong direction for a safety cap.
+				let bytes = 0;
 				for (const row of cursor) {
 					if (rows.length >= this.config.sqlMaxRows) {
-						throw new AtomsError(
-							'sql_error',
-							`result set exceeds ATOMS_SQL_MAX_ROWS (${this.config.sqlMaxRows})`,
-							{ detail: { sqlstate: 'HY000' } }
-						);
+						throw resultTooLarge('rows', this.config.sqlMaxRows);
 					}
-					rows.push(encodeInt64Deep(row, this.encodeOptions()));
+					const encoded = encodeInt64Deep(row, this.encodeOptions());
+					const json = JSON.stringify(encoded);
+					bytes += ENC.encode(json).byteLength;
+					if (bytes > this.config.sqlMaxResultBytes) {
+						throw resultTooLarge('bytes', this.config.sqlMaxResultBytes);
+					}
+					rows.push(encoded);
 				}
 			} else {
 				// Drain so the statement runs to completion; discard the rows.
@@ -314,7 +354,43 @@ export class Bridge {
 		}
 
 		const rowsRead = Number(cursor.rowsRead ?? 0);
-		const rowsWritten = Number(cursor.rowsWritten ?? 0);
+		// `cursor.rowsWritten` is NOT "logical rows changed" (what PDO's
+		// rowCount()/sqlite3_changes() means): it is a count of underlying
+		// storage b-tree writes, which is inflated by a row's own secondary
+		// index entries and by the AUTOINCREMENT bookkeeping table.
+		// MEASURED (temp instrumentation, see the M1 gap-fill report): a
+		// single-row INSERT into a table with a UNIQUE column and an
+		// AUTOINCREMENT primary key reported rowsWritten=3 for a real
+		// 1-row change (1 table row + 1 UNIQUE index entry + 1
+		// `sqlite_sequence` bookkeeping row); a 2-row INSERT into the same
+		// shape reported 5 for 2 real changes; INSERT into a table with
+		// AUTOINCREMENT but no UNIQUE column reported 2 for 1 real change;
+		// an UPDATE that rewrites the UNIQUE column itself reported 2 for 1
+		// real change. UPDATE/DELETE that touch no secondary index matched
+		// (1, 0, 0). None of this is a leak or a cumulative counter across
+		// statements — repeating the identical 1-row INSERT reported the
+		// same inflated number every time, not a running total.
+		//
+		// The honest per-statement count is the one real pdo_sqlite itself
+		// reports: sqlite3_changes() for the connection, right after the
+		// statement completes. `changes()` is exposed to `ctx.storage.sql`
+		// as an ordinary scalar SQL function, on the SAME connection, so
+		// this is exact rather than reconstructed — the same pattern
+		// already used below for `last_insert_rowid()`. It is skipped when
+		// `cursor.rowsWritten` (still a reliable "did this statement write
+		// anything at all" signal, even though its magnitude is wrong) is
+		// 0: a non-match UPDATE/DELETE or a plain read reports 0 either way,
+		// and skipping avoids a second round trip for the common read path.
+		const wroteSomething = Number(cursor.rowsWritten ?? 0) > 0;
+		let rowsWritten = 0;
+		if (wroteSomething) {
+			try {
+				const changed = this.sql.exec('SELECT changes() AS c').toArray();
+				rowsWritten = changed.length ? Number(changed[0].c ?? 0) : 0;
+			} catch (e) {
+				throw sqlError(e);
+			}
+		}
 
 		/** @type {Record<string, unknown>} */
 		const reply = { rows_read: rowsRead, rows_written: rowsWritten };
@@ -335,7 +411,9 @@ export class Bridge {
 			}
 		}
 
-		return mode === 'rows' ? ok({ rows, ...reply }) : ok(reply);
+		// columnNames is guaranteed non-null here in rows mode — the guard
+		// above already threw otherwise.
+		return mode === 'rows' ? ok({ rows, columns: columnNames, ...reply }) : ok(reply);
 	}
 
 	/**
@@ -363,7 +441,7 @@ export class Bridge {
 				const stored = Number(this.metaGet(META_KEYS.userVersion) ?? '0');
 				const version = Number.isFinite(stored) ? Math.trunc(stored) : 0;
 				return mode === 'rows'
-					? ok({ rows: [{ user_version: version }], ...empty, rows_read: 1 })
+					? ok({ rows: [{ user_version: version }], columns: ['user_version'], ...empty, rows_read: 1 })
 					: ok({ ...empty, rows_read: 1 });
 			}
 			if (!/^-?\d+$/.test(pragma.value)) {
@@ -372,7 +450,13 @@ export class Bridge {
 				});
 			}
 			this.metaSet(META_KEYS.userVersion, String(Math.trunc(Number(pragma.value))));
-			return mode === 'rows' ? ok({ rows: [], ...empty }) : ok(empty);
+			// Real pdo_sqlite reports columnCount() == 0 for the write form
+			// `PRAGMA user_version = N` — unlike the read form above and unlike
+			// `PRAGMA busy_timeout = N` below, which does echo a row back. `columns`
+			// must still be present (as `[]`): AtomsStatement::execute() reads
+			// $result['columns'] unconditionally, and a missing key would be a
+			// fatal (count() on null), not merely a wrong count.
+			return mode === 'rows' ? ok({ rows: [], columns: [], ...empty }) : ok(empty);
 		}
 
 		if (!SYNTHETIC_PRAGMAS.has(pragma.name)) return null;
@@ -391,7 +475,9 @@ export class Bridge {
 				row = { timeout: pragma.value !== null && /^\d+$/.test(pragma.value) ? Number(pragma.value) : 0 };
 				break;
 		}
-		return mode === 'rows' ? ok({ rows: [row], ...empty, rows_read: 1 }) : ok({ ...empty, rows_read: 1 });
+		return mode === 'rows'
+			? ok({ rows: [row], columns: [pragma.name === 'busy_timeout' ? 'timeout' : pragma.name], ...empty, rows_read: 1 })
+			: ok({ ...empty, rows_read: 1 });
 	}
 
 	/**
@@ -832,6 +918,45 @@ function sqlError(e) {
 		? '23000'
 		: 'HY000';
 	return new AtomsError('sql_error', message, { cause: e, detail: { sqlstate } });
+}
+
+/**
+ * A `sql.exec` rows-mode result exceeded ATOMS_SQL_MAX_ROWS or
+ * ATOMS_SQL_MAX_RESULT_BYTES (M1 design §4.3). A distinct code from
+ * `sql_error`: "your query was wrong" and "your query returned too much"
+ * call for opposite client responses. `detail.cap` is what lets a caller
+ * (and conformance check 29) tell which cap fired.
+ *
+ * @param {'rows'|'bytes'} cap
+ * @param {number} limit
+ * @returns {AtomsError}
+ */
+function resultTooLarge(cap, limit) {
+	return new AtomsError(
+		'sql_result_too_large',
+		`result set exceeds ${cap === 'rows' ? 'ATOMS_SQL_MAX_ROWS' : 'ATOMS_SQL_MAX_RESULT_BYTES'} (${limit})`,
+		{ detail: { sqlstate: 'HY000', cap, limit } }
+	);
+}
+
+/**
+ * `cursor.columnNames` is missing on this platform build (M1 review round 2,
+ * R13). Named, not just message-worded, so it's distinguishable from an
+ * ordinary `sql_error` by every caller: AtomsStatement's duplicate-column
+ * detection (Branch A, design §2.7) has no other source for the result
+ * set's true column arity, so losing this capability silently would silently
+ * disarm every guard that depends on it instead of failing the statement
+ * that needed it.
+ *
+ * @returns {AtomsError}
+ */
+function columnsUnavailable() {
+	return new AtomsError(
+		'sql_columns_unavailable',
+		"this platform build's ctx.storage.sql cursor does not expose columnNames, so rows-mode column " +
+			'arity cannot be reported truthfully',
+		{ detail: { sqlstate: 'HY000' } }
+	);
 }
 
 /**

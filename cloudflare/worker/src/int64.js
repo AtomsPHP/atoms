@@ -254,9 +254,28 @@ export function decodeInt64Deep(value) {
  * Coerce a decoded binding into something `ctx.storage.sql.exec` accepts.
  *
  * `SqlStorageValue` is `ArrayBuffer | string | number | null` — workerd rejects
- * `bigint` outright — so anything that fits a double exactly becomes a number
- * and anything wider stays a `bigint` for `inlineWideIntegers()` to fold into
- * the statement text.
+ * `bigint` outright — so a `bigint` here always goes on to `inlineWideIntegers()`
+ * to fold into the statement text, regardless of its magnitude.
+ *
+ * MEASURED (temp instrumentation, see the M1 gap-fill report): binding a
+ * plain JS `number` — including an integral one, e.g. `42` — to
+ * `ctx.storage.sql`, `typeof(?)` on the bound param reports `'real'`, never
+ * `'integer'`. Workerd's binder has no way to tell "this JS number is an
+ * integer" from "this JS number is a double that happens to be integral";
+ * every `number` binds with SQLite storage class REAL. A validated decimal
+ * literal folded into the statement text, by contrast, is parsed by SQLite
+ * itself and gets the storage class its own literal grammar assigns — an
+ * integer literal is INTEGER. So this used to collapse a small `bigint`
+ * (produced only for a value the PHP side tagged `$atoms_int64`, i.e. every
+ * genuine PHP `int` — see `Atoms\Cf\SqlBridge::tagIntBindings()`) back into a
+ * plain `number` when it fit a double exactly, which silently re-introduced
+ * the REAL-storage-class bug for ordinary small ints. Every genuinely-int
+ * PHP value is tagged now, not only the ones outside JSON's safe range, so
+ * every one of them takes the literal-inlining path instead of a parameter
+ * bind, and SQLite reports the correct INTEGER storage class. Genuine PHP
+ * floats (including an integral one, e.g. `2.0`) are never tagged and stay
+ * plain `number`s bound as parameters — REAL storage class, which is what
+ * they should have.
  *
  * @param {unknown} v
  * @returns {string|number|bigint|null|ArrayBuffer}
@@ -267,7 +286,7 @@ export function toSqlBinding(v) {
 	if (typeof v === 'boolean') return v ? 1 : 0;
 	if (typeof v === 'bigint') {
 		assertInt64Range(v);
-		return v >= SAFE_MIN && v <= SAFE_MAX ? Number(v) : v;
+		return v;
 	}
 	if (v instanceof ArrayBuffer) return v;
 	throw new AtomsError(
@@ -277,12 +296,17 @@ export function toSqlBinding(v) {
 }
 
 /**
- * Fold bindings that workerd cannot carry into the statement text.
+ * Fold bindings that workerd cannot carry as a parameter into the statement
+ * text — originally just the ones too wide for a double (`bigint` outside
+ * the JS-safe range), now every `bigint` binding regardless of magnitude
+ * (see `toSqlBinding()`), because a plain bound `number` always gets SQLite
+ * storage class REAL and a genuine PHP int must not.
  *
- * Durable Object SQL rejects `bigint` bindings, so an integer wider than
- * 2^53-1 can only reach SQLite as a literal. The substitution is safe by
- * construction: the value is a validated decimal integer, never customer text.
- * Every other binding keeps its position and stays a real bound parameter.
+ * Durable Object SQL rejects `bigint` bindings outright in any case, so this
+ * was already the only way a wide integer could reach SQLite. The
+ * substitution is safe by construction: the value is a validated decimal
+ * integer, never customer text. Every other binding keeps its position and
+ * stays a real bound parameter.
  *
  * @param {string} sql
  * @param {(string|number|bigint|null|ArrayBuffer)[]} bindings
@@ -295,10 +319,17 @@ export function inlineWideIntegers(sql, bindings) {
 
 	const positions = findPlaceholders(sql);
 	if (positions.length !== bindings.length) {
+		// M1 review F-21 (NIT, fixed): this path is reached whenever the
+		// BINDINGS ARRAY happens to contain at least one wide integer — not
+		// only when the wide integer itself is what's mismatched. A plain
+		// arity mistake (wrong number of bindings for unrelated reasons)
+		// that merely CO-OCCURS with a bigint binding used to be reported
+		// with "cannot bind an integer wider than 2^53-1" framing that had
+		// nothing to do with the actual problem. Neutral wording covers
+		// both cases honestly.
 		throw new AtomsError(
 			'sql_error',
-			`cannot bind an integer wider than 2^53-1: the statement has ${positions.length} ` +
-				`positional placeholders but ${bindings.length} bindings were supplied`
+			`statement has ${positions.length} positional placeholders but ${bindings.length} bindings were supplied`
 		);
 	}
 

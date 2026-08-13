@@ -120,9 +120,14 @@ not direction.
   remains only on the permanently-unsupported corner of the PDO shim
   (`AtomsPDO.php`/`AtomsStatement.php` — see `worker/php/README.md`
   §Documented leaks and limits); that restriction is not a stub awaiting a
-  later milestone. Adding to the runtime surface beyond what M2 landed is
-  still a spec change first — do not "fix" a gap by inventing a
-  half-implementation.
+  later milestone, and as of M1 it is machine-verified rather than
+  hand-audited: a reflection tripwire (conformance check 26) asserts every
+  public member of the runtime's `\PDO`/`\PDOStatement` is genuinely declared,
+  and a differential harness (checks 27-28) measures the remaining corner
+  against a native in-guest `pdo_sqlite`, publishing the result as
+  `cloudflare/docs/pdo-compatibility.md` (check 30). Adding to the runtime
+  surface beyond what M2 landed is still a spec change first — do not "fix" a
+  gap by inventing a half-implementation.
 - **No capacity numbers in code.** Every TTL, cap, deadline, limit and poll
   interval comes from an environment variable with a default, resolved in
   `worker/src/config.js` and nowhere else.
@@ -134,7 +139,7 @@ not direction.
 
 - **One CI workflow tests everything, from one clone.** `.github/workflows/ci.yml`
   runs the PHP suites (`composer test` on 8.3 and 8.4), `composer stan`,
-  manifest lint, *and* the Worker's 25-check conformance suite under a
+  manifest lint, *and* the Worker's 30-check conformance suite under a
   local `wrangler dev`. Keep that true: a change to either half must leave the
   whole workflow green, and no job may need a Cloudflare account, an API
   token, or a cross-repo fetch of any kind.

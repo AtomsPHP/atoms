@@ -69,7 +69,7 @@ jobs:
           exit "$status"
 
   # The Cloudflare Worker half: build it, run it locally under workerd, and put
-  # the 25-check conformance suite through it. Everything here is local —
+  # the 30-check conformance suite through it. Everything here is local —
   # `wrangler dev` needs no Cloudflare account, API token or login, and nothing
   # in this job deploys. Do not add credentials or `--remote` to make it
   # "work"; if it stops working, something in the worker broke.
@@ -105,6 +105,17 @@ jobs:
       # quietly delete five checks from the run and the job would still be
       # green. Set it, and a skip becomes a failure.
       ATOMS_REQUIRE_CALLBACK_CHECKS: '1'
+      # Passed to the Worker AND read by check 29 so the two never drift, same
+      # pattern as ATOMS_TURN_DEADLINE_MS/check 15 above. Small on purpose so
+      # the overrun legs (29b/29c) cost fractions of a second; the matrix's
+      # own seed data (a handful of rows) stays well under both caps, so this
+      # cannot false-positive against checks 1-28.
+      ATOMS_SQL_MAX_ROWS: '500'
+      ATOMS_SQL_MAX_RESULT_BYTES: '65536'
+      # Same anti-silent-deletion device as ATOMS_REQUIRE_CALLBACK_CHECKS: a
+      # missing cap var would make check 29 SKIP rather than fail, and this
+      # job sets both, so a skip here means the harness is broken.
+      ATOMS_REQUIRE_SQL_CAP_CHECKS: '1'
     steps:
       - uses: actions/checkout@v4
 

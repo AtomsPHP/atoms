@@ -37,40 +37,61 @@ final class SqlBridge
     /** @var int rowid of the most recent insert, 0 if there has been none */
     private $lastInsertRowid = 0;
 
-    /** @var array{0: string, 1: int|null, 2: string|null} PDO-shaped errorInfo triple */
-    private $errorInfo = [self::SQLSTATE_OK, null, null];
-
     /**
      * Run one statement against the Durable Object's SQLite.
+     *
+     * Deliberately holds no error-state memory of its own (M1 design §3
+     * F-27): real PDO scopes `errorCode()`/`errorInfo()` to the HANDLE that
+     * ran the failing operation — a statement's own failure does not leak
+     * onto the connection's error state (measured: after a statement
+     * `execute()` fails with a UNIQUE violation, `$stmt->errorCode()` is
+     * `'23000'` while `$pdo->errorCode()` is still `'00000'`). This bridge is
+     * the ONE instance shared by {@see AtomsPDO} (connection-level ops) and
+     * every {@see AtomsStatement} it prepares, so it cannot be where that
+     * state lives without conflating the two. Each of those two classes
+     * caches its OWN triple, populated only from ITS OWN calls into this
+     * method; this method just runs the RPC and either returns the result or
+     * throws {@see BridgeSqlException} with the failure's own triple on it.
      *
      * @param string $sql
      * @param list<mixed> $bindings positional only; named params are rewritten
      *                              to positional by the caller, in PHP
      * @param string $mode self::MODE_ROWS | self::MODE_RUN
-     * @return array{rows: list<array<string, mixed>>, rows_written: int, last_insert_rowid: int}
-     * @throws \PDOException on a SQL error, with a real errorInfo() triple
+     * @return array{rows: list<array<string, mixed>>, columns: list<string>, rows_written: int, last_insert_rowid: int}
+     * @throws BridgeSqlException on a SQL error, with a real errorInfo() triple
      */
     public function exec($sql, array $bindings, $mode = self::MODE_ROWS)
     {
         $request = [
             'op' => 'sql.exec',
             'sql' => (string) $sql,
-            'bindings' => int64_encode($this->normalizeBindings($bindings)),
+            'bindings' => self::tagIntBindings($this->normalizeBindings($bindings)),
             'mode' => $mode,
         ];
 
         $reply = host_sync_raw($request);
 
         if ($reply['ok'] !== true) {
-            throw $this->failure($reply);
+            throw self::failure($reply);
         }
-
-        $this->errorInfo = [self::SQLSTATE_OK, null, null];
 
         $rows = [];
         if (isset($reply['rows']) && is_array($reply['rows'])) {
             /** @var list<array<string, mixed>> $rows */
             $rows = int64_decode($reply['rows']);
+        }
+
+        // Branch A (M1 design §2.7): source-order column names, duplicates
+        // preserved, from `cursor.columnNames` (bridge.js). Absent (an empty
+        // list) for a non-"rows" reply. This is the only place the wire's
+        // arity survives — the `{column: value}` row maps have already
+        // collapsed duplicate names — so it is what lets AtomsStatement
+        // detect duplicates and refuse precisely instead of guessing.
+        $columns = [];
+        if (isset($reply['columns']) && is_array($reply['columns'])) {
+            foreach ($reply['columns'] as $name) {
+                $columns[] = (string) $name;
+            }
         }
 
         // The host reports `last_insert_rowid` only for a statement that actually
@@ -87,9 +108,38 @@ final class SqlBridge
 
         return [
             'rows' => $rows,
+            'columns' => $columns,
             'rows_written' => isset($reply['rows_written']) ? (int) $reply['rows_written'] : 0,
             'last_insert_rowid' => $this->lastInsertRowid,
         ];
+    }
+
+    /**
+     * Tag EVERY int binding with the int64 wire tag, not only those outside
+     * JSON's safe range (M1 gap-fill report, host bug #2). MEASURED:
+     * `ctx.storage.sql` binds a plain JS `number` — including an integral
+     * one — with SQLite storage class REAL, never INTEGER (`typeof(?)` on a
+     * bound `42` reported `'real'`). The int64 tag is already how a wide
+     * integer crosses to be inlined as a validated decimal literal
+     * (`inlineWideIntegers()`, src/int64.js); tagging every int, not only
+     * wide ones, routes every genuinely-integer SQL binding through that
+     * same literal-inlining path instead of a parameter bind, so SQLite
+     * parses an actual integer literal and reports INTEGER storage class.
+     * This is scoped to SQL bindings only — it deliberately does NOT touch
+     * the general {@see int64_encode()} used for method args/results
+     * elsewhere on the wire, so nothing outside `sql.exec` changes shape.
+     *
+     * @param list<mixed> $bindings already normalized: null|int|float|string only
+     * @return list<mixed>
+     */
+    private static function tagIntBindings(array $bindings)
+    {
+        $out = [];
+        foreach ($bindings as $value) {
+            $out[] = is_int($value) ? [INT64_TAG => (string) $value] : $value;
+        }
+
+        return $out;
     }
 
     /**
@@ -162,22 +212,6 @@ final class SqlBridge
     }
 
     /**
-     * @return string the SQLSTATE of the most recent statement
-     */
-    public function errorCode()
-    {
-        return $this->errorInfo[0];
-    }
-
-    /**
-     * @return array{0: string, 1: int|null, 2: string|null}
-     */
-    public function errorInfo()
-    {
-        return $this->errorInfo;
-    }
-
-    /**
      * @param string $what
      * @throws \PDOException
      */
@@ -189,13 +223,22 @@ final class SqlBridge
     }
 
     /**
-     * Build the exception for an `ok: false` sql.exec reply and record the
-     * errorInfo triple that PDO consumers will read afterwards.
+     * Build the exception for an `ok: false` sql.exec reply, with the
+     * errorInfo triple attached AND settable as ->getCode() (design §3
+     * F-28) — the caller (AtomsPDO or AtomsStatement) is what decides
+     * whether the triple becomes ITS cached error state (F-27).
+     *
+     * M1 review F-14 (MINOR, fixed): the raw `$error` object — everything
+     * `bridge.js`'s `fail()` spread into `reply.error`, e.g. `cap`/`limit`
+     * for `sql_result_too_large` — is now passed through as the exception's
+     * `detail` ({@see BridgeSqlException::getDetail()}) instead of being
+     * discarded here after only `code`/`message`/`sqlstate` were read out of
+     * it. Nothing that already read those three changes.
      *
      * @param array<string, mixed> $reply
-     * @return \PDOException
+     * @return BridgeSqlException
      */
-    private function failure(array $reply)
+    private static function failure(array $reply)
     {
         $error = isset($reply['error']) && is_array($reply['error']) ? $reply['error'] : [];
         $code = isset($error['code']) ? (string) $error['code'] : 'sql_error';
@@ -204,12 +247,9 @@ final class SqlBridge
 
         // 1 == SQLITE_ERROR. The bridge has no finer driver code to report, so
         // the triple stays shaped like PDO's without inventing detail.
-        $this->errorInfo = [$sqlstate, 1, $message];
+        $errorInfo = [$sqlstate, 1, $message];
 
-        $exception = new \PDOException(sprintf('SQLSTATE[%s] [%s] %s', $sqlstate, $code, $message));
-        $exception->errorInfo = $this->errorInfo;
-
-        return $exception;
+        return new BridgeSqlException(sprintf('SQLSTATE[%s] [%s] %s', $sqlstate, $code, $message), $errorInfo, $error);
     }
 
     /**
