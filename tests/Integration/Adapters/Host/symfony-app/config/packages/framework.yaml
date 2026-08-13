@@ -1,0 +1,32 @@
+framework:
+    secret: 'test'
+    test: true
+    http_method_override: false
+    # FrameworkBundle auto-enables its own messenger integration (a default
+    # MessageBusInterface bus with zero configured handlers) whenever
+    # symfony/messenger is merely installed — which it is, at this repo's
+    # root, unconditionally. Left on, that default bus makes
+    # $container->has(MessageBusInterface::class) true REGARDLESS of whether
+    # config/services.php registers one for the current case, so
+    # MessengerBridgePass always upgrades QueueBridge away from
+    # NullQueueBridge and S4 (queueAvailable=false) can never observe the
+    # "no queue wired" 500 ATOMS-E103 it asserts. Disabling it here hands
+    # control of whether MessageBusInterface exists entirely to
+    # TestDoubles::$queueAvailable via services.php, which is what S4 needs.
+    messenger:
+        enabled: false
+    # Symfony's own ErrorListener unconditionally logs every uncaught HTTP
+    # exception it converts to a response — including routine ones like the
+    # router's 405 on a GET at the callback path (M1) — through the SAME
+    # 'logger' service CallbackKernel uses for ITS OWN error logging (S5).
+    # M1 asserts zero log records for that 405; CallbackKernel never throws
+    # for it (the router rejects the method before the controller runs), so
+    # this is Symfony's own framework noise, not anything atoms/symfony
+    # produces. Routing HTTP exceptions to a dedicated silent channel (a
+    # NullLogger registered in services.php) scopes that suppression to
+    # exactly Symfony's own router/kernel-level exceptions — CallbackKernel's
+    # calls against the DEFAULT 'logger' channel (S5's boom case) are
+    # untouched.
+    exceptions:
+        Symfony\Component\HttpKernel\Exception\HttpExceptionInterface:
+            log_channel: 'atoms_silent'

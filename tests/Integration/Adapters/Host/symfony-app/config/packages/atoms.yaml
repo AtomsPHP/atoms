@@ -1,0 +1,18 @@
+atoms:
+    endpoint: '%env(ATOMS_ENDPOINT)%'
+    # A bare '%env(default::ATOMS_API_KEY)%' cannot tell "unset" from "set to
+    # the empty string" — Symfony's `default` env processor collapses BOTH to
+    # null (see EnvVarProcessor::getEnv()'s 'default' branch: it falls back
+    # whenever the resolved value is '' OR missing, not just missing). S2
+    # needs the empty-string misconfiguration to survive as '', not become
+    # null. SymfonyHost sends a single space for that case — non-empty, so
+    # `default::` passes it through unchanged — and the outer `trim:`
+    # processor reduces it back to '' before AtomsConfig ever sees it. A
+    # truly absent ATOMS_API_KEY still resolves to null: EnvVarProcessor
+    # short-circuits `trim` (it isn't in its null-passthrough allow-list) and
+    # returns null without invoking trim() on it.
+    api_key: '%env(trim:default::ATOMS_API_KEY)%'
+    platform_public_key: '%env(ATOMS_PLATFORM_PUBLIC_KEY)%'
+    callback_path: '%env(ATOMS_CALLBACK_PATH)%'
+    methods_classes:
+        - Atoms\Tests\Integration\Adapters\Fixtures\GameRoom\Methods

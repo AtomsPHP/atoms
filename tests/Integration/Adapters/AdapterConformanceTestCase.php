@@ -155,11 +155,32 @@ abstract class AdapterConformanceTestCase extends TestCase
     }
 
     /**
-     * M3 (CSRF/cookie handling) is only meaningful for framework hosts, which
-     * this task does not add. Left as a marked seam for T9b — do not fake it
-     * here against bare-kernel/plain-PHP, which have no CSRF/cookie layer to
-     * exercise.
+     * M3: a signed happy-path POST carries no CSRF token and no session
+     * cookie, and gets back a 200 with no Set-Cookie header — proof that the
+     * callback route is mounted outside whatever session/CSRF layer a
+     * routing-capable host's framework provides. Laravel: the adapter
+     * registers the route outside the "web" middleware group (no
+     * EncryptCookies/StartSession/ValidateCsrfToken). Symfony: no session is
+     * configured at all (Host/symfony-app has no `framework: session:`).
+     * Meaningless for bare-kernel/plain-PHP, which have no CSRF/cookie layer
+     * to exercise — routing-capable hosts only, same gate M1/M2 use.
      */
+    public function testM3NoCsrfTokenNoSessionCookieRoundTripsCleanly(): void
+    {
+        $this->skipUnlessSupports('routing', 'M3');
+
+        $body = CallbackCases::methodsBody('GameRoom', 'g-1', 'add', [2, 3]);
+        $request = CallbackCases::signedRequest($this->signer, $this->options, 'methods', $body);
+
+        $response = $this->host->handle($request);
+
+        self::assertSame(200, $response->status);
+        self::assertSame('{"result":5}', $response->body);
+
+        foreach (array_keys($response->headers) as $name) {
+            self::assertNotSame('set-cookie', strtolower($name), "M3: unexpected Set-Cookie header '{$name}'");
+        }
+    }
 
     /**
      * M4: a lowercase `x-atoms-kind` header produces the exact same envelope
