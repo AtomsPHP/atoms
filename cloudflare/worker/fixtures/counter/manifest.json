@@ -45,6 +45,14 @@
       "migrations": [
         "/app/migrations/boot/001_init.sql"
       ]
+    },
+    "Probe": {
+      "class": "App\\Atoms\\Probe",
+      "file": "/app/Probe.php",
+      "websocket": false,
+      "migrations": [
+        "/app/migrations/probe/001_init.sql"
+      ]
     }
   }
 }

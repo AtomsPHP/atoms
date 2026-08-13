@@ -81,6 +81,7 @@ function runtime_files()
         'BootstrapError.php',
         'MigrationsGlobShim.php',
         'AtomsNotSupported.php',
+        'BridgeSqlException.php',
         'FetchMode.php',
         'NamedParams.php',
         'SqlBridge.php',

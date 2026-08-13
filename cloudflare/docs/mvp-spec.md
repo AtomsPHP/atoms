@@ -66,9 +66,19 @@ prefix, JSON-decode the reply. Every reply is an object with `ok: true` or
 ### Sync ops (`'!'`)
 
 - `{"op":"sql.exec","sql":string,"bindings":[...],"mode":"rows"|"run"}`
-  → `{"ok":true,"rows":[{col:val,...}...],"rows_read":int,"rows_written":int,
-  "last_insert_rowid":int64tag}`
-  Bindings are positional, already int64-tagged. `mode:"rows"` returns all
+  → `{"ok":true,"rows":[{col:val,...}...],"columns":[string...],"rows_read":int,
+  "rows_written":int,"last_insert_rowid":int64tag}`
+  Bindings are positional, already int64-tagged. `columns` (rows mode only) is
+  the SOURCE-ORDER column names, duplicates preserved — measured present on
+  `SqlStorageCursor` (appendix, M1 item), the one place a duplicate-column
+  result set's true arity survives once the `{col:val}` row maps have
+  collapsed it (last value wins); rows mode fails loudly with
+  `sql_columns_unavailable` rather than silently degrading to `columns: []`
+  if a future platform build ever stops exposing `cursor.columnNames` (M1
+  review round 2, R13). A result set exceeding `ATOMS_SQL_MAX_ROWS`
+  or `ATOMS_SQL_MAX_RESULT_BYTES` in rows mode fails with `sql_result_too_large`
+  (`detail.cap` is `"rows"` or `"bytes"`, `detail.limit` the cap that fired);
+  `run` mode, which buffers nothing, is unaffected by either cap. `mode:"rows"` returns all
   rows; `"run"` returns counters only. Named parameters are rewritten to
   positional **in PHP** before crossing.
   `last_insert_rowid` is present **only when `rows_written > 0`**, and an
@@ -77,6 +87,17 @@ prefix, JSON-decode the reply. Every reply is an object with `ok: true` or
   `lastInsertId()` keeps reporting the last insert across any number of
   intervening reads, so a `0` sent after a plain `SELECT` would silently break
   `INSERT parent; SELECT …; INSERT child(parent_id = lastInsertId())`.
+  **Multi-statement `sql` text** (`sql.exec` runs every statement `this.sql.exec()`
+  is given, `;`-separated): `rows_written` is `SELECT changes()` read ONCE, after
+  the LAST statement finishes — `sqlite3_changes()` semantics, i.e. the affected
+  row count of that final statement alone, never a sum across the statements in
+  the string (M1 review F-13). `Schema::applySchema()`'s own migration-file
+  splitter (`cloudflare/worker/fixtures/counter/app/Pdo/Schema.php`) exists
+  precisely because of this: it runs the DO side's multi-statement DDL through
+  one `sql.exec` call, and the comparator through one `PDO::exec()` per
+  statement, but neither side's fixture code ever reads `rows_written` off a
+  multi-statement DDL string, so the two paths staying semantically different
+  here is deliberate, not a gap.
 - `{"op":"config.get","key":string}` → `{"ok":true,"value":json|null}`.
   JS resolves from an allowlisted view of `env` (see Config).
 - `{"op":"meta.get","key":string}` / `{"op":"meta.set","key":string,"value":string}`
@@ -795,10 +816,18 @@ awaited event: the DO is never evicted mid-event, only between them.
 - `transaction(callable)` mirrors `SqliteDatabase`'s nesting guard, then
   `tx.begin` → `$fn($this)` → `tx.commit`, catching to `tx.rollback` +
   rethrow.
-- `pdo()` returns `Atoms\Cf\AtomsPDO extends \PDO` (spike shim, hardened):
-  `prepare/execute/query/exec/fetch/fetchAll/fetchColumn/lastInsertId/
-  beginTransaction/commit/rollBack/inTransaction/quote/errorCode/errorInfo`
-  route to the bridge; unsupported members throw
+- `pdo()` returns `Atoms\Cf\AtomsPDO extends \PDO` (spike shim, hardened, then
+  measured and filled by M1's "make the userland PDO surface honest" pass).
+  The surface is no longer defined by a hand-audited member list: a
+  reflection tripwire (conformance check 26) asserts every public member of
+  the runtime's own `\PDO`/`\PDOStatement` is genuinely declared on the
+  subclass, and a differential harness (checks 27-28) runs a ~160-case matrix
+  against both `AtomsPDO` and a native in-guest `pdo_sqlite`, classifying every
+  case and comparing it against a committed pin file that may only shrink. The
+  generated, drift-checked result (check 30) is `cloudflare/docs/pdo-compatibility.md`
+  — the binding statement of what this shim supports, refuses, and differs on;
+  `worker/php/README.md` §Documented leaks and limits carries only the short
+  permanent list. Unsupported members throw
   `Atoms\Cf\AtomsNotSupported extends \PDOException` — never a silent
   carrier-database answer. The dummy carrier connection (`sqlite::memory:`)
   exists only to satisfy the `\PDO` constructor.
@@ -1126,7 +1155,7 @@ See `docs/cloudflare-toolchain.md` §3.
 
 ## Fixture app (conformance subject)
 
-`fixtures/counter/` defines five Atom types and one job class:
+`fixtures/counter/` defines six Atom types and one job class:
 
 - `Counter` — `increment(int $by): int` (SQL update + returns new value),
   `getValue(): int`, `getStats(): array` (exercises Serializer arrays),
@@ -1178,6 +1207,16 @@ See `docs/cloudflare-toolchain.md` §3.
   it is not mistaken for a bug: `Boot` is channel-required — with no callback
   channel configured it does not activate, and only check 16 (which skips
   without a listener) uses it.
+- `Probe` — a fixture for the M1 PDO surface work, a **separate** type for the
+  same reason `Room`/`Boot`/`Scheduler` are: it writes and reads a lot of rows
+  through the reflection tripwire and the differential harness, and it must
+  not perturb any other fixture's table contents or residency counters.
+  `surfaceAudit()` drives check 26; `comparatorSanity()`/`differentialGroups()`/
+  `differential(group)` drive checks 27-28 (one HTTP invoke per case group, so
+  a single turn never risks the turn deadline); `capProbe(cap, rows, padBytes)`
+  builds a result set through a recursive CTE (CPU cost only, no writes) for
+  check 29's result-set size guard. Migration `probe/001_init.sql` creates
+  `probe_rows`/`probe_wide`/`probe_bulk`, the differential matrix's schema.
 - `App\Jobs\Notify` (`fixtures/counter/app/Jobs/Notify.php`) — an `AtomJob`
   with promoted public `$atomId`/`$note` properties, the dispatch contract
   `dispatch()`'s encoder and `CallbackKernel::constructJob()` must agree on.
@@ -1185,9 +1224,10 @@ See `docs/cloudflare-toolchain.md` §3.
 ## Conformance suite
 
 `test/conformance.mjs` runs against any base URL (`ATOMS_BASE_URL`), so the
-same suite runs against `wrangler dev` and the deployed Worker. It is 25
+same suite runs against `wrangler dev` and the deployed Worker. It is 30
 checks: the original 12 (1–12, untouched, not renumbered, not weakened) plus
-13 more added across M2's three waves and its review round.
+13 more added across M2's three waves and its review round, plus 5 more added
+by M1's PDO surface honesty pass.
 
 1. healthz; 2. invoke + result envelope; 3. warm-residency (in-memory counter
 increments across turns); 4. isolation between two IDs; 5. migrations applied
@@ -1297,6 +1337,55 @@ timer, and quiet-disconnect paths respectively, and shortening the wait for
 any of them would make them assert nothing, for the same reason check 12 must
 not be shortened.
 
+**26–30 — the M1 PDO surface honesty pass.** **26.** the reflection tripwire
+(`Probe::surfaceAudit()`): every public member of the runtime's own `\PDO`/
+`\PDOStatement` is genuinely **declared** on `AtomsPDO`/`AtomsStatement`
+(`ReflectionMethod::getDeclaringClass()`, never a hardcoded member list), the
+pinned `FETCH_*`/`ATTR_*`/`PARAM_*`/... constants match the runtime exactly by
+name-set and value, every pinned `FETCH_*` value is proven refused or shaped
+correctly by execution, and the audit's own floors (`pdo_methods >= 15`,
+`stmt_methods >= 19`, `pinned_fetch >= 24`, a non-empty `members_checked`) rule
+out a vacuous pass; the allowlist (currently one entry, `PDOStatement::$queryString`)
+is asserted at exactly its committed id set, and every entry's own runtime
+assertion must have passed. **27.** comparator integrity
+(`Probe::comparatorSanity()`): a fresh native in-guest `new \PDO('sqlite::memory:')`
+passes five structural gates (S1 `get_class() === 'PDO'` exactly; S2
+`ATTR_CLIENT_VERSION` a real version string; S3 `FETCH_NAMED` groups duplicate
+columns the way only a real driver can; S4 `getColumnMeta()` answers; S5
+`FETCH_LAZY` returns a `PDORow`) — none of which `AtomsPDO` can produce even in
+principle, so a misconfigured or impostor comparator cannot pass. Never skips:
+"we could not verify our own compatibility claims" is not a neutral outcome.
+**28.** the differential matrix (`Probe::differentialGroups()` +
+`Probe::differential(group)`, one HTTP invoke per case group): ~160 cases, the
+identical closure run against `AtomsPDO` and the check-27 comparator, each
+classified (`match`/`refused_by_us`/`refused_by_both`/`refused_by_comparator`/
+`deviation`/`informational`/`error`) and checked against the committed pin file
+`test/pdo-expected.json` in both directions — every observed non-match case
+must be pinned with exactly that class, and every pinned entry must be
+observed with exactly that class (which is what makes a comparator quietly
+becoming `AtomsPDO` itself self-detecting: every `refused_by_us` would flip to
+`refused_by_both` and light up dozens of stale-pin failures at once) — plus
+floors on `summary.total` (≥ 90, anti-vacuous) and `summary.match` (≥ 55, so
+"pin everything" cannot pass) and a hard `summary.error === 0` (harness
+breakage is never pinnable). **29.** the result-set size guard
+(`Probe::capProbe()`): with `ATOMS_SQL_MAX_ROWS`/`ATOMS_SQL_MAX_RESULT_BYTES`
+set on both the Worker and (matching, never defaulted) the runner — the same
+pattern check 15 uses for `ATOMS_TURN_DEADLINE_MS` — one row under the row cap
+succeeds with the exact count, one row over fails `sql_result_too_large` with
+`detail.cap === 'rows'`, a result sized well under the row cap but over the
+byte cap fails with `detail.cap === 'bytes'` (proving the two caps are
+independent), and a plain ping afterwards still returns 200 (the residency
+survived). Skips when the cap vars are not set in the runner's own
+environment; `ATOMS_REQUIRE_SQL_CAP_CHECKS=1` turns that skip into a failure,
+same device as `ATOMS_REQUIRE_CALLBACK_CHECKS`. **30.** the compatibility doc
+is current: re-using check 28's already-fetched report, a fresh
+`renderMatrixDoc()` (`scripts/gen-pdo-matrix.mjs`, a pure function — no clock,
+no filesystem) is byte-compared against the committed
+`cloudflare/docs/pdo-compatibility.md`; a mismatch fails naming the first
+differing line and the regeneration command. If check 28 produced no report at
+all, this **fails rather than skips** — a stale doc is never excused by a
+missing run.
+
 Remote-only additions: measure cold activation, warm turn, and
 post-hibernation wake latencies; record them in `test/results/remote.json`.
 
@@ -1343,6 +1432,20 @@ otherwise unchanged and still binding.
    A column holding large floating-point quantities in the ambiguous band should
    therefore either set `=float` or be selected through a cast the same way a
    wide integer is.
+
+   **Accepted tradeoff (M1 review F-21, DECLINED beyond a message reword):**
+   `inlineWideIntegers()` folds every `bigint` binding into the statement TEXT
+   as a validated decimal literal — not just the ones a naive reading of "wide"
+   would require, and not conditionally on the statement being reused. That
+   inlining defeats workerd's own statement-object reuse for any statement a
+   wide-integer binding ever touches (a rewritten SQL string is a different
+   statement to `ctx.storage.sql` every time), in exchange for the storage-class
+   honesty the rest of this item describes (a genuine INTEGER binding stays
+   INTEGER storage class, never REAL). Reviewed and accepted for M1: correctness
+   of the stored value's storage class is worth more than statement-object
+   reuse here, and there is no third option — a `bigint` cannot cross the
+   binding boundary at all (the `TypeError` above), so text-inlining is the
+   only path a wide integer has into SQLite regardless of reuse.
 
 2. **`GLOB_BRACE` does not exist in the pinned php-wasm 8.3 build**, and brace
    patterns match nothing. The verbatim `Atoms\Migrations\MigrationSet::
@@ -1529,6 +1632,53 @@ otherwise unchanged and still binding.
    - **Latency (median):** cold activation 651ms, warm turn 73ms,
      post-hibernation wake 449ms — no material regression against the earlier
      ~740 / ~59 / ~604ms figures.
+
+6. **M1 measurements (2026-08-13, pinned wrangler 4.118.0 local) — the PDO
+   surface honesty pass.**
+
+   - **`SqlStorageCursor` exposes `columnNames`, source order, duplicates
+     preserved.** Step 0 of the M1 design: a temporary log line in `opSqlExec`
+     confirmed `Array.isArray(cursor.columnNames) === true` for both a
+     unique-column and a duplicate-column `SELECT`, captured before the cursor
+     is drained. This decided Branch A of §"SQL bridge details": `sql.exec`'s
+     rows-mode reply now carries `columns`, which is what lets
+     `AtomsStatement` report an exact `columnCount()` on an empty result set
+     and refuse `FETCH_NUM`/`FETCH_BOTH`/`FETCH_COLUMN`-by-index/`FETCH_NAMED`
+     *precisely* (only when the column list itself proves a duplicate) rather
+     than refusing the whole family unconditionally; `bridge.js`'s `sql.exec`
+     now fails loudly with `sql_columns_unavailable` instead of silently
+     shipping `columns: []` if this capability is ever absent on a future
+     platform build (M1 review round 2, R13).
+   - **`cursor.rowsWritten` counts underlying B-tree writes, not logical rows
+     changed.** Measured (temporary instrumentation): a single-row `INSERT`
+     into a table with a `UNIQUE` column and an `AUTOINCREMENT` primary key
+     reported `rowsWritten=3` for one real change (the row itself, its
+     `UNIQUE` index entry, and the `sqlite_sequence` bookkeeping row); a
+     2-row `INSERT` into the same shape reported 5; an `INSERT` with
+     `AUTOINCREMENT` but no `UNIQUE` column reported 2 for one real change;
+     an `UPDATE` rewriting the `UNIQUE` column itself reported 2 for one real
+     change; an `UPDATE`/`DELETE` touching no secondary index matched exactly
+     (1, 0, 0). Not cumulative — repeating the identical statement reported
+     the same inflated number every time, never a running total. PDO's
+     `rowCount()` contract needs the real count, so the bridge now asks
+     SQLite itself: `SELECT changes()` on the same connection, right after
+     the statement completes (skipped when `rowsWritten` is 0, since a
+     non-match `UPDATE`/`DELETE` or a plain read reports 0 either way and
+     skipping avoids a second round trip on the common read path).
+   - **A plain bound JS `number` always takes SQLite storage class REAL, even
+     when it is integral.** Measured: binding `42` as an ordinary parameter
+     and reading back `typeof(?)` on it reports `'real'`, never `'integer'` —
+     workerd's binder cannot tell "this JS number is an integer" from "this
+     JS number is a double that happens to be integral". A validated decimal
+     literal folded into the statement text, by contrast, is parsed by SQLite
+     itself and takes the storage class its own literal grammar assigns. Every
+     genuine PHP `int` is now tagged for the literal-inlining path
+     (`Atoms\Cf\SqlBridge::tagIntBindings()`), not only the ones outside
+     JSON's safe range, so every PHP int reports the correct INTEGER storage
+     class; a genuine PHP float (including an integral one, e.g. `2.0`) stays
+     an ordinary bound `number` and correctly takes REAL. See `int64.js`
+     (`toSqlBinding()`/`inlineWideIntegers()`) for the implementation this
+     measurement drove.
 
 ## Deployment (MVP)
 

@@ -34,9 +34,10 @@
 import { createPublicKey, randomBytes, verify as verifyEd25519 } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { renderMatrixDoc } from '../scripts/gen-pdo-matrix.mjs';
 
 const BASE_URL = process.env.ATOMS_BASE_URL;
 const APP_KEY = process.env.ATOMS_APP_KEY;
@@ -46,6 +47,17 @@ const TURN_DEADLINE_MS = process.env.ATOMS_TURN_DEADLINE_MS ? parseInt(process.e
 // channel, and the wrong answer in CI — where a missing key file would silently
 // delete five checks from the run. Set it there; unset everywhere it is honest.
 const REQUIRE_CALLBACK_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_CALLBACK_CHECKS || '');
+// Must match the values the Worker was started with (never defaulted here,
+// same rule as ATOMS_TURN_DEADLINE_MS above) — check 29's result-set size
+// guard (M1 design §4.4). Both absent => check 29 skips.
+const SQL_MAX_ROWS = process.env.ATOMS_SQL_MAX_ROWS ? parseInt(process.env.ATOMS_SQL_MAX_ROWS, 10) : null;
+const SQL_MAX_RESULT_BYTES = process.env.ATOMS_SQL_MAX_RESULT_BYTES
+    ? parseInt(process.env.ATOMS_SQL_MAX_RESULT_BYTES, 10)
+    : null;
+// Same anti-silent-deletion device as ATOMS_REQUIRE_CALLBACK_CHECKS: a run
+// that started the Worker with both cap vars set must not let check 29
+// quietly skip.
+const REQUIRE_SQL_CAP_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_SQL_CAP_CHECKS || '');
 // Harness-side, not Worker-side: how long the in-suite listener holds a job
 // response open (see the header). Long enough that "the invoke response came
 // back first" is unambiguous, short enough not to lengthen the run.
@@ -83,20 +95,30 @@ function fail(checkNum, name, msg = '') {
 
 /**
  * A check that could not run for a reason that is not the Worker's fault (no
- * callback listener, no configured turn deadline). Not a failure: it must not
- * fail a run against a Worker that legitimately has no callback channel.
+ * callback listener, no configured turn deadline, no configured result-set
+ * caps). Not a failure: it must not fail a run against a Worker that
+ * legitimately has no callback channel or no cap vars set.
  *
- * Unless `ATOMS_REQUIRE_CALLBACK_CHECKS` is set, in which case the caller
- * asserted this environment DOES have a callback channel, and a skip means the
- * harness is broken rather than the check inapplicable — so it fails.
+ * `require_` (default `REQUIRE_CALLBACK_CHECKS`) is the "this environment
+ * asserted the prerequisite exists" flag: when it is set, a skip means the
+ * harness is broken rather than the check inapplicable — so it fails instead.
+ * Check 29 passes `REQUIRE_SQL_CAP_CHECKS` for its own, independent gate.
+ *
+ * `envVar` (M1 review round 2, R12) names the specific environment variable
+ * whose absence caused the skip, so a reader of the failure/skip line (or of
+ * `results`) is told exactly what to set, rather than a generic "unavailable"
+ * that leaves them re-reading this file's setup docs to find it. Optional:
+ * some skips (e.g. a missing `test/.callback-key.json`, not itself an env
+ * var) have no single variable to name and pass none.
  */
-function skip(checkNum, name, msg = '') {
-    if (REQUIRE_CALLBACK_CHECKS) {
-        fail(checkNum, name, `${msg || 'unavailable'} — but ATOMS_REQUIRE_CALLBACK_CHECKS is set, so this must run`);
+function skip(checkNum, name, msg = '', require_ = REQUIRE_CALLBACK_CHECKS, envVar = null) {
+    const full = envVar ? `${msg} (env var: ${envVar})` : msg;
+    if (require_) {
+        fail(checkNum, name, `${full || 'unavailable'} — but the run asserted this must be available, so this must run`);
         return;
     }
-    results.push({ checkNum, name, status: 'SKIP', msg });
-    console.log(`⊘ CHECK ${checkNum}: ${name} — skipped${msg ? ` (${msg})` : ''}`);
+    results.push({ checkNum, name, status: 'SKIP', msg: full });
+    console.log(`⊘ CHECK ${checkNum}: ${name} — skipped${full ? ` (${full})` : ''}`);
 }
 
 /** Make an HTTP request. */
@@ -532,6 +554,15 @@ function loadCallbackKeyFile() {
 
 /** Set inside run(), before the check loop, once the listener (if any) is up. */
 let listener = null;
+
+/**
+ * Set by CHECK 28, the merged PDO differential report (all groups, one
+ * object) — {@see M1 design §5.4}. CHECK 30 re-uses this rather than
+ * re-running the differential matrix a second time, the same way the
+ * callback listener's records are reused across checks 13-17.
+ * @type {{php: string, cases: Array<{id: string, group: string, member: string, title: string, class: string, ours: string, theirs: string, detail: string}>}|null}
+ */
+let pdoMatrixReport = null;
 
 // ---------------------------------------------------------------- checks
 
@@ -1221,7 +1252,13 @@ checks.push(async () => {
     const checkNum = 13;
     const name = 'app() round trip, int64-exact';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener — test/.callback-key.json is missing; run via `npm run dev:callback`');
+        skip(
+            checkNum,
+            name,
+            'no callback listener — test/.callback-key.json is missing; run via `npm run dev:callback`',
+            REQUIRE_CALLBACK_CHECKS,
+            'ATOMS_CALLBACK_PORT'
+        );
         return;
     }
 
@@ -1276,7 +1313,7 @@ checks.push(async () => {
     const checkNum = 14;
     const name = 'app() rejected inside a transaction';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener');
+        skip(checkNum, name, 'no callback listener', REQUIRE_CALLBACK_CHECKS, 'ATOMS_CALLBACK_PORT');
         return;
     }
 
@@ -1319,7 +1356,7 @@ checks.push(async () => {
     const checkNum = 15;
     const name = 'deadline overrun (uncaught 504, caught + budget latched)';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener');
+        skip(checkNum, name, 'no callback listener', REQUIRE_CALLBACK_CHECKS, 'ATOMS_CALLBACK_PORT');
         return;
     }
     if (!TURN_DEADLINE_MS) {
@@ -1434,7 +1471,7 @@ checks.push(async () => {
     const checkNum = 16;
     const name = 'dispatch() awaited before the response, signed, kind=job — from a turn and from onActivation()';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener');
+        skip(checkNum, name, 'no callback listener', REQUIRE_CALLBACK_CHECKS, 'ATOMS_CALLBACK_PORT');
         return;
     }
 
@@ -1588,7 +1625,7 @@ checks.push(async () => {
     const checkNum = 17;
     const name = 'dispatch() transaction semantics (buffer/drop/deliver)';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener');
+        skip(checkNum, name, 'no callback listener', REQUIRE_CALLBACK_CHECKS, 'ATOMS_CALLBACK_PORT');
         return;
     }
 
@@ -2525,6 +2562,584 @@ checks.push(async () => {
     } else {
         fail(checkNum, name, problems.join('; '));
     }
+});
+
+// CHECK 26: pdo surface tripwire (M1 design §1.7).
+//
+// Probe::surfaceAudit() reflects the RUNTIME \PDO / \PDOStatement and
+// asserts every public member is genuinely declared on Atoms\Cf\AtomsPDO /
+// Atoms\Cf\AtomsStatement — never left to fall through to the throwaway
+// sqlite::memory: carrier connection. This check does not merely assert
+// `violations` is empty: it also asserts the audit actually DID something
+// (R7's floors), so an audit that silently enumerated nothing cannot pass
+// vacuously — the same discipline check 24 applies to `fired_this_residency`.
+checks.push(async () => {
+    const checkNum = 26;
+    const name = 'pdo surface tripwire';
+    const problems = [];
+    const id = atomId('probe-surface');
+
+    const res = await invoke('Probe', id, 'surfaceAudit', []);
+    if (res.status !== 200) {
+        fail(checkNum, name, `HTTP ${res.status}: ${JSON.stringify(res.data)}`);
+        return;
+    }
+
+    const result = res.data?.result;
+    if (!result || typeof result !== 'object') {
+        fail(checkNum, name, `no result object in response: ${JSON.stringify(res.data)}`);
+        return;
+    }
+
+    if (result.ok !== true) {
+        problems.push(`ok=${JSON.stringify(result.ok)} (expected true)`);
+    }
+
+    const violations = Array.isArray(result.violations) ? result.violations : null;
+    if (violations === null) {
+        problems.push(`violations is not an array: ${JSON.stringify(result.violations)}`);
+    } else if (violations.length !== 0) {
+        problems.push(`${violations.length} violation(s): ${JSON.stringify(violations, null, 2)}`);
+    }
+
+    const counts = result.counts || {};
+    if (!(counts.pdo_methods >= 15)) {
+        problems.push(`counts.pdo_methods=${counts.pdo_methods} (expected >= 15)`);
+    }
+    if (!(counts.stmt_methods >= 19)) {
+        problems.push(`counts.stmt_methods=${counts.stmt_methods} (expected >= 19)`);
+    }
+    if (!(counts.pinned_fetch >= 24)) {
+        problems.push(`counts.pinned_fetch=${counts.pinned_fetch} (expected >= 24)`);
+    }
+    // M1 review F-18 (MINOR): R7's original floors covered methods and
+    // pinned fetch modes but not properties, interfaces, or statics — an
+    // audit that silently enumerated zero of any of those would still have
+    // passed. Additive floors, strengthening check 26 without touching an
+    // existing assertion.
+    if (!(counts.properties >= 1)) {
+        problems.push(`counts.properties=${counts.properties} (expected >= 1)`);
+    }
+    if (!(counts.interfaces >= 2)) {
+        problems.push(`counts.interfaces=${counts.interfaces} (expected >= 2)`);
+    }
+    if (!(counts.pdo_statics >= 1)) {
+        problems.push(`counts.pdo_statics=${counts.pdo_statics} (expected >= 1)`);
+    }
+
+    const membersChecked = Array.isArray(result.members_checked) ? result.members_checked : [];
+    if (membersChecked.length === 0) {
+        problems.push('members_checked is empty (the audit enumerated nothing)');
+    }
+
+    if (typeof result.php !== 'string' || !result.php.startsWith('8.3.')) {
+        problems.push(`php=${JSON.stringify(result.php)} (expected to start with "8.3.")`);
+    }
+
+    // Every allowlist entry must have run its assertion and passed.
+    const allowlist = Array.isArray(result.allowlist) ? result.allowlist : [];
+    for (const entry of allowlist) {
+        if (entry?.asserted !== true) {
+            problems.push(`allowlist entry ${JSON.stringify(entry?.id)} has asserted=${JSON.stringify(entry?.asserted)}`);
+        }
+    }
+
+    // Orchestrator override on design §1.7: exact SET equality on allowlist
+    // ids, not merely a length cap — a renamed or silently added entry must
+    // fail this check by name, not just by count.
+    const allowlistIds = allowlist.map((e) => e?.id).sort();
+    const expectedIds = ['PDOStatement::$queryString'];
+    if (JSON.stringify(allowlistIds) !== JSON.stringify(expectedIds)) {
+        problems.push(`allowlist ids = ${JSON.stringify(allowlistIds)} (expected exactly ${JSON.stringify(expectedIds)})`);
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            `${membersChecked.length} members checked, 0 violations, php=${result.php}, ` +
+                `pdo_methods=${counts.pdo_methods} stmt_methods=${counts.stmt_methods} pinned_fetch=${counts.pinned_fetch}`
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 27: pdo comparator integrity (M1 design §2.11).
+//
+// Probe::comparatorSanity() builds a fresh native in-guest
+// `new \PDO('sqlite::memory:')` and runs its five structural gates (S1-S5).
+// This is the answer to "the comparator could be your own shim" — three of
+// the five gates (FETCH_NAMED grouping, getColumnMeta, PDORow) are things
+// Atoms\Cf\AtomsPDO cannot produce even in principle. NEVER skips: "we could
+// not verify our own compatibility claims" is not a neutral outcome.
+checks.push(async () => {
+    const checkNum = 27;
+    const name = 'pdo comparator integrity';
+    const problems = [];
+    const id = atomId('probe-sanity');
+
+    const res = await invoke('Probe', id, 'comparatorSanity', []);
+    if (res.status !== 200) {
+        fail(checkNum, name, `HTTP ${res.status}: ${JSON.stringify(res.data)}`);
+        return;
+    }
+
+    const result = res.data?.result;
+    if (!result || typeof result !== 'object') {
+        fail(checkNum, name, `no result object in response: ${JSON.stringify(res.data)}`);
+        return;
+    }
+
+    if (result.ok !== true) {
+        problems.push(`ok=${JSON.stringify(result.ok)}${result.detail ? ` — ${result.detail}` : ''}`);
+    }
+
+    const gates = result.gates || {};
+    for (const gate of ['S1', 'S2', 'S3', 'S4', 'S5']) {
+        if (gates[gate] !== true) {
+            problems.push(`gate ${gate}=${JSON.stringify(gates[gate])} (expected true)`);
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, 'comparator constructed and all five gates (S1-S5) passed');
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 28: pdo differential matrix (M1 design §2.11).
+//
+// Orchestrator override on the design's report flow: Probe::differential()
+// runs ONE group per invoke (a single 160-case turn is too close to
+// ATOMS_TURN_DEADLINE_MS), so this check iterates
+// Probe::differentialGroups() and merges each group's report runner-side
+// before asserting. The pin file (test/pdo-expected.json) is the committed
+// answer key: every observed non-match/non-informational case must be
+// pinned with EXACTLY that class (rule 1), every pin entry must be observed
+// with EXACTLY that class (rule 2 — catches a misconfigured/impostor
+// comparator, a fill that landed without deleting its pin, or a renamed
+// case), every pin's `why` must be >= 40 characters (rule 3), and every
+// pin's class must be one of the four pinnable ones (rule 4).
+checks.push(async () => {
+    const checkNum = 28;
+    const name = 'pdo differential matrix';
+    const problems = [];
+
+    const pinPath = join(__dirname, 'pdo-expected.json');
+    let pinFile;
+    try {
+        pinFile = JSON.parse(readFileSync(pinPath, 'utf8'));
+    } catch (err) {
+        fail(checkNum, name, `could not read/parse ${pinPath}: ${err.message}`);
+        return;
+    }
+    const pins = pinFile.cases || {};
+
+    let groupsRes;
+    try {
+        groupsRes = await invoke('Probe', atomId('probe-diff-groups'), 'differentialGroups', []);
+    } catch (err) {
+        fail(checkNum, name, `differentialGroups() request failed: ${err.message}`);
+        return;
+    }
+    if (groupsRes.status !== 200 || !Array.isArray(groupsRes.data?.result)) {
+        fail(checkNum, name, `differentialGroups(): HTTP ${groupsRes.status}: ${JSON.stringify(groupsRes.data)}`);
+        return;
+    }
+    const groups = groupsRes.data.result;
+    if (groups.length === 0) {
+        fail(checkNum, name, 'differentialGroups() returned an empty list — the matrix enumerated nothing');
+        return;
+    }
+
+    // One atom id for the whole run: Probe::differential() resets and
+    // reseeds the DO-side tables itself at the start of every group call, so
+    // sharing one residency across groups is both faster (one activation)
+    // and exercises the reset path for real.
+    const id = atomId('probe-diff');
+
+    const summary = {
+        total: 0,
+        match: 0,
+        refused_by_us: 0,
+        refused_by_both: 0,
+        refused_by_comparator: 0,
+        deviation: 0,
+        informational: 0,
+        error: 0,
+    };
+    const allCases = [];
+    let comparatorSane = true;
+    let php = null;
+
+    for (const group of groups) {
+        const res = await invoke('Probe', id, 'differential', [group]);
+        if (res.status !== 200) {
+            fail(checkNum, name, `differential(${JSON.stringify(group)}): HTTP ${res.status}: ${JSON.stringify(res.data)}`);
+            return;
+        }
+
+        const result = res.data?.result;
+        if (!result || typeof result !== 'object' || !Array.isArray(result.cases)) {
+            fail(checkNum, name, `differential(${JSON.stringify(group)}): malformed result: ${JSON.stringify(res.data)}`);
+            return;
+        }
+
+        if (typeof result.php === 'string') {
+            php = result.php;
+        }
+
+        if (result.comparator?.ok !== true) {
+            comparatorSane = false;
+        }
+
+        for (const key of Object.keys(summary)) {
+            summary[key] += result.summary?.[key] || 0;
+        }
+        allCases.push(...result.cases);
+    }
+
+    // Assertion order matters: the FIRST failure is meant to be the most
+    // informative one (design §2.11).
+    if (!comparatorSane) {
+        problems.push('comparator.sane !== true for at least one group — the differential run cannot be trusted');
+    }
+
+    if (problems.length === 0 && summary.error !== 0) {
+        const broken = allCases.filter((c) => c.class === 'error').map((c) => `${c.id} (${c.detail})`);
+        problems.push(`summary.error=${summary.error} (must be 0 — harness breakage, never pinnable): ${broken.join('; ')}`);
+    }
+
+    if (problems.length === 0 && !(summary.total >= 90)) {
+        problems.push(`summary.total=${summary.total} (expected >= 90 — an anti-vacuous floor)`);
+    }
+
+    // M1 review F-2 (BLOCKER): 'informational' bypasses the pin rules
+    // entirely (pin rule 1 skips it outright), so unlike every other class it
+    // is not bounded by anything unless this check bounds it. It must be a
+    // closed set of exactly one case id — the one case whose non-comparison
+    // is a deliberate, documented, published exception (design §2.5's
+    // rowCount()-after-SELECT note) — never a blanket escape a new case could
+    // walk through by setting 'informational' => true.
+    const INFORMATIONAL_IDS = new Set(['count.rowcount.select']);
+    if (problems.length === 0) {
+        const observedInformational = new Set(allCases.filter((c) => c.class === 'informational').map((c) => c.id));
+        const unexpected = [...observedInformational].filter((id) => !INFORMATIONAL_IDS.has(id));
+        const missing = [...INFORMATIONAL_IDS].filter((id) => !observedInformational.has(id));
+        if (unexpected.length > 0 || missing.length > 0) {
+            problems.push(
+                `informational case-id set must be EXACTLY ${JSON.stringify([...INFORMATIONAL_IDS])}: ` +
+                    `unexpected=${JSON.stringify(unexpected)} missing=${JSON.stringify(missing)}`
+            );
+        }
+    }
+
+    // M1 review round 2, R8: case ids must be globally unique BEFORE any
+    // pin rule runs. A duplicate id would let two DIFFERENT cases share one
+    // pin-file entry — pin rule 1 could pass with one of the pair silently
+    // unpinned, and pin rule 2 could pass while masking a stale pin, both
+    // because `pins[c.id]` and `byId.get(pinId)` (below) can only ever see
+    // ONE of the colliding cases. Checked here, before pin rule 1, so a
+    // collision fails with its OWN clear message rather than surfacing (or
+    // not) as a confusing pin-rule mismatch.
+    if (problems.length === 0) {
+        const ids = allCases.map((c) => c.id);
+        if (new Set(ids).size !== ids.length) {
+            const seen = new Set();
+            const dupes = new Set();
+            for (const id of ids) {
+                if (seen.has(id)) dupes.add(id);
+                seen.add(id);
+            }
+            problems.push(`duplicate case id(s), must be globally unique: ${[...dupes].join(', ')}`);
+        }
+    }
+
+    const PINNABLE = new Set(['refused_by_us', 'refused_by_both', 'refused_by_comparator', 'deviation']);
+
+    if (problems.length === 0) {
+        // Pin rule 1: every non-match/non-informational observed case must be
+        // pinned with EXACTLY that class.
+        const unpinned = [];
+        for (const c of allCases) {
+            if (c.class === 'match' || c.class === 'informational') continue;
+            const pin = pins[c.id];
+            if (!pin) {
+                unpinned.push(`${c.id}: observed ${c.class}, no pin entry`);
+            } else if (pin.class !== c.class) {
+                unpinned.push(`${c.id}: observed ${c.class}, pinned as ${pin.class}`);
+            }
+        }
+        if (unpinned.length > 0) {
+            problems.push(`unpinned difference(s): ${unpinned.join(' | ')}`);
+        }
+    }
+
+    if (problems.length === 0) {
+        // Pin rule 2: every pin entry must be observed with EXACTLY that
+        // class — a stale pin (renamed case, deleted case, or a fill that
+        // landed without deleting the pin) fails here.
+        const byId = new Map(allCases.map((c) => [c.id, c]));
+        const stale = [];
+        for (const [pinId, pin] of Object.entries(pins)) {
+            const observed = byId.get(pinId);
+            if (!observed) {
+                stale.push(`${pinId}: pinned but no such case was observed this run (renamed or deleted?)`);
+            } else if (observed.class !== pin.class) {
+                stale.push(`${pinId}: pinned as ${pin.class}, observed ${observed.class} (stale pin)`);
+            }
+        }
+        if (stale.length > 0) {
+            problems.push(`stale pin(s): ${stale.join(' | ')}`);
+        }
+    }
+
+    if (problems.length === 0) {
+        // Pin rule 3: every `why` must be a real, non-trivial justification.
+        const short = Object.entries(pins)
+            .filter(([, pin]) => typeof pin.why !== 'string' || pin.why.length < 40)
+            .map(([pinId, pin]) => `${pinId}: why is ${typeof pin.why === 'string' ? pin.why.length : 0} chars`);
+        if (short.length > 0) {
+            problems.push(`pin why too short (< 40 chars): ${short.join(' | ')}`);
+        }
+    }
+
+    if (problems.length === 0) {
+        // Pin rule 4: only these four classes may ever be pinned.
+        const badClass = Object.entries(pins)
+            .filter(([, pin]) => !PINNABLE.has(pin.class))
+            .map(([pinId, pin]) => `${pinId}: class=${JSON.stringify(pin.class)}`);
+        if (badClass.length > 0) {
+            problems.push(`pin has a non-pinnable class: ${badClass.join(' | ')}`);
+        }
+    }
+
+    if (problems.length === 0 && !(summary.match >= 55)) {
+        problems.push(`summary.match=${summary.match} (expected >= 55 — a floor so "pin everything" cannot pass)`);
+    }
+
+    // Kept for CHECK 30, which re-uses this instead of re-running the
+    // differential matrix a second time (design §5.4). Stored regardless of
+    // whether this check passed or failed, so a run with an unpinned
+    // difference still leaves evidence on disk.
+    pdoMatrixReport = { php: php || 'unknown', cases: allCases };
+
+    // Evidence for a human reading a failure, never a contract — gitignored
+    // (cloudflare/worker/.gitignore). A read-only checkout makes this write a
+    // no-op, never a failure (design §5.4).
+    try {
+        const resultsDir = join(__dirname, 'results');
+        mkdirSync(resultsDir, { recursive: true });
+        writeFileSync(join(resultsDir, 'pdo-matrix.json'), JSON.stringify(pdoMatrixReport, null, 2) + '\n');
+    } catch {
+        /* read-only checkout or similar — not a failure */
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            `${groups.length} groups, total=${summary.total} match=${summary.match} refused_by_us=${summary.refused_by_us} ` +
+                `refused_by_both=${summary.refused_by_both} refused_by_comparator=${summary.refused_by_comparator} ` +
+                `deviation=${summary.deviation} informational=${summary.informational} error=${summary.error}, ` +
+                `${Object.keys(pins).length} pinned`
+        );
+    } else {
+        fail(checkNum, name, problems.join(' || '));
+    }
+});
+
+// CHECK 29: sql result caps (M1 design §4.4).
+//
+// Same pattern as check 15: the Worker is started with small
+// ATOMS_SQL_MAX_ROWS/ATOMS_SQL_MAX_RESULT_BYTES values, and the runner is
+// told the same values via its OWN environment — never defaulted here.
+// Probe::capProbe() builds result sets through a recursive CTE (CPU cost
+// only, no writes), so the four legs below prove: the row cap does not fire
+// below itself (29a), the row cap fires with the right code/detail (29b),
+// the byte cap fires independently of the row cap (29c, sized to stay well
+// under it), and the residency survives both failures (29d).
+checks.push(async () => {
+    const checkNum = 29;
+    const name = 'sql result caps';
+    if (SQL_MAX_ROWS === null || SQL_MAX_RESULT_BYTES === null) {
+        skip(
+            checkNum,
+            name,
+            'ATOMS_SQL_MAX_ROWS/ATOMS_SQL_MAX_RESULT_BYTES not set in the runner env — must match the values the Worker was started with',
+            REQUIRE_SQL_CAP_CHECKS
+        );
+        return;
+    }
+
+    const problems = [];
+    const id = atomId('probe-caps');
+
+    // 29a — one row under the cap succeeds with EXACTLY that many rows: the
+    // cap does not fire below itself.
+    const under = await invoke('Probe', id, 'capProbe', ['rows', SQL_MAX_ROWS - 1, 0]);
+    if (under.status !== 200 || under.data?.error) {
+        problems.push(`29a: HTTP ${under.status}: ${JSON.stringify(under.data)} (expected 200, ok:true)`);
+    } else if (under.data?.result?.ok !== true || under.data.result.rowCount !== SQL_MAX_ROWS - 1) {
+        problems.push(`29a: result=${JSON.stringify(under.data?.result)} (expected ok:true, rowCount=${SQL_MAX_ROWS - 1})`);
+    }
+
+    // 29a-boundary — M1 review F-15: EXACTLY maxRows rows must also SUCCEED
+    // (not just maxRows-1). Verified against bridge.js's actual code before
+    // writing this assertion: the cap check runs BEFORE push, at the START
+    // of each loop iteration, so exactly `sqlMaxRows` successful pushes
+    // happen and the loop then ends (cursor exhausted) without ever
+    // re-entering to trip the check — the at-cap row itself is not
+    // rejected, only the FIRST row past it is (that's 29b). Documented here
+    // and in test/README.md; the bridge itself was not changed to fit this.
+    const atCap = await invoke('Probe', id, 'capProbe', ['rows', SQL_MAX_ROWS, 0]);
+    if (atCap.status !== 200 || atCap.data?.error) {
+        problems.push(`29a-boundary: HTTP ${atCap.status}: ${JSON.stringify(atCap.data)} (expected 200, ok:true)`);
+    } else if (atCap.data?.result?.ok !== true || atCap.data.result.rowCount !== SQL_MAX_ROWS) {
+        problems.push(
+            `29a-boundary: result=${JSON.stringify(atCap.data?.result)} (expected ok:true, rowCount=${SQL_MAX_ROWS} — exactly at the cap must succeed)`
+        );
+    }
+
+    // 29b — one row over the cap fails with sql_result_too_large, cap:'rows'.
+    const overRows = await invoke('Probe', id, 'capProbe', ['rows', SQL_MAX_ROWS + 1, 0]);
+    if (overRows.status !== 200) {
+        problems.push(`29b: HTTP ${overRows.status}: ${JSON.stringify(overRows.data)} (expected 200 — capProbe catches the PDOException itself)`);
+    } else {
+        const r = overRows.data?.result;
+        if (r?.ok !== false) {
+            problems.push(`29b: result=${JSON.stringify(r)} (expected ok:false)`);
+        } else if (r.code !== 'sql_result_too_large') {
+            problems.push(`29b: code=${JSON.stringify(r.code)} (expected sql_result_too_large)`);
+        } else if (r.cap !== 'rows') {
+            // M1 review F-14 (MINOR, fixed): PRIMARY assertion — detail.cap,
+            // read off BridgeSqlException::getDetail(), exactly as the spec
+            // and test/README document. This used to be unreachable from
+            // PHP at all (detail was dropped in SqlBridge::failure()).
+            problems.push(`29b: cap=${JSON.stringify(r.cap)} (expected 'rows', from BridgeSqlException::getDetail())`);
+        } else if (!/cap['":\s]+rows/i.test(r.message) && !r.message?.includes('ATOMS_SQL_MAX_ROWS')) {
+            // SECONDARY assertion, kept: the message should still say so too.
+            problems.push(`29b: message does not identify the rows cap: ${JSON.stringify(r.message)}`);
+        }
+    }
+
+    // 29c — well under the row cap, but padded past the byte cap: proves the
+    // two caps are independent (this must NOT come back as a rows overrun).
+    const byteRows = Math.max(1, Math.min(SQL_MAX_ROWS - 1, 8));
+    const padBytes = Math.ceil(SQL_MAX_RESULT_BYTES / byteRows) + 64;
+    const overBytes = await invoke('Probe', id, 'capProbe', ['bytes', byteRows, padBytes]);
+    if (overBytes.status !== 200) {
+        problems.push(`29c: HTTP ${overBytes.status}: ${JSON.stringify(overBytes.data)} (expected 200)`);
+    } else {
+        const r = overBytes.data?.result;
+        if (r?.ok !== false) {
+            problems.push(`29c: result=${JSON.stringify(r)} (expected ok:false — byte cap should have fired)`);
+        } else if (r.code !== 'sql_result_too_large') {
+            problems.push(`29c: code=${JSON.stringify(r.code)} (expected sql_result_too_large)`);
+        } else if (r.cap !== 'bytes') {
+            // M1 review F-14: PRIMARY assertion, see 29b's comment.
+            problems.push(`29c: cap=${JSON.stringify(r.cap)} (expected 'bytes', from BridgeSqlException::getDetail())`);
+        } else if (!/cap['":\s]+bytes/i.test(r.message) && !r.message?.includes('ATOMS_SQL_MAX_RESULT_BYTES')) {
+            // SECONDARY assertion, kept: the message should still say so too.
+            problems.push(`29c: message does not identify the bytes cap: ${JSON.stringify(r.message)}`);
+        }
+    }
+
+    // 29e — M1 review F-15: run mode (PDO::exec(), which discards rows) is
+    // NOT subject to either cap — a statement generating far more than the
+    // row cap must still succeed, proving the caps apply to rows mode only.
+    const runMode = await invoke('Probe', id, 'capProbeRunMode', [SQL_MAX_ROWS * 3]);
+    if (runMode.status !== 200 || runMode.data?.error) {
+        problems.push(`29e: HTTP ${runMode.status}: ${JSON.stringify(runMode.data)} (expected 200, ok:true — run mode is uncapped by design)`);
+    } else if (runMode.data?.result?.ok !== true) {
+        problems.push(`29e: result=${JSON.stringify(runMode.data?.result)} (expected ok:true)`);
+    }
+
+    // 29d — the residency survived both failures (the pattern checks 7/8/10
+    // use): a plain ping still returns 200.
+    const ping = await invoke('Probe', id, 'ping', []);
+    if (ping.status !== 200 || ping.data?.error) {
+        problems.push(`29d: ping after both cap failures: HTTP ${ping.status}: ${JSON.stringify(ping.data)} (expected 200)`);
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            `rows cap ${SQL_MAX_ROWS} (under-cap exact, over-cap sql_result_too_large/rows), ` +
+                `bytes cap ${SQL_MAX_RESULT_BYTES} (over-cap sql_result_too_large/bytes, independent of the row cap), residency healthy`
+        );
+    } else {
+        fail(checkNum, name, problems.join(' || '));
+    }
+});
+
+// CHECK 30: pdo compatibility doc is current (M1 design §5.4).
+//
+// Re-uses check 28's already-fetched report (pdoMatrixReport, kept in a
+// module-level variable the way the callback listener's records are),
+// imports renderMatrixDoc from scripts/gen-pdo-matrix.mjs, reads
+// test/pdo-expected.json and ../docs/pdo-compatibility.md, and
+// byte-compares a fresh render against the committed doc. If check 28 did
+// not produce a report — skipped, or failed before reaching that point —
+// this FAILS rather than skipping: a stale doc is not excused by a missing
+// run.
+checks.push(async () => {
+    const checkNum = 30;
+    const name = 'pdo compatibility doc is current';
+
+    if (!pdoMatrixReport) {
+        fail(checkNum, name, 'no PDO differential report available (check 28 did not produce one) — cannot verify the doc is current');
+        return;
+    }
+
+    const pinPath = join(__dirname, 'pdo-expected.json');
+    const docPath = join(__dirname, '..', '..', 'docs', 'pdo-compatibility.md');
+
+    let pins;
+    try {
+        pins = JSON.parse(readFileSync(pinPath, 'utf8'));
+    } catch (err) {
+        fail(checkNum, name, `could not read/parse ${pinPath}: ${err.message}`);
+        return;
+    }
+
+    let committed;
+    try {
+        committed = readFileSync(docPath, 'utf8');
+    } catch (err) {
+        fail(checkNum, name, `could not read ${docPath}: ${err.message}`);
+        return;
+    }
+
+    const fresh = renderMatrixDoc(pdoMatrixReport, pins);
+
+    if (fresh === committed) {
+        pass(checkNum, name, `${docPath} matches a fresh render of the differential report (${pdoMatrixReport.cases.length} cases)`);
+        return;
+    }
+
+    const freshLines = fresh.split('\n');
+    const committedLines = committed.split('\n');
+    let firstDiff = -1;
+    const maxLines = Math.max(freshLines.length, committedLines.length);
+    for (let i = 0; i < maxLines; i++) {
+        if (freshLines[i] !== committedLines[i]) {
+            firstDiff = i + 1;
+            break;
+        }
+    }
+
+    fail(
+        checkNum,
+        name,
+        `docs/pdo-compatibility.md is stale — first differing line ${firstDiff}: ` +
+            `committed=${JSON.stringify(committedLines[firstDiff - 1] ?? '(missing)')} ` +
+            `fresh=${JSON.stringify(freshLines[firstDiff - 1] ?? '(missing)')} — regenerate with ` +
+            '`node scripts/gen-pdo-matrix.mjs > ../docs/pdo-compatibility.md` (from cloudflare/worker)'
+    );
 });
 
 // ---------------------------------------------------------------- run

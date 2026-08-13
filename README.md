@@ -39,7 +39,7 @@ the consistency boundary.
 
 - The seven PHP packages are **not published on Packagist**. Install is from
   source, out of this repository.
-- The Cloudflare runtime is an **MVP**, validated by a 25-check conformance
+- The Cloudflare runtime is an **MVP**, validated by a 30-check conformance
   suite that passes locally and against a real deployed Worker. It is not a
   managed service; you deploy it to your own account.
 - `app()`, `dispatch()`, `broadcast()`, WebSockets and timers/alarms are
