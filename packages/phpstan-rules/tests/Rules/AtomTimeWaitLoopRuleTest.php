@@ -24,7 +24,7 @@ final class AtomTimeWaitLoopRuleTest extends RuleTestCase
             sharedPaths: ['tests/Fixtures/Shared'],
         );
 
-        return new AtomTimeWaitLoopRule(new WorldClassifier($config));
+        return new AtomTimeWaitLoopRule(new WorldClassifier($config), self::createReflectionProvider());
     }
 
     public function testFlagsEveryWaitLoopShape(): void
@@ -36,19 +36,23 @@ final class AtomTimeWaitLoopRuleTest extends RuleTestCase
             [ErrorCatalog::format(ErrorCode::TimeWaitLoopInAtom, [
                 'class' => $class,
                 'symbol' => 'time',
-            ]), 17],
+            ]), 21],
             [ErrorCatalog::format(ErrorCode::TimeWaitLoopInAtom, [
                 'class' => $class,
                 'symbol' => 'microtime',
-            ]), 24],
+            ]), 28],
             [ErrorCatalog::format(ErrorCode::TimeWaitLoopInAtom, [
                 'class' => $class,
                 'symbol' => 'hrtime',
-            ]), 31],
+            ]), 35],
             [ErrorCatalog::format(ErrorCode::TimeWaitLoopInAtom, [
                 'class' => $class,
                 'symbol' => 'time',
-            ]), 38],
+            ]), 42],
+            [ErrorCatalog::format(ErrorCode::TimeWaitLoopInAtom, [
+                'class' => $class,
+                'symbol' => 'time',
+            ]), 51],
         ]);
     }
 
@@ -60,6 +64,26 @@ final class AtomTimeWaitLoopRuleTest extends RuleTestCase
     public function testWorldBSleepMethodsHasNoViolations(): void
     {
         $this->analyse([__DIR__ . '/../Fixtures/Clock/SleepMethods.php'], []);
+    }
+
+    /**
+     * A WORLD_A namespace that defines its own time()/microtime()/hrtime()/
+     * gettimeofday() functions and its own DateTimeImmutable class, and reads
+     * each unqualified in a wait-loop condition, must produce zero errors:
+     * unqualified function calls resolve to the namespace-local function
+     * first, and unqualified class names resolve to the namespace-local
+     * class at compile time — neither ever reaches the dangerous global.
+     *
+     * The require_once is deliberate: PHPStan's own parser/AST reflection
+     * never executes the fixture, so without this, PHP's runtime has no
+     * declaration of the namespace-local time() et al. for BetterReflection
+     * to bridge to via ReflectionFunction — see the fixture's docblock.
+     */
+    public function testShadowedClockReadsHaveNoViolations(): void
+    {
+        require_once __DIR__ . '/../Fixtures/Clock/Shadow/ShadowedWaitLoopAtom.php';
+
+        $this->analyse([__DIR__ . '/../Fixtures/Clock/Shadow/ShadowedWaitLoopAtom.php'], []);
     }
 
     public function testMessagesCarryTheAtomsErrorCode(): void

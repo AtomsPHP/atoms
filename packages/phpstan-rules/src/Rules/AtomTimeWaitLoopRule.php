@@ -20,6 +20,7 @@ use PhpParser\Node\Stmt\While_;
 use PhpParser\NodeFinder;
 use PHPStan\Analyser\Scope;
 use PHPStan\Node\InClassMethodNode;
+use PHPStan\Reflection\ReflectionProvider;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleError;
 use PHPStan\Rules\RuleErrorBuilder;
@@ -56,6 +57,21 @@ use PHPStan\Rules\RuleErrorBuilder;
  * the loop. The ATOMS-E061 turn deadline is the runtime backstop for
  * whatever this heuristic misses.
  *
+ * A clock-function read (time(), microtime(), ...) written unqualified is
+ * resolved through {@see ReflectionProvider::resolveFunctionName()} rather
+ * than compared by rendered name, for the same reason as
+ * {@see AtomSleepCallRule}: PHP resolves an unqualified call to a
+ * namespace-local function of the same name before falling back to the
+ * global built-in, so a WORLD_A namespace that shadows time() and calls it
+ * unqualified must not be flagged. `new DateTime`/`new DateTimeImmutable`
+ * needs no equivalent resolution step: unlike function calls, PHP resolves
+ * an unqualified class name entirely at compile time — to the current
+ * namespace unless a `use` import says otherwise, with no runtime fallback
+ * to the global class — so php-parser's NameResolver has already rewritten
+ * an unqualified reference to its fully-qualified target by the time this
+ * rule sees it, and the plain string compare below is already exact (see the
+ * `ShadowedClockAtom`/`shadowNewNoise` fixtures for the checked-in proof).
+ *
  * @implements Rule<InClassMethodNode>
  */
 final class AtomTimeWaitLoopRule implements Rule
@@ -66,8 +82,10 @@ final class AtomTimeWaitLoopRule implements Rule
     /** @var list<string> */
     private const CLOCK_CLASSES = ['datetime', 'datetimeimmutable'];
 
-    public function __construct(private readonly WorldClassifier $classifier)
-    {
+    public function __construct(
+        private readonly WorldClassifier $classifier,
+        private readonly ReflectionProvider $reflectionProvider,
+    ) {
     }
 
     public function getNodeType(): string
@@ -107,7 +125,7 @@ final class AtomTimeWaitLoopRule implements Rule
 
         $errors = [];
         foreach ($loops as $loop) {
-            $error = $this->checkLoop($loop, $finder, $className);
+            $error = $this->checkLoop($loop, $finder, $className, $scope);
             if ($error !== null) {
                 $errors[] = $error;
             }
@@ -116,11 +134,11 @@ final class AtomTimeWaitLoopRule implements Rule
         return $errors;
     }
 
-    private function checkLoop(While_|Do_|For_ $loop, NodeFinder $finder, string $className): ?RuleError
+    private function checkLoop(While_|Do_|For_ $loop, NodeFinder $finder, string $className, Scope $scope): ?RuleError
     {
         [$condNodes, $isUnconditional] = $this->conditionNodes($loop);
 
-        $symbol = $this->findClockRead($finder, $condNodes);
+        $symbol = $this->findClockRead($finder, $condNodes, $scope);
         if ($symbol !== null) {
             return $this->error($loop, $className, $symbol);
         }
@@ -129,7 +147,7 @@ final class AtomTimeWaitLoopRule implements Rule
             return null;
         }
 
-        $symbol = $this->findClockRead($finder, $loop->stmts);
+        $symbol = $this->findClockRead($finder, $loop->stmts, $scope);
         if ($symbol !== null) {
             return $this->error($loop, $className, $symbol);
         }
@@ -165,9 +183,9 @@ final class AtomTimeWaitLoopRule implements Rule
     /**
      * @param list<Node> $nodes
      */
-    private function findClockRead(NodeFinder $finder, array $nodes): ?string
+    private function findClockRead(NodeFinder $finder, array $nodes, Scope $scope): ?string
     {
-        $found = $finder->findFirst($nodes, fn (Node $candidate): bool => $this->isClockRead($candidate));
+        $found = $finder->findFirst($nodes, fn (Node $candidate): bool => $this->isClockRead($candidate, $scope));
 
         if ($found === null) {
             return null;
@@ -176,7 +194,7 @@ final class AtomTimeWaitLoopRule implements Rule
         return $this->clockReadSymbol($found);
     }
 
-    private function isClockRead(Node $candidate): bool
+    private function isClockRead(Node $candidate, Scope $scope): bool
     {
         if ($candidate instanceof FuncCall) {
             if (!$candidate->name instanceof Name) {
@@ -184,7 +202,15 @@ final class AtomTimeWaitLoopRule implements Rule
                 return false;
             }
 
-            $lower = strtolower(ltrim($candidate->name->toString(), '\\'));
+            // Resolve what the call actually targets — see the class docblock:
+            // an unqualified time()/microtime()/etc. inside a namespace that
+            // shadows it must not be treated as a clock read.
+            $resolvedName = $this->reflectionProvider->resolveFunctionName($candidate->name, $scope);
+            if ($resolvedName === null) {
+                return false;
+            }
+
+            $lower = strtolower(ltrim($resolvedName, '\\'));
 
             return in_array($lower, self::CLOCK_FUNCTIONS, true);
         }
@@ -195,6 +221,9 @@ final class AtomTimeWaitLoopRule implements Rule
                 return false;
             }
 
+            // No resolveFunctionName-equivalent step needed here: see the
+            // class docblock for why an unqualified class name is already
+            // fully resolved by php-parser before this rule runs.
             $lower = strtolower(ltrim($candidate->class->toString(), '\\'));
 
             return in_array($lower, self::CLOCK_CLASSES, true);

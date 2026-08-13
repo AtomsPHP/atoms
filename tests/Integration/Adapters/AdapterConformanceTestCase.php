@@ -120,11 +120,11 @@ abstract class AdapterConformanceTestCase extends TestCase
         $response = $this->host->handle($request);
 
         self::assertSame($case->expectedStatus, $response->status, "case '{$case->key}': status");
-
-        match ($case->bodyAssertion) {
-            'exact' => self::assertSame($case->expectedBody, $response->body, "case '{$case->key}': body"),
-            'jsonCode' => $this->assertJsonCode($case, $response->body),
-        };
+        self::assertSame(
+            $case->expectedBody,
+            $response->body,
+            "case '{$case->key}': host '{$this->host->name()}' body — expected {$case->expectedBody}, got {$response->body}",
+        );
 
         if ($case->expectQueuedJob) {
             self::assertNotEmpty($this->host->queuedJobs(), "case '{$case->key}': expected a queued job");
@@ -437,22 +437,6 @@ abstract class AdapterConformanceTestCase extends TestCase
             self::assertSame($request->headers['X-Atoms-Nonce'], $nonceStore->seen[0]);
         } finally {
             $host->shutdown();
-        }
-    }
-
-    private function assertJsonCode(CallbackCase $case, string $body): void
-    {
-        $decoded = json_decode($body, true);
-        self::assertIsArray($decoded, "case '{$case->key}': body must be JSON");
-        self::assertIsArray($decoded['error'] ?? null, "case '{$case->key}': body must carry an error envelope");
-        self::assertSame($case->expectedErrorCode, $decoded['error']['code'] ?? null, "case '{$case->key}': error code");
-
-        foreach ($case->expectedMessageContains as $needle) {
-            self::assertStringContainsString(
-                $needle,
-                (string) ($decoded['error']['message'] ?? ''),
-                "case '{$case->key}': error message",
-            );
         }
     }
 

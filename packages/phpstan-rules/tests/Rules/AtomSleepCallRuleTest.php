@@ -24,7 +24,7 @@ final class AtomSleepCallRuleTest extends RuleTestCase
             sharedPaths: ['tests/Fixtures/Shared'],
         );
 
-        return new AtomSleepCallRule(new WorldClassifier($config));
+        return new AtomSleepCallRule(new WorldClassifier($config), self::createReflectionProvider());
     }
 
     public function testFlagsEverySleepFamilyCall(): void
@@ -35,19 +35,23 @@ final class AtomSleepCallRuleTest extends RuleTestCase
             [ErrorCatalog::format(ErrorCode::SleepInAtom, [
                 'symbol' => 'sleep',
                 'class' => 'Atoms\PHPStan\Tests\Fixtures\Clock\SleepAtom',
-            ]), 19],
+            ]), 23],
             [ErrorCatalog::format(ErrorCode::SleepInAtom, [
                 'symbol' => 'usleep',
                 'class' => 'Atoms\PHPStan\Tests\Fixtures\Clock\SleepAtom',
-            ]), 20],
+            ]), 24],
             [ErrorCatalog::format(ErrorCode::SleepInAtom, [
                 'symbol' => 'time_nanosleep',
                 'class' => 'Atoms\PHPStan\Tests\Fixtures\Clock\SleepAtom',
-            ]), 21],
+            ]), 25],
             [ErrorCatalog::format(ErrorCode::SleepInAtom, [
                 'symbol' => 'time_sleep_until',
                 'class' => 'Atoms\PHPStan\Tests\Fixtures\Clock\SleepAtom',
-            ]), 22],
+            ]), 26],
+            [ErrorCatalog::format(ErrorCode::SleepInAtom, [
+                'symbol' => 'sleep',
+                'class' => 'Atoms\PHPStan\Tests\Fixtures\Clock\SleepAtom',
+            ]), 31],
         ]);
     }
 
@@ -59,6 +63,24 @@ final class AtomSleepCallRuleTest extends RuleTestCase
     public function testWorldBSleepMethodsHasNoViolations(): void
     {
         $this->analyse([__DIR__ . '/../Fixtures/Clock/SleepMethods.php'], []);
+    }
+
+    /**
+     * A WORLD_A namespace that defines its own sleep()/usleep()/
+     * time_nanosleep()/time_sleep_until() and calls each unqualified must
+     * produce zero errors: PHP resolves the unqualified call to the
+     * namespace-local function first, never reaching the dangerous global.
+     *
+     * The require_once is deliberate: PHPStan's own parser/AST reflection
+     * never executes the fixture, so without this, PHP's runtime has no
+     * declaration of the namespace-local sleep() et al. for BetterReflection
+     * to bridge to via ReflectionFunction — see the fixture's docblock.
+     */
+    public function testShadowedSleepFamilyHasNoViolations(): void
+    {
+        require_once __DIR__ . '/../Fixtures/Clock/Shadow/ShadowedSleepAtom.php';
+
+        $this->analyse([__DIR__ . '/../Fixtures/Clock/Shadow/ShadowedSleepAtom.php'], []);
     }
 
     public function testMessagesCarryTheAtomsErrorCode(): void

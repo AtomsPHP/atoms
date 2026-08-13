@@ -327,7 +327,14 @@ final class CallbackKernelTest extends TestCase
         self::assertSame(500, $response->getStatusCode());
         $body = $this->decode($response);
         self::assertSame('internal', $body['error']['code']);
-        self::assertStringContainsString('RuntimeException', $body['error']['message']);
+        self::assertSame('Job could not be enqueued.', $body['error']['message']);
+        self::assertStringNotContainsString('RuntimeException', $body['error']['message']);
+        self::assertStringNotContainsString('queue connection refused', $body['error']['message']);
+
         self::assertNotEmpty($logger->records);
+        self::assertSame('error', $logger->records[0]['level']);
+        self::assertSame('queue connection refused', $logger->records[0]['context']['message']);
+        self::assertSame(\RuntimeException::class, $logger->records[0]['context']['exception']);
+        self::assertSame(SendWelcomeJob::class, $logger->records[0]['context']['job']);
     }
 }

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Atoms\Tests\Integration\Adapters;
 
+use Atoms\Errors\ErrorCatalog;
+use Atoms\Errors\ErrorCode;
+use Atoms\Tests\Integration\Adapters\Fixtures\GameRoom\Methods as GameRoomMethods;
 use Atoms\Tests\Integration\Adapters\Fixtures\RecordScoreJob;
 use Atoms\Tests\Integration\Adapters\Host\HostOptions;
 use Atoms\Tests\Integration\Adapters\Host\HostRequest;
@@ -13,8 +16,27 @@ use Atoms\Tests\Integration\Adapters\Support\CallbackSigner;
  * The envelope table: ONE set of callback cases, run unmodified against
  * every host. Expected bodies/codes here are the CONTRACT — verified against
  * the real {@see \Atoms\Client\Callback\CallbackKernel} via BareKernelHost
- * while this suite was built. If a host's actual output ever disagrees with a
- * row, that is a real finding about the host, not a reason to edit the row.
+ * while this suite was built (and re-verified whenever a row changes: run
+ * BareKernelHost through {@see self::all()} and diff its output against
+ * these constants — the bare kernel is the reference). If a host's actual
+ * output ever disagrees with a row, that is a real finding about the host,
+ * not a reason to edit the row.
+ *
+ * Every row's body is asserted EXACTLY (byte for byte), never by status +
+ * error.code + a message substring. That distinction is load-bearing: a
+ * mutation that appends garbage to every message CallbackKernel::error()
+ * builds was caught mutation-testing this table specifically because a
+ * status+code(+substring) check on 11 of the 15 rows let it through. Rows
+ * whose message the kernel builds from the error catalog build their
+ * expected body with the exact same {@see ErrorCatalog::format()} call the
+ * kernel makes (same code, same context args) — so a catalog wording change
+ * doesn't spuriously break this suite, while a change to the kernel's OWN
+ * envelope construction (extra text, dropped field, wrong structure) still
+ * fails byte-exactly. Rows whose message is NOT catalog-formatted (a literal
+ * string CallbackKernel builds inline, or a SerializationException's own
+ * message, or sanitize()'s "{class}: {message}") hardcode that literal —
+ * there is no catalog machinery to reuse for those, so exactness is the only
+ * available guard.
  *
  * @see docs/conventions.md §Callback signing for the wire shapes these rows encode.
  */
@@ -97,6 +119,21 @@ final class CallbackCases
     }
 
     /**
+     * The exact `{"error":{"code":...,"message":...}}` envelope
+     * CallbackKernel::json() would encode for that (code, message) pair —
+     * same shape, same JSON flags (JSON_UNESCAPED_SLASHES; unicode stays
+     * \u-escaped either way), so a row's expected body is only ever wrong if
+     * the code or message itself is wrong.
+     */
+    private static function errorBody(string $code, string $message): string
+    {
+        return (string) json_encode(
+            ['error' => ['code' => $code, 'message' => $message]],
+            JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES,
+        );
+    }
+
+    /**
      * Case 1: methods happy path — add(2, 3).
      */
     private static function methodsHappyAdd(): CallbackCase
@@ -109,7 +146,6 @@ final class CallbackCases
             build: self::builder('methods', $body),
             expectedStatus: 200,
             expectedBody: '{"result":5}',
-            bodyAssertion: 'exact',
         );
     }
 
@@ -127,12 +163,15 @@ final class CallbackCases
             build: self::builder('methods', $body),
             expectedStatus: 200,
             expectedBody: '{"result":{"name":"ada","score":7}}',
-            bodyAssertion: 'exact',
         );
     }
 
     /**
-     * Case 3: a tampered signature is rejected before any customer code runs.
+     * Case 3: a tampered signature is rejected before any customer code
+     * runs. CallbackKernel::handle() calls `$this->error(401,
+     * ErrorCode::CallbackSignatureInvalid)` with no explicit message, so the
+     * body carries ErrorCatalog::format() with no context (the catalog
+     * message for E064 has no placeholders).
      */
     private static function tamperedSignature(): CallbackCase
     {
@@ -147,14 +186,16 @@ final class CallbackCases
                 signatureOverride: base64_encode(str_repeat("\x01", SODIUM_CRYPTO_SIGN_BYTES)),
             ),
             expectedStatus: 401,
-            expectedBody: null,
-            bodyAssertion: 'jsonCode',
-            expectedErrorCode: 'ATOMS-E064',
+            expectedBody: self::errorBody(
+                ErrorCode::CallbackSignatureInvalid->value,
+                ErrorCatalog::format(ErrorCode::CallbackSignatureInvalid),
+            ),
         );
     }
 
     /**
-     * Case 4: a timestamp far outside the skew window is rejected.
+     * Case 4: a timestamp far outside the skew window is rejected. Same
+     * error() shape as case 3, ErrorCode::CallbackReplayDetected instead.
      */
     private static function staleTimestamp(): CallbackCase
     {
@@ -165,9 +206,10 @@ final class CallbackCases
             kind: 'methods',
             build: self::builder('methods', $body, timestampOffset: -4000),
             expectedStatus: 401,
-            expectedBody: null,
-            bodyAssertion: 'jsonCode',
-            expectedErrorCode: 'ATOMS-E065',
+            expectedBody: self::errorBody(
+                ErrorCode::CallbackReplayDetected->value,
+                ErrorCatalog::format(ErrorCode::CallbackReplayDetected),
+            ),
         );
     }
 
@@ -175,6 +217,8 @@ final class CallbackCases
      * Case 5: the same signed request sent twice — the second send is a
      * replay. primeFirst tells the test runner to send the one built
      * HostRequest through handle() twice, so both sends share one nonce.
+     * Rejected via the same `$this->error(401, ErrorCode::CallbackReplayDetected)`
+     * call as case 4 — identical expected body.
      */
     private static function replayedNonce(): CallbackCase
     {
@@ -185,15 +229,20 @@ final class CallbackCases
             kind: 'methods',
             build: self::builder('methods', $body),
             expectedStatus: 401,
-            expectedBody: null,
-            bodyAssertion: 'jsonCode',
-            expectedErrorCode: 'ATOMS-E065',
+            expectedBody: self::errorBody(
+                ErrorCode::CallbackReplayDetected->value,
+                ErrorCatalog::format(ErrorCode::CallbackReplayDetected),
+            ),
             primeFirst: true,
         );
     }
 
     /**
-     * Case 6: a kind the kernel does not recognize.
+     * Case 6: a kind the kernel does not recognize. The message here is
+     * CallbackKernel::handle()'s own inline literal ("Unknown callback kind
+     * '{$kind}'.") — NOT run through ErrorCatalog::format() — so it is
+     * hardcoded exactly as the kernel builds it, not derived from the
+     * catalog.
      */
     private static function unknownKind(): CallbackCase
     {
@@ -202,28 +251,37 @@ final class CallbackCases
             kind: 'raw',
             build: self::builder('bogus', '{}'),
             expectedStatus: 422,
-            expectedBody: null,
-            bodyAssertion: 'jsonCode',
-            expectedErrorCode: 'ATOMS-E066',
-            expectedMessageContains: ["Unknown callback kind 'bogus'"],
+            expectedBody: self::errorBody(
+                ErrorCode::NoMethodsClassForCallback->value,
+                "Unknown callback kind 'bogus'.",
+            ),
         );
     }
 
     /**
      * Case 7: an Atom type with no resolvable Methods class.
+     * MethodsResolver::resolve('NoSuchRoom') returns null (it is not a real
+     * class and nothing registers it into the type map), so
+     * expectedMethodsClass('NoSuchRoom') falls through to
+     * `$type . '\Methods'` — 'NoSuchRoom\Methods'.
      */
     private static function unknownType(): CallbackCase
     {
-        $body = self::methodsBody('NoSuchRoom', 'x', 'add', []);
+        $type = 'NoSuchRoom';
+        $body = self::methodsBody($type, 'x', 'add', []);
 
         return new CallbackCase(
             key: 'unknown-type',
             kind: 'methods',
             build: self::builder('methods', $body),
             expectedStatus: 422,
-            expectedBody: null,
-            bodyAssertion: 'jsonCode',
-            expectedErrorCode: 'ATOMS-E066',
+            expectedBody: self::errorBody(
+                ErrorCode::NoMethodsClassForCallback->value,
+                ErrorCatalog::format(ErrorCode::NoMethodsClassForCallback, [
+                    'atomType' => $type,
+                    'expectedClass' => $type . '\\Methods',
+                ]),
+            ),
         );
     }
 
@@ -232,21 +290,33 @@ final class CallbackCases
      */
     private static function unknownMethod(): CallbackCase
     {
-        $body = self::methodsBody('GameRoom', 'g-1', 'nope', []);
+        $type = 'GameRoom';
+        $method = 'nope';
+        $body = self::methodsBody($type, 'g-1', $method, []);
 
         return new CallbackCase(
             key: 'unknown-method',
             kind: 'methods',
             build: self::builder('methods', $body),
             expectedStatus: 422,
-            expectedBody: null,
-            bodyAssertion: 'jsonCode',
-            expectedErrorCode: 'ATOMS-E030',
+            expectedBody: self::errorBody(
+                ErrorCode::UnknownMethodsMethod->value,
+                ErrorCatalog::format(ErrorCode::UnknownMethodsMethod, [
+                    'atom' => $type,
+                    'method' => $method,
+                    'methodsClass' => GameRoomMethods::class,
+                ]),
+            ),
         );
     }
 
     /**
-     * Case 9: argument type mismatch against the declared signature.
+     * Case 9: argument type mismatch against the declared signature. The
+     * message is Serializer's own SerializationException text
+     * (`sprintf('Cannot denormalize %s into %s.', ...)`), not catalog-
+     * formatted (no "ATOMS-E024:" prefix, no "Fix:" suffix) — hardcoded
+     * exactly as Serializer::denormalize() builds it for a string 'x'
+     * denormalized as int.
      */
     private static function argMismatch(): CallbackCase
     {
@@ -257,9 +327,10 @@ final class CallbackCases
             kind: 'methods',
             build: self::builder('methods', $body),
             expectedStatus: 422,
-            expectedBody: null,
-            bodyAssertion: 'jsonCode',
-            expectedErrorCode: 'ATOMS-E024',
+            expectedBody: self::errorBody(
+                ErrorCode::BoundaryTypeMismatch->value,
+                "Cannot denormalize 'x' into int.",
+            ),
         );
     }
 
@@ -276,7 +347,6 @@ final class CallbackCases
             build: self::builder('job', $body),
             expectedStatus: 200,
             expectedBody: '{"queued":true}',
-            bodyAssertion: 'exact',
             appliesTo: ['queue'],
             expectQueuedJob: true,
         );
@@ -287,22 +357,35 @@ final class CallbackCases
      */
     private static function jobClassNotAJob(): CallbackCase
     {
-        $body = self::jobBody(\stdClass::class, []);
+        $class = \stdClass::class;
+        $body = self::jobBody($class, []);
 
         return new CallbackCase(
             key: 'job-class-not-a-job',
             kind: 'job',
             build: self::builder('job', $body),
             expectedStatus: 422,
-            expectedBody: null,
-            bodyAssertion: 'jsonCode',
-            expectedErrorCode: 'ATOMS-E033',
+            expectedBody: self::errorBody(
+                ErrorCode::NotAnAtomJob->value,
+                ErrorCatalog::format(ErrorCode::NotAnAtomJob, [
+                    'atom' => 'callback',
+                    'class' => $class,
+                ]),
+            ),
         );
     }
 
     /**
      * Case 12: customer code throws — sanitized 500, plus an error log entry
-     * (S5 re-drives this to check the log record's context keys).
+     * (S5 re-drives this to check the log record's context keys). The 500
+     * body is `sanitize($e)` — "{class}: {message}" with control characters
+     * stripped — under the non-catalog fallback wire code "internal", NOT an
+     * ATOMS-E### catalog code. {@see Fixtures\GameRoom\Methods::boom()}
+     * throws `new \RuntimeException('boom')`, so the exact message is fixed:
+     * "RuntimeException: boom". This is unaffected by the queue-bridge
+     * Throwable path's opaque-message change in CallbackKernel::handleJob()
+     * — that is a different catch block (job enqueue, not a Methods call)
+     * with no row in this table.
      */
     private static function customerExceptionBoom(): CallbackCase
     {
@@ -313,16 +396,18 @@ final class CallbackCases
             kind: 'methods',
             build: self::builder('methods', $body),
             expectedStatus: 500,
-            expectedBody: null,
-            bodyAssertion: 'jsonCode',
-            expectedErrorCode: 'internal',
-            expectedMessageContains: ['RuntimeException', 'boom'],
+            expectedBody: self::errorBody('internal', 'RuntimeException: boom'),
             expectLogError: true,
         );
     }
 
     /**
-     * Case 13: a correctly signed but syntactically invalid JSON body.
+     * Case 13: a correctly signed but syntactically invalid JSON body. The
+     * message is CallbackKernel::handle()'s own inline literal, reusing
+     * ErrorCode::CallbackSignatureInvalid (E064) as its wire code even
+     * though this isn't a signature failure — that reuse is existing kernel
+     * behavior, verified against BareKernelHost, not something this row
+     * invents.
      */
     private static function malformedJsonBody(): CallbackCase
     {
@@ -331,15 +416,18 @@ final class CallbackCases
             kind: 'raw',
             build: self::builder('methods', '{'),
             expectedStatus: 400,
-            expectedBody: null,
-            bodyAssertion: 'jsonCode',
-            expectedErrorCode: 'ATOMS-E064',
-            expectedMessageContains: ['not valid JSON'],
+            expectedBody: self::errorBody(
+                ErrorCode::CallbackSignatureInvalid->value,
+                'Callback body was not valid JSON.',
+            ),
         );
     }
 
     /**
-     * Case 14: no signing headers at all.
+     * Case 14: no signing headers at all — empty signature header fails to
+     * base64-decode, so this hits the exact same `$this->error(401,
+     * ErrorCode::CallbackSignatureInvalid)` call (no explicit message) as
+     * case 3 — identical expected body.
      */
     private static function noSigningHeaders(): CallbackCase
     {
@@ -351,9 +439,10 @@ final class CallbackCases
             build: static fn (CallbackSigner $signer, HostOptions $options): HostRequest =>
                 new HostRequest('POST', $options->callbackPath, [], $body),
             expectedStatus: 401,
-            expectedBody: null,
-            bodyAssertion: 'jsonCode',
-            expectedErrorCode: 'ATOMS-E064',
+            expectedBody: self::errorBody(
+                ErrorCode::CallbackSignatureInvalid->value,
+                ErrorCatalog::format(ErrorCode::CallbackSignatureInvalid),
+            ),
         );
     }
 
@@ -375,7 +464,6 @@ final class CallbackCases
             build: self::builder('methods', $body),
             expectedStatus: 200,
             expectedBody: '{"result":5}',
-            bodyAssertion: 'exact',
         );
     }
 

@@ -26,7 +26,15 @@ use Psr\Log\LoggerInterface;
  * Every request is authenticated before any customer code runs: detached
  * Ed25519 signature over `"v1\n{ts}\n{nonce}\n{body}"`, a timestamp-skew window,
  * and single-use nonce replay protection. Failures return the platform error
- * envelope `{"error":{"code":"ATOMS-E0##","message":"..."}}`.
+ * envelope `{"error":{"code":"...","message":"..."}}`. `code` is usually a
+ * catalog code (`ATOMS-E0##`/`ATOMS-E1##`); an unexpected failure with no
+ * catalog entry falls back to the non-catalog code `"internal"` instead. The
+ * two `"internal"` paths differ: a Methods invocation throwing something
+ * other than an `AtomsError`/`SerializationException` still reports a
+ * sanitized (control-characters-stripped) exception class and message, while
+ * a queue-bridge enqueue throwing the same returns a fixed, opaque message —
+ * the real exception is logged server-side either way, but only the former
+ * crosses the callback boundary.
  */
 final class CallbackKernel implements RequestHandlerInterface
 {
@@ -170,9 +178,10 @@ final class CallbackKernel implements RequestHandlerInterface
             $this->logger?->error('Callback job enqueue failed', [
                 'job' => $class,
                 'exception' => $e::class,
+                'message' => $e->getMessage(),
             ]);
 
-            return $this->error(500, null, $this->sanitize($e), 'internal');
+            return $this->error(500, null, 'Job could not be enqueued.', 'internal');
         }
 
         return $this->json(200, ['queued' => true]);

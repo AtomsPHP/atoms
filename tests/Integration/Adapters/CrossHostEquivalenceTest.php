@@ -23,11 +23,31 @@ use PHPUnit\Framework\TestCase;
  * because hosts share a fake").
  *
  * Pairwise comparison runs BEFORE this test also checks each host's result
- * against the case's own expected constant (below): a bug that made every
- * host agree on the SAME wrong answer would still fail the pairwise check
- * even in the hypothetical case the per-host suites (which each already
- * assert against CallbackCases' expected constants independently) somehow
- * didn't catch it.
+ * against the case's own expected constant (below). These two passes catch
+ * DIFFERENT bugs and neither substitutes for the other:
+ *
+ *  - Pairwise comparison localizes divergence BETWEEN hosts — it proves
+ *    equivalence, and a mismatch points straight at which host disagrees.
+ *    But it is mathematically blind to a wrong answer all four hosts share:
+ *    the four hosts wrap ONE kernel ({@see \Atoms\Client\Callback\CallbackKernel}),
+ *    so a bug in the kernel itself (or in this table) reproduces identically
+ *    on every host, and identical wrongness is invisible to a check that
+ *    only asks "do they agree with each other".
+ *  - The expected-constant pass below is what catches THAT: it compares
+ *    every host's result to {@see CallbackCases}' own expected body, which
+ *    is independent of what any host actually returned. This was proven
+ *    empirically — appending garbage to every message
+ *    `CallbackKernel::error()` builds kept this test's pairwise pass green
+ *    (all four hosts still agreed with each other, just on the corrupted
+ *    text) and was only caught once every row's expected body became an
+ *    EXACT comparison here and in the per-host suites (status +
+ *    error.code + a message substring let 11 of 15 rows through
+ *    uncorrupted-looking). {@see CallbackCase}'s docblock has the full
+ *    account.
+ *
+ * So: pairwise comparison and the expected-constant pass are complementary,
+ * not redundant — one needs the other to catch a shared-kernel bug, and
+ * dropping either narrows what this test can find.
  *
  * Hosts boot-use-shutdown SEQUENTIALLY, one at a time — collecting a
  * [case key => [status, body]] map per host before moving to the next —
@@ -133,13 +153,12 @@ final class CrossHostEquivalenceTest extends TestCase
                     "case '{$case->key}': host '{$hostName}' status vs CallbackCases' expected constant",
                 );
 
-                if ($case->bodyAssertion === 'exact') {
-                    self::assertSame(
-                        $case->expectedBody,
-                        $body,
-                        "case '{$case->key}': host '{$hostName}' body vs CallbackCases' expected constant",
-                    );
-                }
+                self::assertSame(
+                    $case->expectedBody,
+                    $body,
+                    "case '{$case->key}': host '{$hostName}' body vs CallbackCases' expected constant "
+                    . "— expected {$case->expectedBody}, got {$body}",
+                );
             }
         }
     }
