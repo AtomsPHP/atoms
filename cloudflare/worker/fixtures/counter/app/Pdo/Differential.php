@@ -68,29 +68,83 @@ final class Differential
      */
     private static function runCase(array $case, \PDO $ours, \PDO $comparator): array
     {
+        // Defensive, case-shape-independent identity for the error path
+        // below — built BEFORE anything that could throw, so a malformed
+        // record still produces identifiable evidence instead of losing its
+        // id along with everything else.
+        $id = isset($case['id']) && is_string($case['id']) ? $case['id'] : '(malformed case: missing id)';
+        $group = isset($case['group']) && is_string($case['group']) ? $case['group'] : '(malformed case: missing group)';
+        $member = isset($case['member']) && is_string($case['member']) ? $case['member'] : '(malformed case: missing member)';
+        $title = isset($case['title']) && is_string($case['title']) ? $case['title'] : '(malformed case: missing title)';
+
         try {
+            // M1 review F-3 (MAJOR, fixed): classify()/renderOutcome() now
+            // run INSIDE this try, alongside explicit shape validation, so
+            // (a) a Normalize refusal (a value the normalizer can't render)
+            // lands as 'error' instead of propagating out of runCase()
+            // uncaught and taking the whole group's turn down with it, and
+            // (b) a malformed case record (a missing key, a non-Closure
+            // "run") is caught here rather than fataling on array access or
+            // a call-time TypeError from capture()'s \Closure type-hint.
+            // capture() itself is UNCHANGED: a PDO call legitimately
+            // throwing TypeError/ValueError/etc is still captured there as
+            // an ordinary outcome, not treated as harness breakage.
+            foreach (['id', 'group', 'member', 'title', 'run', 'sqlstate_strict', 'informational'] as $key) {
+                if (!array_key_exists($key, $case)) {
+                    throw new \LogicException(sprintf('case record is malformed: missing key "%s"', $key));
+                }
+            }
+            if (!($case['run'] instanceof \Closure)) {
+                throw new \LogicException('case record is malformed: "run" is not a Closure');
+            }
+
             $oursOutcome = self::capture($case['run'], $ours);
             $theirsOutcome = self::capture($case['run'], $comparator);
+
+            if ($case['informational']) {
+                // M1 review F-2 (BLOCKER): 'informational' is a closed set
+                // of exactly one case id (design §2.5's
+                // rowCount()-after-SELECT exception) — never an open escape
+                // from the pin rules (which skip 'informational' outright)
+                // that a new case could opt into merely by setting this
+                // flag. conformance.mjs check 28 asserts the observed set
+                // matches this same singleton from the runner side; this is
+                // the harness-side half of that same guarantee.
+                if ($case['id'] !== 'count.rowcount.select') {
+                    throw new \LogicException(sprintf(
+                        'case "%s" is marked informational, but only "count.rowcount.select" may be (M1 review F-2)',
+                        $case['id']
+                    ));
+                }
+
+                return self::shape(
+                    $case,
+                    'informational',
+                    self::renderOutcome($oursOutcome),
+                    self::renderOutcome($theirsOutcome),
+                    'not compared by design — PDOStatement::rowCount() after a SELECT is undefined by PDO\'s own contract'
+                );
+            }
+
+            [$class, $detail] = self::classify($oursOutcome, $theirsOutcome, $case['sqlstate_strict']);
+
+            return self::shape($case, $class, self::renderOutcome($oursOutcome), self::renderOutcome($theirsOutcome), $detail);
         } catch (\Throwable $e) {
-            // The HARNESS broke (a value the normalizer can't handle, a case
-            // record malformed) — never the case-under-test's own outcome,
-            // and never pinnable (design §2.4).
-            return self::shape($case, 'error', '(harness error)', '(harness error)', $e->getMessage());
+            // The HARNESS broke (a malformed case record, an informational
+            // id outside the closed set, or a value the normalizer refuses
+            // to render) — never the case-under-test's own outcome, and
+            // never pinnable (design §2.4).
+            return [
+                'id' => $id,
+                'group' => $group,
+                'member' => $member,
+                'title' => $title,
+                'class' => 'error',
+                'ours' => '(harness error)',
+                'theirs' => '(harness error)',
+                'detail' => $e->getMessage(),
+            ];
         }
-
-        if ($case['informational']) {
-            return self::shape(
-                $case,
-                'informational',
-                self::renderOutcome($oursOutcome),
-                self::renderOutcome($theirsOutcome),
-                'not compared by design — PDOStatement::rowCount() after a SELECT is undefined by PDO\'s own contract'
-            );
-        }
-
-        [$class, $detail] = self::classify($oursOutcome, $theirsOutcome, $case['sqlstate_strict']);
-
-        return self::shape($case, $class, self::renderOutcome($oursOutcome), self::renderOutcome($theirsOutcome), $detail);
     }
 
     /**

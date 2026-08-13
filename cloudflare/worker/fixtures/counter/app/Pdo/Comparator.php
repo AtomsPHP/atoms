@@ -23,9 +23,17 @@ final class Comparator
     /**
      * A fresh native PDO with the same attributes AtomsPDO guarantees
      * (ERRMODE_EXCEPTION), schema and seed applied. The default fetch mode
-     * is deliberately left alone — real pdo_sqlite's is FETCH_BOTH, ours is
-     * FETCH_ASSOC (measured, design §0.1) — so that divergence SURFACES in
-     * the matrix and gets pinned, rather than being papered over here.
+     * is deliberately left ALONE — never set here — so that
+     * `pdo.attr.default_fetch_mode` measures AtomsPDO's real
+     * `ATTR_DEFAULT_FETCH_MODE` default against real pdo_sqlite's own
+     * unmodified default, with nothing on either side forcing them to agree.
+     * M1 review F-7 (fixed a stale claim here): AtomsPDO's default is
+     * FETCH_BOTH (design §3 F-30, matching real pdo_sqlite's own measured
+     * default) — this docblock previously and incorrectly still said
+     * FETCH_ASSOC, a leftover from before F-30 landed. Probe::differential()
+     * no longer force-sets `ATTR_DEFAULT_FETCH_MODE` on `$ours` either (M1
+     * review F-7), so whatever divergence exists, if any, SURFACES in the
+     * matrix and gets pinned, rather than being papered over on either side.
      */
     public static function build(): \PDO
     {

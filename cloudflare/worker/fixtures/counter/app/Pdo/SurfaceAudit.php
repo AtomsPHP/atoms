@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Pdo;
 
 use Atoms\Cf\AtomsNotSupported;
-use Atoms\Cf\FetchMode;
 use ReflectionClass;
 use ReflectionMethod;
 use ReflectionProperty;
@@ -22,9 +21,11 @@ use ReflectionProperty;
  * turns this red instead of silently degrading (design §1.4).
  *
  * Fail-closed by construction: `run()` performs no try/catch around the
- * enumeration rules (R1-R5, R7). R6 is a deliberate exception — it
- * EXECUTES `FetchMode::assertSupported()`/`shape()` and classifies the
- * outcome, which is the whole point of that rule (design §1.2).
+ * enumeration rules (R1-R5, R7). R6 is a deliberate exception — it drives
+ * every pinned FETCH_* value through a REAL, live `AtomsStatement` (the
+ * genuine `Atoms\Cf\` dispatcher a customer's `fetch()`/`fetchAll()` call
+ * actually reaches, not an internal helper) and classifies the outcome,
+ * which is the whole point of that rule (design §1.2, M1 review F-9).
  */
 final class SurfaceAudit
 {
@@ -41,9 +42,6 @@ final class SurfaceAudit
      * design §1.2.
      */
     private const DRIVER_PREFIX = '/^(MYSQL|PGSQL|SQLITE|ODBC|OCI|SQLSRV|FB|DBLIB)_/';
-
-    /** The pinned constant namespaces, matched by prefix (ERR_ only ever matches ERR_NONE). */
-    private const PINNED_PREFIXES = ['FETCH_', 'ATTR_', 'PARAM_', 'ERRMODE_', 'CASE_', 'NULL_', 'CURSOR_', 'ERR_'];
 
     private function __construct()
     {
@@ -86,7 +84,7 @@ final class SurfaceAudit
         }
 
         self::auditConstants($violations, $membersChecked, $counts);
-        self::auditFetchBehaviour($violations);
+        self::auditFetchBehaviour($pdo, $violations);
 
         $allowlist = self::runAllowlist($pdo, $violations);
 
@@ -316,28 +314,53 @@ final class SurfaceAudit
     }
 
     /**
-     * R6 (behavioural constant check): every pinned FETCH_* value is run
-     * through `FetchMode::assertSupported()`. It must either land in
-     * `FetchMode::supported()` — and, for a row-shaped mode, `shape()` must
-     * succeed on a sample row — or raise `AtomsNotSupported`. Anything else
-     * (a different exception type, or a supported mode whose shape() fails)
-     * is the classic silent-coercion failure this rule exists to catch.
+     * R6 (behavioural constant check). M1 review F-9 (MAJOR, fixed): this
+     * used to run every pinned FETCH_* value through the small INTERNAL
+     * `Atoms\Cf\FetchMode` helper — which implements only a HARDCODED
+     * subset (ASSOC/NUM/BOTH/OBJ/COLUMN/KEY_PAIR) — rather than the REAL
+     * dispatcher a customer actually calls, `AtomsStatement::fetch()`/
+     * `fetchAll()`'s `hydrateOneRow()`, which handles many more modes
+     * directly (FETCH_BOUND, FETCH_NAMED, FETCH_CLASS, FETCH_INTO, the
+     * FETCH_GROUP/FETCH_UNIQUE/FETCH_CLASSTYPE/FETCH_PROPS_LATE flags,
+     * FETCH_FUNC) BEFORE ever falling through to FetchMode. Auditing
+     * FetchMode alone meant every one of those modes was invisible to R6:
+     * `FetchMode::assertSupported()` throws AtomsNotSupported for all of
+     * them, so the audit "passed" via the refusal branch even though
+     * AtomsStatement genuinely ANSWERS most of them — deleting the
+     * FETCH_CLASS arm from `hydrateOneRow()` would not have turned this
+     * red.
      *
-     * `FETCH_KEY_PAIR` is supported but is fetchAll()-only by design
-     * (`FetchMode::shape()` legitimately throws `AtomsNotSupported` for a
-     * single row), so it is excluded from the shape() half of this check.
+     * Fixed: for every pinned FETCH_* value, execute a REAL fetch through a
+     * live `AtomsStatement` obtained from the `$pdo` passed in (the SAME
+     * connection {@see Probe::surfaceAudit()} hands this method — real
+     * `db()->pdo()`, real `SqlBridge`, real Durable Object SQL, not a
+     * fake), over a fresh two-column seeded result set, driving each mode
+     * through its OWN documented calling form (`bindColumn()` first for
+     * FETCH_BOUND, `setFetchMode()` first for FETCH_CLASS/FETCH_INTO/
+     * FETCH_PROPS_LATE, `fetchAll()` for FETCH_FUNC/FETCH_KEY_PAIR/
+     * FETCH_GROUP/FETCH_UNIQUE, a class-name-bearing row for
+     * FETCH_CLASSTYPE — see {@see fetchModeExercises()}). Each mode lands
+     * in exactly one of three buckets: ANSWERED (a value came back),
+     * REFUSED (`AtomsNotSupported`, a legitimate checked outcome), or
+     * VIOLATION (anything else — the classic silent-coercion failure this
+     * rule exists to catch). The observed ANSWERED set is then compared,
+     * by NAME-SET EQUALITY BOTH WAYS, against
+     * `PinnedConstants::expectedAnsweredFetchModes()` — so deleting a
+     * `hydrateOneRow()` arm (a mode that should answer stops answering)
+     * and a newly-answering mode that should still refuse (a regression in
+     * the OTHER direction) are both violations, not just one.
      *
      * @param list<array{rule: string, member: string, detail: string}> $violations
      */
-    private static function auditFetchBehaviour(array &$violations): void
+    private static function auditFetchBehaviour(\PDO $pdo, array &$violations): void
     {
-        $sampleRow = ['id' => 1, 'name' => 'probe'];
+        $answered = [];
 
-        foreach (PinnedConstants::fetch() as $name => $value) {
+        foreach (self::fetchModeExercises() as $name => $exercise) {
             $member = 'PDO::' . $name;
 
             try {
-                $normalized = FetchMode::assertSupported($value, 'R6 audit: ' . $name);
+                $exercise($pdo);
             } catch (AtomsNotSupported $e) {
                 continue; // a refusal is a legitimate, checked outcome
             } catch (\Throwable $e) {
@@ -345,7 +368,9 @@ final class SurfaceAudit
                     'rule' => 'R6',
                     'member' => $member,
                     'detail' => sprintf(
-                        'assertSupported() raised %s instead of returning or raising AtomsNotSupported: %s',
+                        'exercising %s through the real AtomsStatement dispatcher (its own documented '
+                            . 'calling form) raised %s instead of answering or raising AtomsNotSupported: %s',
+                        $name,
                         get_class($e),
                         $e->getMessage()
                     ),
@@ -353,25 +378,159 @@ final class SurfaceAudit
                 continue;
             }
 
-            if ($normalized === \PDO::FETCH_KEY_PAIR) {
-                continue; // fetchAll()-only; shape() correctly refuses a single row
-            }
-
-            try {
-                FetchMode::shape($sampleRow, $normalized);
-            } catch (\Throwable $e) {
-                $violations[] = [
-                    'rule' => 'R6',
-                    'member' => $member,
-                    'detail' => sprintf(
-                        'FetchMode::supported() claims mode %d but shape() raised %s: %s',
-                        $normalized,
-                        get_class($e),
-                        $e->getMessage()
-                    ),
-                ];
-            }
+            $answered[] = $name;
         }
+
+        sort($answered);
+        $expected = PinnedConstants::expectedAnsweredFetchModes();
+        sort($expected);
+
+        if ($answered !== $expected) {
+            $violations[] = [
+                'rule' => 'R6',
+                'member' => 'PDO::FETCH_* (answered set)',
+                'detail' => sprintf(
+                    'the set of FETCH_* modes AtomsStatement genuinely ANSWERS does not match '
+                        . 'PinnedConstants::expectedAnsweredFetchModes(): missing=%s extra=%s',
+                    json_encode(array_values(array_diff($expected, $answered))),
+                    json_encode(array_values(array_diff($answered, $expected)))
+                ),
+            ];
+        }
+    }
+
+    /**
+     * One exercise closure per pinned FETCH_* name, each driving a fresh
+     * statement through that mode's OWN documented calling form (design
+     * §1.2 R6, M1 review F-9). Every closure either returns (answered,
+     * regardless of what it returns — only whether it threw matters here)
+     * or throws; `AtomsNotSupported` is a legitimate refusal, anything else
+     * is a violation, both handled by the caller.
+     *
+     * @return array<string, \Closure(\PDO): mixed>
+     */
+    private static function fetchModeExercises(): array
+    {
+        // A fresh single-row, two-UNIQUE-column result set — self-contained
+        // (no dependency on Probe's own tables or seed data, so this audit
+        // cannot perturb, or be perturbed by, anything Probe::differential()
+        // does with probe_rows).
+        $row = static function (\PDO $pdo): \PDOStatement {
+            return $pdo->query('SELECT 1 AS a, 2 AS b');
+        };
+        // Two rows, for the modes that are only meaningful across more than one.
+        $rows = static function (\PDO $pdo): \PDOStatement {
+            return $pdo->query("SELECT 'x' AS a, 1 AS b UNION ALL SELECT 'y', 2");
+        };
+
+        return [
+            'FETCH_DEFAULT' => static function (\PDO $pdo) use ($row) {
+                $stmt = $row($pdo);
+                $stmt->setFetchMode(\PDO::FETCH_BOTH);
+
+                return $stmt->fetch(\PDO::FETCH_DEFAULT);
+            },
+            'FETCH_LAZY' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_LAZY);
+            },
+            'FETCH_ASSOC' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_ASSOC);
+            },
+            'FETCH_NUM' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_NUM);
+            },
+            'FETCH_BOTH' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_BOTH);
+            },
+            'FETCH_OBJ' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_OBJ);
+            },
+            // FETCH_BOUND's documented form: bindColumn() BEFORE fetch().
+            'FETCH_BOUND' => static function (\PDO $pdo) use ($row) {
+                $stmt = $row($pdo);
+                $stmt->bindColumn(1, $bound);
+
+                return [$stmt->fetch(\PDO::FETCH_BOUND), $bound];
+            },
+            'FETCH_COLUMN' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_COLUMN);
+            },
+            // FETCH_CLASS's documented form: setFetchMode(FETCH_CLASS, $class) BEFORE fetch().
+            'FETCH_CLASS' => static function (\PDO $pdo) use ($row) {
+                $stmt = $row($pdo);
+                $stmt->setFetchMode(\PDO::FETCH_CLASS, \stdClass::class);
+
+                return $stmt->fetch();
+            },
+            // FETCH_INTO's documented form: setFetchMode(FETCH_INTO, $obj) BEFORE fetch().
+            'FETCH_INTO' => static function (\PDO $pdo) use ($row) {
+                $stmt = $row($pdo);
+                $target = new \stdClass();
+                $stmt->setFetchMode(\PDO::FETCH_INTO, $target);
+
+                return $stmt->fetch();
+            },
+            // FETCH_FUNC's documented form: fetchAll(), never bare fetch() (design §3 F-7).
+            'FETCH_FUNC' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetchAll(\PDO::FETCH_FUNC, static fn ($a, $b) => [$a, $b]);
+            },
+            'FETCH_NAMED' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_NAMED);
+            },
+            // FETCH_KEY_PAIR's documented form: fetchAll(), never bare fetch()
+            // (AtomsStatement's fetch() path falls through to
+            // FetchMode::shape(), which refuses it for a single row).
+            'FETCH_KEY_PAIR' => static function (\PDO $pdo) use ($rows) {
+                return $rows($pdo)->fetchAll(\PDO::FETCH_KEY_PAIR);
+            },
+            // FETCH_ORI_* are cursorOrientation values, not modes — driven as
+            // fetch()'s SECOND argument, over the mandatory FETCH_ASSOC base.
+            'FETCH_ORI_NEXT' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_ASSOC, \PDO::FETCH_ORI_NEXT);
+            },
+            'FETCH_ORI_PRIOR' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_ASSOC, \PDO::FETCH_ORI_PRIOR);
+            },
+            'FETCH_ORI_FIRST' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_ASSOC, \PDO::FETCH_ORI_FIRST);
+            },
+            'FETCH_ORI_LAST' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_ASSOC, \PDO::FETCH_ORI_LAST);
+            },
+            'FETCH_ORI_ABS' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_ASSOC, \PDO::FETCH_ORI_ABS, 0);
+            },
+            'FETCH_ORI_REL' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_ASSOC, \PDO::FETCH_ORI_REL, 0);
+            },
+            // FETCH_GROUP/FETCH_UNIQUE are OR-able flags, meaningful only
+            // combined with a base mode, and only via fetchAll().
+            'FETCH_GROUP' => static function (\PDO $pdo) use ($rows) {
+                return $rows($pdo)->fetchAll(\PDO::FETCH_ASSOC | \PDO::FETCH_GROUP);
+            },
+            'FETCH_UNIQUE' => static function (\PDO $pdo) use ($rows) {
+                return $rows($pdo)->fetchAll(\PDO::FETCH_ASSOC | \PDO::FETCH_UNIQUE);
+            },
+            // FETCH_CLASSTYPE consumes the FIRST column as the class name —
+            // driven directly (not via setFetchMode(), which would demand an
+            // explicit class name FETCH_CLASSTYPE deliberately does not take).
+            'FETCH_CLASSTYPE' => static function (\PDO $pdo) {
+                $stmt = $pdo->query("SELECT 'stdClass' AS c, 5 AS v");
+
+                return $stmt->fetch(\PDO::FETCH_CLASS | \PDO::FETCH_CLASSTYPE);
+            },
+            'FETCH_SERIALIZE' => static function (\PDO $pdo) use ($row) {
+                return $row($pdo)->fetch(\PDO::FETCH_SERIALIZE);
+            },
+            // FETCH_PROPS_LATE's documented form: combined with FETCH_CLASS
+            // via setFetchMode() BEFORE fetch() (design §3 F-3).
+            'FETCH_PROPS_LATE' => static function (\PDO $pdo) use ($row) {
+                $stmt = $row($pdo);
+                $stmt->setFetchMode(\PDO::FETCH_CLASS | \PDO::FETCH_PROPS_LATE, \stdClass::class);
+
+                return $stmt->fetch();
+            },
+        ];
     }
 
     /**
@@ -443,8 +602,22 @@ final class SurfaceAudit
     }
 
     /**
-     * @return array<string, int|string> runtime \PDO constants in the
-     *     pinned namespaces, driver-namespaced constants excluded
+     * M1 review F-10 (MAJOR, fixed): this used to filter runtime constants
+     * DOWN to an allowlist of known prefixes (`FETCH_`, `ATTR_`, `PARAM_`,
+     * ...) before comparing against PinnedConstants — which meant a brand
+     * new NON-driver constant, in a namespace nobody had thought to list
+     * yet, was excluded from BOTH directions of the check and simply never
+     * seen. Inverted: every \PDO constant is included UNLESS it is
+     * driver-prefixed (the one exclusion this milestone's own design calls
+     * for — driver-loaded constants vary by extension, not by PHP version).
+     * `auditConstants()`'s existing both-directions name-set-and-value
+     * equality against PinnedConstants now does the real work: any new
+     * non-driver constant this build adds shows up in `$runtime` but not in
+     * `PinnedConstants`, and Direction 1 flags it as an R5 violation —
+     * exactly the "a new member surfaces as RED, never as a silent hole"
+     * guarantee design §1.4 promises for constants, not just methods.
+     *
+     * @return array<string, int|string> every \PDO constant, driver-namespaced ones excluded
      */
     private static function runtimePinnedConstants(): array
     {
@@ -456,12 +629,7 @@ final class SurfaceAudit
                 continue;
             }
 
-            foreach (self::PINNED_PREFIXES as $prefix) {
-                if (strncmp($name, $prefix, strlen($prefix)) === 0) {
-                    $out[$name] = $value;
-                    break;
-                }
-            }
+            $out[$name] = $value;
         }
 
         return $out;

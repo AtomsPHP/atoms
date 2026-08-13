@@ -176,6 +176,44 @@ final class PinnedConstants
     }
 
     /**
+     * M1 review F-9 (MAJOR, fixed): the set of `PDO::FETCH_*` names that
+     * `SurfaceAudit::auditFetchBehaviour()` must observe as ANSWERED when
+     * each is driven through the REAL `Atoms\Cf\AtomsStatement` dispatcher
+     * (not the small internal `FetchMode` helper — see that method's
+     * docblock for why the distinction matters). Every other name in
+     * {@see fetch()} is expected to raise `AtomsNotSupported`. This is a
+     * closed pin, not a computed derivation: deleting a `hydrateOneRow()`
+     * arm removes a name from the OBSERVED answered set without touching
+     * this one, so the two disagree and R6 goes red — and a mode that
+     * starts silently answering (should have stayed refused) does the
+     * same in the other direction.
+     *
+     * @return list<string>
+     */
+    public static function expectedAnsweredFetchModes(): array
+    {
+        return [
+            'FETCH_DEFAULT',
+            'FETCH_ASSOC',
+            'FETCH_NUM',
+            'FETCH_BOTH',
+            'FETCH_OBJ',
+            'FETCH_BOUND',
+            'FETCH_COLUMN',
+            'FETCH_CLASS',
+            'FETCH_INTO',
+            'FETCH_FUNC',
+            'FETCH_NAMED',
+            'FETCH_KEY_PAIR',
+            'FETCH_ORI_NEXT',
+            'FETCH_GROUP',
+            'FETCH_UNIQUE',
+            'FETCH_CLASSTYPE',
+            'FETCH_PROPS_LATE',
+        ];
+    }
+
+    /**
      * Every pinned constant, across every category, flattened into one
      * name=>value map. Category boundaries never overlap by construction
      * (each is a distinct prefix, `ERR_` vs `ERRMODE_` verified distinct by

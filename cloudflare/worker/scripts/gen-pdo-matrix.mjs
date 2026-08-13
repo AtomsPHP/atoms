@@ -50,12 +50,39 @@ const LEGEND = [
     ['undefined', "PDO's own contract leaves it undefined (see `PDOStatement::rowCount()` on a SELECT)."],
 ];
 
-/** The one `informational` case's explanation (design §2.5), committed here rather than measured. */
-const ROWCOUNT_SELECT_NOTE =
-    "Undefined by PDO's own contract, and measured proof that real pdo_sqlite is not even " +
-    'self-consistent: after an INSERT, a SELECT matching zero rows reported rowCount() === 1 (a ' +
-    'stale sqlite3_changes). Comparing it would compare two different flavours of undefined; both ' +
-    'observed values are recorded here instead.';
+/**
+ * Per-case-id explanations for the `informational` class (design §2.5),
+ * committed here rather than measured. M1 review F-2 (BLOCKER): this MUST be
+ * a per-id lookup, never a blanket constant applied to every case the runner
+ * happens to observe as `informational` — that would let 'informational'
+ * become an unbounded escape hatch from the pin rules (which skip it
+ * entirely). {@see informationalNote} throws on any id not listed here, so a
+ * new informational case without its own reviewed note is a loud generator
+ * failure, not a silently-reused explanation.
+ */
+const INFORMATIONAL_NOTES = {
+    'count.rowcount.select':
+        "Undefined by PDO's own contract, and measured proof that real pdo_sqlite is not even " +
+        'self-consistent: after an INSERT, a SELECT matching zero rows reported rowCount() === 1 (a ' +
+        'stale sqlite3_changes). Comparing it would compare two different flavours of undefined; both ' +
+        'observed values are recorded here instead.',
+};
+
+/**
+ * @param {string} id
+ * @returns {string}
+ */
+function informationalNote(id) {
+    if (!Object.prototype.hasOwnProperty.call(INFORMATIONAL_NOTES, id)) {
+        throw new Error(
+            `renderMatrixDoc: no informational note registered for case id ${JSON.stringify(id)} — ` +
+                "'informational' is not a blanket status; add a reviewed entry to INFORMATIONAL_NOTES " +
+                'or give the case a real classification (M1 review F-2).'
+        );
+    }
+
+    return INFORMATIONAL_NOTES[id];
+}
 
 /**
  * @param {string} s
@@ -120,7 +147,7 @@ export function renderMatrixDoc(report, pins) {
             const status = PUBLISHED_CLASS[c.class] ?? c.class;
             let notes = '';
             if (c.class === 'informational') {
-                notes = ROWCOUNT_SELECT_NOTE;
+                notes = informationalNote(c.id);
             } else if (c.class !== 'match') {
                 const pin = pinCases[c.id];
                 notes = pin && typeof pin.why === 'string' ? pin.why : '';

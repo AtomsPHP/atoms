@@ -80,9 +80,16 @@ final class Schema
      *
      * `sqlite_sequence` does not exist until the first AUTOINCREMENT insert
      * has ever happened on this connection, so the very first reset() of a
-     * fresh Probe residency would fail on that DELETE — harmless and
-     * expected, and not part of the surface under test, so it is swallowed
-     * rather than guarded with a schema probe.
+     * fresh Probe residency legitimately has nothing to clear there.
+     *
+     * M1 review F-19 (MINOR, fixed): the DELETE used to be wrapped in a
+     * blanket `catch (\Throwable)` that swallowed EVERYTHING, not just "the
+     * table doesn't exist yet" — a genuine failure (a locked table, a
+     * corrupted sqlite_sequence, a real bug in the DELETE) would have been
+     * silently absorbed too, leaving stale autoincrement state behind
+     * un-reported. Fixed to PROBE for the table's existence directly
+     * (`sqlite_master`) and only skip the DELETE when it is genuinely
+     * absent; any other Throwable now propagates.
      */
     public static function reset(\PDO $pdo): void
     {
@@ -90,11 +97,9 @@ final class Schema
         $pdo->exec('DELETE FROM probe_wide');
         $pdo->exec('DELETE FROM probe_bulk');
 
-        try {
+        $exists = $pdo->query("SELECT name FROM sqlite_master WHERE name = 'sqlite_sequence'")->fetchColumn();
+        if ($exists !== false) {
             $pdo->exec("DELETE FROM sqlite_sequence WHERE name IN ('probe_rows', 'probe_wide', 'probe_bulk')");
-        } catch (\Throwable $e) {
-            // sqlite_sequence doesn't exist yet — nothing has autoincremented
-            // on this connection before. Nothing to clear.
         }
 
         self::applySeed($pdo);

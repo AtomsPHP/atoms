@@ -2598,6 +2598,20 @@ checks.push(async () => {
     if (!(counts.pinned_fetch >= 24)) {
         problems.push(`counts.pinned_fetch=${counts.pinned_fetch} (expected >= 24)`);
     }
+    // M1 review F-18 (MINOR): R7's original floors covered methods and
+    // pinned fetch modes but not properties, interfaces, or statics — an
+    // audit that silently enumerated zero of any of those would still have
+    // passed. Additive floors, strengthening check 26 without touching an
+    // existing assertion.
+    if (!(counts.properties >= 1)) {
+        problems.push(`counts.properties=${counts.properties} (expected >= 1)`);
+    }
+    if (!(counts.interfaces >= 2)) {
+        problems.push(`counts.interfaces=${counts.interfaces} (expected >= 2)`);
+    }
+    if (!(counts.pdo_statics >= 1)) {
+        problems.push(`counts.pdo_statics=${counts.pdo_statics} (expected >= 1)`);
+    }
 
     const membersChecked = Array.isArray(result.members_checked) ? result.members_checked : [];
     if (membersChecked.length === 0) {
@@ -2788,6 +2802,26 @@ checks.push(async () => {
         problems.push(`summary.total=${summary.total} (expected >= 90 — an anti-vacuous floor)`);
     }
 
+    // M1 review F-2 (BLOCKER): 'informational' bypasses the pin rules
+    // entirely (pin rule 1 skips it outright), so unlike every other class it
+    // is not bounded by anything unless this check bounds it. It must be a
+    // closed set of exactly one case id — the one case whose non-comparison
+    // is a deliberate, documented, published exception (design §2.5's
+    // rowCount()-after-SELECT note) — never a blanket escape a new case could
+    // walk through by setting 'informational' => true.
+    const INFORMATIONAL_IDS = new Set(['count.rowcount.select']);
+    if (problems.length === 0) {
+        const observedInformational = new Set(allCases.filter((c) => c.class === 'informational').map((c) => c.id));
+        const unexpected = [...observedInformational].filter((id) => !INFORMATIONAL_IDS.has(id));
+        const missing = [...INFORMATIONAL_IDS].filter((id) => !observedInformational.has(id));
+        if (unexpected.length > 0 || missing.length > 0) {
+            problems.push(
+                `informational case-id set must be EXACTLY ${JSON.stringify([...INFORMATIONAL_IDS])}: ` +
+                    `unexpected=${JSON.stringify(unexpected)} missing=${JSON.stringify(missing)}`
+            );
+        }
+    }
+
     const PINNABLE = new Set(['refused_by_us', 'refused_by_both', 'refused_by_comparator', 'deviation']);
 
     if (problems.length === 0) {
@@ -2917,6 +2951,23 @@ checks.push(async () => {
         problems.push(`29a: result=${JSON.stringify(under.data?.result)} (expected ok:true, rowCount=${SQL_MAX_ROWS - 1})`);
     }
 
+    // 29a-boundary — M1 review F-15: EXACTLY maxRows rows must also SUCCEED
+    // (not just maxRows-1). Verified against bridge.js's actual code before
+    // writing this assertion: the cap check runs BEFORE push, at the START
+    // of each loop iteration, so exactly `sqlMaxRows` successful pushes
+    // happen and the loop then ends (cursor exhausted) without ever
+    // re-entering to trip the check — the at-cap row itself is not
+    // rejected, only the FIRST row past it is (that's 29b). Documented here
+    // and in test/README.md; the bridge itself was not changed to fit this.
+    const atCap = await invoke('Probe', id, 'capProbe', ['rows', SQL_MAX_ROWS, 0]);
+    if (atCap.status !== 200 || atCap.data?.error) {
+        problems.push(`29a-boundary: HTTP ${atCap.status}: ${JSON.stringify(atCap.data)} (expected 200, ok:true)`);
+    } else if (atCap.data?.result?.ok !== true || atCap.data.result.rowCount !== SQL_MAX_ROWS) {
+        problems.push(
+            `29a-boundary: result=${JSON.stringify(atCap.data?.result)} (expected ok:true, rowCount=${SQL_MAX_ROWS} — exactly at the cap must succeed)`
+        );
+    }
+
     // 29b — one row over the cap fails with sql_result_too_large, cap:'rows'.
     const overRows = await invoke('Probe', id, 'capProbe', ['rows', SQL_MAX_ROWS + 1, 0]);
     if (overRows.status !== 200) {
@@ -2927,7 +2978,14 @@ checks.push(async () => {
             problems.push(`29b: result=${JSON.stringify(r)} (expected ok:false)`);
         } else if (r.code !== 'sql_result_too_large') {
             problems.push(`29b: code=${JSON.stringify(r.code)} (expected sql_result_too_large)`);
+        } else if (r.cap !== 'rows') {
+            // M1 review F-14 (MINOR, fixed): PRIMARY assertion — detail.cap,
+            // read off BridgeSqlException::getDetail(), exactly as the spec
+            // and test/README document. This used to be unreachable from
+            // PHP at all (detail was dropped in SqlBridge::failure()).
+            problems.push(`29b: cap=${JSON.stringify(r.cap)} (expected 'rows', from BridgeSqlException::getDetail())`);
         } else if (!/cap['":\s]+rows/i.test(r.message) && !r.message?.includes('ATOMS_SQL_MAX_ROWS')) {
+            // SECONDARY assertion, kept: the message should still say so too.
             problems.push(`29b: message does not identify the rows cap: ${JSON.stringify(r.message)}`);
         }
     }
@@ -2945,9 +3003,23 @@ checks.push(async () => {
             problems.push(`29c: result=${JSON.stringify(r)} (expected ok:false — byte cap should have fired)`);
         } else if (r.code !== 'sql_result_too_large') {
             problems.push(`29c: code=${JSON.stringify(r.code)} (expected sql_result_too_large)`);
+        } else if (r.cap !== 'bytes') {
+            // M1 review F-14: PRIMARY assertion, see 29b's comment.
+            problems.push(`29c: cap=${JSON.stringify(r.cap)} (expected 'bytes', from BridgeSqlException::getDetail())`);
         } else if (!/cap['":\s]+bytes/i.test(r.message) && !r.message?.includes('ATOMS_SQL_MAX_RESULT_BYTES')) {
+            // SECONDARY assertion, kept: the message should still say so too.
             problems.push(`29c: message does not identify the bytes cap: ${JSON.stringify(r.message)}`);
         }
+    }
+
+    // 29e — M1 review F-15: run mode (PDO::exec(), which discards rows) is
+    // NOT subject to either cap — a statement generating far more than the
+    // row cap must still succeed, proving the caps apply to rows mode only.
+    const runMode = await invoke('Probe', id, 'capProbeRunMode', [SQL_MAX_ROWS * 3]);
+    if (runMode.status !== 200 || runMode.data?.error) {
+        problems.push(`29e: HTTP ${runMode.status}: ${JSON.stringify(runMode.data)} (expected 200, ok:true — run mode is uncapped by design)`);
+    } else if (runMode.data?.result?.ok !== true) {
+        problems.push(`29e: result=${JSON.stringify(runMode.data?.result)} (expected ok:true)`);
     }
 
     // 29d — the residency survived both failures (the pattern checks 7/8/10

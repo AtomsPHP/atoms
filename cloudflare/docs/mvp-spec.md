@@ -84,6 +84,17 @@ prefix, JSON-decode the reply. Every reply is an object with `ok: true` or
   `lastInsertId()` keeps reporting the last insert across any number of
   intervening reads, so a `0` sent after a plain `SELECT` would silently break
   `INSERT parent; SELECT …; INSERT child(parent_id = lastInsertId())`.
+  **Multi-statement `sql` text** (`sql.exec` runs every statement `this.sql.exec()`
+  is given, `;`-separated): `rows_written` is `SELECT changes()` read ONCE, after
+  the LAST statement finishes — `sqlite3_changes()` semantics, i.e. the affected
+  row count of that final statement alone, never a sum across the statements in
+  the string (M1 review F-13). `Schema::applySchema()`'s own migration-file
+  splitter (`cloudflare/worker/fixtures/counter/app/Pdo/Schema.php`) exists
+  precisely because of this: it runs the DO side's multi-statement DDL through
+  one `sql.exec` call, and the comparator through one `PDO::exec()` per
+  statement, but neither side's fixture code ever reads `rows_written` off a
+  multi-statement DDL string, so the two paths staying semantically different
+  here is deliberate, not a gap.
 - `{"op":"config.get","key":string}` → `{"ok":true,"value":json|null}`.
   JS resolves from an allowlisted view of `env` (see Config).
 - `{"op":"meta.get","key":string}` / `{"op":"meta.set","key":string,"value":string}`
@@ -1418,6 +1429,20 @@ otherwise unchanged and still binding.
    A column holding large floating-point quantities in the ambiguous band should
    therefore either set `=float` or be selected through a cast the same way a
    wide integer is.
+
+   **Accepted tradeoff (M1 review F-21, DECLINED beyond a message reword):**
+   `inlineWideIntegers()` folds every `bigint` binding into the statement TEXT
+   as a validated decimal literal — not just the ones a naive reading of "wide"
+   would require, and not conditionally on the statement being reused. That
+   inlining defeats workerd's own statement-object reuse for any statement a
+   wide-integer binding ever touches (a rewritten SQL string is a different
+   statement to `ctx.storage.sql` every time), in exchange for the storage-class
+   honesty the rest of this item describes (a genuine INTEGER binding stays
+   INTEGER storage class, never REAL). Reviewed and accepted for M1: correctness
+   of the stored value's storage class is worth more than statement-object
+   reuse here, and there is no third option — a `bigint` cannot cross the
+   binding boundary at all (the `TypeError` above), so text-inlining is the
+   only path a wide integer has into SQLite regardless of reuse.
 
 2. **`GLOB_BRACE` does not exist in the pinned php-wasm 8.3 build**, and brace
    patterns match nothing. The verbatim `Atoms\Migrations\MigrationSet::

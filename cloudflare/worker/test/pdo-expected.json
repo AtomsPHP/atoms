@@ -25,6 +25,10 @@
       "class": "refused_by_us",
       "why": "bindValue($p, $v, PARAM_LOB) throws unconditionally today; binary values do not cross the JSON bridge, so this is refused rather than silently mangled. Real pdo_sqlite accepts it and stores it as a normal string. Store the value base64-encoded as text instead."
     },
+    "bind.value.wide_int_min": {
+      "class": "refused_by_us",
+      "why": "M1 review F-11: the NEGATIVE end of the wide-int band was previously unexercised. Binding PHP_INT_MIN and reading it straight back (no CAST) hits the SAME int64_precision wall as bind.value.wide_int_param_int, just on the negative side of zero (mvp-spec.md Appendix item 1): workerd's SQL->JS conversion loses precision for any value in the ambiguous magnitude band regardless of sign. Bind the wide integer as a string instead (see bind.value.wide_int_param_str, which matches) and CAST(... AS TEXT) when reading it back."
+    },
     "bind.value.wide_int_param_int": {
       "class": "refused_by_us",
       "why": "Binding PHP_INT_MAX and reading it straight back (no CAST) hits the same int64_precision wall a stored wide integer does (mvp-spec.md Appendix item 1): workerd's SQL->JS conversion loses precision for any value in the ambiguous band regardless of how it entered SQLite. Bind the wide integer as a string instead (see bind.value.wide_int_param_str, which matches) and CAST(... AS TEXT) when reading it back."
@@ -32,6 +36,14 @@
     "dup.both": {
       "class": "refused_by_us",
       "why": "FETCH_BOTH over duplicate column names needs the full 4-value arity; Branch A's `columns` list (cursor.columnNames, design §2.7) lets us DETECT the duplicate precisely now, so instead of silently answering with the wrong arity (the pre-fill deviation) we refuse loudly — real pdo_sqlite answers with the true 6-entry BOTH shape (measured), which the wire's last-wins `{column: value}` collapse has already made unrecoverable on our side. Alias duplicate columns distinctly (see dup.aliased, which matches) rather than relying on FETCH_BOTH over ambiguous column names."
+    },
+    "dup.fetch_column_index_1": {
+      "class": "refused_by_us",
+      "why": "fetchColumn(1) over duplicate column names now throws (M1 review F-1, FIX: fetchColumn() reached the wire directly and skipped the same duplicate-column guard every other FETCH_COLUMN path uses, silently answering an unrecoverable collapsed value under duplicates). Real pdo_sqlite answers the SECOND occurrence's original value from the true 4-value arity (measured); our wire's last-wins collapse has already discarded it before PHP could see it. Alias duplicate columns distinctly (see dup.aliased, which matches) instead."
+    },
+    "dup.fetch_column_method": {
+      "class": "refused_by_us",
+      "why": "fetchColumn() with the default index (0) over duplicate column names now throws (M1 review F-1, FIX: fetchColumn() reached the wire directly and skipped the same duplicate-column guard every other FETCH_COLUMN path uses, silently answering column 0's collapsed value under duplicates). Real pdo_sqlite answers the FIRST occurrence's original value from the true 4-value arity (measured); our wire's last-wins collapse has already discarded it before PHP could see it. Alias duplicate columns distinctly (see dup.aliased, which matches) instead."
     },
     "dup.named": {
       "class": "refused_by_us",
@@ -105,6 +117,10 @@
       "class": "refused_by_us",
       "why": "Reading a stored >2^53-1 INTEGER directly (no CAST) throws a typed int64_precision PDOException on our side: workerd hands ctx.storage.sql INTEGER columns to JS as doubles, so the exact value is already lost before any Atoms code runs (mvp-spec.md Appendix item 1). Real pdo_sqlite reads it exactly. Select the column as CAST(col AS TEXT) instead — see int.wide.cast_read and int.wide.write_exact, which both match."
     },
+    "int.wide.negative_direct_read": {
+      "class": "refused_by_us",
+      "why": "M1 review F-11: the NEGATIVE end of the wide-int band was previously unexercised. Reading a stored PHP_INT_MIN directly (no CAST) throws the SAME typed int64_precision PDOException as int.wide.direct_read, for the same reason and by the same mechanism, just below zero instead of above 2^53-1 (mvp-spec.md Appendix item 1). Real pdo_sqlite reads it exactly. Select the column as CAST(col AS TEXT) instead — see int.wide.negative_cast_read and int.wide.negative_write_exact, which both match."
+    },
     "pdo.attr.autocommit": {
       "class": "refused_by_both",
       "why": "Both sides refuse getAttribute(ATTR_AUTOCOMMIT): real pdo_sqlite answers SQLSTATE[IM001] (measured) and ours throws AtomsNotSupported. Refused_by_both, matching the driver's own posture exactly."
@@ -146,16 +162,16 @@
       "why": "quote(\"a\\0b\") now THROWS a \\PDOException on our side (design §3 F-24's rewrite: quote() always quotes and ignores $type, EXCEPT this one case); real pdo_sqlite silently TRUNCATES the value at the NUL byte and returns \"'a'\" (measured). This is a deliberate posture, not a gap: silently truncating a value is the one thing this surface must not do, so ours refuses loudly rather than reproducing the truncation — encode NUL-bearing data (e.g. base64) before quoting it."
     },
     "pdo.quote.param_bool": {
-      "class": "refused_by_comparator",
-      "why": "quote($v, PARAM_BOOL) now answers \"'1'\" on our side (design §3 F-24: quote() always quotes, ignoring $type — matches real's documented always-quote contract). The pair still classifies refused_by_comparator, unchanged from before the fill: on THIS php-wasm 8.3 build the COMPARATOR itself (real pdo_sqlite) raises a TypeError converting the raw PHP bool `true` for quote()'s `string $string` parameter, before real's own $type-ignoring logic ever runs — a platform quirk on the comparator side, not something our own quote() rewrite could ever produce a matching refusal for without inventing a type check real's OWN documented contract does not call for."
+      "class": "refused_by_both",
+      "why": "M1 review F-5 (RECLASSIFIED): AtomsPDO::quote() now declares the SAME parameter type real \\PDO::quote() does (`string $string, int $type = PARAM_STR`). Under Cases.php's declare(strict_types=1), passing the raw PHP bool `true` for that `string $string` parameter throws \\TypeError at the argument boundary on BOTH sides now — real's before its own $type-ignoring quote logic ever runs, ours before its always-quote body ever runs. Same mechanism, same family, on both sides: a genuine refused_by_both, not a comparator-only quirk. Coerce to string yourself (e.g. `$b ? '1' : '0'`) before calling quote() if you need a boolean quoted."
     },
     "pdo.quote.param_null": {
-      "class": "refused_by_comparator",
-      "why": "quote(null, PARAM_NULL) now answers \"''\" on our side (design §3 F-24: quote() always quotes, ignoring $type — the correct answer per real's documented always-quote contract for a NULL value quoted as text). The pair still classifies refused_by_comparator, unchanged from before the fill: on THIS php-wasm 8.3 build the COMPARATOR itself raises a TypeError converting the raw PHP `null` for quote()'s `string $string` parameter, before real's own $type-ignoring logic ever runs — the same comparator-side platform quirk as pdo.quote.param_bool."
+      "class": "refused_by_both",
+      "why": "M1 review F-5 (RECLASSIFIED): same mechanism as pdo.quote.param_bool. AtomsPDO::quote() now declares `string $string` like real \\PDO::quote() does, so passing the raw PHP `null` for it throws \\TypeError at the argument boundary on BOTH sides under Cases.php's declare(strict_types=1) — a genuine refused_by_both. Coerce to an empty string yourself before calling quote() if you need a NULL-standing-in-for-empty value quoted."
     },
     "pdo.setattr.case_upper": {
       "class": "refused_by_us",
-      "why": "setAttribute(ATTR_CASE, ...) is not implemented at all today (only ATTR_ERRMODE and ATTR_DEFAULT_FETCH_MODE are); real pdo_sqlite accepts CASE_UPPER and reshapes subsequent fetch() keys. Not yet filled."
+      "why": "M1 review F-17 (stale why fixed to describe the CURRENT code): ATTR_CASE IS implemented (design §3 F-22) — setAttribute(ATTR_CASE, CASE_NATURAL) succeeds — but CASE_UPPER/CASE_LOWER are refused with AtomsNotSupported because column-name case folding on fetch is not implemented; fetched keys are always the query's own case. Real pdo_sqlite accepts CASE_UPPER and reshapes subsequent fetch() keys to upper-case, hence refused_by_us. This is a deliberate, permanent restriction, not an unfilled gap."
     },
     "pdo.setattr.errmode_silent": {
       "class": "refused_by_us",

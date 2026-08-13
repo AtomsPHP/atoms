@@ -294,6 +294,21 @@ Other differences worth knowing, not omissions:
   any other SQL failure. `run` mode (no buffered rows) is unaffected.
 - `PDOStatement::rowCount()` reports `rows_written`, i.e. PDO's documented
   meaning (affected rows), not the size of a SELECT's result set.
+- **Parameter/return typing across the shim, in general.** `AtomsPDO::quote()`
+  was fixed (M1 review F-5) to declare the SAME parameter types real
+  `\PDO::quote()` does (`string $string, int $type = PARAM_STR`), because a
+  looser signature there let a call that real PDO refuses at the argument
+  boundary (`declare(strict_types=1)`, a non-string `$string`) fall through
+  silently on our side instead. That was fixed as a targeted case, not as a
+  blanket audit: other members of `AtomsPDO`/`AtomsStatement` may still keep
+  looser parameter or return types than the parent they subclass, so under a
+  `strict_types` call site a `\TypeError` real PDO would raise may not be
+  raised by Atoms for a member the differential matrix has not yet exercised
+  with a type-boundary-violating argument. Reviewed and accepted for M1: the
+  harness's `Cases.php` itself runs under `declare(strict_types=1)`, so this
+  class of gap surfaces (and gets fixed, member by member, the way `quote()`
+  just was) as the matrix's cases come to exercise it, rather than needing a
+  separate audit pass.
 - An INTEGER wider than 2^53−1 cannot be **read back** from Durable Object SQL:
   workerd hands it to JS as a double, so the exact value is gone before the
   bridge sees it. The host answers with a typed `int64_precision` error rather

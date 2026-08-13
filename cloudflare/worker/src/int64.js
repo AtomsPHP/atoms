@@ -319,10 +319,17 @@ export function inlineWideIntegers(sql, bindings) {
 
 	const positions = findPlaceholders(sql);
 	if (positions.length !== bindings.length) {
+		// M1 review F-21 (NIT, fixed): this path is reached whenever the
+		// BINDINGS ARRAY happens to contain at least one wide integer — not
+		// only when the wide integer itself is what's mismatched. A plain
+		// arity mistake (wrong number of bindings for unrelated reasons)
+		// that merely CO-OCCURS with a bigint binding used to be reported
+		// with "cannot bind an integer wider than 2^53-1" framing that had
+		// nothing to do with the actual problem. Neutral wording covers
+		// both cases honestly.
 		throw new AtomsError(
 			'sql_error',
-			`cannot bind an integer wider than 2^53-1: the statement has ${positions.length} ` +
-				`positional placeholders but ${bindings.length} bindings were supplied`
+			`statement has ${positions.length} positional placeholders but ${bindings.length} bindings were supplied`
 		);
 	}
 

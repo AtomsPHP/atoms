@@ -228,6 +228,13 @@ final class SqlBridge
      * F-28) — the caller (AtomsPDO or AtomsStatement) is what decides
      * whether the triple becomes ITS cached error state (F-27).
      *
+     * M1 review F-14 (MINOR, fixed): the raw `$error` object — everything
+     * `bridge.js`'s `fail()` spread into `reply.error`, e.g. `cap`/`limit`
+     * for `sql_result_too_large` — is now passed through as the exception's
+     * `detail` ({@see BridgeSqlException::getDetail()}) instead of being
+     * discarded here after only `code`/`message`/`sqlstate` were read out of
+     * it. Nothing that already read those three changes.
+     *
      * @param array<string, mixed> $reply
      * @return BridgeSqlException
      */
@@ -242,7 +249,7 @@ final class SqlBridge
         // the triple stays shaped like PDO's without inventing detail.
         $errorInfo = [$sqlstate, 1, $message];
 
-        return new BridgeSqlException(sprintf('SQLSTATE[%s] [%s] %s', $sqlstate, $code, $message), $errorInfo);
+        return new BridgeSqlException(sprintf('SQLSTATE[%s] [%s] %s', $sqlstate, $code, $message), $errorInfo, $error);
     }
 
     /**

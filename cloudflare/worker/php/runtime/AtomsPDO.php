@@ -63,6 +63,27 @@ class AtomsPDO extends \PDO
     }
 
     /**
+     * M1 review F-8 (MAJOR, fixed): {@see exec()} was the ONLY connection
+     * entry point that recorded this connection's errorInfo() triple on
+     * failure; `query()`, `beginTransaction()`, `commit()`, `rollBack()` and
+     * `lastInsertId()` did not, so `$pdo->errorCode()` stayed `'00000'`
+     * after e.g. a failed `query('SELEKT 1')` — real PDO's is `'HY000'`
+     * (measured). Both helpers below are shared by every connection-level
+     * entry point now, the same pattern `exec()` already used.
+     */
+    private function recordConnectionFailure(\Throwable $e): void
+    {
+        $this->errorInfo = ($e instanceof \PDOException && is_array($e->errorInfo) && $e->errorInfo !== [])
+            ? $e->errorInfo
+            : ['HY000', null, $e->getMessage()];
+    }
+
+    private function recordConnectionSuccess(): void
+    {
+        $this->errorInfo = [SqlBridge::SQLSTATE_OK, null, null];
+    }
+
+    /**
      * @param string $query
      * @param array<int, mixed> $options
      * @return AtomsStatement
@@ -114,7 +135,19 @@ class AtomsPDO extends \PDO
             $statement->setFetchMode($fetchMode, ...$fetchModeArgs);
         }
 
-        $statement->execute();
+        // M1 review F-8: query() is a CONNECTION-level entry point (real
+        // PDO's own $pdo->errorCode() reflects a failed query() — measured
+        // '00000' -> 'HY000'), so a failure here records THIS connection's
+        // triple too, on top of the statement's own (F-27's scoping is
+        // unaffected: the statement still caches its own triple internally).
+        try {
+            $statement->execute();
+        } catch (\Throwable $e) {
+            $this->recordConnectionFailure($e);
+            throw $e;
+        }
+
+        $this->recordConnectionSuccess();
 
         return $statement;
     }
@@ -128,14 +161,12 @@ class AtomsPDO extends \PDO
     {
         try {
             $result = $this->bridge->exec((string) $statement, [], SqlBridge::MODE_RUN);
-        } catch (\PDOException $e) {
-            $this->errorInfo = is_array($e->errorInfo) && $e->errorInfo !== []
-                ? $e->errorInfo
-                : ['HY000', null, $e->getMessage()];
+        } catch (\Throwable $e) {
+            $this->recordConnectionFailure($e);
             throw $e;
         }
 
-        $this->errorInfo = [SqlBridge::SQLSTATE_OK, null, null];
+        $this->recordConnectionSuccess();
 
         return $result['rows_written'];
     }
@@ -153,7 +184,22 @@ class AtomsPDO extends \PDO
     #[\ReturnTypeWillChange]
     public function lastInsertId($name = null)
     {
-        return $this->bridge->lastInsertId();
+        // M1 review F-8: SqlBridge::lastInsertId() never throws today (it
+        // returns a cached string), but this is still a CONNECTION-level
+        // entry point per the design's rule, so it is wrapped like every
+        // other one — a future failure path records the triple instead of
+        // silently leaving it stale, and a success clears it the same way
+        // exec()/query() do.
+        try {
+            $id = $this->bridge->lastInsertId();
+        } catch (\Throwable $e) {
+            $this->recordConnectionFailure($e);
+            throw $e;
+        }
+
+        $this->recordConnectionSuccess();
+
+        return $id;
     }
 
     /**
@@ -162,7 +208,14 @@ class AtomsPDO extends \PDO
     #[\ReturnTypeWillChange]
     public function beginTransaction()
     {
-        $this->bridge->begin();
+        try {
+            $this->bridge->begin();
+        } catch (\Throwable $e) {
+            $this->recordConnectionFailure($e);
+            throw $e;
+        }
+
+        $this->recordConnectionSuccess();
 
         return true;
     }
@@ -173,7 +226,14 @@ class AtomsPDO extends \PDO
     #[\ReturnTypeWillChange]
     public function commit()
     {
-        $this->bridge->commit();
+        try {
+            $this->bridge->commit();
+        } catch (\Throwable $e) {
+            $this->recordConnectionFailure($e);
+            throw $e;
+        }
+
+        $this->recordConnectionSuccess();
 
         return true;
     }
@@ -184,7 +244,14 @@ class AtomsPDO extends \PDO
     #[\ReturnTypeWillChange]
     public function rollBack()
     {
-        $this->bridge->rollback();
+        try {
+            $this->bridge->rollback();
+        } catch (\Throwable $e) {
+            $this->recordConnectionFailure($e);
+            throw $e;
+        }
+
+        $this->recordConnectionSuccess();
 
         return true;
     }
@@ -213,14 +280,27 @@ class AtomsPDO extends \PDO
      * truncating a value is the one thing this surface must not do (pinned
      * deviation `pdo.quote.nul_byte`).
      *
+     * M1 review F-5 (MAJOR, fixed): the parameter list previously had NO
+     * type declarations at all, where the real `\PDO::quote()` declares
+     * `string $string, int $type = \PDO::PARAM_STR`. Under Cases.php's
+     * `declare(strict_types=1)`, calling `quote(null, PARAM_NULL)` /
+     * `quote(true, PARAM_BOOL)` against real PDO throws a `TypeError` at the
+     * argument boundary (measured) — before real's own $type-ignoring quote
+     * logic ever runs — while our looser signature silently coerced the
+     * argument via `(string) $string` inside the body instead of refusing.
+     * Declaring the SAME parameter type here means the SAME call now throws
+     * the SAME TypeError on our side too, at the same boundary, for the
+     * same reason: `pdo.quote.param_bool`/`pdo.quote.param_null` reclassify
+     * from `refused_by_comparator` to `refused_by_both`.
+     *
      * @param string $string
      * @param int $type
      * @return string
      */
     #[\ReturnTypeWillChange]
-    public function quote($string, $type = \PDO::PARAM_STR)
+    public function quote(string $string, int $type = \PDO::PARAM_STR)
     {
-        $s = (string) $string;
+        $s = $string;
 
         if (strpos($s, "\0") !== false) {
             throw new \PDOException(

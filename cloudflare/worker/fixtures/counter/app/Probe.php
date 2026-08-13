@@ -112,15 +112,27 @@ final class Probe extends Atom
      * `$ours` is CACHED on this residency's `BridgeDatabase` (one connection
      * per Atom, like a real PDO handle) and reused across every group's
      * call, unlike `$comparator`, which {@see Comparator::build()} makes
-     * brand new every time. A case that mutates CONNECTION-level state
-     * (`pdo.setattr.default_fetch_mode` sets `ATTR_DEFAULT_FETCH_MODE` to
-     * FETCH_NUM) would otherwise leak into every later group's cases — a
-     * dependency on GROUP DECLARATION ORDER that has nothing to do with the
-     * PDO surface under test. Renormalizing the connection-level attributes
-     * any case in this matrix is allowed to change (`ATTR_ERRMODE` has no
-     * other value ours accepts, so resetting it is a no-op defence in depth)
-     * keeps every group's starting state identical, the same guarantee
-     * `Schema::reset()` already gives the DATA.
+     * brand new every time. A case that mutates CONNECTION-level state would
+     * otherwise leak into every later group's cases — a dependency on GROUP
+     * DECLARATION ORDER that has nothing to do with the PDO surface under
+     * test. Renormalizing `ATTR_ERRMODE` (the one attribute ours accepts a
+     * genuine alternate value for, and every case in this matrix relies on
+     * exceptions being on) keeps every group's starting state identical, the
+     * same guarantee `Schema::reset()` already gives the DATA.
+     *
+     * M1 review F-7 (MAJOR, fixed): this used to ALSO force-set
+     * `ATTR_DEFAULT_FETCH_MODE` to `FETCH_BOTH` before every group ran —
+     * which made `pdo.attr.default_fetch_mode` (which reads that very
+     * attribute) pass by construction regardless of what AtomsPDO's
+     * constructor actually defaults to, not because the default is
+     * genuinely FETCH_BOTH. That is gone: `ATTR_DEFAULT_FETCH_MODE` is left
+     * exactly as the constructor set it, so `pdo.attr.default_fetch_mode`
+     * measures the real default. The one case that legitimately CHANGES it
+     * (`pdo.setattr.default_fetch_mode`) now restores the prior value itself
+     * before returning (design pattern: set → read → restore, identical on
+     * both sides), so cross-group leakage is prevented at the case that
+     * causes it rather than by a blanket reset that could paper over a
+     * regression in the very thing being measured.
      *
      * @return array{
      *     group: string, php: string,
@@ -133,7 +145,6 @@ final class Probe extends Atom
     {
         $ours = $this->db()->pdo();
         Schema::reset($ours);
-        $ours->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_BOTH);
         $ours->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 
         $comparator = Comparator::build();
@@ -154,14 +165,17 @@ final class Probe extends Atom
      *   ATOMS_SQL_MAX_RESULT_BYTES independent of the row cap.
      *
      * Returns `{ok, rowCount}` on success. On a caught `\PDOException` (the
-     * bridge's `sql_result_too_large` reaches PHP as one — see
-     * {@see \Atoms\Cf\SqlBridge}), returns `{ok:false, code, message,
-     * sqlstate}`, with `code` parsed out of the message's `SQLSTATE[...]
-     * [code] ...` shape so the check can assert on it without needing the
-     * PDOException's own ->getCode() (the SQLSTATE, not the Atoms error
-     * code — see F-28).
+     * bridge's `sql_result_too_large` reaches PHP as a
+     * {@see \Atoms\Cf\BridgeSqlException}), returns `{ok:false, code,
+     * message, sqlstate, cap, limit}`, with `code` parsed out of the
+     * message's `SQLSTATE[...] [code] ...` shape (kept as a SECONDARY
+     * assertion) and `cap`/`limit` (M1 review F-14, FIXED) read directly off
+     * `BridgeSqlException::getDetail()` — the same raw `cap`/`limit` fields
+     * `bridge.js` put in the wire reply, which used to be discarded before
+     * ever reaching PHP. `code` is the Atoms error code, not the SQLSTATE
+     * (see F-28 for `->getCode()`, which IS the SQLSTATE).
      *
-     * @return array{ok: true, rowCount: int}|array{ok: false, code: ?string, message: string, sqlstate: ?string}
+     * @return array{ok: true, rowCount: int}|array{ok: false, code: ?string, message: string, sqlstate: ?string, cap: ?string, limit: ?int}
      */
     public function capProbe(string $cap, int $rows, int $padBytes = 0): array
     {
@@ -188,12 +202,43 @@ final class Probe extends Atom
                 $code = $m[1];
             }
 
+            $detail = $e instanceof \Atoms\Cf\BridgeSqlException ? $e->getDetail() : [];
+
             return [
                 'ok' => false,
                 'code' => $code,
                 'message' => $e->getMessage(),
                 'sqlstate' => is_array($e->errorInfo) ? ($e->errorInfo[0] ?? null) : null,
+                'cap' => isset($detail['cap']) ? (string) $detail['cap'] : null,
+                'limit' => isset($detail['limit']) ? (int) $detail['limit'] : null,
             ];
         }
+    }
+
+    /**
+     * M1 review F-15 (MINOR, fixed): a RUN-mode leg for check 29.
+     * `PDO::exec()` drives `sql.exec` in MODE_RUN, and `bridge.js`'s
+     * MODE_RUN branch (the `else` of the rows/run split) drains the cursor
+     * and discards every row WITHOUT any cap check at all — verified
+     * directly against `src/bridge.js` before writing this: the row-cap
+     * and byte-cap checks live ONLY inside the `mode === 'rows'` branch. So
+     * a statement that would generate far more than `ATOMS_SQL_MAX_ROWS`
+     * rows in rows mode must still SUCCEED here, proving by direct
+     * exercise (not by reading the source and trusting it) that the caps
+     * are a rows-mode-only guard, by design, not a blanket statement-size
+     * limit.
+     *
+     * @return array{ok: true, rowsWritten: int}
+     */
+    public function capProbeRunMode(int $rows): array
+    {
+        $pdo = $this->db()->pdo();
+
+        $rowsWritten = $pdo->exec(
+            'WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n < '
+            . $rows . ') SELECT n FROM seq'
+        );
+
+        return ['ok' => true, 'rowsWritten' => $rowsWritten];
     }
 }

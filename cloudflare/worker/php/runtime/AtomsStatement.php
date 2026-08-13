@@ -13,10 +13,18 @@
  * returned, or throws {@see AtomsNotSupported}. Nothing is ever answered by
  * the carrier connection, and nothing silently no-ops.
  *
- * Known leak, documented rather than papered over: `$stmt->queryString` is set
- * on a best-effort basis only — PDO treats it as a read-only driver property,
- * so on builds that reject the write it stays uninitialized (asserted set by
- * the reflection tripwire's allowlist entry A1 on this build).
+ * `$stmt->queryString` (M1 review F-16 — reconciled with Allowlist.php's `why`
+ * and php/README.md, which previously told two OTHER stories): the
+ * CONSTRUCTOR's own first write, to a property PHP has never seen written
+ * before, succeeds unconditionally (asserted by the reflection tripwire's
+ * allowlist entry A1) — the `try`/`catch` below is defensive, not because
+ * this build is measured to need it. The genuine, in-guest-measured
+ * difference is in POST-CONSTRUCTION EXTERNAL reassignment: on THIS php-wasm
+ * 8.3 build, a second write from OUTSIDE the class is refused on BOTH
+ * `AtomsStatement` and a real driver-backed `\PDOStatement`
+ * (`stmt.queryString.is_writable` observes `match` in the differential
+ * matrix, not the deviation an 8.4-desktop measurement predicted before this
+ * build was ever exercised).
  *
  * Duplicate result-set columns (M1 design §2.7, Branch A): `$this->columns`
  * carries the SOURCE-ORDER column names, duplicates preserved, from
@@ -50,6 +58,19 @@ class AtomsStatement extends \PDOStatement
 
     /** @var array<int|string, int> PDO::PARAM_* given at bind time, keyed like boundValues/boundRefs */
     private $boundTypes = [];
+
+    /**
+     * @var list<int|string> keys in the order they were FIRST bound
+     *     (bindValue()/bindParam()) — M1 review F-4: debugDumpParams() must
+     *     list params in bind order, which boundValues/boundRefs alone
+     *     cannot reconstruct once bindValue()/bindParam() calls interleave
+     *     (a param moves between those two arrays on rebind but keeps its
+     *     original array position; a SEPARATE array can't recover cross-array
+     *     chronology). Measured against real PDO: rebinding an already-bound
+     *     param does NOT move it — first-bind position wins — so this never
+     *     removes a key once added.
+     */
+    private $boundOrder = [];
 
     /** @var array<int, mixed> bindColumn() targets, keyed by 0-based column index (F-2) */
     private $boundColumns = [];
@@ -232,6 +253,9 @@ class AtomsStatement extends \PDOStatement
         unset($this->boundRefs[$param]);
         $this->boundValues[$param] = $value;
         $this->boundTypes[$param] = $type;
+        if (!in_array($param, $this->boundOrder, true)) {
+            $this->boundOrder[] = $param;
+        }
 
         return true;
     }
@@ -263,6 +287,9 @@ class AtomsStatement extends \PDOStatement
         unset($this->boundValues[$param]);
         $this->boundRefs[$param] =& $var;
         $this->boundTypes[$param] = $type;
+        if (!in_array($param, $this->boundOrder, true)) {
+            $this->boundOrder[] = $param;
+        }
 
         return true;
     }
@@ -756,6 +783,13 @@ class AtomsStatement extends \PDOStatement
     #[\ReturnTypeWillChange]
     public function fetchColumn($column = 0)
     {
+        // M1 review F-1 (BLOCKER, fixed): this entry point shapes a result
+        // exactly like hydrateOneRow()'s FETCH_COLUMN case, but reached the
+        // wire directly and skipped the duplicate-column guard — silently
+        // answering the wrong column's value under duplicates instead of
+        // refusing like every other FETCH_COLUMN path.
+        $this->assertNoDuplicatesFor(\PDO::FETCH_COLUMN);
+
         if (!array_key_exists($this->cursor, $this->rows)) {
             return false;
         }
@@ -986,14 +1020,29 @@ class AtomsStatement extends \PDOStatement
     }
 
     /**
-     * Build real PDO's exact `debugDumpParams()` text (M1 design §3 F-10,
-     * measured directly against the in-guest comparator on THIS php-wasm
-     * build) and send it through the log door at debug level. Real PDO
-     * writes to stdout, which in this runtime is not delivered anywhere
-     * useful (there is one `php.run()` per residency that never returns);
-     * ADDITIONALLY, when an output buffer is active, this echoes into it —
-     * a caller who wraps the call in `ob_start()`/`ob_get_clean()` (as the
-     * conformance matrix does) gets PDO's exact text back, byte for byte.
+     * Build real PDO's exact `debugDumpParams()` text (M1 design §3 F-10)
+     * and send it through the log door at debug level. Real PDO writes to
+     * stdout, which in this runtime is not delivered anywhere useful (there
+     * is one `php.run()` per residency that never returns); ADDITIONALLY,
+     * when an output buffer is active, this echoes into it — a caller who
+     * wraps the call in `ob_start()`/`ob_get_clean()` (as the conformance
+     * matrix does) gets PDO's exact text back, byte for byte.
+     *
+     * M1 review F-4 (MAJOR, fixed): re-measured directly against real
+     * pdo_sqlite (PHP 8.4/8.3, in-guest comparator). Two things were wrong
+     * before: (1) the fixture cases exercised debugDumpParams() with
+     * NOTHING bound, so `Params: 0` "matched" vacuously on both sides
+     * without touching this code at all; (2) the positional numbering
+     * counted encountered positional params from a running position=0
+     * counter instead of the bound param's OWN key. Measured: PDO does not
+     * count `?` occurrences at all — a positional bindValue($n, ...)'s `$n`
+     * is 1-based across SQLite's OWN placeholder ordinals (named AND
+     * positional placeholders share one ordinal sequence, left to right in
+     * the SQL text), and debugDumpParams() prints `paramno` = `$n - 1`
+     * verbatim — e.g. on `... WHERE id = :id AND v = ?` the sole `?` is
+     * SQLite ordinal 2, so `bindValue(2, ...)` is the only valid call for
+     * it and it dumps as `Position #1`/`paramno=1` (2 - 1). No SQL parsing
+     * is needed to reproduce this: the bound key already IS the ordinal.
      *
      * @return void
      */
@@ -1001,28 +1050,23 @@ class AtomsStatement extends \PDOStatement
     public function debugDumpParams()
     {
         $bound = [];
-        foreach ($this->boundValues as $param => $value) {
-            $bound[$param] = $this->boundTypes[$param] ?? \PDO::PARAM_STR;
-        }
-        foreach ($this->boundRefs as $param => &$ref) {
-            if (!array_key_exists($param, $bound)) {
+        foreach ($this->boundOrder as $param) {
+            if (array_key_exists($param, $this->boundValues) || array_key_exists($param, $this->boundRefs)) {
                 $bound[$param] = $this->boundTypes[$param] ?? \PDO::PARAM_STR;
             }
         }
-        unset($ref);
 
         $text = 'SQL: [' . strlen($this->sql) . '] ' . $this->sql . "\n";
         $text .= 'Params:  ' . count($bound) . "\n";
 
-        $position = 0;
         foreach ($bound as $param => $type) {
             if (is_int($param)) {
-                $text .= 'Key: Position #' . $position . ":\n";
-                $text .= 'paramno=' . $position . "\n";
+                $paramno = $param - 1;
+                $text .= 'Key: Position #' . $paramno . ":\n";
+                $text .= 'paramno=' . $paramno . "\n";
                 $text .= "name=[0] \"\"\n";
                 $text .= "is_param=1\n";
                 $text .= 'param_type=' . $type . "\n";
-                $position++;
                 continue;
             }
 
