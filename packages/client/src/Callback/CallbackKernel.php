@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Client\Callback;
 
 use Atoms\AtomJob;
+use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 use Atoms\Serialization\SerializationException;
@@ -156,7 +157,23 @@ final class CallbackKernel implements RequestHandlerInterface
             return $this->error(422, $e->errorCode, $e->getMessage());
         }
 
-        $this->queueBridge->enqueue($job);
+        try {
+            $this->queueBridge->enqueue($job);
+        } catch (AtomsError $e) {
+            $this->logger?->error('Callback job enqueue failed', [
+                'job' => $class,
+                'code' => $e->errorCode->value,
+            ]);
+
+            return $this->error(500, $e->errorCode, $e->getMessage());
+        } catch (\Throwable $e) {
+            $this->logger?->error('Callback job enqueue failed', [
+                'job' => $class,
+                'exception' => $e::class,
+            ]);
+
+            return $this->error(500, null, $this->sanitize($e), 'internal');
+        }
 
         return $this->json(200, ['queued' => true]);
     }

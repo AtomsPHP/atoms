@@ -4,18 +4,24 @@ declare(strict_types=1);
 
 namespace Atoms\Client\Tests\Callback;
 
+use Atoms\AtomJob;
 use Atoms\Client\Callback\CallbackKernel;
 use Atoms\Client\Callback\Ed25519Verifier;
 use Atoms\Client\Callback\InMemoryNonceStore;
 use Atoms\Client\Callback\MethodsResolver;
+use Atoms\Client\Callback\QueueBridge;
 use Atoms\Client\Tests\Fixtures\GameRoom;
 use Atoms\Client\Tests\Fixtures\NotAJob;
 use Atoms\Client\Tests\Fixtures\SendWelcomeJob;
 use Atoms\Client\Tests\Support\RecordingQueueBridge;
+use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCatalog;
+use Atoms\Errors\ErrorCode;
 use GuzzleHttp\Psr7\HttpFactory;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Psr\Log\LoggerInterface;
 
 final class CallbackKernelTest extends TestCase
 {
@@ -253,5 +259,75 @@ final class CallbackKernelTest extends TestCase
         self::assertSame('internal', $body['error']['code']);
         self::assertStringContainsString('RuntimeException', $body['error']['message']);
         self::assertStringNotContainsString("\n", $body['error']['message']);
+    }
+
+    private function kernelWithBridgeAndLogger(QueueBridge $bridge, ?LoggerInterface $logger): CallbackKernel
+    {
+        $factory = new HttpFactory();
+        $resolver = (new MethodsResolver())->registerTypeMap(['GameRoom' => GameRoom::class]);
+
+        return new CallbackKernel(
+            new Ed25519Verifier(base64_encode($this->publicKey)),
+            $this->nonces,
+            $resolver,
+            $bridge,
+            $factory,
+            $factory,
+            logger: $logger,
+        );
+    }
+
+    public function testJobEnqueueThrowingAtomsErrorReturns500WithCatalogCode(): void
+    {
+        $bridge = new class implements QueueBridge {
+            public function enqueue(AtomJob $job): void
+            {
+                throw new AtomsError(
+                    ErrorCode::NoQueueBridgeConfigured,
+                    ErrorCatalog::format(ErrorCode::NoQueueBridgeConfigured, ['job' => $job::class]),
+                );
+            }
+        };
+        $logger = new RecordingLogger();
+        $kernel = $this->kernelWithBridgeAndLogger($bridge, $logger);
+
+        $request = $this->signedRequest('job', [
+            'job' => SendWelcomeJob::class,
+            'args' => ['playerId' => 'p-1', 'roomSize' => 2],
+        ]);
+
+        $response = $kernel->handle($request);
+
+        self::assertSame(500, $response->getStatusCode());
+        $body = $this->decode($response);
+        self::assertSame('ATOMS-E103', $body['error']['code']);
+        self::assertStringContainsString('ATOMS-E103', $body['error']['message']);
+        self::assertNotEmpty($logger->records);
+        self::assertSame('error', $logger->records[0]['level']);
+    }
+
+    public function testJobEnqueueThrowingGenericExceptionReturns500Internal(): void
+    {
+        $bridge = new class implements QueueBridge {
+            public function enqueue(AtomJob $job): void
+            {
+                throw new \RuntimeException('queue connection refused');
+            }
+        };
+        $logger = new RecordingLogger();
+        $kernel = $this->kernelWithBridgeAndLogger($bridge, $logger);
+
+        $request = $this->signedRequest('job', [
+            'job' => SendWelcomeJob::class,
+            'args' => ['playerId' => 'p-1', 'roomSize' => 2],
+        ]);
+
+        $response = $kernel->handle($request);
+
+        self::assertSame(500, $response->getStatusCode());
+        $body = $this->decode($response);
+        self::assertSame('internal', $body['error']['code']);
+        self::assertStringContainsString('RuntimeException', $body['error']['message']);
+        self::assertNotEmpty($logger->records);
     }
 }
