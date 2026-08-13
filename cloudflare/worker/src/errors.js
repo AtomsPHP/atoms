@@ -26,6 +26,7 @@
  *   | 'payload_too_large'
  *   | 'not_supported'
  *   | 'sql_error'
+ *   | 'sql_result_too_large'
  *   | 'reserved_table'
  *   | 'int64_range'
  *   | 'int64_precision'
@@ -55,6 +56,11 @@ const CODE_TABLE = {
 	payload_too_large: { status: 413, retryable: false },
 	not_supported: { status: 501, retryable: false },
 	sql_error: { status: 500, retryable: false },
+	// A result set hit ATOMS_SQL_MAX_ROWS or ATOMS_SQL_MAX_RESULT_BYTES (M1
+	// design §4.3). Deliberately distinct from sql_error: "your query was
+	// wrong" and "your query returned too much" call for opposite client
+	// responses, and detail.cap ('rows'|'bytes') says which cap fired.
+	sql_result_too_large: { status: 500, retryable: false },
 	reserved_table: { status: 400, retryable: false },
 	int64_range: { status: 400, retryable: false },
 	int64_precision: { status: 500, retryable: false },

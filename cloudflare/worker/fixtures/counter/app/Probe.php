@@ -20,14 +20,25 @@ use Atoms\Atom;
  * the audit/differential machinery, and it must not perturb any other
  * fixture's residency counters or table contents.
  *
- * The entry points below are added one milestone step at a time
- * (see /docs m1-design.md §7). `surfaceAudit()` is Step 1; `comparatorSanity()`,
- * `differentialGroups()` and `differential()` are Step 2 (the differential
- * harness). `capProbe()` is added by a later step. The class stays
+ * The entry points below were added one milestone step at a time
+ * (see /docs m1-design.md §7). `surfaceAudit()` is Step 1 (conformance check
+ * 26); `comparatorSanity()`, `differentialGroups()` and `differential()` are
+ * Step 2, the differential harness (checks 27-28); `ping()` and `capProbe()`
+ * are Step 5, the result-set size guard (check 29). The class stays
  * extensible: new methods are added here, not by reshaping this one.
  */
 final class Probe extends Atom
 {
+    /**
+     * A plain liveness probe with no PDO involvement at all — the "residency
+     * survived" leg of conformance check 29 (29d), the same pattern checks
+     * 7/8/10 use after a deliberate failure.
+     */
+    public function ping(): string
+    {
+        return 'pong';
+    }
+
     /**
      * The reflection tripwire (M1 §1): asserts every public member of \PDO
      * and \PDOStatement is genuinely declared on our subclasses, that the
@@ -128,5 +139,61 @@ final class Probe extends Atom
         $comparator = Comparator::build();
 
         return Differential::run($group, $ours, $comparator);
+    }
+
+    /**
+     * Result-set size guard exercise (M1 design §4.4, conformance check 29).
+     * Builds a result set of exactly `$rows` rows through a recursive CTE —
+     * CPU cost only, no writes, so this never perturbs any table or the
+     * residency's durable state. `$cap` selects the shape:
+     *
+     * - `'rows'`  — `$rows` narrow rows, exercising ATOMS_SQL_MAX_ROWS.
+     * - `'bytes'` — `$rows` rows padded to `$padBytes` bytes each (a
+     *   deterministic `zeroblob()`/`hex()` pattern, never `randomblob()`, so
+     *   the byte count is exact and reproducible), exercising
+     *   ATOMS_SQL_MAX_RESULT_BYTES independent of the row cap.
+     *
+     * Returns `{ok, rowCount}` on success. On a caught `\PDOException` (the
+     * bridge's `sql_result_too_large` reaches PHP as one — see
+     * {@see \Atoms\Cf\SqlBridge}), returns `{ok:false, code, message,
+     * sqlstate}`, with `code` parsed out of the message's `SQLSTATE[...]
+     * [code] ...` shape so the check can assert on it without needing the
+     * PDOException's own ->getCode() (the SQLSTATE, not the Atoms error
+     * code — see F-28).
+     *
+     * @return array{ok: true, rowCount: int}|array{ok: false, code: ?string, message: string, sqlstate: ?string}
+     */
+    public function capProbe(string $cap, int $rows, int $padBytes = 0): array
+    {
+        $pdo = $this->db()->pdo();
+
+        try {
+            if ($cap === 'bytes') {
+                $stmt = $pdo->prepare(
+                    'WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n < ?) '
+                    . "SELECT n, replace(hex(zeroblob(?)), '0', 'x') AS pad FROM seq"
+                );
+                $stmt->execute([$rows, $padBytes]);
+            } else {
+                $stmt = $pdo->prepare(
+                    'WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n < ?) SELECT n FROM seq'
+                );
+                $stmt->execute([$rows]);
+            }
+
+            return ['ok' => true, 'rowCount' => count($stmt->fetchAll())];
+        } catch (\PDOException $e) {
+            $code = null;
+            if (preg_match('/^SQLSTATE\[[^\]]*\]\s*\[([^\]]+)\]/', $e->getMessage(), $m)) {
+                $code = $m[1];
+            }
+
+            return [
+                'ok' => false,
+                'code' => $code,
+                'message' => $e->getMessage(),
+                'sqlstate' => is_array($e->errorInfo) ? ($e->errorInfo[0] ?? null) : null,
+            ];
+        }
     }
 }

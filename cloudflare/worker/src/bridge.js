@@ -60,6 +60,10 @@ export { ok as okReply, fail as errorReply };
 /** Pragmas answered synthetically instead of being forwarded to the DO. */
 const SYNTHETIC_PRAGMAS = new Set(['journal_mode', 'synchronous', 'busy_timeout']);
 
+// Module scope, one instance: the result-set byte guard (M1 design §4.2)
+// encodes every row in rows mode, so this is on the hot path.
+const ENC = new TextEncoder();
+
 export class Bridge {
 	/**
 	 * @param {object} opts
@@ -302,15 +306,25 @@ export class Bridge {
 		const rows = [];
 		try {
 			if (mode === 'rows') {
+				// The row cap is checked BEFORE push and the byte cap AFTER adding
+				// and BEFORE push (M1 design §4.2), so peak memory here is bounded
+				// by `cap + one row` and a single oversized row also trips it.
+				// "Bytes" is the sum, over rows, of the UTF-8 byte length of that
+				// row's JSON.stringify() output — deliberately not String.length
+				// (UTF-16 code units), which UNDER-counts UTF-8 by up to 3x for
+				// non-ASCII text, the wrong direction for a safety cap.
+				let bytes = 0;
 				for (const row of cursor) {
 					if (rows.length >= this.config.sqlMaxRows) {
-						throw new AtomsError(
-							'sql_error',
-							`result set exceeds ATOMS_SQL_MAX_ROWS (${this.config.sqlMaxRows})`,
-							{ detail: { sqlstate: 'HY000' } }
-						);
+						throw resultTooLarge('rows', this.config.sqlMaxRows);
 					}
-					rows.push(encodeInt64Deep(row, this.encodeOptions()));
+					const encoded = encodeInt64Deep(row, this.encodeOptions());
+					const json = JSON.stringify(encoded);
+					bytes += ENC.encode(json).byteLength;
+					if (bytes > this.config.sqlMaxResultBytes) {
+						throw resultTooLarge('bytes', this.config.sqlMaxResultBytes);
+					}
+					rows.push(encoded);
 				}
 			} else {
 				// Drain so the statement runs to completion; discard the rows.
@@ -878,6 +892,25 @@ function sqlError(e) {
 		? '23000'
 		: 'HY000';
 	return new AtomsError('sql_error', message, { cause: e, detail: { sqlstate } });
+}
+
+/**
+ * A `sql.exec` rows-mode result exceeded ATOMS_SQL_MAX_ROWS or
+ * ATOMS_SQL_MAX_RESULT_BYTES (M1 design §4.3). A distinct code from
+ * `sql_error`: "your query was wrong" and "your query returned too much"
+ * call for opposite client responses. `detail.cap` is what lets a caller
+ * (and conformance check 29) tell which cap fired.
+ *
+ * @param {'rows'|'bytes'} cap
+ * @param {number} limit
+ * @returns {AtomsError}
+ */
+function resultTooLarge(cap, limit) {
+	return new AtomsError(
+		'sql_result_too_large',
+		`result set exceeds ${cap === 'rows' ? 'ATOMS_SQL_MAX_ROWS' : 'ATOMS_SQL_MAX_RESULT_BYTES'} (${limit})`,
+		{ detail: { sqlstate: 'HY000', cap, limit } }
+	);
 }
 
 /**

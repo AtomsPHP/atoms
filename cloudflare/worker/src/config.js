@@ -29,6 +29,7 @@ import { AtomsError } from './errors.js';
  * @property {number}   maxTxParkSteps        Park ops serviced inside one open transaction before it is declared runaway.
  * @property {'error'|'tag'|'float'} sqlUnsafeInteger What to do when DO SQL returns an integral double wider than 2^53-1, which may be a lossy INTEGER or an exact REAL.
  * @property {number}   sqlMaxRows            Row cap for a single `sql.exec` in `rows` mode.
+ * @property {number}   sqlMaxResultBytes     Byte cap for the rows of a single `sql.exec` in `rows` mode.
  * @property {number}   sqlMaxBindings        Binding cap for a single `sql.exec`.
  * @property {number}   logMaxFieldBytes      Truncation cap for a single logged field.
  * @property {string}   logLevel              Minimum level emitted by the `log` op.
@@ -300,6 +301,11 @@ export function loadConfig(env) {
 
 		sqlUnsafeInteger: unsafeIntegerPolicy(str(env, 'ATOMS_SQL_UNSAFE_INTEGER', 'error')),
 		sqlMaxRows: int(env, 'ATOMS_SQL_MAX_ROWS', 100000),
+		// Eight times ATOMS_MAX_REQUEST_BYTES's default, and a small fraction of
+		// the isolate's memory envelope — high enough that no legitimate page of
+		// rows trips it, low enough that a runaway SELECT * fails as a typed
+		// error instead of an OOM that kills the residency (M1 design §4.1).
+		sqlMaxResultBytes: posInt(env, 'ATOMS_SQL_MAX_RESULT_BYTES', 8388608),
 		sqlMaxBindings: int(env, 'ATOMS_SQL_MAX_BINDINGS', 1000),
 
 		logMaxFieldBytes: int(env, 'ATOMS_LOG_MAX_FIELD_BYTES', 4096),

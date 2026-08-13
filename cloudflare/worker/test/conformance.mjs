@@ -34,9 +34,10 @@
 import { createPublicKey, randomBytes, verify as verifyEd25519 } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { renderMatrixDoc } from '../scripts/gen-pdo-matrix.mjs';
 
 const BASE_URL = process.env.ATOMS_BASE_URL;
 const APP_KEY = process.env.ATOMS_APP_KEY;
@@ -46,6 +47,17 @@ const TURN_DEADLINE_MS = process.env.ATOMS_TURN_DEADLINE_MS ? parseInt(process.e
 // channel, and the wrong answer in CI — where a missing key file would silently
 // delete five checks from the run. Set it there; unset everywhere it is honest.
 const REQUIRE_CALLBACK_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_CALLBACK_CHECKS || '');
+// Must match the values the Worker was started with (never defaulted here,
+// same rule as ATOMS_TURN_DEADLINE_MS above) — check 29's result-set size
+// guard (M1 design §4.4). Both absent => check 29 skips.
+const SQL_MAX_ROWS = process.env.ATOMS_SQL_MAX_ROWS ? parseInt(process.env.ATOMS_SQL_MAX_ROWS, 10) : null;
+const SQL_MAX_RESULT_BYTES = process.env.ATOMS_SQL_MAX_RESULT_BYTES
+    ? parseInt(process.env.ATOMS_SQL_MAX_RESULT_BYTES, 10)
+    : null;
+// Same anti-silent-deletion device as ATOMS_REQUIRE_CALLBACK_CHECKS: a run
+// that started the Worker with both cap vars set must not let check 29
+// quietly skip.
+const REQUIRE_SQL_CAP_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_SQL_CAP_CHECKS || '');
 // Harness-side, not Worker-side: how long the in-suite listener holds a job
 // response open (see the header). Long enough that "the invoke response came
 // back first" is unambiguous, short enough not to lengthen the run.
@@ -83,16 +95,18 @@ function fail(checkNum, name, msg = '') {
 
 /**
  * A check that could not run for a reason that is not the Worker's fault (no
- * callback listener, no configured turn deadline). Not a failure: it must not
- * fail a run against a Worker that legitimately has no callback channel.
+ * callback listener, no configured turn deadline, no configured result-set
+ * caps). Not a failure: it must not fail a run against a Worker that
+ * legitimately has no callback channel or no cap vars set.
  *
- * Unless `ATOMS_REQUIRE_CALLBACK_CHECKS` is set, in which case the caller
- * asserted this environment DOES have a callback channel, and a skip means the
- * harness is broken rather than the check inapplicable — so it fails.
+ * `require_` (default `REQUIRE_CALLBACK_CHECKS`) is the "this environment
+ * asserted the prerequisite exists" flag: when it is set, a skip means the
+ * harness is broken rather than the check inapplicable — so it fails instead.
+ * Check 29 passes `REQUIRE_SQL_CAP_CHECKS` for its own, independent gate.
  */
-function skip(checkNum, name, msg = '') {
-    if (REQUIRE_CALLBACK_CHECKS) {
-        fail(checkNum, name, `${msg || 'unavailable'} — but ATOMS_REQUIRE_CALLBACK_CHECKS is set, so this must run`);
+function skip(checkNum, name, msg = '', require_ = REQUIRE_CALLBACK_CHECKS) {
+    if (require_) {
+        fail(checkNum, name, `${msg || 'unavailable'} — but the run asserted this must be available, so this must run`);
         return;
     }
     results.push({ checkNum, name, status: 'SKIP', msg });
@@ -532,6 +546,15 @@ function loadCallbackKeyFile() {
 
 /** Set inside run(), before the check loop, once the listener (if any) is up. */
 let listener = null;
+
+/**
+ * Set by CHECK 28, the merged PDO differential report (all groups, one
+ * object) — {@see M1 design §5.4}. CHECK 30 re-uses this rather than
+ * re-running the differential matrix a second time, the same way the
+ * callback listener's records are reused across checks 13-17.
+ * @type {{php: string, cases: Array<{id: string, group: string, member: string, title: string, class: string, ours: string, theirs: string, detail: string}>}|null}
+ */
+let pdoMatrixReport = null;
 
 // ---------------------------------------------------------------- checks
 
@@ -2721,6 +2744,7 @@ checks.push(async () => {
     };
     const allCases = [];
     let comparatorSane = true;
+    let php = null;
 
     for (const group of groups) {
         const res = await invoke('Probe', id, 'differential', [group]);
@@ -2733,6 +2757,10 @@ checks.push(async () => {
         if (!result || typeof result !== 'object' || !Array.isArray(result.cases)) {
             fail(checkNum, name, `differential(${JSON.stringify(group)}): malformed result: ${JSON.stringify(res.data)}`);
             return;
+        }
+
+        if (typeof result.php === 'string') {
+            php = result.php;
         }
 
         if (result.comparator?.ok !== true) {
@@ -2823,6 +2851,23 @@ checks.push(async () => {
         problems.push(`summary.match=${summary.match} (expected >= 55 — a floor so "pin everything" cannot pass)`);
     }
 
+    // Kept for CHECK 30, which re-uses this instead of re-running the
+    // differential matrix a second time (design §5.4). Stored regardless of
+    // whether this check passed or failed, so a run with an unpinned
+    // difference still leaves evidence on disk.
+    pdoMatrixReport = { php: php || 'unknown', cases: allCases };
+
+    // Evidence for a human reading a failure, never a contract — gitignored
+    // (cloudflare/worker/.gitignore). A read-only checkout makes this write a
+    // no-op, never a failure (design §5.4).
+    try {
+        const resultsDir = join(__dirname, 'results');
+        mkdirSync(resultsDir, { recursive: true });
+        writeFileSync(join(resultsDir, 'pdo-matrix.json'), JSON.stringify(pdoMatrixReport, null, 2) + '\n');
+    } catch {
+        /* read-only checkout or similar — not a failure */
+    }
+
     if (problems.length === 0) {
         pass(
             checkNum,
@@ -2835,6 +2880,159 @@ checks.push(async () => {
     } else {
         fail(checkNum, name, problems.join(' || '));
     }
+});
+
+// CHECK 29: sql result caps (M1 design §4.4).
+//
+// Same pattern as check 15: the Worker is started with small
+// ATOMS_SQL_MAX_ROWS/ATOMS_SQL_MAX_RESULT_BYTES values, and the runner is
+// told the same values via its OWN environment — never defaulted here.
+// Probe::capProbe() builds result sets through a recursive CTE (CPU cost
+// only, no writes), so the four legs below prove: the row cap does not fire
+// below itself (29a), the row cap fires with the right code/detail (29b),
+// the byte cap fires independently of the row cap (29c, sized to stay well
+// under it), and the residency survives both failures (29d).
+checks.push(async () => {
+    const checkNum = 29;
+    const name = 'sql result caps';
+    if (SQL_MAX_ROWS === null || SQL_MAX_RESULT_BYTES === null) {
+        skip(
+            checkNum,
+            name,
+            'ATOMS_SQL_MAX_ROWS/ATOMS_SQL_MAX_RESULT_BYTES not set in the runner env — must match the values the Worker was started with',
+            REQUIRE_SQL_CAP_CHECKS
+        );
+        return;
+    }
+
+    const problems = [];
+    const id = atomId('probe-caps');
+
+    // 29a — one row under the cap succeeds with EXACTLY that many rows: the
+    // cap does not fire below itself.
+    const under = await invoke('Probe', id, 'capProbe', ['rows', SQL_MAX_ROWS - 1, 0]);
+    if (under.status !== 200 || under.data?.error) {
+        problems.push(`29a: HTTP ${under.status}: ${JSON.stringify(under.data)} (expected 200, ok:true)`);
+    } else if (under.data?.result?.ok !== true || under.data.result.rowCount !== SQL_MAX_ROWS - 1) {
+        problems.push(`29a: result=${JSON.stringify(under.data?.result)} (expected ok:true, rowCount=${SQL_MAX_ROWS - 1})`);
+    }
+
+    // 29b — one row over the cap fails with sql_result_too_large, cap:'rows'.
+    const overRows = await invoke('Probe', id, 'capProbe', ['rows', SQL_MAX_ROWS + 1, 0]);
+    if (overRows.status !== 200) {
+        problems.push(`29b: HTTP ${overRows.status}: ${JSON.stringify(overRows.data)} (expected 200 — capProbe catches the PDOException itself)`);
+    } else {
+        const r = overRows.data?.result;
+        if (r?.ok !== false) {
+            problems.push(`29b: result=${JSON.stringify(r)} (expected ok:false)`);
+        } else if (r.code !== 'sql_result_too_large') {
+            problems.push(`29b: code=${JSON.stringify(r.code)} (expected sql_result_too_large)`);
+        } else if (!/cap['":\s]+rows/i.test(r.message) && !r.message?.includes('ATOMS_SQL_MAX_ROWS')) {
+            problems.push(`29b: message does not identify the rows cap: ${JSON.stringify(r.message)}`);
+        }
+    }
+
+    // 29c — well under the row cap, but padded past the byte cap: proves the
+    // two caps are independent (this must NOT come back as a rows overrun).
+    const byteRows = Math.max(1, Math.min(SQL_MAX_ROWS - 1, 8));
+    const padBytes = Math.ceil(SQL_MAX_RESULT_BYTES / byteRows) + 64;
+    const overBytes = await invoke('Probe', id, 'capProbe', ['bytes', byteRows, padBytes]);
+    if (overBytes.status !== 200) {
+        problems.push(`29c: HTTP ${overBytes.status}: ${JSON.stringify(overBytes.data)} (expected 200)`);
+    } else {
+        const r = overBytes.data?.result;
+        if (r?.ok !== false) {
+            problems.push(`29c: result=${JSON.stringify(r)} (expected ok:false — byte cap should have fired)`);
+        } else if (r.code !== 'sql_result_too_large') {
+            problems.push(`29c: code=${JSON.stringify(r.code)} (expected sql_result_too_large)`);
+        } else if (!/cap['":\s]+bytes/i.test(r.message) && !r.message?.includes('ATOMS_SQL_MAX_RESULT_BYTES')) {
+            problems.push(`29c: message does not identify the bytes cap: ${JSON.stringify(r.message)}`);
+        }
+    }
+
+    // 29d — the residency survived both failures (the pattern checks 7/8/10
+    // use): a plain ping still returns 200.
+    const ping = await invoke('Probe', id, 'ping', []);
+    if (ping.status !== 200 || ping.data?.error) {
+        problems.push(`29d: ping after both cap failures: HTTP ${ping.status}: ${JSON.stringify(ping.data)} (expected 200)`);
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            `rows cap ${SQL_MAX_ROWS} (under-cap exact, over-cap sql_result_too_large/rows), ` +
+                `bytes cap ${SQL_MAX_RESULT_BYTES} (over-cap sql_result_too_large/bytes, independent of the row cap), residency healthy`
+        );
+    } else {
+        fail(checkNum, name, problems.join(' || '));
+    }
+});
+
+// CHECK 30: pdo compatibility doc is current (M1 design §5.4).
+//
+// Re-uses check 28's already-fetched report (pdoMatrixReport, kept in a
+// module-level variable the way the callback listener's records are),
+// imports renderMatrixDoc from scripts/gen-pdo-matrix.mjs, reads
+// test/pdo-expected.json and ../docs/pdo-compatibility.md, and
+// byte-compares a fresh render against the committed doc. If check 28 did
+// not produce a report — skipped, or failed before reaching that point —
+// this FAILS rather than skipping: a stale doc is not excused by a missing
+// run.
+checks.push(async () => {
+    const checkNum = 30;
+    const name = 'pdo compatibility doc is current';
+
+    if (!pdoMatrixReport) {
+        fail(checkNum, name, 'no PDO differential report available (check 28 did not produce one) — cannot verify the doc is current');
+        return;
+    }
+
+    const pinPath = join(__dirname, 'pdo-expected.json');
+    const docPath = join(__dirname, '..', '..', 'docs', 'pdo-compatibility.md');
+
+    let pins;
+    try {
+        pins = JSON.parse(readFileSync(pinPath, 'utf8'));
+    } catch (err) {
+        fail(checkNum, name, `could not read/parse ${pinPath}: ${err.message}`);
+        return;
+    }
+
+    let committed;
+    try {
+        committed = readFileSync(docPath, 'utf8');
+    } catch (err) {
+        fail(checkNum, name, `could not read ${docPath}: ${err.message}`);
+        return;
+    }
+
+    const fresh = renderMatrixDoc(pdoMatrixReport, pins);
+
+    if (fresh === committed) {
+        pass(checkNum, name, `${docPath} matches a fresh render of the differential report (${pdoMatrixReport.cases.length} cases)`);
+        return;
+    }
+
+    const freshLines = fresh.split('\n');
+    const committedLines = committed.split('\n');
+    let firstDiff = -1;
+    const maxLines = Math.max(freshLines.length, committedLines.length);
+    for (let i = 0; i < maxLines; i++) {
+        if (freshLines[i] !== committedLines[i]) {
+            firstDiff = i + 1;
+            break;
+        }
+    }
+
+    fail(
+        checkNum,
+        name,
+        `docs/pdo-compatibility.md is stale — first differing line ${firstDiff}: ` +
+            `committed=${JSON.stringify(committedLines[firstDiff - 1] ?? '(missing)')} ` +
+            `fresh=${JSON.stringify(freshLines[firstDiff - 1] ?? '(missing)')} — regenerate with ` +
+            '`node scripts/gen-pdo-matrix.mjs > ../docs/pdo-compatibility.md` (from cloudflare/worker)'
+    );
 });
 
 // ---------------------------------------------------------------- run

@@ -5,8 +5,15 @@
  *
  * As of M2 this is raised from exactly one place: the parts of the PDO surface
  * a hand-written subclass over a Durable Object's SQLite cannot serve —
- * `AtomsPDO`/`AtomsStatement`'s attribute, cursor and driver-level members
- * (see `php/README.md` §Documented leaks and limits). That restriction is
+ * `AtomsPDO`/`AtomsStatement`'s attribute, cursor and driver-level members.
+ * As of M1 that corner is machine-verified rather than hand-audited: a
+ * reflection tripwire (conformance check 26) asserts every public member of
+ * the runtime's own `\PDO`/`\PDOStatement` is genuinely declared, and a
+ * differential harness (checks 27-28) measures every fill against a native
+ * in-guest `pdo_sqlite`. The generated, drift-checked result is
+ * `cloudflare/docs/pdo-compatibility.md` (check 30) — the authoritative,
+ * member-by-member account of what throws; `php/README.md` §Documented leaks
+ * and limits carries only the short prose summary. That restriction is
  * permanent for this runtime, not a stub awaiting a later milestone: `app()`,
  * `dispatch()`, `broadcast()`, the WebSocket handlers and timers are all
  * implemented (mvp-spec.md §The callback channel, §The WebSocket seam,

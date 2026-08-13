@@ -33,6 +33,11 @@
  *                           unset, the Worker's own default applies. Never
  *                           defaulted here — that would be a capacity number
  *                           in a file other than src/config.js.
+ *   ATOMS_SQL_MAX_ROWS, ATOMS_SQL_MAX_RESULT_BYTES  forwarded to the Worker
+ *                           verbatim when set (conformance check 29's result-
+ *                           set size guard, M1 design §4.4); when unset, the
+ *                           Worker's own defaults apply. Never defaulted here
+ *                           — same rule as ATOMS_TURN_DEADLINE_MS above.
  */
 
 import { generateKeyPairSync } from 'node:crypto';
@@ -56,6 +61,8 @@ function parsePort(argv) {
 const workerPort = parsePort(process.argv.slice(2));
 const callbackPort = process.env.ATOMS_CALLBACK_PORT || DEFAULT_CALLBACK_PORT;
 const turnDeadlineMs = process.env.ATOMS_TURN_DEADLINE_MS;
+const sqlMaxRows = process.env.ATOMS_SQL_MAX_ROWS;
+const sqlMaxResultBytes = process.env.ATOMS_SQL_MAX_RESULT_BYTES;
 
 // The PKCS8-prefix trick this derives from: subarray(-32) on the DER export
 // is the raw seed / raw public key.
@@ -88,6 +95,12 @@ const callbackUrl = `http://127.0.0.1:${callbackPort}/atoms/callback`;
 const argv = ['dev', '--port', workerPort, '--ip', '127.0.0.1', '--var', `ATOMS_CALLBACK_URL:${callbackUrl}`, '--var', `ATOMS_CALLBACK_SIGNING_KEY:${seedB64}`];
 if (typeof turnDeadlineMs === 'string' && turnDeadlineMs !== '') {
     argv.push('--var', `ATOMS_TURN_DEADLINE_MS:${turnDeadlineMs}`);
+}
+if (typeof sqlMaxRows === 'string' && sqlMaxRows !== '') {
+    argv.push('--var', `ATOMS_SQL_MAX_ROWS:${sqlMaxRows}`);
+}
+if (typeof sqlMaxResultBytes === 'string' && sqlMaxResultBytes !== '') {
+    argv.push('--var', `ATOMS_SQL_MAX_RESULT_BYTES:${sqlMaxResultBytes}`);
 }
 
 const wranglerBin = join(workerRoot, 'node_modules', '.bin', 'wrangler');

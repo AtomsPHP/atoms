@@ -16,6 +16,14 @@
 > WebSocket seam, §Timers) for the binding detail; this file's other figures
 > (measured latencies, the file table) describe the pre-M2 tree and are left
 > as dated history.
+>
+> **Note, 2026-08-13.** M1 landed the PDO surface honesty pass: a reflection
+> tripwire and a differential compatibility harness against a native in-guest
+> `pdo_sqlite` (checks 26-28), a generated, drift-checked compatibility matrix
+> (`docs/pdo-compatibility.md`, check 30), and a result-set size guard (check
+> 29) — the conformance suite is now 30 checks, not 25. "What's next" item 2
+> below is corrected inline. See `docs/mvp-spec.md` §Conformance suite and
+> `worker/php/README.md` §Documented leaks and limits.
 
 ## What was built
 
@@ -23,7 +31,7 @@ An end-to-end working MVP of Atoms on Cloudflare Durable Objects: an unmodified
 customer Atom class (frozen `atoms/core` ABI) executing as PHP 8.3 in Wasm
 inside a generic SQLite-backed Durable Object, with durable SQL, real
 transactions, migrations, lifecycle, and lossless 64-bit integers — validated
-by a 12-check conformance suite (now 25 — see the 2026-08-12 note above) that
+by a 12-check conformance suite (now 30 — see the 2026-08-13 note above) that
 passes both locally under `wrangler dev` and against the real deployed
 Worker.
 
@@ -82,6 +90,14 @@ GitHub Action at Wrangler + customer Cloudflare credentials, and the
 ## What's next
 
 1. Owned php-wasm build (hermetic, reproducible, trimmed extensions) replacing the Playground artifact.
-2. Native `pdo_atoms` driver + host ABI as compiled imports — this is also what genuinely fixes the int64-read limitation.
+2. Native `pdo_atoms` driver + host ABI as compiled imports — a faster, smaller seam than
+   the JSON door, and the end of the hand-written `\PDO` subclass. It does **not** fix the
+   int64-read limitation: the precision is lost inside workerd's SQL→JS conversion, before
+   any Atoms code of any kind runs, so a compiled driver inherits exactly the same rounded
+   double (`docs/mvp-spec.md` Appendix, item 1). The three things that would actually fix it
+   are a Cloudflare platform change (BigInt out of `ctx.storage.sql`), a schema-aware
+   `CAST(… AS TEXT)` rewrite in the host — available to the JSON door and to a native driver
+   equally — or storing wide integers as TEXT in the first place. Today the runtime refuses
+   such a read with a typed `int64_precision` error rather than returning a wrong number.
 3. ~~Lifecycle completion: WebSockets (Hibernation API), alarms, `app()`/`dispatch()`/`broadcast()`.~~ Landed in M2 (2026-08-12) — see `docs/mvp-spec.md`.
 4. Customer toolchain: `atoms build/dev/deploy/status/rollback/secrets` over Wrangler; GitHub Action on Cloudflare credentials. (`build/dev/deploy/status/rollback/secrets` shipped in M3/M4; the GitHub Action is `action/`.)

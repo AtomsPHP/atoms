@@ -4,7 +4,7 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 
 ## Tests
 
-`conformance.mjs` runs 25 checks against a live worker URL:
+`conformance.mjs` runs 30 checks against a live worker URL:
 
 1. **healthz** — `/healthz` endpoint responds
 2. **invoke + result envelope** — HTTP interface returns correct shape
@@ -31,6 +31,11 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 23. **timers** — fire and are consumed (at-most-once), a schedule from inside `onTimer` chains, a schedule inside a rolled-back transaction never fires, `cancel()` works, a throwing `onTimer` is still consumed and the residency stays healthy, `__atoms_timers` is reserved, invalid names are `ATOMS-E085`
 24. **THE HONEST ONE — a Durable Object alarm wakes an evicted atom** — waits out the same real eviction as 12/21, then confirms a due timer fires via the alarm alone, with no HTTP request involved
 25. **a close wakes a hibernated Durable Object** — connect, exchange a frame, idle the full eviction wait with *no* traffic, close the socket and touch nothing further; the first (passive) debug read must show `constructions` grew, at least one WebSocket turn served in that residency, and no accept — then `onDisconnect` fired exactly once and `onConnect` did not re-run. Because `GET /debug` constructs the DO (without activating PHP), the check also asserts the woken residency's `resident_ms` is greater than the elapsed time since its own first poll, proving that poll did not create the residency the close did. Check 21 cannot cover this: it re-warms the residency before closing
+26. **pdo surface tripwire** — a reflection-driven audit (never a hardcoded member list) asserts every public member of the RUNTIME `\PDO`/`\PDOStatement` is genuinely declared on `Atoms\Cf\AtomsPDO`/`AtomsStatement`, the pinned `FETCH_*`/`ATTR_*`/`PARAM_*`/... constants match the runtime by name-set and value, every pinned `FETCH_*` value is proven refused or shaped correctly by execution, anti-vacuous floors on how much was actually checked, and the allowlist (currently one entry) is exactly the committed id set with every entry's own runtime assertion passed
+27. **pdo comparator integrity** — a fresh native in-guest `new \PDO('sqlite::memory:')` passes five structural gates (exact class, a real `ATTR_CLIENT_VERSION`, `FETCH_NAMED` duplicate-column grouping, `getColumnMeta()`, a genuine `PDORow` from `FETCH_LAZY`) that `AtomsPDO` cannot produce even in principle — so an impostor or misconfigured comparator cannot pass. Never skips
+28. **pdo differential matrix** — ~160 cases, the SAME closure run against `AtomsPDO` and the check-27 comparator, classified and checked against the committed pin file `pdo-expected.json` in both directions (every observed difference must be pinned with exactly that class; every pin must be observed with exactly that class — the direction that catches a comparator that quietly became `AtomsPDO` itself), plus anti-vacuous floors and a hard zero on harness-breakage cases
+29. **sql result caps** — with `ATOMS_SQL_MAX_ROWS`/`ATOMS_SQL_MAX_RESULT_BYTES` set on both the Worker and the runner (matching, never defaulted, same pattern as check 15's turn deadline): one row under the row cap succeeds exactly, one row over fails `sql_result_too_large` with `cap:'rows'`, a result well under the row cap but over the byte cap fails with `cap:'bytes'` (proving the caps are independent), and the residency survives both failures
+30. **pdo compatibility doc is current** — re-uses check 28's report, byte-compares a fresh render (`scripts/gen-pdo-matrix.mjs`, a pure function) against the committed `cloudflare/docs/pdo-compatibility.md`; a mismatch fails naming the first differing line and the regeneration command. If check 28 produced no report, this FAILS rather than skips
 
 Checks 13–17 need the suite's own in-process callback listener (see below) and
 **skip** (never fail) when it is not configured — for example, when running
@@ -40,7 +45,11 @@ own environment. Set `ATOMS_REQUIRE_CALLBACK_CHECKS=1` to turn those skips into
 failures: a skip is the right answer for a Worker that genuinely has no
 callback channel, and the wrong answer for a run that started one — CI sets it,
 so a broken `dev:callback` cannot quietly delete five checks. Checks 18–25 have
-no such gate; they always run.
+no such gate; they always run. Check 29 has its own, independent gate: it
+skips when `ATOMS_SQL_MAX_ROWS`/`ATOMS_SQL_MAX_RESULT_BYTES` are not set in the
+runner's own environment, and `ATOMS_REQUIRE_SQL_CAP_CHECKS=1` turns that skip
+into a failure, same device, separate flag. Check 30 never skips — a stale doc
+is not excused by a missing run.
 
 ## Running Locally
 
@@ -68,6 +77,8 @@ cd cloudflare/worker
 npm run dev:callback
 # or, forwarding a turn deadline for checks 15a/15b:
 ATOMS_TURN_DEADLINE_MS=2000 npm run dev:callback
+# or, also forwarding small result-set caps for check 29:
+ATOMS_TURN_DEADLINE_MS=2000 ATOMS_SQL_MAX_ROWS=500 ATOMS_SQL_MAX_RESULT_BYTES=65536 npm run dev:callback
 ```
 
 ### Run the suite
@@ -89,6 +100,11 @@ ATOMS_BASE_URL=http://localhost:8787 ATOMS_EVICTION_WAIT_MS=5000 node test/confo
 # Against a worker started with `npm run dev:callback` — enables 13-17
 ATOMS_BASE_URL=http://localhost:8787 ATOMS_TURN_DEADLINE_MS=2000 \
   ATOMS_REQUIRE_CALLBACK_CHECKS=1 node test/conformance.mjs
+
+# Also forwarding matching result-set caps — enables 29
+ATOMS_BASE_URL=http://localhost:8787 ATOMS_TURN_DEADLINE_MS=2000 \
+  ATOMS_SQL_MAX_ROWS=500 ATOMS_SQL_MAX_RESULT_BYTES=65536 \
+  ATOMS_REQUIRE_CALLBACK_CHECKS=1 ATOMS_REQUIRE_SQL_CAP_CHECKS=1 node test/conformance.mjs
 ```
 
 `ATOMS_CALLBACK_PORT` overrides the loopback listener's port (default: the
@@ -151,6 +167,16 @@ node test/conformance.mjs
 Deployed eviction is slower to arrive than local eviction; checks 12/21/24
 want `ATOMS_EVICTION_WAIT_MS=16000` remotely (the spec's "≥15s deployed").
 
+Check 29 (the result-set size guard) follows the same honesty contract as
+check 15: nothing in `Probe::capProbe()` depends on localhost, so it runs
+unchanged against a deployed Worker — but only if the deployed Worker's
+`ATOMS_SQL_MAX_ROWS`/`ATOMS_SQL_MAX_RESULT_BYTES` are known and exported to
+the runner as the same values (`wrangler secret`/`vars` do not echo back, so
+the operator has to already know what was deployed with). If the deployed
+Worker carries different values, or the platform defaults, export those
+instead; if the caps are simply unknown, leave both unset and check 29 skips
+rather than asserting a wrong cap fired.
+
 ## Configuration
 
 Environment variables:
@@ -162,6 +188,8 @@ Environment variables:
 - `ATOMS_TURN_DEADLINE_MS` (optional) — must match the value the Worker was started with (`npm run dev:callback`'s own env var of the same name); required for check 15, which otherwise skips
 - `ATOMS_REQUIRE_CALLBACK_CHECKS` (optional, `1`) — turn checks 13–17's skips into failures. Set it whenever the run *does* have a callback channel, so a broken harness cannot silently delete them; CI sets it
 - `ATOMS_TEST_JOB_DELAY_MS` (default 400) — how long the suite's own listener holds a `kind=job` response open. A **test-harness** value, not a Worker setting: checks 16/17 compare when that response was sent against when the invoke response arrived, which is how an *awaited* delivery is told apart from a merely *started* one
+- `ATOMS_SQL_MAX_ROWS` / `ATOMS_SQL_MAX_RESULT_BYTES` (optional) — must match the values the Worker was started with (`npm run dev:callback`'s own env vars of the same name, forwarded to `wrangler --var`); required for check 29, which otherwise skips
+- `ATOMS_REQUIRE_SQL_CAP_CHECKS` (optional, `1`) — turn check 29's skip into a failure, same device as `ATOMS_REQUIRE_CALLBACK_CHECKS`, a separate flag. Set it whenever the run *does* have both cap vars configured; CI sets it
 - `ATOMS_SKIP` (optional) — comma-separated check numbers to skip, e.g. `10,11,12`
 
 ## Remote Results
@@ -196,6 +224,7 @@ The suite tests against the `fixtures/counter/` app, which includes:
 - **Vault** Atom: demonstrates int64 boundary cases, transactions, and PDO direct access; `echoViaApp()`/`appInsideTransaction()`/`stallViaApp()`/`stallCaught()` drive checks 13-15.
 - **Room** Atom (`"websocket": true` in the manifest): `onConnect`/`onMessage`/`onDisconnect` plus `broadcast()`, driving checks 18-22. A separate type from Counter/Vault on purpose, so it cannot perturb checks 3/11/12's exact `turnsThisResidency` assertions.
 - **Scheduler** Atom: `arm()`/`cancelTimer()`/`scheduledMs()`/`timerLog()` over `$this->timers()`, driving checks 23-24.
+- **Probe** Atom: the M1 PDO surface work. `surfaceAudit()` drives check 26; `comparatorSanity()`/`differentialGroups()`/`differential(group)` drive checks 27-28; `capProbe(cap, rows, padBytes)` (a recursive CTE, no writes) drives check 29. A separate type for the same reason Room/Scheduler are.
 - **`App\Jobs\Notify`**: the `AtomJob` `Counter::notify()` dispatches.
 
 All are defined in `fixtures/counter/manifest.json` and bundled into the worker at build time.
@@ -210,3 +239,20 @@ node scripts/build-bundle.mjs fixtures/counter src/bundle.generated.js
 ```
 
 This generates `src/bundle.generated.js`, which the worker loads on startup.
+
+## Regenerating the PDO Compatibility Doc
+
+`cloudflare/docs/pdo-compatibility.md` is generated, not hand-edited. Check 30
+fails the run if it and a fresh render of check 28's differential report
+disagree. After a fill or a pin change, regenerate it against a run that
+covers everything (the local `wrangler dev` run above is enough — the report
+does not depend on which base URL produced it):
+
+```bash
+cd cloudflare/worker
+node scripts/gen-pdo-matrix.mjs > ../docs/pdo-compatibility.md
+```
+
+`scripts/gen-pdo-matrix.mjs` also exports `renderMatrixDoc(report, pins)` as a
+pure function (no filesystem, no clock) — this is what check 30 imports to
+byte-compare in-process, rather than shelling out to the CLI above.
