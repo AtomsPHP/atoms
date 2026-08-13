@@ -201,6 +201,7 @@ final class AtomsServiceProvider extends ServiceProvider
                 $app->make(StreamFactoryInterface::class),
                 (int) $app['config']->get('atoms.callback_timestamp_window', 300),
                 $app,
+                logger: $app->bound(LoggerInterface::class) ? $app->make(LoggerInterface::class) : null,
             );
         });
     }

@@ -83,9 +83,22 @@ return [
     */
 
     'callback' => [
-        'path' => '/atoms/callback',
+        'path' => env('ATOMS_CALLBACK_PATH', '/atoms/callback'),
         'middleware' => [],
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Callback timestamp window
+    |--------------------------------------------------------------------------
+    |
+    | Seconds of clock skew tolerated between the signed X-Atoms-Timestamp
+    | header and this app's own clock before a callback request is rejected
+    | as a replay (see docs/conventions.md "Callback signing").
+    |
+    */
+
+    'callback_timestamp_window' => (int) env('ATOMS_CALLBACK_TIMESTAMP_WINDOW', 300),
 
     /*
     |--------------------------------------------------------------------------
