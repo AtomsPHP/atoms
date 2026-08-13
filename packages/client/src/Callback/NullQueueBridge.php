@@ -10,7 +10,7 @@ use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 
 /**
- * The default queue port when a host wires no {@see QueueBridge} of its own.
+ * The default queue contract when a host wires no {@see QueueBridge} of its own.
  * Rather than silently dropping a dispatched job, it fails loudly with the
  * catalog code {@see ErrorCode::NoQueueBridgeConfigured}, so a missing wire-up
  * surfaces as a clear callback error instead of a job vanishing.

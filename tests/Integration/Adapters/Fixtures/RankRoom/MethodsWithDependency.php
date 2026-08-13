@@ -15,7 +15,7 @@ use Atoms\Tests\Integration\Adapters\Fixtures\Scoreboard;
  * — that `new $class()` cannot satisfy.
  * {@see \Atoms\Client\Callback\CallbackKernel::instantiate()} can only build
  * this class by consulting the host's own PSR-11 container, which is exactly
- * the "Methods instantiation" port `docs/adapters.md` documents and which S6
+ * the "Methods instantiation" contract `docs/adapters.md` documents and which S6
  * ({@see \Atoms\Tests\Integration\Adapters\AdapterConformanceTestCase::testS6MethodsClassWithConstructorDependencyResolvesFromHostContainer()})
  * proves against every container-capable host.
  */

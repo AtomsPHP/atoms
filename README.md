@@ -59,7 +59,7 @@ the consistency boundary.
 |---|---|
 | [`packages/`](packages/) | The seven PHP packages — see the table below |
 | [`cloudflare/`](cloudflare/) | The Cloudflare Worker runtime: a PHP interpreter in WebAssembly parked inside a SQLite-backed Durable Object, plus its spec, conformance suite and licence files |
-| [`docs/`](docs/) | Architecture and contracts: [`conventions.md`](docs/conventions.md) (normative), [`adapters.md`](docs/adapters.md) (the adapter ports contract and the conformance suite), [`cloudflare-toolchain.md`](docs/cloudflare-toolchain.md) (deploy, runtime auth, bundles), [`integration-plan.md`](docs/integration-plan.md), [`two-worlds.md`](docs/two-worlds.md), [`errors.md`](docs/errors.md) |
+| [`docs/`](docs/) | Architecture and contracts: [`conventions.md`](docs/conventions.md) (normative), [`adapters.md`](docs/adapters.md) (the contracts each host adapter supplies and the conformance suite), [`cloudflare-toolchain.md`](docs/cloudflare-toolchain.md) (deploy, runtime auth, bundles), [`integration-plan.md`](docs/integration-plan.md), [`two-worlds.md`](docs/two-worlds.md), [`errors.md`](docs/errors.md) |
 | [`action/`](action/) | The deploy GitHub Action |
 | [`tests/`](tests/) | Cross-package integration tests |
 

@@ -21,6 +21,6 @@ atoms:
         # ServiceLocator AtomsBundle::registerCallbackStack() builds always
         # contains a Methods class with a real constructor dependency
         # (Fixtures\Scoreboard, registered in services.php), proving the
-        # PSR-11 "Methods instantiation" port for Symfony against every
+        # PSR-11 "Methods instantiation" contract for Symfony against every
         # boot, not just a specially-configured one.
         - Atoms\Tests\Integration\Adapters\Fixtures\RankRoom\MethodsWithDependency

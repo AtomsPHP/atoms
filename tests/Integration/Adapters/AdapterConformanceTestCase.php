@@ -373,10 +373,10 @@ abstract class AdapterConformanceTestCase extends TestCase
      * {@see \Atoms\Tests\Integration\Adapters\Support\ArrayContainer} threaded
      * through the exact same `container:` parameter a real framework-free
      * host could use (see BareKernelHost/PlainPhpHost). This is exactly the
-     * "Methods instantiation" port `docs/adapters.md` documents.
+     * "Methods instantiation" contract `docs/adapters.md` documents.
      * Container-capable hosts only.
      *
-     * The port's other half — a Methods class NOT registered in the
+     * The other half of that contract — a Methods class NOT registered in the
      * container instantiates via `new $class()` — is proven implicitly by
      * every OTHER case in this suite:
      * {@see \Atoms\Tests\Integration\Adapters\Fixtures\GameRoom\Methods} is

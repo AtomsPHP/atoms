@@ -16,8 +16,8 @@ use Psr\Container\NotFoundExceptionInterface;
  * through to the same `container:` parameter a real framework-free host
  * could pass to {@see \Atoms\Client\Callback\CallbackKernelFactory::create()}
  * / {@see \Atoms\Examples\PlainPhp\AtomsBootstrap::create()} — proving the
- * "Methods instantiation" port's PSR-11 half for those two hosts too (S6),
- * not just Laravel/Symfony's real containers.
+ * PSR-11 half of the "Methods instantiation" contract for those two hosts
+ * too (S6), not just Laravel/Symfony's real containers.
  */
 final class ArrayContainer implements ContainerInterface
 {

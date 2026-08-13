@@ -60,7 +60,7 @@ core  ←  client  ←  laravel
 
 This diagram is enforced: `LayeringRule` (atoms/phpstan-rules) runs over every
 `packages/*/src` in `composer stan`, and a reference across a layer boundary is
-ATOMS-E100. The adapter-facing half of the contract — the ports each host
+ATOMS-E100. The adapter-facing half of the contract — what each host
 supplies — is docs/adapters.md.
 
 ## The `atoms/core` ABI (frozen surface)

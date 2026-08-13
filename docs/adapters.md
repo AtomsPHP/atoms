@@ -9,15 +9,15 @@ specific host — its config system, its container, its router, its queue.
 
 The M4 claim is narrower than "four integrations exist": it is that the four
 integrations expose the **same explicit, provable contract**. Every adapter
-supplies the same set of ports, and one conformance suite
+supplies the same set of contracts, and one conformance suite
 (`tests/Integration/Adapters/`) runs the same case table against all of them
 unmodified. This document is that contract, written down so a fifth adapter —
 or a change to one of the first four — has something authoritative to be
 checked against.
 
-## The ports table
+## What each host supplies
 
-| Port | Contract type | Laravel | Symfony | Plain-PHP example | Bare kernel |
+| Contract | Contract type | Laravel | Symfony | Plain-PHP example | Bare kernel |
 |---|---|---|---|---|---|
 | HTTP client | PSR-18 `Psr\Http\Client\ClientInterface` + PSR-17 factories (supply contract) | Auto-bound Guzzle singleton; overridden via `config('atoms.http_client')` or a prior container binding (`AtomsServiceProvider::registerHttpClient()`) | Guzzle-backed service, resolved in a compiler pass (`HttpClientPass`); overridden via the `http_client` bundle option | Constructor parameters to `AtomsBootstrap::create()` — no discovery | Constructor parameters to `Atoms\Client\Callback\CallbackKernelFactory::create()` / direct `AtomsClient` construction |
 | Queue | `Atoms\Client\Callback\QueueBridge` (Atoms-owned interface) | `Atoms\Laravel\Queue\LaravelQueueBridge`, wrapping `Illuminate\Contracts\Bus\Dispatcher` | `Atoms\Symfony\Messenger\MessengerQueueBridge` when `symfony/messenger` and a bus are present, else `Atoms\Client\Callback\NullQueueBridge` (E103) | `queueBridge:` parameter to `AtomsBootstrap::create()`; `NullQueueBridge` if omitted (E103) | `queueBridge:` parameter to `CallbackKernelFactory::create()`; `NullQueueBridge` if omitted |
@@ -119,7 +119,7 @@ hang, static analysis or not.
 
 ## Writing a fifth adapter
 
-1. Implement every row of the ports table above against your host's own
+1. Implement every row of the table above against your host's own
    config system, container, router and queue.
 2. Mount `CallbackKernel` exactly per "The mounting contract."
 3. Add a host to the conformance suite: implement
