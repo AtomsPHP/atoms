@@ -30,8 +30,16 @@ class AtomsNotSupported extends \PDOException
     /**
      * @param string $feature the unsupported member or capability
      * @param string $why one sentence naming the MVP limitation
+     * @param string $sqlstate M1 design §3 F-23 (append-only, back-compatible):
+     *     defaults to '0A000' ("feature not supported"), the honest answer
+     *     for a corner nothing else refuses the same way. A handful of call
+     *     sites pass the SQLSTATE real pdo_sqlite is MEASURED to answer with
+     *     for the identical refusal (e.g. 'IM001' for PDOStatement-level
+     *     attributes and nextRowset()) — tightening OUR implementation to
+     *     match, rather than loosening the differential harness's
+     *     `sqlstate_strict` comparison, is the pattern M1 follows throughout.
      */
-    public function __construct($feature, $why)
+    public function __construct($feature, $why, $sqlstate = '0A000')
     {
         $this->feature = (string) $feature;
 
@@ -41,8 +49,10 @@ class AtomsNotSupported extends \PDOException
             (string) $why
         ));
 
-        // SQLSTATE 0A000 — "feature not supported". PDO consumers that inspect
-        // errorInfo() get a real triple rather than an empty one.
-        $this->errorInfo = ['0A000', 0, $this->getMessage()];
+        // PDO consumers that inspect errorInfo()/getCode() get a real triple
+        // rather than an empty one, and getCode() the SQLSTATE (design §3
+        // F-28's rule applies here too — this IS a \PDOException subclass).
+        $this->errorInfo = [(string) $sqlstate, 0, $this->getMessage()];
+        $this->code = (string) $sqlstate;
     }
 }

@@ -1,0 +1,213 @@
+{
+  "$comment": "Pinned non-match/non-informational classifications for the PDO differential matrix (M1 design §2.9). Entries may only be REMOVED (a gap filled) or have their class changed by a deliberate edit reviewed alongside the code change. Adding an entry documents a limitation and requires `why` (>= 40 chars) to explain WHY it currently refuses/differs and, where applicable, what a customer should do instead. Populated from a real conformance run (check 28) against cloudflare/worker/fixtures/counter/app/Probe.php on php-wasm PHP 8.3.32 — see cloudflare/worker/scripts/gen-pdo-matrix.mjs (a later step) for how this becomes cloudflare/docs/pdo-compatibility.md.",
+  "cases": {
+    "bind.execute_array.types": {
+      "class": "deviation",
+      "why": "execute([42, 42]) binds the array elements with their NATIVE PHP types on our side (int 42 stays INTEGER); real pdo_sqlite stringifies EVERY value passed to execute() regardless of its PHP type (measured — design §3 F-12). This is a DELIBERATE, PERMANENT pinned deviation, not a gap: matching real's stringify-everything behaviour would push wide integers through as TEXT literals and defeat inlineWideIntegers()'s int64 exactness. Use bindValue() with an explicit type when you need PDO's stringification."
+    },
+    "bind.execute_empty_array_keeps_bound": {
+      "class": "refused_by_us",
+      "why": "execute([]) is treated as an explicit (empty) replacement of any bound values, so the placeholder is left unsupplied. Design §3 F-13 proposed the OPPOSITE fix (reuse bound values) from an 8.4-desktop measurement, but measured IN-GUEST — against this build's own real pdo_sqlite, the referee this milestone uses — execute([]) does NOT reuse a bound value either (it answers the unbound placeholder as NULL, its own SQLite default); the desktop measurement does not hold here. What differs is what workerd does with the resulting placeholder-count mismatch: ctx.storage.sql.exec() throws (sql_error) when given fewer bindings than '?' marks, where real SQLite's C API silently binds NULL for an unsupplied parameter. This is the SAME failure family as bind.named.missing (design §3 F-33): SQLite's own silent-NULL leniency here is a silent-wrong-answer risk, so refusing is not merely unfilled — pass execute(null) (no arguments) to keep bound values, which does match."
+    },
+    "bind.named.extra": {
+      "class": "refused_by_both",
+      "why": "An extra, unused named binding throws on both sides, but with different SQLSTATEs: ours reports HY093 (\"not present in the statement\") at rewrite time, real reports HY000 (\"column index out of range\", measured) at bind time. Both refuse the ambiguous input; only the SQLSTATE differs."
+    },
+    "bind.named.missing": {
+      "class": "refused_by_us",
+      "why": "A missing named binding throws SQLSTATE[HY093] on our side; real SQLite silently binds the unsupplied parameter to NULL without complaining (measured — design §3 F-33). This is a DELIBERATE strictness, not merely a gap: SQLite's silent-NULL behaviour here is itself the kind of silent-wrong-answer failure mode this milestone exists to eliminate, so ours refuses loudly instead of guessing NULL was intended."
+    },
+    "bind.named.reuse": {
+      "class": "deviation",
+      "why": "execute([':a' => 5]) binds the same named placeholder used twice; real pdo_sqlite stringifies the value via execute()'s array path (the same stringify-everything behaviour as bind.execute_array.types / design §3 F-12), giving TEXT '5' at both positions, while ours preserves the native PHP int 5. Same permanent, pinned root cause as bind.execute_array.types — bindValue() with an explicit type sidesteps it."
+    },
+    "bind.value.param_lob": {
+      "class": "refused_by_us",
+      "why": "bindValue($p, $v, PARAM_LOB) throws unconditionally today; binary values do not cross the JSON bridge, so this is refused rather than silently mangled. Real pdo_sqlite accepts it and stores it as a normal string. Store the value base64-encoded as text instead."
+    },
+    "bind.value.wide_int_param_int": {
+      "class": "refused_by_us",
+      "why": "Binding PHP_INT_MAX and reading it straight back (no CAST) hits the same int64_precision wall a stored wide integer does (mvp-spec.md Appendix item 1): workerd's SQL->JS conversion loses precision for any value in the ambiguous band regardless of how it entered SQLite. Bind the wide integer as a string instead (see bind.value.wide_int_param_str, which matches) and CAST(... AS TEXT) when reading it back."
+    },
+    "dup.both": {
+      "class": "refused_by_us",
+      "why": "FETCH_BOTH over duplicate column names needs the full 4-value arity; Branch A's `columns` list (cursor.columnNames, design §2.7) lets us DETECT the duplicate precisely now, so instead of silently answering with the wrong arity (the pre-fill deviation) we refuse loudly — real pdo_sqlite answers with the true 6-entry BOTH shape (measured), which the wire's last-wins `{column: value}` collapse has already made unrecoverable on our side. Alias duplicate columns distinctly (see dup.aliased, which matches) rather than relying on FETCH_BOTH over ambiguous column names."
+    },
+    "dup.named": {
+      "class": "refused_by_us",
+      "why": "FETCH_NAMED groups duplicate columns into an array on real pdo_sqlite (measured); the values that would need grouping are already gone from our wire (the `{column: value}` collapse is last-wins, before PHP ever sees the row), so Branch A's `columns` list (design §2.7) lets this be detected and refused precisely rather than answered wrong. FETCH_NAMED itself IS filled for the no-duplicate case (design §3 F-6) — see the unique-column cases in the Fetch modes group, which match."
+    },
+    "dup.num": {
+      "class": "refused_by_us",
+      "why": "FETCH_NUM over duplicate column names needs the full 4-value arity; our wire already collapsed the row to a 2-key map before PHP saw it (last-column-wins). Branch A's `columns` list (cursor.columnNames, design §2.7) now lets AtomsStatement detect that precisely and refuse loudly instead of silently answering with the wrong arity (the pre-fill deviation) — real pdo_sqlite answers with all 4 original values (measured). Alias duplicate columns distinctly (see dup.aliased, which matches) rather than relying on positional FETCH_NUM over ambiguous column names."
+    },
+    "err.not_null_violation": {
+      "class": "refused_by_both",
+      "why": "A NOT NULL violation throws on both sides with the SAME SQLSTATE 23000 (measured), driver codes differ (1 vs 19) but that is not part of the strict comparison. A genuine refused_by_both, not a gap."
+    },
+    "err.syntax_error": {
+      "class": "refused_by_both",
+      "why": "A SQL syntax error throws on both sides with the SAME SQLSTATE HY000 and the SAME driver code 1 (measured — real pdo_sqlite's own SQLITE_ERROR code); messages differ (sqlite's own wording, never compared) but the SQLSTATE and driver code coincide exactly. A genuine refused_by_both, not a gap."
+    },
+    "err.unique_violation.sqlstate": {
+      "class": "refused_by_both",
+      "why": "A UNIQUE violation throws on both sides with the SAME SQLSTATE 23000 (measured); the driver error codes differ (ours reports 1, real reports 19 — SQLite's own constraint-specific error code, which our bridge does not carry across the wire) but driver code is not part of the strict comparison. A genuine refused_by_both, not a gap."
+    },
+    "fetch.bound.unknown_column": {
+      "class": "refused_by_both",
+      "why": "bindColumn('nope', ...) throws PDOException on both sides for an unknown column name: real pdo_sqlite (measured HY000, \"Did not find column name 'nope' in the defined columns; it will not be bound\") and ours (design §3 F-2, resolved against Branch A's `columns` list — HY000, same message shape). Both refuse; a genuine refused_by_both, not a gap — bindColumn() by name and by index against a known column IS filled and matches (see fetch.bound.default_type/fetch.bound.param_int)."
+    },
+    "fetch.classtype": {
+      "class": "deviation",
+      "why": "FETCH_CLASS | FETCH_CLASSTYPE is FILLED (design §3 F-4) and correctly falls back to stdClass when the data-supplied class name does not resolve (measured directly against the in-guest comparator), matching real pdo_sqlite exactly for THIS case's own classname column. The one remaining difference is the SAME already-pinned root cause as value.float_integral: row 'b's REAL column (r=2.0) round-trips as PHP int(2) on our side, float(2) on real's, because our wire's encodeInt64Deep() cannot distinguish a whole-number REAL from an INTEGER once workerd hands both to JS as the same `number` type. Not a new limitation — an existing one now reachable through a newly-filled path."
+    },
+    "fetch.column.out_of_range": {
+      "class": "refused_by_both",
+      "why": "fetchColumn(5) on a one-column result now throws \\ValueError('Invalid column index') on our side (design §3 F-21, FILLED — matches real's exact exception family, measured); real pdo_sqlite throws the SAME family for the same reason. A genuine refused_by_both — an exception pair can never classify as 'match' under this harness's taxonomy even when the behaviour is now identical, since match is reserved for two answered values."
+    },
+    "fetch.func.via_fetch": {
+      "class": "refused_by_both",
+      "why": "fetch(FETCH_FUNC) (not fetchAll()) now throws \\ValueError('Can only use PDO::FETCH_FUNC in PDOStatement::fetchAll()') on our side — the SAME family AND wording real pdo_sqlite throws (design §3 F-7, FILLED). A genuine refused_by_both: FETCH_FUNC itself IS implemented (fetchAll(FETCH_FUNC, $callback) matches), this pair is real PDO's own restriction that FETCH_FUNC is fetchAll()-only, correctly reproduced rather than merely refused with the wrong family."
+    },
+    "fetch.key_pair.three_columns": {
+      "class": "refused_by_both",
+      "why": "fetchAll(FETCH_KEY_PAIR) over three columns now throws (design §3 F-26, FIX): real pdo_sqlite requires EXACTLY two columns and throws PDOException HY000 (measured); ours now checks `count($this->columns)` (Branch A) and throws the same family with a real errorInfo triple + getCode() as the SQLSTATE (design §3 F-28's pattern). A genuine refused_by_both, not a gap — FETCH_KEY_PAIR over exactly two columns IS filled and matches (see fetch.key_pair)."
+    },
+    "fetch.lazy": {
+      "class": "refused_by_us",
+      "why": "fetch(FETCH_LAZY) throws unconditionally and permanently: real pdo_sqlite returns a PDORow, an internal class bound to a live statement that userland code cannot construct, so there is nothing on our side to reproduce it with (design §3 F-18, mandated to stay throwing)."
+    },
+    "fetch.ori_abs": {
+      "class": "refused_by_us",
+      "why": "Same root cause and same permanent posture as fetch.ori_prior (design §3 F-9)."
+    },
+    "fetch.ori_first": {
+      "class": "refused_by_us",
+      "why": "Same root cause and same permanent posture as fetch.ori_prior (design §3 F-9)."
+    },
+    "fetch.ori_last": {
+      "class": "refused_by_us",
+      "why": "Same root cause and same permanent posture as fetch.ori_prior (design §3 F-9)."
+    },
+    "fetch.ori_prior": {
+      "class": "refused_by_us",
+      "why": "fetch() with any orientation other than FETCH_ORI_NEXT throws unconditionally and PERMANENTLY: real pdo_sqlite has no scrollable cursor and, measured, silently IGNORES the orientation and returns the NEXT row regardless — implementing scrolling over our buffer would either diverge from the driver or claim a capability the comparator itself does not have (design §3 F-9, the decisive measurement). Refusing is strictly more honest than the driver's own silent wrong-row behaviour."
+    },
+    "fetch.ori_rel": {
+      "class": "refused_by_us",
+      "why": "Same root cause and same permanent posture as fetch.ori_prior (design §3 F-9)."
+    },
+    "fetch.set_fetch_mode.class": {
+      "class": "deviation",
+      "why": "setFetchMode(FETCH_CLASS, Row::class) then fetchAll() is FILLED (design §3 F-17) and hydrates all three rows correctly. The one remaining difference is the SAME already-pinned root cause as value.float_integral: row 'b's REAL column (r=2.0) round-trips as PHP int(2) on our side, float(2) on real's, because our wire's encodeInt64Deep() cannot distinguish a whole-number REAL from an INTEGER once workerd hands both to JS as the same `number` type. Not a new limitation — an existing one now reachable through a newly-filled path."
+    },
+    "int.wide.direct_read": {
+      "class": "refused_by_us",
+      "why": "Reading a stored >2^53-1 INTEGER directly (no CAST) throws a typed int64_precision PDOException on our side: workerd hands ctx.storage.sql INTEGER columns to JS as doubles, so the exact value is already lost before any Atoms code runs (mvp-spec.md Appendix item 1). Real pdo_sqlite reads it exactly. Select the column as CAST(col AS TEXT) instead — see int.wide.cast_read and int.wide.write_exact, which both match."
+    },
+    "pdo.attr.autocommit": {
+      "class": "refused_by_both",
+      "why": "Both sides refuse getAttribute(ATTR_AUTOCOMMIT): real pdo_sqlite answers SQLSTATE[IM001] (measured) and ours throws AtomsNotSupported. Refused_by_both, matching the driver's own posture exactly."
+    },
+    "pdo.attr.client_version": {
+      "class": "refused_by_us",
+      "why": "getAttribute(ATTR_CLIENT_VERSION) is refused permanently for the same reason as ATTR_SERVER_VERSION: there is no client library on this side of the wire whose version would be truthful to report (design §3 F-22)."
+    },
+    "pdo.attr.emulate_prepares": {
+      "class": "refused_by_both",
+      "why": "Both sides refuse getAttribute(ATTR_EMULATE_PREPARES): real pdo_sqlite answers SQLSTATE[IM001] (measured) and ours throws AtomsNotSupported. Refused_by_both, matching the driver's own posture exactly."
+    },
+    "pdo.attr.server_version": {
+      "class": "refused_by_us",
+      "why": "getAttribute(ATTR_SERVER_VERSION) is refused permanently: the guest's SQLite build and the Durable Object's SQLite build are two different binaries, so any single answer would misrepresent one of them (design §3 F-22)."
+    },
+    "pdo.attr.timeout": {
+      "class": "refused_by_both",
+      "why": "Both sides refuse getAttribute(ATTR_TIMEOUT): real pdo_sqlite itself answers SQLSTATE[IM001] (measured) and ours throws AtomsNotSupported — a genuine refused_by_both, not merely a gap on our side. No fix needed; the driver we claim to be doesn't answer this either."
+    },
+    "pdo.prepare.driver_options.cursor_scroll": {
+      "class": "refused_by_us",
+      "why": "prepare() throws for ANY non-empty $options array; real pdo_sqlite returns false for CURSOR_SCROLL (sqlite has no scrollable cursor). Refusing loudly is honest; use no driver options and PDO::FETCH_ORI_NEXT only."
+    },
+    "pdo.prepare.driver_options.statement_class": {
+      "class": "refused_by_us",
+      "why": "prepare() throws for ANY non-empty $options array; real pdo_sqlite accepts ATTR_STATEMENT_CLASS. We always return an AtomsStatement regardless, so accepting the option would be a silent lie about the returned class."
+    },
+    "pdo.prepare.driver_options.timeout": {
+      "class": "refused_by_us",
+      "why": "prepare() throws for ANY non-empty $options array today; real pdo_sqlite silently accepts and ignores ATTR_TIMEOUT (measured). There is no driver-owned statement handle for an option to configure, so accepting-and-ignoring would be a silent lie about what the option did."
+    },
+    "pdo.query.class_args": {
+      "class": "deviation",
+      "why": "query() with FETCH_CLASS + a class name + constructor args is FILLED (design §3 F-14, forwards to setFetchMode() then execute()) and hydrates App\\Pdo\\Fixtures\\Row objects correctly. The one remaining difference is the SAME already-pinned root cause as value.float_integral: row 'b's REAL column (r=2.0) round-trips as PHP int(2) on our side, float(2) on real's, because our wire's encodeInt64Deep() cannot distinguish a whole-number REAL from an INTEGER once workerd hands both to JS as the same `number` type. Not a new limitation — an existing one now reachable through a newly-filled path."
+    },
+    "pdo.quote.nul_byte": {
+      "class": "refused_by_us",
+      "why": "quote(\"a\\0b\") now THROWS a \\PDOException on our side (design §3 F-24's rewrite: quote() always quotes and ignores $type, EXCEPT this one case); real pdo_sqlite silently TRUNCATES the value at the NUL byte and returns \"'a'\" (measured). This is a deliberate posture, not a gap: silently truncating a value is the one thing this surface must not do, so ours refuses loudly rather than reproducing the truncation — encode NUL-bearing data (e.g. base64) before quoting it."
+    },
+    "pdo.quote.param_bool": {
+      "class": "refused_by_comparator",
+      "why": "quote($v, PARAM_BOOL) now answers \"'1'\" on our side (design §3 F-24: quote() always quotes, ignoring $type — matches real's documented always-quote contract). The pair still classifies refused_by_comparator, unchanged from before the fill: on THIS php-wasm 8.3 build the COMPARATOR itself (real pdo_sqlite) raises a TypeError converting the raw PHP bool `true` for quote()'s `string $string` parameter, before real's own $type-ignoring logic ever runs — a platform quirk on the comparator side, not something our own quote() rewrite could ever produce a matching refusal for without inventing a type check real's OWN documented contract does not call for."
+    },
+    "pdo.quote.param_null": {
+      "class": "refused_by_comparator",
+      "why": "quote(null, PARAM_NULL) now answers \"''\" on our side (design §3 F-24: quote() always quotes, ignoring $type — the correct answer per real's documented always-quote contract for a NULL value quoted as text). The pair still classifies refused_by_comparator, unchanged from before the fill: on THIS php-wasm 8.3 build the COMPARATOR itself raises a TypeError converting the raw PHP `null` for quote()'s `string $string` parameter, before real's own $type-ignoring logic ever runs — the same comparator-side platform quirk as pdo.quote.param_bool."
+    },
+    "pdo.setattr.case_upper": {
+      "class": "refused_by_us",
+      "why": "setAttribute(ATTR_CASE, ...) is not implemented at all today (only ATTR_ERRMODE and ATTR_DEFAULT_FETCH_MODE are); real pdo_sqlite accepts CASE_UPPER and reshapes subsequent fetch() keys. Not yet filled."
+    },
+    "pdo.setattr.errmode_silent": {
+      "class": "refused_by_us",
+      "why": "setAttribute(ATTR_ERRMODE, ...) accepts only ERRMODE_EXCEPTION today; the bridge reports every failure by throwing, so ERRMODE_SILENT/WARNING cannot be honoured. Real pdo_sqlite accepts the switch (though nothing on our side could implement silent/warning modes truthfully)."
+    },
+    "pdo.setattr.stringify_fetches": {
+      "class": "refused_by_us",
+      "why": "setAttribute(ATTR_STRINGIFY_FETCHES, ...) is not implemented at all today; real pdo_sqlite accepts it. Not yet filled."
+    },
+    "stmt.get_attribute": {
+      "class": "refused_by_both",
+      "why": "Both sides refuse PDOStatement::getAttribute() with the SAME SQLSTATE now (design §3 F-23: AtomsNotSupported's third constructor arg carries 'IM001', matching real pdo_sqlite's measured SQLSTATE[IM001] exactly — there is no driver-owned statement handle to read from on either side). A tightened implementation, not a loosened comparison — refused_by_both with a matching triple, not merely a matching family."
+    },
+    "stmt.get_column_meta": {
+      "class": "refused_by_us",
+      "why": "getColumnMeta() throws unconditionally and PERMANENTLY: real pdo_sqlite answers name/native_type/pdo_type/flags/table/len/precision, and even under this baseline's wire we would only ever have the column NAME — the rest would have to be invented outright (design §3 F-19)."
+    },
+    "stmt.next_rowset": {
+      "class": "refused_by_both",
+      "why": "Both sides refuse nextRowset() with the SAME SQLSTATE now (design §3 F-23): real pdo_sqlite itself throws SQLSTATE[IM001] (\"driver does not support multiple rowsets\", measured) and ours throws AtomsNotSupported constructed with 'IM001' for the same reason (a single result set per statement) — a tightened implementation, refused_by_both with a matching triple."
+    },
+    "stmt.set_attribute": {
+      "class": "refused_by_both",
+      "why": "Both sides refuse PDOStatement::setAttribute() with the SAME SQLSTATE now, for the same reason as getAttribute(): real answers SQLSTATE[IM001] (measured) and ours throws AtomsNotSupported constructed with 'IM001' (design §3 F-23) — refused_by_both with a matching triple, not merely a matching family."
+    },
+    "stmt.sqlite_create_aggregate": {
+      "class": "refused_by_us",
+      "why": "Same permanent reasoning as stmt.sqlite_create_function — an aggregate callback is equally unreachable from the Durable Object's SQL engine (design §3 F-32)."
+    },
+    "stmt.sqlite_create_collation": {
+      "class": "refused_by_us",
+      "why": "Same permanent reasoning as stmt.sqlite_create_function — a collation callback is equally unreachable from the Durable Object's SQL engine (design §3 F-32)."
+    },
+    "stmt.sqlite_create_function": {
+      "class": "refused_by_us",
+      "why": "sqliteCreateFunction() throws unconditionally and PERMANENTLY: statements execute in the Durable Object, not in the guest, so a PHP callback registered here could never actually be invoked by the engine running the SQL (design §3 F-32). Real pdo_sqlite (same process as the SQL engine) supports it natively."
+    },
+    "tx.commit_without_begin": {
+      "class": "refused_by_both",
+      "why": "commit() with no open transaction throws on both sides — a genuine refused_by_both, both a bare PDOException with no SQLSTATE captured by either driver for this condition on this build."
+    },
+    "tx.nested_begin": {
+      "class": "refused_by_both",
+      "why": "A second beginTransaction() while one is already open throws on both sides (design-expected refused_by_both): ours raises a plain PDOException with no SQLSTATE set, real raises one with no SQLSTATE either on this build — messages differ (never compared) but both are unmistakably \"already an active transaction\" errors."
+    },
+    "tx.rollback_without_begin": {
+      "class": "refused_by_both",
+      "why": "rollBack() with no open transaction throws on both sides — a genuine refused_by_both, both a bare PDOException with no SQLSTATE captured by either driver for this condition on this build."
+    },
+    "value.float_integral": {
+      "class": "deviation",
+      "why": "A REAL literal holding a whole number (2.0) round-trips as PHP int(2) on our side (typeof still correctly reports 'real' — the storage class is not lost, only the PHP-level type PDO hands back); real pdo_sqlite returns float(2). Root cause: JSON has no int/float distinction for a whole-number token, and our wire's encodeInt64Deep() emits an integral JS number as a plain JSON numeral indistinguishable from an int, so json_decode() on this side always resolves it to PHP int. There is no workaround short of a schema-aware encoder change; do not rely on a computed REAL that happens to be whole staying a PHP float."
+    }
+  }
+}

@@ -2614,6 +2614,229 @@ checks.push(async () => {
     }
 });
 
+// CHECK 27: pdo comparator integrity (M1 design §2.11).
+//
+// Probe::comparatorSanity() builds a fresh native in-guest
+// `new \PDO('sqlite::memory:')` and runs its five structural gates (S1-S5).
+// This is the answer to "the comparator could be your own shim" — three of
+// the five gates (FETCH_NAMED grouping, getColumnMeta, PDORow) are things
+// Atoms\Cf\AtomsPDO cannot produce even in principle. NEVER skips: "we could
+// not verify our own compatibility claims" is not a neutral outcome.
+checks.push(async () => {
+    const checkNum = 27;
+    const name = 'pdo comparator integrity';
+    const problems = [];
+    const id = atomId('probe-sanity');
+
+    const res = await invoke('Probe', id, 'comparatorSanity', []);
+    if (res.status !== 200) {
+        fail(checkNum, name, `HTTP ${res.status}: ${JSON.stringify(res.data)}`);
+        return;
+    }
+
+    const result = res.data?.result;
+    if (!result || typeof result !== 'object') {
+        fail(checkNum, name, `no result object in response: ${JSON.stringify(res.data)}`);
+        return;
+    }
+
+    if (result.ok !== true) {
+        problems.push(`ok=${JSON.stringify(result.ok)}${result.detail ? ` — ${result.detail}` : ''}`);
+    }
+
+    const gates = result.gates || {};
+    for (const gate of ['S1', 'S2', 'S3', 'S4', 'S5']) {
+        if (gates[gate] !== true) {
+            problems.push(`gate ${gate}=${JSON.stringify(gates[gate])} (expected true)`);
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, 'comparator constructed and all five gates (S1-S5) passed');
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 28: pdo differential matrix (M1 design §2.11).
+//
+// Orchestrator override on the design's report flow: Probe::differential()
+// runs ONE group per invoke (a single 160-case turn is too close to
+// ATOMS_TURN_DEADLINE_MS), so this check iterates
+// Probe::differentialGroups() and merges each group's report runner-side
+// before asserting. The pin file (test/pdo-expected.json) is the committed
+// answer key: every observed non-match/non-informational case must be
+// pinned with EXACTLY that class (rule 1), every pin entry must be observed
+// with EXACTLY that class (rule 2 — catches a misconfigured/impostor
+// comparator, a fill that landed without deleting its pin, or a renamed
+// case), every pin's `why` must be >= 40 characters (rule 3), and every
+// pin's class must be one of the four pinnable ones (rule 4).
+checks.push(async () => {
+    const checkNum = 28;
+    const name = 'pdo differential matrix';
+    const problems = [];
+
+    const pinPath = join(__dirname, 'pdo-expected.json');
+    let pinFile;
+    try {
+        pinFile = JSON.parse(readFileSync(pinPath, 'utf8'));
+    } catch (err) {
+        fail(checkNum, name, `could not read/parse ${pinPath}: ${err.message}`);
+        return;
+    }
+    const pins = pinFile.cases || {};
+
+    let groupsRes;
+    try {
+        groupsRes = await invoke('Probe', atomId('probe-diff-groups'), 'differentialGroups', []);
+    } catch (err) {
+        fail(checkNum, name, `differentialGroups() request failed: ${err.message}`);
+        return;
+    }
+    if (groupsRes.status !== 200 || !Array.isArray(groupsRes.data?.result)) {
+        fail(checkNum, name, `differentialGroups(): HTTP ${groupsRes.status}: ${JSON.stringify(groupsRes.data)}`);
+        return;
+    }
+    const groups = groupsRes.data.result;
+    if (groups.length === 0) {
+        fail(checkNum, name, 'differentialGroups() returned an empty list — the matrix enumerated nothing');
+        return;
+    }
+
+    // One atom id for the whole run: Probe::differential() resets and
+    // reseeds the DO-side tables itself at the start of every group call, so
+    // sharing one residency across groups is both faster (one activation)
+    // and exercises the reset path for real.
+    const id = atomId('probe-diff');
+
+    const summary = {
+        total: 0,
+        match: 0,
+        refused_by_us: 0,
+        refused_by_both: 0,
+        refused_by_comparator: 0,
+        deviation: 0,
+        informational: 0,
+        error: 0,
+    };
+    const allCases = [];
+    let comparatorSane = true;
+
+    for (const group of groups) {
+        const res = await invoke('Probe', id, 'differential', [group]);
+        if (res.status !== 200) {
+            fail(checkNum, name, `differential(${JSON.stringify(group)}): HTTP ${res.status}: ${JSON.stringify(res.data)}`);
+            return;
+        }
+
+        const result = res.data?.result;
+        if (!result || typeof result !== 'object' || !Array.isArray(result.cases)) {
+            fail(checkNum, name, `differential(${JSON.stringify(group)}): malformed result: ${JSON.stringify(res.data)}`);
+            return;
+        }
+
+        if (result.comparator?.ok !== true) {
+            comparatorSane = false;
+        }
+
+        for (const key of Object.keys(summary)) {
+            summary[key] += result.summary?.[key] || 0;
+        }
+        allCases.push(...result.cases);
+    }
+
+    // Assertion order matters: the FIRST failure is meant to be the most
+    // informative one (design §2.11).
+    if (!comparatorSane) {
+        problems.push('comparator.sane !== true for at least one group — the differential run cannot be trusted');
+    }
+
+    if (problems.length === 0 && summary.error !== 0) {
+        const broken = allCases.filter((c) => c.class === 'error').map((c) => `${c.id} (${c.detail})`);
+        problems.push(`summary.error=${summary.error} (must be 0 — harness breakage, never pinnable): ${broken.join('; ')}`);
+    }
+
+    if (problems.length === 0 && !(summary.total >= 90)) {
+        problems.push(`summary.total=${summary.total} (expected >= 90 — an anti-vacuous floor)`);
+    }
+
+    const PINNABLE = new Set(['refused_by_us', 'refused_by_both', 'refused_by_comparator', 'deviation']);
+
+    if (problems.length === 0) {
+        // Pin rule 1: every non-match/non-informational observed case must be
+        // pinned with EXACTLY that class.
+        const unpinned = [];
+        for (const c of allCases) {
+            if (c.class === 'match' || c.class === 'informational') continue;
+            const pin = pins[c.id];
+            if (!pin) {
+                unpinned.push(`${c.id}: observed ${c.class}, no pin entry`);
+            } else if (pin.class !== c.class) {
+                unpinned.push(`${c.id}: observed ${c.class}, pinned as ${pin.class}`);
+            }
+        }
+        if (unpinned.length > 0) {
+            problems.push(`unpinned difference(s): ${unpinned.join(' | ')}`);
+        }
+    }
+
+    if (problems.length === 0) {
+        // Pin rule 2: every pin entry must be observed with EXACTLY that
+        // class — a stale pin (renamed case, deleted case, or a fill that
+        // landed without deleting the pin) fails here.
+        const byId = new Map(allCases.map((c) => [c.id, c]));
+        const stale = [];
+        for (const [pinId, pin] of Object.entries(pins)) {
+            const observed = byId.get(pinId);
+            if (!observed) {
+                stale.push(`${pinId}: pinned but no such case was observed this run (renamed or deleted?)`);
+            } else if (observed.class !== pin.class) {
+                stale.push(`${pinId}: pinned as ${pin.class}, observed ${observed.class} (stale pin)`);
+            }
+        }
+        if (stale.length > 0) {
+            problems.push(`stale pin(s): ${stale.join(' | ')}`);
+        }
+    }
+
+    if (problems.length === 0) {
+        // Pin rule 3: every `why` must be a real, non-trivial justification.
+        const short = Object.entries(pins)
+            .filter(([, pin]) => typeof pin.why !== 'string' || pin.why.length < 40)
+            .map(([pinId, pin]) => `${pinId}: why is ${typeof pin.why === 'string' ? pin.why.length : 0} chars`);
+        if (short.length > 0) {
+            problems.push(`pin why too short (< 40 chars): ${short.join(' | ')}`);
+        }
+    }
+
+    if (problems.length === 0) {
+        // Pin rule 4: only these four classes may ever be pinned.
+        const badClass = Object.entries(pins)
+            .filter(([, pin]) => !PINNABLE.has(pin.class))
+            .map(([pinId, pin]) => `${pinId}: class=${JSON.stringify(pin.class)}`);
+        if (badClass.length > 0) {
+            problems.push(`pin has a non-pinnable class: ${badClass.join(' | ')}`);
+        }
+    }
+
+    if (problems.length === 0 && !(summary.match >= 55)) {
+        problems.push(`summary.match=${summary.match} (expected >= 55 — a floor so "pin everything" cannot pass)`);
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            `${groups.length} groups, total=${summary.total} match=${summary.match} refused_by_us=${summary.refused_by_us} ` +
+                `refused_by_both=${summary.refused_by_both} refused_by_comparator=${summary.refused_by_comparator} ` +
+                `deviation=${summary.deviation} informational=${summary.informational} error=${summary.error}, ` +
+                `${Object.keys(pins).length} pinned`
+        );
+    } else {
+        fail(checkNum, name, problems.join(' || '));
+    }
+});
+
 // ---------------------------------------------------------------- run
 
 async function run() {

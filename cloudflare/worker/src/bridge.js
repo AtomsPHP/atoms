@@ -288,6 +288,16 @@ export class Bridge {
 			throw sqlError(e);
 		}
 
+		// Branch A (M1 design §2.7, measured on this wrangler/workerd build:
+		// `cursor.columnNames` exists): captured now, before anything else
+		// touches `this.sql` and creates unrelated cursors, and before the
+		// cursor is drained. Source order, duplicates preserved — the wire's
+		// `{column: value}` row maps have already collapsed duplicate names
+		// (last-wins), so this is the only place arity survives to reach the
+		// guest, letting AtomsStatement refuse precisely (duplicate columns)
+		// instead of guessing.
+		const columnNames = Array.isArray(cursor.columnNames) ? [...cursor.columnNames] : null;
+
 		/** @type {unknown[]} */
 		const rows = [];
 		try {
@@ -314,7 +324,43 @@ export class Bridge {
 		}
 
 		const rowsRead = Number(cursor.rowsRead ?? 0);
-		const rowsWritten = Number(cursor.rowsWritten ?? 0);
+		// `cursor.rowsWritten` is NOT "logical rows changed" (what PDO's
+		// rowCount()/sqlite3_changes() means): it is a count of underlying
+		// storage b-tree writes, which is inflated by a row's own secondary
+		// index entries and by the AUTOINCREMENT bookkeeping table.
+		// MEASURED (temp instrumentation, see the M1 gap-fill report): a
+		// single-row INSERT into a table with a UNIQUE column and an
+		// AUTOINCREMENT primary key reported rowsWritten=3 for a real
+		// 1-row change (1 table row + 1 UNIQUE index entry + 1
+		// `sqlite_sequence` bookkeeping row); a 2-row INSERT into the same
+		// shape reported 5 for 2 real changes; INSERT into a table with
+		// AUTOINCREMENT but no UNIQUE column reported 2 for 1 real change;
+		// an UPDATE that rewrites the UNIQUE column itself reported 2 for 1
+		// real change. UPDATE/DELETE that touch no secondary index matched
+		// (1, 0, 0). None of this is a leak or a cumulative counter across
+		// statements — repeating the identical 1-row INSERT reported the
+		// same inflated number every time, not a running total.
+		//
+		// The honest per-statement count is the one real pdo_sqlite itself
+		// reports: sqlite3_changes() for the connection, right after the
+		// statement completes. `changes()` is exposed to `ctx.storage.sql`
+		// as an ordinary scalar SQL function, on the SAME connection, so
+		// this is exact rather than reconstructed — the same pattern
+		// already used below for `last_insert_rowid()`. It is skipped when
+		// `cursor.rowsWritten` (still a reliable "did this statement write
+		// anything at all" signal, even though its magnitude is wrong) is
+		// 0: a non-match UPDATE/DELETE or a plain read reports 0 either way,
+		// and skipping avoids a second round trip for the common read path.
+		const wroteSomething = Number(cursor.rowsWritten ?? 0) > 0;
+		let rowsWritten = 0;
+		if (wroteSomething) {
+			try {
+				const changed = this.sql.exec('SELECT changes() AS c').toArray();
+				rowsWritten = changed.length ? Number(changed[0].c ?? 0) : 0;
+			} catch (e) {
+				throw sqlError(e);
+			}
+		}
 
 		/** @type {Record<string, unknown>} */
 		const reply = { rows_read: rowsRead, rows_written: rowsWritten };
@@ -335,7 +381,7 @@ export class Bridge {
 			}
 		}
 
-		return mode === 'rows' ? ok({ rows, ...reply }) : ok(reply);
+		return mode === 'rows' ? ok({ rows, columns: columnNames ?? [], ...reply }) : ok(reply);
 	}
 
 	/**
