@@ -1,0 +1,17 @@
+{
+    "name": "atoms/example-plain-php",
+    "description": "Illustrative composer.json for the plain-PHP Atoms recipe. Not wired into the monorepo's root install — the root composer.json's autoload-dev maps Atoms\\Examples\\PlainPhp\\ straight to src/ so the adapter conformance suite can exercise this code without a separate install.",
+    "type": "project",
+    "license": "MIT",
+    "_readme": "This file exists to show a customer what to require, not for this repo to install. See examples/plain-php/README.md.",
+    "require": {
+        "php": "^8.3",
+        "atoms/client": "^0.1",
+        "guzzlehttp/psr7": "^2.7"
+    },
+    "autoload": {
+        "psr-4": {
+            "Atoms\\Examples\\PlainPhp\\": "src/"
+        }
+    }
+}
