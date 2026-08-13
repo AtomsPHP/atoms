@@ -286,6 +286,7 @@ it before inventing a code. Ranges:
 | E06x | client / callback runtime | client |
 | E07x | CLI / configuration | cli |
 | E08x | worker runtime seams (callback channel, timers) | worker runtime |
+| E10x | adapter discipline: layering, frozen clock, adapter supply contracts | phpstan-rules + client |
 
 Every user-facing failure message in every package includes its `ATOMS-E###`
 code and the catalog fix line. New codes: add to the JSON **and** the
