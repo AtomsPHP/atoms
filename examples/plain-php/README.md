@@ -137,9 +137,14 @@ and/or `timestampWindow:` a different tolerance in seconds to
 
 Everything under `src/` here is exercised by the repo's adapter conformance
 suite (`tests/Integration/Adapters`) through `PlainPhpApp::handleGlobals()`
-and `handle()` — the same code paths this README walks through. If this
-example ever drifts from what `atoms/client` actually expects, the suite
-fails, not silently bit-rots.
+and `handle()` — the same code paths this README walks through.
+`PlainPhpAdapterConformanceTest` drives `AtomsBootstrap`/`PlainPhpApp` that
+way against the suite's own case table (substituting suite-owned doubles for
+the queue bridge and Methods class so it can share that table across every
+host); `PlainPhpExampleFidelityTest` drives the SAME two methods against this
+directory's own `ArrayQueueBridge` and `GameRoom` Methods class specifically,
+with no substitution. If this example ever drifts from what `atoms/client`
+actually expects, the suite fails, not silently bit-rots.
 
 The one part of this directory outside that coverage is the final four lines
 of `public/atoms-callback.php` — the SAPI emit (`http_response_code()`, the

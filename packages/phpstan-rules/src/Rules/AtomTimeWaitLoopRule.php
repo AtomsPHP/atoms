@@ -42,9 +42,19 @@ use PHPStan\Rules\RuleErrorBuilder;
  *  (b) the loop is unconditional (while (true), do {} while (true), for (;;))
  *      and its body contains a clock read at any depth.
  *
- * Bounded loops that merely read the clock in their body (e.g. logging
- * `time()` on every bounded iteration) are not flagged — only loops that
- * actually wait on elapsed time are.
+ * A *bounded* loop (one whose condition is anything other than an
+ * unconditional true) that merely reads the clock in its body — e.g. logging
+ * `time()` on every iteration — is not flagged: (a) doesn't apply because
+ * the read isn't in the condition, and (b) doesn't apply because the loop
+ * isn't unconditional. An *unconditional* loop with a clock read anywhere in
+ * its body, by contrast, IS flagged by (b) even when that body also contains
+ * a `break` that terminates it on data rather than on elapsed time — the
+ * heuristic cannot tell "stamping a record before breaking out" from
+ * "spinning until enough time has passed" apart, and deliberately doesn't
+ * try. The escape for a genuine data-driven unconditional loop is
+ * restructuring it: give it a real bound, or hoist the clock read outside
+ * the loop. The ATOMS-E061 turn deadline is the runtime backstop for
+ * whatever this heuristic misses.
  *
  * @implements Rule<InClassMethodNode>
  */

@@ -95,9 +95,10 @@ final class LaravelHost implements AdapterHost
 
         $methodsClasses = $options->methodsClasses;
         $nonceStore = $options->nonceStore;
+        $containerBindings = $options->containerBindings;
 
         $this->app = TestbenchApplication::create(
-            resolvingCallback: function (Application $app) use ($methodsClasses, $nonceStore): void {
+            resolvingCallback: function (Application $app) use ($methodsClasses, $nonceStore, $containerBindings): void {
                 // Bind test doubles BEFORE AtomsServiceProvider builds its
                 // singletons — registerHttpClient() explicitly defers to a
                 // prior ClientInterface binding, so this is the same
@@ -125,6 +126,18 @@ final class LaravelHost implements AdapterHost
                         return $resolver;
                     },
                 );
+
+                // S6: whatever this boot's HostOptions::$containerBindings
+                // supplies gets bound into THIS SAME $app — the one
+                // AtomsServiceProvider::registerCallbackStack() passes
+                // straight through as CallbackKernel's container argument
+                // (see AtomsServiceProvider::registerCallbackStack()). A real
+                // host app reaching for container-backed Methods-class
+                // dependencies would bind them the same way, in its own
+                // service provider.
+                foreach ($containerBindings as $class => $instance) {
+                    $app->instance($class, $instance);
+                }
             },
             options: [
                 'extra' => [

@@ -24,6 +24,11 @@ final class CleanClient
 
     public function fetch(Payload $payload): ClientInterface
     {
+        // A benign fully-qualified global function call — the
+        // PHP-CS-Fixer-native_function_invocation spelling of a plain
+        // built-in, not a framework helper — must never be flagged.
+        \strlen('probe');
+
         return $this->httpClient;
     }
 }

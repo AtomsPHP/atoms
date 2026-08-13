@@ -33,7 +33,7 @@ atoms:
     callback_path: /atoms/callback
     callback_timestamp_window: 300   # seconds of clock skew a callback's timestamp may deviate before rejection
     http_client: null                # service id, or null to auto-detect / fall back to Guzzle
-    psr17_factory: null              # service id, or null to auto-detect / fall back to Guzzle
+    psr17_factory: null              # service id, or null to fall back to Guzzle (no auto-detection — see "What's wired")
     methods_classes:
         - App\Atoms\GameRoom\Methods   # only needed for #[MethodsFor] overrides
 ```
@@ -70,9 +70,12 @@ change.
   + `ResponseFactoryInterface` in one — `GuzzleHttp\Psr7\HttpFactory` and
   `Nyholm\Psr7\Factory\Psr17Factory` both qualify) resolved, in order: the
   service id in `psr17_factory`, else a bundled `GuzzleHttp\Psr7\HttpFactory`
-  (clear exception if `guzzlehttp/psr7` isn't installed). Backs
-  `CallbackKernel`, `CallbackController` and `AtomsClient` alike. Resolved in
-  a compiler pass so bundle registration order never matters.
+  (clear exception if `guzzlehttp/psr7` isn't installed). No auto-detection:
+  PSR-17 spans several factory interfaces, so the bundle never guesses which
+  app service should serve all of them — name it explicitly in
+  `psr17_factory` or accept Guzzle. Backs `CallbackKernel`,
+  `CallbackController` and `AtomsClient` alike. Resolved in a compiler pass
+  so bundle registration order never matters.
 - A PSR-18 client resolved, in order: the service id in `atoms.http_client`,
   else an app-defined `Psr\Http\Client\ClientInterface` service, else a
   `GuzzleHttp\Client` (clear exception if `guzzlehttp/guzzle` isn't

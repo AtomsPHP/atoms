@@ -39,6 +39,10 @@ final class UsesFramework implements \Illuminate\Contracts\Support\Arrayable
         /** @var \Illuminate\Support\Collection $typed */
         $typed = $collection;
 
+        \config('app.name');
+
+        \app('foo');
+
         return $typed;
     }
 }

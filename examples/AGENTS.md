@@ -1,10 +1,20 @@
 # examples/
 
-This directory is executable documentation, not prose. Every file under
+This directory is executable documentation, not prose. Every CLASS under
 `plain-php/src/` is exercised by `tests/Integration/Adapters` (the adapter
-conformance suite) via `Atoms\Examples\PlainPhp\PlainPhpApp::handleGlobals()`
-and friends — the recipe in `plain-php/README.md` is only trustworthy because
-the code it walks through is the same code under test.
+conformance suite) — the recipe in `plain-php/README.md` is only trustworthy
+because the code it walks through is the same code under test. Two different
+tests split that coverage: `PlainPhpAdapterConformanceTest` drives
+`AtomsBootstrap`/`PlainPhpApp` through `PlainPhpApp::handleGlobals()` and
+`handle()`, but substitutes suite-owned doubles for the queue bridge and
+Methods class (so it can share one case table across every host in the
+suite); `PlainPhpExampleFidelityTest` is the anchor for the two example-owned
+classes that substitution leaves untouched — this directory's own
+`ArrayQueueBridge` and `Atoms\GameRoom\Methods` — booting them for real, with
+nothing suite-owned standing in for either. The one uncovered spot left in
+this directory is `public/atoms-callback.php`'s final four lines (the SAPI
+emit: `http_response_code()`, the `header()` loop, `echo`), because those
+talk to a running PHP SAPI, not to `atoms/client`.
 
 Rules for anything added here:
 

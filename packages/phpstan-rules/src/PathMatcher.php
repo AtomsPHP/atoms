@@ -15,6 +15,12 @@ namespace Atoms\PHPStan;
  * Matching is done on normalized, slash-separated path segments, so it is
  * agnostic to the project root, to the OS directory separator, and to
  * whether $file is absolute or already relative.
+ *
+ * The match is an unanchored substring-by-segment test, not a prefix or
+ * root-relative match: a configured path of `src` matches any file with a
+ * `/src/` segment anywhere in it (`packages/core/src/Foo.php`, but equally
+ * `vendor/some/nested/src/Bar.php`), so callers should pick paths distinctive
+ * enough not to false-match an unrelated directory of the same name.
  */
 final class PathMatcher
 {

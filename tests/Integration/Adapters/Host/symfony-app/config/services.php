@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Atoms\Client\Callback\NonceStore;
+use Atoms\Tests\Integration\Adapters\Fixtures\Scoreboard;
 use Atoms\Tests\Integration\Adapters\Support\RecordingLogger;
 use Atoms\Tests\Integration\Adapters\Support\TestDoubles;
 use Psr\Http\Client\ClientInterface;
@@ -48,6 +49,15 @@ return static function (ContainerConfigurator $container): void {
     $services->set(NonceStore::class)
         ->factory([TestDoubles::class, 'nonceStore'])
         ->public();
+
+    // S6: a plain, always-present autowirable service — not a TestDoubles
+    // factory, since this one isn't swapped per case — so
+    // config/packages/atoms.yaml's RankRoom\MethodsWithDependency (itself
+    // autowired by AtomsBundle::registerCallbackStack() because it's listed
+    // in methods_classes) compiles with its constructor dependency actually
+    // satisfied. This is the real production autowiring path a host app's
+    // own services.php would use, not a test-only shortcut.
+    $services->set(Scoreboard::class);
 
     if (TestDoubles::$queueAvailable) {
         $services->set(MessageBusInterface::class)

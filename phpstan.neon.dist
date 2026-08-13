@@ -16,6 +16,17 @@ parameters:
         zones:
             - { paths: [packages/core/src], allow: [], forbid: [Illuminate, Laravel, Symfony, Doctrine, GuzzleHttp, Monolog, Twig, PHPUnit, PhpParser, 'Atoms\Client', 'Atoms\Laravel', 'Atoms\Symfony', 'Atoms\Cli', 'Atoms\Testing', 'Atoms\PHPStan'] }
             - { paths: [packages/client/src], allow: [], forbid: [Illuminate, Laravel, Symfony, Doctrine, GuzzleHttp, Monolog, Twig, PHPUnit, 'Atoms\Laravel', 'Atoms\Symfony', 'Atoms\Cli', 'Atoms\Testing', 'Atoms\PHPStan'] }
+            # allow: phpstan-rules IS the layering/boundary enforcement — its
+            # rules (BoundaryReferenceInspector, BoundarySignatureRule) must
+            # name these exact framework symbols as classification data (a
+            # Facade base class to check `isSubclassOf` against, Eloquent's
+            # namespace prefix, Doctrine's) to detect the same symbols when
+            # OTHER packages reference them. That's not a dependency on the
+            # framework, same as bare-prefix classifier data is already
+            # exempt elsewhere (see LayeringRule::isForbidden) — these are
+            # just full symbol names rather than bare prefixes, so they need
+            # an explicit allow rather than the bare-prefix carve-out.
+            - { paths: [packages/phpstan-rules/src], allow: ['Illuminate\Support\Facades', 'Illuminate\Database\Eloquent', 'Doctrine\ORM'], forbid: [Illuminate, Laravel, Symfony, Doctrine, GuzzleHttp, Monolog, Twig, 'Atoms\Client', 'Atoms\Laravel', 'Atoms\Symfony', 'Atoms\Cli', 'Atoms\Testing'] }
             - { paths: [packages/cli/src], allow: [], forbid: [Illuminate, Laravel, GuzzleHttp, 'Atoms\Client', 'Atoms\Laravel', 'Atoms\Symfony'] }
             - { paths: [packages/testing/src], allow: [], forbid: [Illuminate, Laravel, Symfony, GuzzleHttp, 'Atoms\Client', 'Atoms\Laravel', 'Atoms\Symfony', 'Atoms\Cli'] }
             - { paths: [packages/symfony/src], allow: [], forbid: [Illuminate, Laravel, 'Atoms\Laravel', 'Atoms\Cli'] }

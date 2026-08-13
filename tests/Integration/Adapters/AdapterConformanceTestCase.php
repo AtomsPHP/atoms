@@ -7,7 +7,9 @@ namespace Atoms\Tests\Integration\Adapters;
 use Atoms\Client\AtomsClient;
 use Atoms\Tests\Integration\Adapters\Fixtures\GameRoom;
 use Atoms\Tests\Integration\Adapters\Fixtures\GameRoom\Methods as GameRoomMethods;
+use Atoms\Tests\Integration\Adapters\Fixtures\RankRoom\MethodsWithDependency as RankRoomMethods;
 use Atoms\Tests\Integration\Adapters\Fixtures\RecordScoreJob;
+use Atoms\Tests\Integration\Adapters\Fixtures\Scoreboard;
 use Atoms\Tests\Integration\Adapters\Host\AdapterHost;
 use Atoms\Tests\Integration\Adapters\Host\HostOptions;
 use Atoms\Tests\Integration\Adapters\Host\HostRequest;
@@ -50,7 +52,7 @@ abstract class AdapterConformanceTestCase extends TestCase
     }
 
     /**
-     * @param array{endpoint?: string, apiKey?: ?string, publicKey?: string, callbackPath?: string, methodsClasses?: list<class-string>, nonceStore?: ?\Atoms\Client\Callback\NonceStore, queueAvailable?: bool} $overrides
+     * @param array{endpoint?: string, apiKey?: ?string, publicKey?: string, callbackPath?: string, methodsClasses?: list<class-string>, nonceStore?: ?\Atoms\Client\Callback\NonceStore, queueAvailable?: bool, containerBindings?: array<class-string, object>} $overrides
      */
     protected function defaultOptions(array $overrides = []): HostOptions
     {
@@ -62,6 +64,7 @@ abstract class AdapterConformanceTestCase extends TestCase
             methodsClasses: $overrides['methodsClasses'] ?? [GameRoomMethods::class],
             nonceStore: array_key_exists('nonceStore', $overrides) ? $overrides['nonceStore'] : null,
             queueAvailable: $overrides['queueAvailable'] ?? true,
+            containerBindings: $overrides['containerBindings'] ?? [],
         );
     }
 
@@ -184,8 +187,20 @@ abstract class AdapterConformanceTestCase extends TestCase
 
     /**
      * M4: a lowercase `x-atoms-kind` header produces the exact same envelope
-     * as case 1 (methods happy add). Runs on ALL hosts — this is what proves
-     * a host's header lookup is not accidentally case-sensitive.
+     * as case 1 (methods happy add). Runs on ALL hosts, but proves two
+     * different things depending on which one: LaravelHost, SymfonyHost and
+     * PlainPhpHost each translate every header into a `$_SERVER`-shaped
+     * `HTTP_*` key via their own `serverKey()`, uppercasing it first — the
+     * same normalization a real PHP SAPI performs on `$_SERVER` before any
+     * of those frameworks ever sees a header name. On those three hosts this
+     * case is therefore a tautology proving HARNESS fidelity to that SAPI
+     * behavior (a lowercase header was never going to reach the framework
+     * looking different from an uppercase one), not the framework's own
+     * case-insensitivity. Only BareKernelHost skips that translation — it
+     * hands `$request->headers` straight to a PSR-7 `ServerRequestInterface`
+     * via `withHeader()` — so it alone is what actually exercises PSR-7's own
+     * case-insensitive header lookup, the mechanism `CallbackKernel::handle()`'s
+     * `getHeaderLine()` calls depend on.
      */
     public function testM4LowercaseKindHeaderMatchesCaseOneEnvelope(): void
     {
@@ -324,6 +339,60 @@ abstract class AdapterConformanceTestCase extends TestCase
         self::assertSame('GameRoom', $context['type']);
         self::assertSame('boom', $context['method']);
         self::assertSame(\RuntimeException::class, $context['exception']);
+    }
+
+    /**
+     * S6: {@see \Atoms\Tests\Integration\Adapters\Fixtures\RankRoom\MethodsWithDependency}
+     * takes a {@see \Atoms\Tests\Integration\Adapters\Fixtures\Scoreboard} in
+     * its constructor — something a bare `new $class()` cannot supply — so a
+     * 200 with the real formatted result is only possible if the host's own
+     * container built it: Laravel's `$app` (bound via `$app->instance()`,
+     * see LaravelHost::boot()); Symfony's `ServiceLocator`, built by
+     * `AtomsBundle::registerCallbackStack()` from the fixture's
+     * `methods_classes` + `Scoreboard` autowired in `services.php`; and, for
+     * the two hosts with no framework container of their own, a stub
+     * {@see \Atoms\Tests\Integration\Adapters\Support\ArrayContainer} threaded
+     * through the exact same `container:` parameter a real framework-free
+     * host could use (see BareKernelHost/PlainPhpHost). This is exactly the
+     * "Methods instantiation" port `docs/adapters.md` documents.
+     * Container-capable hosts only.
+     *
+     * The port's other half — a Methods class NOT registered in the
+     * container instantiates via `new $class()` — is proven implicitly by
+     * every OTHER case in this suite:
+     * {@see \Atoms\Tests\Integration\Adapters\Fixtures\GameRoom\Methods} is
+     * never registered in any host's container, and every other test still
+     * passes; nothing here duplicates that proof.
+     */
+    public function testS6MethodsClassWithConstructorDependencyResolvesFromHostContainer(): void
+    {
+        $this->skipUnlessSupports('container', 'S6');
+
+        $host = $this->createHost();
+        $scoreboard = new Scoreboard();
+        $methods = new RankRoomMethods($scoreboard);
+
+        $options = $this->defaultOptions([
+            'methodsClasses' => [GameRoomMethods::class, RankRoomMethods::class],
+            'containerBindings' => [
+                Scoreboard::class => $scoreboard,
+                RankRoomMethods::class => $methods,
+            ],
+        ]);
+
+        $host->boot($options);
+
+        try {
+            $body = CallbackCases::methodsBody('RankRoom', 'r-1', 'rank', [3]);
+            $request = CallbackCases::signedRequest($this->signer, $options, 'methods', $body);
+
+            $response = $host->handle($request);
+
+            self::assertSame(200, $response->status);
+            self::assertSame('{"result":"Score: 3"}', $response->body);
+        } finally {
+            $host->shutdown();
+        }
     }
 
     /**

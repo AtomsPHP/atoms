@@ -43,9 +43,18 @@ use PHPStan\Rules\RuleErrorBuilder;
  * covers all twelve of the reference constructs above except `use` imports
  * (which php-parser's NameResolver leaves as a plain `Name`, since the
  * segment after `use` is *itself* the definition of what's fully qualified,
- * not something resolved against one) and unqualified global function calls
+ * not something resolved against one), unqualified global function calls
  * (left unresolved because they're runtime-ambiguous between the current
- * namespace and the global one). Those two are collected separately below.
+ * namespace and the global one), and the fully-qualified spelling of a
+ * global helper call (`\config(...)`, the form PHP-CS-Fixer's
+ * native_function_invocation emits): its `Name\FullyQualified` node has a
+ * single part, shape-identical to any other bare symbol, so it is matched
+ * against the helper list the same as the unqualified spelling instead of
+ * falling into the bare-symbol check below — where no namespace prefix could
+ * ever match a lone "config". A *multi-part* fully-qualified call to a
+ * namespaced function (e.g. a vendor package's own `\Some\Vendor\helper()`)
+ * is not a helper spelling and is left to the ordinary symbol/prefix check.
+ * Those cases are collected separately below.
  *
  * Out of scope by design: `new $var(...)`, variable functions (`$fn()`),
  * and `eval()` — none carry a statically-visible symbol to check.
@@ -302,6 +311,16 @@ final class LayeringReferenceCollector extends NodeVisitorAbstract
     /** @var list<array{name: string, line: int}> */
     public array $funcCalls = [];
 
+    /**
+     * Node-object ids of single-part `Name\FullyQualified` nodes already
+     * recorded above in $funcCalls (the `\config(...)` spelling) — consulted
+     * by the generic `Name\FullyQualified` branch below so it doesn't also
+     * record the very same node as a bare "config" symbol.
+     *
+     * @var array<int, true>
+     */
+    private array $fullyQualifiedHelperNameIds = [];
+
     public function enterNode(Node $node): ?int
     {
         $doc = $node->getDocComment();
@@ -329,8 +348,28 @@ final class LayeringReferenceCollector extends NodeVisitorAbstract
             return null;
         }
 
+        if ($node instanceof FuncCall && $node->name instanceof Name) {
+            $isUnqualified = !$node->name instanceof Name\FullyQualified;
+            $isSingleSegmentFullyQualified = !$isUnqualified && count($node->name->getParts()) === 1;
+
+            if ($isUnqualified || $isSingleSegmentFullyQualified) {
+                $this->funcCalls[] = ['name' => $node->name->toString(), 'line' => $node->getStartLine()];
+
+                if ($isSingleSegmentFullyQualified) {
+                    // `\config(...)` — see the class docblock. Mark the name
+                    // node so the generic Name\FullyQualified branch below,
+                    // which will still visit it as this FuncCall's `name`
+                    // child, skips it instead of double-recording it as a
+                    // bare symbol.
+                    $this->fullyQualifiedHelperNameIds[spl_object_id($node->name)] = true;
+                }
+            }
+        }
+
         if ($node instanceof Name\FullyQualified) {
-            $this->symbols[] = ['symbol' => $node->toString(), 'line' => $node->getStartLine()];
+            if (!isset($this->fullyQualifiedHelperNameIds[spl_object_id($node)])) {
+                $this->symbols[] = ['symbol' => $node->toString(), 'line' => $node->getStartLine()];
+            }
 
             return null;
         }
@@ -339,14 +378,6 @@ final class LayeringReferenceCollector extends NodeVisitorAbstract
             $this->strings[] = ['value' => $node->value, 'line' => $node->getStartLine()];
 
             return null;
-        }
-
-        if (
-            $node instanceof FuncCall
-            && $node->name instanceof Name
-            && !$node->name instanceof Name\FullyQualified
-        ) {
-            $this->funcCalls[] = ['name' => $node->name->toString(), 'line' => $node->getStartLine()];
         }
 
         return null;

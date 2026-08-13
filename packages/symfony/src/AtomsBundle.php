@@ -110,7 +110,7 @@ final class AtomsBundle extends AbstractBundle
                 ->end()
                 ->scalarNode('psr17_factory')
                     ->defaultNull()
-                    ->info('Service id of a PSR-17 factory (ServerRequestFactoryInterface + StreamFactoryInterface + ResponseFactoryInterface in one, e.g. GuzzleHttp\Psr7\HttpFactory or Nyholm\Psr7\Factory\Psr17Factory); falls back to an app-defined factory service, then to Guzzle.')
+                    ->info('Service id of a PSR-17 factory (ServerRequestFactoryInterface + StreamFactoryInterface + ResponseFactoryInterface in one, e.g. GuzzleHttp\Psr7\HttpFactory or Nyholm\Psr7\Factory\Psr17Factory); when null, the bundled Guzzle factory is used. No auto-detection: PSR-17 spans several factory interfaces, so the bundle never guesses which app service should serve all of them — name it explicitly.')
                 ->end()
                 ->arrayNode('methods_classes')
                     ->info('FQCNs of AtomMethods classes to register on the MethodsResolver (needed for #[MethodsFor] overrides; convention-resolved classes need no entry here).')

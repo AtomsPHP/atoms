@@ -34,9 +34,39 @@ use PHPUnit\Framework\TestCase;
  * never two hosts alive at once, so no framework's static/global state
  * (Laravel's Facade root, Symfony's $_ENV-driven config) can bleed from one
  * host's run into another's.
+ *
+ * §7: a capability-gated case that a host skips produces NO entry in that
+ * host's results map, and both {@see self::assertPairAgrees()} and the
+ * per-host pass below quietly treat a missing entry as "nothing to compare"
+ * — which is correct for a host that GENUINELY lacks the capability, but
+ * gives zero signal for a host that lost it by accident (a `supports()` bug,
+ * a boot-path regression). Proven empirically: temporarily forcing
+ * `LaravelHost::supports()` to return false unconditionally dropped this
+ * test's assertion count 166→161 and the suite stayed green. {@see
+ * self::EXPECTED_SKIPS} closes that hole: every case with a non-empty
+ * {@see CallbackCase::$appliesTo} must have an entry naming EXACTLY which
+ * hosts are expected to skip it (possibly none), and {@see
+ * self::assertSkipsMatchExpected()} fails loudly the moment the actually-
+ * observed skips stop matching that list — in either direction.
  */
 final class CrossHostEquivalenceTest extends TestCase
 {
+    /**
+     * Every {@see CallbackCases}' case with a non-empty `appliesTo` MUST
+     * have an entry here, even an empty list — a case missing from this map
+     * entirely is treated as a bug in the map, not a silent "expect nothing".
+     * Today only 'job-happy' (`appliesTo: ['queue']`) is gated, and all four
+     * hosts currently declare 'queue' support, so its own list is empty: NO
+     * host is expected to skip it. Adding a new gated case means deciding,
+     * here, which real hosts genuinely lack the capability — never widening
+     * this map just to make a newly-observed skip pass.
+     *
+     * @var array<string, list<string>> case key => host names allowed to skip it
+     */
+    private const EXPECTED_SKIPS = [
+        'job-happy' => [],
+    ];
+
     /**
      * @return array<string, \Closure(): AdapterHost>
      */
@@ -64,9 +94,14 @@ final class CrossHostEquivalenceTest extends TestCase
         /** @var array<string, array<string, array{int, string}>> $resultsByHost case key => [status, body], per host */
         $resultsByHost = [];
 
+        /** @var list<array{0: string, 1: string}> $actualSkips [hostName, caseKey] pairs actually skipped */
+        $actualSkips = [];
+
         foreach (self::hostFactories() as $hostName => $factory) {
-            $resultsByHost[$hostName] = $this->runAllCases($factory(), $signer, $options);
+            $resultsByHost[$hostName] = $this->runAllCases($factory(), $signer, $options, $hostName, $actualSkips);
         }
+
+        $this->assertSkipsMatchExpected($actualSkips);
 
         $hostNames = array_keys($resultsByHost);
         $cases = CallbackCases::all();
@@ -132,9 +167,10 @@ final class CrossHostEquivalenceTest extends TestCase
     }
 
     /**
+     * @param list<array{0: string, 1: string}> $actualSkips [hostName, caseKey] pairs, appended to by reference
      * @return array<string, array{int, string}> case key => [status, body]
      */
-    private function runAllCases(AdapterHost $host, CallbackSigner $signer, HostOptions $options): array
+    private function runAllCases(AdapterHost $host, CallbackSigner $signer, HostOptions $options, string $hostName, array &$actualSkips): array
     {
         $host->boot($options);
 
@@ -143,6 +179,10 @@ final class CrossHostEquivalenceTest extends TestCase
 
             foreach (CallbackCases::all() as $case) {
                 if (!$this->hostSupportsCase($host, $case)) {
+                    if ($case->appliesTo !== []) {
+                        $actualSkips[] = [$hostName, $case->key];
+                    }
+
                     continue;
                 }
 
@@ -176,5 +216,53 @@ final class CrossHostEquivalenceTest extends TestCase
         }
 
         return true;
+    }
+
+    /**
+     * §7's actual gate: the (host, case) pairs skipped during THIS run must
+     * equal {@see self::EXPECTED_SKIPS} exactly. A pair present but not
+     * expected is a silent capability drop with no other signal (see the
+     * class docblock's empirical proof); a pair expected but not observed
+     * means EXPECTED_SKIPS itself is stale.
+     *
+     * @param list<array{0: string, 1: string}> $actualSkips
+     */
+    private function assertSkipsMatchExpected(array $actualSkips): void
+    {
+        foreach (CallbackCases::all() as $case) {
+            if ($case->appliesTo !== [] && !array_key_exists($case->key, self::EXPECTED_SKIPS)) {
+                self::fail(
+                    "case '{$case->key}' is capability-gated (appliesTo: " . implode(', ', $case->appliesTo)
+                    . ') but has no entry in CrossHostEquivalenceTest::EXPECTED_SKIPS. Add one naming exactly '
+                    . 'which hosts are expected to skip it (an empty list if none are).',
+                );
+            }
+        }
+
+        $expectedPairs = [];
+        foreach (self::EXPECTED_SKIPS as $caseKey => $hostNames) {
+            foreach ($hostNames as $hostName) {
+                $expectedPairs[] = "{$hostName}:{$caseKey}";
+            }
+        }
+
+        $actualPairs = array_map(
+            static fn (array $pair): string => "{$pair[0]}:{$pair[1]}",
+            $actualSkips,
+        );
+
+        sort($expectedPairs);
+        sort($actualPairs);
+
+        self::assertSame(
+            $expectedPairs,
+            $actualPairs,
+            "Capability-gated skips diverged from CrossHostEquivalenceTest::EXPECTED_SKIPS.\n"
+            . 'Expected (host:case): ' . (($expectedPairs === []) ? '(none)' : implode(', ', $expectedPairs)) . "\n"
+            . 'Actual   (host:case): ' . (($actualPairs === []) ? '(none)' : implode(', ', $actualPairs)) . "\n"
+            . 'An extra ACTUAL pair means a host silently lost a capability it should have (a real regression — '
+            . 'do not "fix" this by adding the pair to EXPECTED_SKIPS). A missing EXPECTED pair means a host '
+            . 'gained a capability EXPECTED_SKIPS still assumes it lacks — update the map deliberately.',
+        );
     }
 }

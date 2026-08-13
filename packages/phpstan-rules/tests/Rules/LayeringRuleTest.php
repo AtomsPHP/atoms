@@ -87,14 +87,28 @@ final class LayeringRuleTest extends RuleTestCase
             $this->expected('config', 35),
             $this->expected('Illuminate\Http\Request', 37),
             $this->expected('Illuminate\Support\Collection', 39),
+            $this->expected('config', 42),
+            $this->expected('app', 44),
         ]);
     }
 
-    public function testFlagsExactlyNineteenViolations(): void
+    public function testFlagsExactlyTwentyOneViolations(): void
     {
         $errors = $this->gatherAnalyserErrors([__DIR__ . '/../Fixtures/Layering/ForbiddenZone/UsesFramework.php']);
 
-        self::assertCount(19, $errors);
+        self::assertCount(21, $errors);
+    }
+
+    /**
+     * A fully-qualified call to a plain built-in (`\strlen(...)`, not a
+     * framework helper and not a namespaced symbol) must never be flagged —
+     * see CleanClient.php.
+     */
+    public function testFullyQualifiedBuiltinCallIsNotAFalsePositive(): void
+    {
+        $errors = $this->gatherAnalyserErrors([__DIR__ . '/../Fixtures/Layering/ForbiddenZone/CleanClient.php']);
+
+        self::assertSame([], $errors);
     }
 
     public function testMessagesCarryTheAtomsErrorCode(): void

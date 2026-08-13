@@ -24,15 +24,17 @@ checked against.
 | Configuration | `Atoms\Client\AtomsConfig::fromArray()` (written supply contract — see below) | `config/atoms.php`, merged via `mergeConfigFrom()`, mapped in `registerAtomsConfig()` | `config/packages/atoms.yaml`, mapped in `AtomsBundle::registerConfig()` | Named parameters to `AtomsBootstrap::create()` | Named args straight into `AtomsConfig::fromArray()` |
 | Route mounting | Written contract (below) — no PHP interface | `Route::post()` in `bootCallbackRoute()`, path/middleware from config | `Atoms\Symfony\Routing\AtomsRouteLoader`, a `routing.loader`-tagged service, resolving the `atoms` resource type | Caller wires `$router->post($path, fn($req) => $app->handle($req))`, or the `public/atoms-callback.php` front controller + `PlainPhpApp::handleGlobals()` | N/A — no router; the suite calls `CallbackKernel::handle()` directly |
 | Logging | PSR-3 `Psr\Log\LoggerInterface` into both `AtomsClient` and `CallbackKernel` | The app's bound `LoggerInterface`, if any, else `null` | The app's `logger` service, if any (`IGNORE_ON_INVALID_REFERENCE` resolves a missing one to `null`) | `logger:` parameter, forwarded to both | `logger:` parameter to `CallbackKernelFactory::create()` |
-| Methods instantiation | PSR-11 `Psr\Container\ContainerInterface` (optional) | The app's own container, passed straight through as `$container` | A `ServiceLocator` built from `methods_classes`, passed as `$container` | None passed — every Methods class is `new $class()` | None passed — `new $class()` |
+| Methods instantiation | PSR-11 `Psr\Container\ContainerInterface` (optional; see S6 in `AdapterConformanceTestCase`) | The app's own container, passed straight through as `$container` | A `ServiceLocator` built from `methods_classes`, passed as `$container` | `container:` parameter to `AtomsBootstrap::create()`; `new $class()` when a Methods class isn't in it (default: nothing is) | `container:` parameter to `CallbackKernelFactory::create()`; `new $class()` when a Methods class isn't in it (default: nothing is) |
 | Replay store | `Atoms\Client\Callback\NonceStore` (overridable) | `Atoms\Client\Callback\InMemoryNonceStore` singleton; alias `NonceStore` to your own for a multi-process deployment | Same default; alias `NonceStore` to your own | `nonceStore:` parameter; default `InMemoryNonceStore` | `nonceStore:` parameter to `CallbackKernelFactory::create()`; default `InMemoryNonceStore` |
 
 The "bare kernel" column is `tests/Integration/Adapters/Host/BareKernelHost.php`
 — not a shipped product, but the floor every other host is checked against:
 `CallbackKernelFactory::create()` wired directly, with no router and no
-container. It is where the case table in `CallbackCases::all()` is developed
-and verified first, because it has nothing between the request and the kernel
-to blur a failure's cause.
+framework container (it CAN take a plain PSR-11 `container:` argument — see
+the Methods instantiation row — it just has no framework of its own supplying
+one). It is where the case table in `CallbackCases::all()` is developed and
+verified first, because it has nothing between the request and the kernel to
+blur a failure's cause.
 
 ## Why configuration is not a PHP interface
 
@@ -96,7 +98,16 @@ bug at CI time rather than at a customer's deploy.
 - `AtomTimeWaitLoopRule` flags a `while`/`do`-`while`/`for` loop in a WORLD_A
   method whose condition reads the clock (`time()`, `microtime()`, `hrtime()`,
   `gettimeofday()`, `new \DateTime`/`\DateTimeImmutable`) at any depth, or —
-  for an unconditional loop (`while (true)`, `for (;;)`) — whose body does.
+  for an unconditional loop (`while (true)`, `do { ... } while (true)`,
+  `for (;;)`) — whose body does. That second branch is a strictly broader
+  net than "waits for elapsed time": because an unconditional loop has no
+  data condition of its own for the rule to inspect, ANY clock read anywhere
+  in its body trips it, even one that plays no part in the loop's actual
+  `break` — `while (true) { if (done($x)) break; log(time()); }` is flagged
+  even though it genuinely terminates on `$x`, not on elapsed time. The rule
+  cannot tell a real spin-wait from a merely-logging loop-body clock read
+  without evaluating what the `break` depends on, so it conservatively
+  flags both.
 
 Both are AST walks over one method at a time, so **method-call indirection is
 not chased**: a `sleep()` tucked inside a helper the Atom merely calls is

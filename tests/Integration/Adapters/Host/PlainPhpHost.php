@@ -9,6 +9,7 @@ use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Client\Callback\NullQueueBridge;
 use Atoms\Examples\PlainPhp\AtomsBootstrap;
 use Atoms\Examples\PlainPhp\PlainPhpApp;
+use Atoms\Tests\Integration\Adapters\Support\ArrayContainer;
 use Atoms\Tests\Integration\Adapters\Support\FakePsr18Client;
 use Atoms\Tests\Integration\Adapters\Support\RecordingLogger;
 use Atoms\Tests\Integration\Adapters\Support\RecordingQueueBridge;
@@ -62,6 +63,10 @@ final class PlainPhpHost implements AdapterHost
             resolver: $resolver,
             nonceStore: $options->nonceStore,
             logger: $this->logger,
+            // S6: see BareKernelHost's identical comment — empty by default,
+            // in which case behavior is unchanged from before this field
+            // existed.
+            container: new ArrayContainer($options->containerBindings),
         );
     }
 
@@ -116,7 +121,7 @@ final class PlainPhpHost implements AdapterHost
 
     public function supports(string $capability): bool
     {
-        return in_array($capability, ['routing', 'client', 'queue', 'logging'], true);
+        return in_array($capability, ['routing', 'client', 'queue', 'logging', 'container'], true);
     }
 
     /**

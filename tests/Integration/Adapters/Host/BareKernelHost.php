@@ -8,6 +8,7 @@ use Atoms\Client\Callback\CallbackKernel;
 use Atoms\Client\Callback\CallbackKernelFactory;
 use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Client\Callback\NullQueueBridge;
+use Atoms\Tests\Integration\Adapters\Support\ArrayContainer;
 use Atoms\Tests\Integration\Adapters\Support\FakePsr18Client;
 use Atoms\Tests\Integration\Adapters\Support\RecordingLogger;
 use Atoms\Tests\Integration\Adapters\Support\RecordingQueueBridge;
@@ -15,9 +16,13 @@ use GuzzleHttp\Psr7\HttpFactory;
 
 /**
  * The framework-free floor: {@see CallbackKernelFactory::create()} wired
- * directly, with no router, no container, no outbound client — the reference
- * host every case in the conformance table is developed and verified against
- * first (see AGENTS.md's mission for T9a).
+ * directly, with no router, no outbound client, and no framework container —
+ * the reference host every case in the conformance table is developed and
+ * verified against first (see AGENTS.md's mission for T9a). It DOES support
+ * the `container` capability: {@see CallbackKernelFactory::create()} already
+ * accepts a plain PSR-11 `container:` parameter, so this host can thread a
+ * stub {@see ArrayContainer} through it (see S6) without needing a real
+ * framework's DI container.
  */
 final class BareKernelHost implements AdapterHost
 {
@@ -55,6 +60,12 @@ final class BareKernelHost implements AdapterHost
             queueBridge: $options->queueAvailable ? $this->queue : new NullQueueBridge('bare host has no queue'),
             resolver: $resolver,
             nonceStore: $options->nonceStore,
+            // S6: a stub PSR-11 container carrying whatever pre-built
+            // instances this boot's HostOptions supplied. Empty by default,
+            // in which case container->has() is false for everything and
+            // instantiate() falls through to `new $class()` exactly as
+            // before this field existed — see ArrayContainer.
+            container: new ArrayContainer($options->containerBindings),
             logger: $this->logger,
         );
     }
@@ -107,7 +118,7 @@ final class BareKernelHost implements AdapterHost
 
     public function supports(string $capability): bool
     {
-        return in_array($capability, ['queue', 'logging'], true);
+        return in_array($capability, ['queue', 'logging', 'container'], true);
     }
 
     /**

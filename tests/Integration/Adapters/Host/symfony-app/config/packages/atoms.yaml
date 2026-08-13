@@ -16,3 +16,11 @@ atoms:
     callback_path: '%env(ATOMS_CALLBACK_PATH)%'
     methods_classes:
         - Atoms\Tests\Integration\Adapters\Fixtures\GameRoom\Methods
+        # S6: registered unconditionally (not driven from HostOptions — see
+        # SymfonyHost's own docblock for why this list is fixed) so the
+        # ServiceLocator AtomsBundle::registerCallbackStack() builds always
+        # contains a Methods class with a real constructor dependency
+        # (Fixtures\Scoreboard, registered in services.php), proving the
+        # PSR-11 "Methods instantiation" port for Symfony against every
+        # boot, not just a specially-configured one.
+        - Atoms\Tests\Integration\Adapters\Fixtures\RankRoom\MethodsWithDependency

@@ -17,11 +17,17 @@ use Atoms\Symfony\Messenger\MessengerQueueBridge;
 use Atoms\Symfony\Routing\AtomsRouteLoader;
 use Atoms\Symfony\Tests\Fixtures\CustomOtherRoomMethods;
 use Atoms\Symfony\Tests\Fixtures\OtherRoom;
+use Atoms\Symfony\Tests\Support\FakePsr17Factory;
 use Atoms\Symfony\Tests\Support\FakePsr18Client;
 use Atoms\Symfony\Tests\Support\RecordingMessageBus;
+use GuzzleHttp\Psr7\HttpFactory;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface as PsrContainerInterface;
 use Psr\Http\Client\ClientInterface;
+use Psr\Http\Message\RequestFactoryInterface;
+use Psr\Http\Message\ResponseFactoryInterface;
+use Psr\Http\Message\ServerRequestFactoryInterface;
+use Psr\Http\Message\StreamFactoryInterface;
 use Psr\Log\NullLogger;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\Messenger\MessageBusInterface;
@@ -128,6 +134,43 @@ final class AtomsBundleExtensionTest extends TestCase
         $container->compile();
 
         self::assertInstanceOf(ClientInterface::class, $container->get('atoms.http_client'));
+    }
+
+    /**
+     * Pins Psr17FactoryPass's two-step contract (configured service id, else
+     * Guzzle) against the "helpful" auto-detection that Psr17FactoryPass
+     * deliberately does *not* do, unlike HttpClientPass. Registering an app
+     * service under every relevant PSR-17 interface — without setting
+     * `psr17_factory` — must still resolve to the bundled Guzzle factory:
+     * PSR-17 spans several factory interfaces, and there is no single
+     * "the app's PSR-17 factory" service id to detect, only individual
+     * interfaces that may be bound to different implementations. See
+     * Psr17FactoryPass and the `psr17_factory` config node's ->info().
+     */
+    public function testPsr17FactoryDoesNotAutoDetectAnAppServiceEvenWhenAllFourInterfacesAreImplemented(): void
+    {
+        $container = $this->buildContainer();
+        $container->register('test.app_psr17_factory', FakePsr17Factory::class)->setPublic(true);
+        $container->setAlias(RequestFactoryInterface::class, 'test.app_psr17_factory')->setPublic(true);
+        $container->setAlias(ResponseFactoryInterface::class, 'test.app_psr17_factory')->setPublic(true);
+        $container->setAlias(ServerRequestFactoryInterface::class, 'test.app_psr17_factory')->setPublic(true);
+        $container->setAlias(StreamFactoryInterface::class, 'test.app_psr17_factory')->setPublic(true);
+        $container->compile();
+
+        self::assertInstanceOf(HttpFactory::class, $container->get('atoms.psr17_factory'));
+        self::assertNotInstanceOf(FakePsr17Factory::class, $container->get('atoms.psr17_factory'));
+    }
+
+    public function testPsr17FactoryResolvesToConfiguredServiceId(): void
+    {
+        $container = $this->buildContainer(['psr17_factory' => 'test.app_psr17_factory']);
+        $container->register('test.app_psr17_factory', FakePsr17Factory::class)->setPublic(true);
+        $container->compile();
+
+        // Same "identity survives, not the private id" pattern as
+        // testHttpClientFallsBackToAppDefinedClientInterfaceService: the alias
+        // gets replaced by the target definition during compilation.
+        self::assertInstanceOf(FakePsr17Factory::class, $container->get('atoms.psr17_factory'));
     }
 
     public function testMethodsClassesConfigRegistersMethodsForOverrides(): void
