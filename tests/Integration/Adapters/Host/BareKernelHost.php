@@ -18,11 +18,10 @@ use GuzzleHttp\Psr7\HttpFactory;
  * The framework-free floor: {@see CallbackKernelFactory::create()} wired
  * directly, with no router, no outbound client, and no framework container —
  * the reference host every case in the conformance table is developed and
- * verified against first (see AGENTS.md's mission for T9a). It DOES support
- * the `container` capability: {@see CallbackKernelFactory::create()} already
- * accepts a plain PSR-11 `container:` parameter, so this host can thread a
- * stub {@see ArrayContainer} through it (see S6) without needing a real
- * framework's DI container.
+ * verified against first. It DOES support the `container` capability:
+ * {@see CallbackKernelFactory::create()} already accepts a plain PSR-11
+ * `container:` parameter, so this host can thread a stub {@see ArrayContainer}
+ * through it (see S6) without needing a real framework's DI container.
  */
 final class BareKernelHost implements AdapterHost
 {

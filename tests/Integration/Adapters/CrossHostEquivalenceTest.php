@@ -15,12 +15,12 @@ use Atoms\Tests\Integration\Adapters\Support\CallbackSigner;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The milestone's earning assertion: for every {@see CallbackCases} row, the
- * [status, body] pair bare-kernel, plain-PHP, Laravel and Symfony each
+ * The central assertion this test proves: for every {@see CallbackCases} row,
+ * the [status, body] pair bare-kernel, plain-PHP, Laravel and Symfony each
  * produce must be PAIRWISE IDENTICAL — the four hosts are provably
  * equivalent callback-channel implementations, not four independently
- * plausible ones (see AGENTS.md's named failure mode: "a suite that passes
- * because hosts share a fake").
+ * plausible ones, and not a suite that merely passes because every host
+ * secretly shares one fake.
  *
  * Pairwise comparison runs BEFORE this test also checks each host's result
  * against the case's own expected constant (below). These two passes catch
@@ -55,7 +55,7 @@ use PHPUnit\Framework\TestCase;
  * (Laravel's Facade root, Symfony's $_ENV-driven config) can bleed from one
  * host's run into another's.
  *
- * §7: a capability-gated case that a host skips produces NO entry in that
+ * A capability-gated case that a host skips produces NO entry in that
  * host's results map, and both {@see self::assertPairAgrees()} and the
  * per-host pass below quietly treat a missing entry as "nothing to compare"
  * — which is correct for a host that GENUINELY lacks the capability, but
@@ -238,7 +238,7 @@ final class CrossHostEquivalenceTest extends TestCase
     }
 
     /**
-     * §7's actual gate: the (host, case) pairs skipped during THIS run must
+     * The actual gate: the (host, case) pairs skipped during THIS run must
      * equal {@see self::EXPECTED_SKIPS} exactly. A pair present but not
      * expected is a silent capability drop with no other signal (see the
      * class docblock's empirical proof); a pair expected but not observed

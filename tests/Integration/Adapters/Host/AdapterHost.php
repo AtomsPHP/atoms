@@ -11,8 +11,8 @@ use Atoms\Tests\Integration\Adapters\Support\FakePsr18Client;
  * a real (framework or framework-free) callback stack in-process and drive it
  * exactly the way its production entry point would be driven, so the SAME
  * case table ({@see \Atoms\Tests\Integration\Adapters\CallbackCases::all()})
- * runs unmodified against every one of them — bare kernel and plain-PHP today
- * (T9a), Laravel and Symfony from T9b.
+ * runs unmodified against every one of them — bare kernel, plain-PHP,
+ * Laravel and Symfony alike.
  */
 interface AdapterHost
 {

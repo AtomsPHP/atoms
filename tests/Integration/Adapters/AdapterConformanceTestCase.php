@@ -24,11 +24,11 @@ use PHPUnit\Framework\TestCase;
  * tests, run unmodified against every {@see AdapterHost} a concrete subclass
  * supplies via {@see self::createHost()}.
  *
- * T9a ships two concrete subclasses (bare kernel, plain-PHP). T9b is expected
- * to add Laravel/Symfony subclasses of this SAME class, plus a cross-host
- * equivalence test — nothing here should need to change for that.
+ * Two concrete subclasses cover bare kernel and plain-PHP; Laravel and
+ * Symfony subclasses of this SAME class, plus a cross-host equivalence test,
+ * cover the other two — nothing here needs to change for that.
  *
- * §7/round-2 item 4: every capability gate in this class (the named M/S
+ * Every capability gate in this class (the named M/S
  * tests' {@see self::skipUnlessSupports()} calls, and {@see
  * self::testCallbackCase()}'s own loop over {@see CallbackCase::$appliesTo})
  * used to turn ANY unsupported capability straight into a skip, with nothing

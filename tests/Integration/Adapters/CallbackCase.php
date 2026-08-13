@@ -10,14 +10,14 @@ use Atoms\Tests\Integration\Adapters\Support\CallbackSigner;
 
 /**
  * One row of the adapter conformance table: a callback request to build, and
- * the response shape every host — bare kernel and plain-PHP today, Laravel
- * and Symfony from T9b — must produce for it.
+ * the response shape every host — bare kernel, plain-PHP, Laravel and
+ * Symfony — must produce for it.
  *
  * Every row's `$expectedBody` is the EXACT response body (byte for byte) —
- * there is no substring/"contains" mode. §7/round-2's mutation proof (see
- * CallbackCases' class docblock) showed a status+code(+substring) check lets
- * a corrupted kernel error() (garbage appended to every message) through
- * undetected on most rows; exact-body comparison closes that. Rows whose
+ * there is no substring/"contains" mode. A mutation proof (see CallbackCases'
+ * class docblock) showed a status+code(+substring) check lets a corrupted
+ * kernel error() (garbage appended to every message) through undetected on
+ * most rows; exact-body comparison closes that. Rows whose
  * message the kernel builds via {@see \Atoms\Errors\ErrorCatalog::format()}
  * build `$expectedBody` the same way, so a catalog wording change doesn't
  * spuriously break this suite while any drift in the kernel's OWN envelope

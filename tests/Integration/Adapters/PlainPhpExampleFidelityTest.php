@@ -19,7 +19,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
 
 /**
- * §4: `examples/AGENTS.md` claims every class under `plain-php/src/` is
+ * `examples/AGENTS.md` claims every class under `plain-php/src/` is
  * exercised by this suite, but `Host/PlainPhpHost.php` — the host every
  * OTHER test in this directory drives — substitutes suite-owned doubles for
  * two of those five classes: {@see \Atoms\Tests\Integration\Adapters\Support\RecordingQueueBridge}
@@ -37,8 +37,8 @@ use Psr\Http\Message\ResponseInterface;
  * {@see PlainPhpApp::handleGlobals()}, the exact front-controller path
  * `public/atoms-callback.php` uses.
  *
- * §9 (round 2): none of the above ever constructs the fifth class, the
- * example's own {@see GameRoom} Atom itself — the callback path resolves the
+ * None of the above ever constructs the fifth class, the example's own
+ * {@see GameRoom} Atom itself — the callback path resolves the
  * wire type `"GameRoom"` straight to a Methods class without ever
  * instantiating the Atom, so `GameRoom.php` could be deleted outright and
  * every test above (indeed every test in this whole directory) would stay
@@ -127,7 +127,7 @@ final class PlainPhpExampleFidelityTest extends TestCase
     }
 
     /**
-     * §9 (round 2): boots the example's REAL {@see GameRoom} Atom — a real
+     * Boots the example's REAL {@see GameRoom} Atom — a real
      * temp-file SQLite database, real lifecycle hooks — via
      * {@see AtomHarness} and invokes its real `greet()` method, which
      * reaches into World B through `$this->app()`. `AtomHarness` resolves

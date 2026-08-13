@@ -10,8 +10,7 @@ use Atoms\Client\Callback\QueueBridge;
 /**
  * Records every enqueued AtomJob instead of dispatching it anywhere. Used as
  * the queue wiring for every host so `queuedJobs()` is uniform across the
- * suite (see AGENTS.md's mission for T9a: "use the RecordingQueueBridge so
- * queuedJobs() is uniform").
+ * suite.
  */
 final class RecordingQueueBridge implements QueueBridge
 {
