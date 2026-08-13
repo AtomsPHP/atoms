@@ -413,7 +413,7 @@
             "code": "ATOMS-E100",
             "title": "Package layering violation",
             "message": "{symbol} is referenced from {file}, which is not allowed to depend on it.",
-            "fix": "Move the code that needs {symbol} up into the adapter package that already depends on it (atoms/laravel, atoms/symfony), or express the need as a PSR interface the lower package can accept. The layers are defined in docs/conventions.md §Layering.",
+            "fix": "Move the code that needs the symbol up into the adapter package that already depends on it (atoms/laravel, atoms/symfony), or express the need as a PSR interface the lower package can accept. The layers are defined in docs/conventions.md §Layering.",
             "severity": "error",
             "phase": "static-analysis"
         },
