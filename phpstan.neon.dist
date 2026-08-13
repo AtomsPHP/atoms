@@ -1,3 +1,6 @@
+includes:
+    - packages/phpstan-rules/layering.neon
+
 parameters:
     level: 6
     paths:
@@ -9,3 +12,11 @@ parameters:
         - packages/phpstan-rules/src
         - packages/cli/src
     treatPhpDocTypesAsCertain: false
+    atomsLayering:
+        zones:
+            - { paths: [packages/core/src], allow: [], forbid: [Illuminate, Laravel, Symfony, Doctrine, GuzzleHttp, Monolog, Twig, PHPUnit, PhpParser, 'Atoms\Client', 'Atoms\Laravel', 'Atoms\Symfony', 'Atoms\Cli', 'Atoms\Testing', 'Atoms\PHPStan'] }
+            - { paths: [packages/client/src], allow: [], forbid: [Illuminate, Laravel, Symfony, Doctrine, GuzzleHttp, Monolog, Twig, PHPUnit, 'Atoms\Laravel', 'Atoms\Symfony', 'Atoms\Cli', 'Atoms\Testing', 'Atoms\PHPStan'] }
+            - { paths: [packages/cli/src], allow: [], forbid: [Illuminate, Laravel, GuzzleHttp, 'Atoms\Client', 'Atoms\Laravel', 'Atoms\Symfony'] }
+            - { paths: [packages/testing/src], allow: [], forbid: [Illuminate, Laravel, Symfony, GuzzleHttp, 'Atoms\Client', 'Atoms\Laravel', 'Atoms\Symfony', 'Atoms\Cli'] }
+            - { paths: [packages/symfony/src], allow: [], forbid: [Illuminate, Laravel, 'Atoms\Laravel', 'Atoms\Cli'] }
+            - { paths: [packages/laravel/src], allow: [], forbid: [Doctrine, 'Atoms\Symfony', 'Atoms\Cli'] }

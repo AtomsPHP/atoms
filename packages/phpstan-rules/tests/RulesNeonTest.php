@@ -7,6 +7,8 @@ namespace Atoms\PHPStan\Tests;
 use Atoms\PHPStan\AtomsRulesConfig;
 use Atoms\PHPStan\BoundaryReferenceInspector;
 use Atoms\PHPStan\Rules\AtomCallSiteRule;
+use Atoms\PHPStan\Rules\AtomSleepCallRule;
+use Atoms\PHPStan\Rules\AtomTimeWaitLoopRule;
 use Atoms\PHPStan\Rules\BoundaryClassConstRule;
 use Atoms\PHPStan\Rules\BoundaryFunctionCallRule;
 use Atoms\PHPStan\Rules\BoundaryInstanceofRule;
@@ -56,7 +58,7 @@ final class RulesNeonTest extends PHPStanTestCase
         );
     }
 
-    public function testAllEightRulesAreRegistered(): void
+    public function testAllTenRulesAreRegistered(): void
     {
         $rules = self::getContainer()->getServicesByTag(LazyRegistry::RULE_TAG);
         $registeredClasses = array_map(static fn (object $rule): string => $rule::class, $rules);
@@ -70,6 +72,8 @@ final class RulesNeonTest extends PHPStanTestCase
             BoundarySignatureRule::class,
             PayloadHydratabilityRule::class,
             AtomCallSiteRule::class,
+            AtomSleepCallRule::class,
+            AtomTimeWaitLoopRule::class,
         ] as $expectedClass) {
             self::assertContains(
                 $expectedClass,

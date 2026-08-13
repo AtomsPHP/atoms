@@ -77,22 +77,6 @@ final class AtomsRulesConfig
      */
     private function isUnderAnyPath(string $file, array $paths): bool
     {
-        $normalizedFile = '/' . ltrim(str_replace('\\', '/', $file), '/');
-
-        foreach ($paths as $path) {
-            $normalizedPath = trim(str_replace('\\', '/', $path), '/');
-            if ($normalizedPath === '') {
-                continue;
-            }
-
-            if (
-                str_contains($normalizedFile, '/' . $normalizedPath . '/')
-                || str_ends_with($normalizedFile, '/' . $normalizedPath)
-            ) {
-                return true;
-            }
-        }
-
-        return false;
+        return PathMatcher::isUnderAnyPath($file, $paths);
     }
 }
