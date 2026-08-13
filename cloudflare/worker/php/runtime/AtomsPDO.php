@@ -269,6 +269,24 @@ class AtomsPDO extends \PDO
         );
     }
 
+    /**
+     * The one parent static PHP permits redeclaring in a subclass and that
+     * has a truthful answer to give (M1 design §0.2a, §3 F-25): the question
+     * "which PDO drivers does this PHP build carry?" is about the BUILD, not
+     * about a connection, so answering it from the real parent — rather than
+     * leaving it undeclared, where it would fall through to whatever the
+     * inert carrier connection happens to expose — is honest. Declaring it
+     * also keeps the reflection tripwire's allowlist at one entry: this was
+     * the only member of \PDO's public surface a subclass could reach but
+     * had not (see SurfaceAudit rule R2).
+     *
+     * @return list<string>
+     */
+    public static function getAvailableDrivers(): array
+    {
+        return \PDO::getAvailableDrivers();
+    }
+
     // ---------------------------------------------------------------------
     // Driver extensions. These are provided by pdo_sqlite on the carrier
     // connection and would otherwise appear to work while affecting nothing

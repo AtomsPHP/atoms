@@ -2527,6 +2527,93 @@ checks.push(async () => {
     }
 });
 
+// CHECK 26: pdo surface tripwire (M1 design §1.7).
+//
+// Probe::surfaceAudit() reflects the RUNTIME \PDO / \PDOStatement and
+// asserts every public member is genuinely declared on Atoms\Cf\AtomsPDO /
+// Atoms\Cf\AtomsStatement — never left to fall through to the throwaway
+// sqlite::memory: carrier connection. This check does not merely assert
+// `violations` is empty: it also asserts the audit actually DID something
+// (R7's floors), so an audit that silently enumerated nothing cannot pass
+// vacuously — the same discipline check 24 applies to `fired_this_residency`.
+checks.push(async () => {
+    const checkNum = 26;
+    const name = 'pdo surface tripwire';
+    const problems = [];
+    const id = atomId('probe-surface');
+
+    const res = await invoke('Probe', id, 'surfaceAudit', []);
+    if (res.status !== 200) {
+        fail(checkNum, name, `HTTP ${res.status}: ${JSON.stringify(res.data)}`);
+        return;
+    }
+
+    const result = res.data?.result;
+    if (!result || typeof result !== 'object') {
+        fail(checkNum, name, `no result object in response: ${JSON.stringify(res.data)}`);
+        return;
+    }
+
+    if (result.ok !== true) {
+        problems.push(`ok=${JSON.stringify(result.ok)} (expected true)`);
+    }
+
+    const violations = Array.isArray(result.violations) ? result.violations : null;
+    if (violations === null) {
+        problems.push(`violations is not an array: ${JSON.stringify(result.violations)}`);
+    } else if (violations.length !== 0) {
+        problems.push(`${violations.length} violation(s): ${JSON.stringify(violations, null, 2)}`);
+    }
+
+    const counts = result.counts || {};
+    if (!(counts.pdo_methods >= 15)) {
+        problems.push(`counts.pdo_methods=${counts.pdo_methods} (expected >= 15)`);
+    }
+    if (!(counts.stmt_methods >= 19)) {
+        problems.push(`counts.stmt_methods=${counts.stmt_methods} (expected >= 19)`);
+    }
+    if (!(counts.pinned_fetch >= 24)) {
+        problems.push(`counts.pinned_fetch=${counts.pinned_fetch} (expected >= 24)`);
+    }
+
+    const membersChecked = Array.isArray(result.members_checked) ? result.members_checked : [];
+    if (membersChecked.length === 0) {
+        problems.push('members_checked is empty (the audit enumerated nothing)');
+    }
+
+    if (typeof result.php !== 'string' || !result.php.startsWith('8.3.')) {
+        problems.push(`php=${JSON.stringify(result.php)} (expected to start with "8.3.")`);
+    }
+
+    // Every allowlist entry must have run its assertion and passed.
+    const allowlist = Array.isArray(result.allowlist) ? result.allowlist : [];
+    for (const entry of allowlist) {
+        if (entry?.asserted !== true) {
+            problems.push(`allowlist entry ${JSON.stringify(entry?.id)} has asserted=${JSON.stringify(entry?.asserted)}`);
+        }
+    }
+
+    // Orchestrator override on design §1.7: exact SET equality on allowlist
+    // ids, not merely a length cap — a renamed or silently added entry must
+    // fail this check by name, not just by count.
+    const allowlistIds = allowlist.map((e) => e?.id).sort();
+    const expectedIds = ['PDOStatement::$queryString'];
+    if (JSON.stringify(allowlistIds) !== JSON.stringify(expectedIds)) {
+        problems.push(`allowlist ids = ${JSON.stringify(allowlistIds)} (expected exactly ${JSON.stringify(expectedIds)})`);
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            `${membersChecked.length} members checked, 0 violations, php=${result.php}, ` +
+                `pdo_methods=${counts.pdo_methods} stmt_methods=${counts.stmt_methods} pinned_fetch=${counts.pinned_fetch}`
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
 // ---------------------------------------------------------------- run
 
 async function run() {
