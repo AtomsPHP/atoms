@@ -8,6 +8,7 @@ use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
 use Atoms\Client\Callback\CallbackKernelFactory;
 use Atoms\Client\Callback\MethodsResolver;
+use Atoms\Client\Callback\NonceStore;
 use Atoms\Client\Callback\NullQueueBridge;
 use Atoms\Client\Callback\QueueBridge;
 use Psr\Container\ContainerInterface;
@@ -32,6 +33,13 @@ use Psr\Log\LoggerInterface;
  * this factory makes the wiring explicit instead of magical. Compare
  * {@see CallbackKernelFactory}, which this class is a thin, opinionated shim
  * over.
+ *
+ * `$nonceStore` and `$timestampWindow` are the same replay-store and
+ * timestamp-window override points {@see CallbackKernelFactory::create()}
+ * exposes, forwarded straight through: leave `$nonceStore` null for the
+ * default in-process {@see \Atoms\Client\Callback\InMemoryNonceStore}, or
+ * supply your own {@see NonceStore} (e.g. a shared cache) so replay checks
+ * survive across requests/processes.
  */
 final class AtomsBootstrap
 {
@@ -47,6 +55,8 @@ final class AtomsBootstrap
         StreamFactoryInterface $streamFactory,
         ?QueueBridge $queueBridge = null,
         ?MethodsResolver $resolver = null,
+        ?NonceStore $nonceStore = null,
+        int $timestampWindow = 300,
         ?LoggerInterface $logger = null,
         ?ContainerInterface $container = null,
     ): PlainPhpApp {
@@ -64,6 +74,8 @@ final class AtomsBootstrap
             $streamFactory,
             queueBridge: $queueBridge ?? new NullQueueBridge('Pass a QueueBridge to AtomsBootstrap::create().'),
             resolver: $resolver,
+            nonceStore: $nonceStore,
+            timestampWindow: $timestampWindow,
             container: $container,
             logger: $logger,
         );

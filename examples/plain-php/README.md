@@ -126,6 +126,13 @@ Leave `queueBridge` unset and `AtomsBootstrap` wires
 (`ATOMS-E103`) the first time an Atom dispatches a job — a clear error instead
 of a job silently vanishing.
 
+The replay-check `NonceStore` and its timestamp window are injectable the
+same way: pass `nonceStore:` a `Atoms\Client\Callback\NonceStore` of your own
+(e.g. one backed by a shared cache, so replay checks survive across processes)
+and/or `timestampWindow:` a different tolerance in seconds to
+`AtomsBootstrap::create()`; leave either unset and you get the in-process
+`InMemoryNonceStore` and a 300-second window.
+
 ## This recipe cannot rot
 
 Everything under `src/` here is exercised by the repo's adapter conformance
