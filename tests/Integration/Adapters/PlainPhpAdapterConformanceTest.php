@@ -18,4 +18,15 @@ final class PlainPhpAdapterConformanceTest extends AdapterConformanceTestCase
     {
         return new PlainPhpHost();
     }
+
+    /**
+     * PlainPhpHost::supports() reports all five capabilities — no expected
+     * gaps.
+     *
+     * @return list<string>
+     */
+    protected function expectedMissingCapabilities(): array
+    {
+        return [];
+    }
 }

@@ -19,4 +19,23 @@ final class LaravelAdapterConformanceTest extends AdapterConformanceTestCase
     {
         return new LaravelHost();
     }
+
+    /**
+     * LaravelHost::supports() reports all five capabilities — nothing here
+     * for {@see AdapterConformanceTestCase::failOrSkipMissingCapability()}
+     * to ever declare. Laravel's one known skip (S4, "queue unavailable") is
+     * a DIFFERENT mechanism: LaravelHost::boot() itself calls
+     * `Assert::markTestSkipped()` when asked to boot queueless, because
+     * LaravelQueueBridge wraps `Illuminate\Contracts\Bus\Dispatcher`
+     * unconditionally — Laravel always has a bus, so that premise cannot be
+     * represented here at all, capability-supported-or-not. That skip is
+     * self-documenting at its own call site and isn't a capability gap this
+     * list needs to name.
+     *
+     * @return list<string>
+     */
+    protected function expectedMissingCapabilities(): array
+    {
+        return [];
+    }
 }

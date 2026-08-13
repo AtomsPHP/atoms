@@ -27,6 +27,19 @@ use PHPUnit\Framework\TestCase;
  * T9a ships two concrete subclasses (bare kernel, plain-PHP). T9b is expected
  * to add Laravel/Symfony subclasses of this SAME class, plus a cross-host
  * equivalence test — nothing here should need to change for that.
+ *
+ * §7/round-2 item 4: every capability gate in this class (the named M/S
+ * tests' {@see self::skipUnlessSupports()} calls, and {@see
+ * self::testCallbackCase()}'s own loop over {@see CallbackCase::$appliesTo})
+ * used to turn ANY unsupported capability straight into a skip, with nothing
+ * distinguishing a host's genuine, permanent gap from one it silently lost —
+ * proven empirically: removing 'container' from LaravelHost::supports()
+ * left the whole suite green, just quietly skipping one more test (7→8).
+ * {@see self::expectedMissingCapabilities()} is this class's counterpart to
+ * {@see CrossHostEquivalenceTest::EXPECTED_SKIPS}: each concrete subclass
+ * declares exactly which capabilities its host is expected to lack, and
+ * {@see self::failOrSkipMissingCapability()} fails — rather than skips — the
+ * moment a host reports a gap that declaration doesn't name.
  */
 abstract class AdapterConformanceTestCase extends TestCase
 {
@@ -37,6 +50,17 @@ abstract class AdapterConformanceTestCase extends TestCase
     protected HostOptions $options;
 
     abstract protected function createHost(): AdapterHost;
+
+    /**
+     * The declared counterpart to {@see AdapterHost::supports()}: every
+     * capability this concrete subclass's host is expected to permanently
+     * lack. A capability absent from both `supports()` and this list is
+     * treated as a failure, not a skip — see the class docblock and {@see
+     * self::failOrSkipMissingCapability()}.
+     *
+     * @return list<string>
+     */
+    abstract protected function expectedMissingCapabilities(): array;
 
     protected function setUp(): void
     {
@@ -83,12 +107,7 @@ abstract class AdapterConformanceTestCase extends TestCase
     {
         foreach ($case->appliesTo as $capability) {
             if (!$this->host->supports($capability)) {
-                self::markTestSkipped(sprintf(
-                    "Host '%s' does not support capability '%s' (case '%s').",
-                    $this->host->name(),
-                    $capability,
-                    $case->key,
-                ));
+                $this->failOrSkipMissingCapability($capability, "case '{$case->key}'");
             }
         }
 
@@ -440,6 +459,24 @@ abstract class AdapterConformanceTestCase extends TestCase
     private function skipUnlessSupports(string $capability, string $caseLabel): void
     {
         if (!$this->host->supports($capability)) {
+            $this->failOrSkipMissingCapability($capability, $caseLabel);
+        }
+    }
+
+    /**
+     * The decision behind every capability gate in this class: a capability
+     * the host doesn't support (per {@see AdapterHost::supports()}) is only
+     * ever safe to skip if {@see self::expectedMissingCapabilities()}
+     * declares it. Declared → skip, exactly as before. Undeclared → fail,
+     * because there is no way from here to tell "this host never had this
+     * capability and the declaration is stale" apart from "this host just
+     * silently lost a capability it used to have" — a skip would hide either
+     * one; failing forces a human to look and fix the right side (the host,
+     * or the declaration).
+     */
+    private function failOrSkipMissingCapability(string $capability, string $caseLabel): void
+    {
+        if (in_array($capability, $this->expectedMissingCapabilities(), true)) {
             self::markTestSkipped(sprintf(
                 "Host '%s' does not support capability '%s' (%s).",
                 $this->host->name(),
@@ -447,6 +484,19 @@ abstract class AdapterConformanceTestCase extends TestCase
                 $caseLabel,
             ));
         }
+
+        self::fail(sprintf(
+            "Host '%s' does not support capability '%s' (%s), but '%s' is not declared in %s::expectedMissingCapabilities(). "
+            . 'This is either a real regression (the host used to support this capability — check %s::supports()) '
+            . 'or a deliberate new gap that %s::expectedMissingCapabilities() must be updated to declare.',
+            $this->host->name(),
+            $capability,
+            $caseLabel,
+            $capability,
+            static::class,
+            $this->host::class,
+            static::class,
+        ));
     }
 
     /**

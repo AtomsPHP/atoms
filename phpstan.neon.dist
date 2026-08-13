@@ -29,5 +29,9 @@ parameters:
             - { paths: [packages/phpstan-rules/src], allow: ['Illuminate\Support\Facades', 'Illuminate\Database\Eloquent', 'Doctrine\ORM'], forbid: [Illuminate, Laravel, Symfony, Doctrine, GuzzleHttp, Monolog, Twig, 'Atoms\Client', 'Atoms\Laravel', 'Atoms\Symfony', 'Atoms\Cli', 'Atoms\Testing'] }
             - { paths: [packages/cli/src], allow: [], forbid: [Illuminate, Laravel, GuzzleHttp, 'Atoms\Client', 'Atoms\Laravel', 'Atoms\Symfony'] }
             - { paths: [packages/testing/src], allow: [], forbid: [Illuminate, Laravel, Symfony, GuzzleHttp, 'Atoms\Client', 'Atoms\Laravel', 'Atoms\Symfony', 'Atoms\Cli'] }
+            # allow (by omission from forbid): GuzzleHttp is the symfony
+            # bundle's designed soft dependency — GuzzleFactory's fallback
+            # PSR-17/PSR-18 default, class_exists()-guarded and suggest-listed
+            # in packages/symfony/composer.json, not an accidental coupling.
             - { paths: [packages/symfony/src], allow: [], forbid: [Illuminate, Laravel, 'Atoms\Laravel', 'Atoms\Cli'] }
             - { paths: [packages/laravel/src], allow: [], forbid: [Doctrine, 'Atoms\Symfony', 'Atoms\Cli'] }

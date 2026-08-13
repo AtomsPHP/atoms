@@ -6,15 +6,20 @@ conformance suite) — the recipe in `plain-php/README.md` is only trustworthy
 because the code it walks through is the same code under test. Two different
 tests split that coverage: `PlainPhpAdapterConformanceTest` drives
 `AtomsBootstrap`/`PlainPhpApp` through `PlainPhpApp::handleGlobals()` and
-`handle()`, but substitutes suite-owned doubles for the queue bridge and
-Methods class (so it can share one case table across every host in the
-suite); `PlainPhpExampleFidelityTest` is the anchor for the two example-owned
-classes that substitution leaves untouched — this directory's own
-`ArrayQueueBridge` and `Atoms\GameRoom\Methods` — booting them for real, with
-nothing suite-owned standing in for either. The one uncovered spot left in
-this directory is `public/atoms-callback.php`'s final four lines (the SAPI
-emit: `http_response_code()`, the `header()` loop, `echo`), because those
-talk to a running PHP SAPI, not to `atoms/client`.
+`handle()`, but substitutes suite-owned doubles for the queue bridge, the
+Atom fixture and the Methods class (so it can share one case table across
+every host in the suite); `PlainPhpExampleFidelityTest` is the anchor for the
+three example-owned classes that substitution leaves untouched — this
+directory's own `ArrayQueueBridge`, `Atoms\GameRoom\Methods`, and the
+`GameRoom` Atom itself — exercising each for real, with nothing suite-owned
+standing in. `ArrayQueueBridge` and `GameRoom\Methods` go through the real
+`AtomsBootstrap::create()` + `PlainPhpApp::handleGlobals()` callback path;
+`GameRoom` — never constructed by the callback path at all, since resolving
+a methods callback never instantiates the Atom — is booted directly via
+`Atoms\Testing\AtomHarness` instead. The one uncovered spot left in this
+directory is `public/atoms-callback.php`'s final four lines (the SAPI emit:
+`http_response_code()`, the `header()` loop, `echo`), because those talk to a
+running PHP SAPI, not to `atoms/client`.
 
 Rules for anything added here:
 

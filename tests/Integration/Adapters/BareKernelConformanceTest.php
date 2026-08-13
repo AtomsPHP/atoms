@@ -17,4 +17,16 @@ final class BareKernelConformanceTest extends AdapterConformanceTestCase
     {
         return new BareKernelHost();
     }
+
+    /**
+     * BareKernelHost is deliberately router-free and client-free (see its
+     * own class docblock) — 'routing' and 'client' are permanent gaps, not
+     * regressions, matching {@see BareKernelHost::supports()} exactly.
+     *
+     * @return list<string>
+     */
+    protected function expectedMissingCapabilities(): array
+    {
+        return ['routing', 'client'];
+    }
 }

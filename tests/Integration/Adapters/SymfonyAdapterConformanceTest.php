@@ -20,4 +20,15 @@ final class SymfonyAdapterConformanceTest extends AdapterConformanceTestCase
     {
         return new SymfonyHost();
     }
+
+    /**
+     * SymfonyHost::supports() reports all five capabilities — no expected
+     * gaps.
+     *
+     * @return list<string>
+     */
+    protected function expectedMissingCapabilities(): array
+    {
+        return [];
+    }
 }

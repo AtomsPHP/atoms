@@ -21,7 +21,7 @@
     "suggest": {
         "symfony/messenger": "Routes AtomJob callbacks through Messenger (MessengerQueueBridge); without it, NullQueueBridge throws on first use",
         "symfony/console": "Registers the atoms:deploy / atoms:rollback / atoms:list console wrappers",
-        "guzzlehttp/psr7": "Default PSR-17 factory when psr17_factory isn't configured and the app defines no factory service of its own",
+        "guzzlehttp/psr7": "Default PSR-17 factory used when psr17_factory is not configured",
         "guzzlehttp/guzzle": "Default PSR-18 client used when no atoms.http_client / ClientInterface service is configured"
     },
     "autoload": {

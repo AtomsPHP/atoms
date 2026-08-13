@@ -6,9 +6,11 @@ namespace Atoms\Tests\Integration\Adapters;
 
 use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Examples\PlainPhp\ArrayQueueBridge;
+use Atoms\Examples\PlainPhp\Atoms\GameRoom;
 use Atoms\Examples\PlainPhp\Atoms\GameRoom\Methods as ExampleMethods;
 use Atoms\Examples\PlainPhp\AtomsBootstrap;
 use Atoms\Examples\PlainPhp\PlainPhpApp;
+use Atoms\Testing\AtomHarness;
 use Atoms\Tests\Integration\Adapters\Fixtures\RecordScoreJob;
 use Atoms\Tests\Integration\Adapters\Support\CallbackSigner;
 use Atoms\Tests\Integration\Adapters\Support\FakePsr18Client;
@@ -34,6 +36,16 @@ use Psr\Http\Message\ResponseInterface;
  * standing in for either — and drives both through
  * {@see PlainPhpApp::handleGlobals()}, the exact front-controller path
  * `public/atoms-callback.php` uses.
+ *
+ * §9 (round 2): none of the above ever constructs the fifth class, the
+ * example's own {@see GameRoom} Atom itself — the callback path resolves the
+ * wire type `"GameRoom"` straight to a Methods class without ever
+ * instantiating the Atom, so `GameRoom.php` could be deleted outright and
+ * every test above (indeed every test in this whole directory) would stay
+ * green. {@see self::testGreetInvokesTheExamplesRealAtomThroughAtomHarness()}
+ * closes that: it boots the example's REAL `GameRoom` in-process via
+ * {@see AtomHarness}, the same harness `packages/testing` ships for exactly
+ * this purpose, and invokes its real `greet()` method.
  */
 final class PlainPhpExampleFidelityTest extends TestCase
 {
@@ -112,6 +124,32 @@ final class PlainPhpExampleFidelityTest extends TestCase
         self::assertInstanceOf(RecordScoreJob::class, $jobs[0]);
         self::assertSame('p1', $jobs[0]->playerId);
         self::assertSame(100, $jobs[0]->score);
+    }
+
+    /**
+     * §9 (round 2): boots the example's REAL {@see GameRoom} Atom — a real
+     * temp-file SQLite database, real lifecycle hooks — via
+     * {@see AtomHarness} and invokes its real `greet()` method, which
+     * reaches into World B through `$this->app()`. `AtomHarness` resolves
+     * that call to `GameRoom\Methods::displayName()` by the same
+     * `<AtomClass>\Methods` convention it uses everywhere (no
+     * `withMethods()` override here — this deliberately exercises the same
+     * convention-based resolution as the example's real deployment, not a
+     * suite-supplied one), so this also re-proves
+     * {@see self::testMethodsCallbackInvokesTheExamplesRealMethodsClass()}'s
+     * assertion from the Atom's own call site instead of the callback
+     * channel. Delete or rename `GameRoom.php` and this fails with a class-
+     * not-found error; every other test in this directory would stay green.
+     */
+    public function testGreetInvokesTheExamplesRealAtomThroughAtomHarness(): void
+    {
+        $harness = AtomHarness::for(GameRoom::class, 'g-1');
+
+        $result = $harness->invoke('greet', ['p-1']);
+
+        self::assertSame('Player p-1', $result);
+
+        $harness->shutdown();
     }
 
     private function send(string $kind, string $body): ResponseInterface
