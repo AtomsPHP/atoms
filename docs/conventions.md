@@ -26,7 +26,7 @@ packages/
 ├── core/           atoms/core            namespace Atoms\            the runtime ABI
 ├── client/         atoms/client          namespace Atoms\Client\     framework-free monolith SDK
 ├── laravel/        atoms/laravel         namespace Atoms\Laravel\    thin adapter (< ~1,500 lines)
-├── symfony/        atoms/symfony         namespace Atoms\Symfony\    skeleton bundle (layering test)
+├── symfony/        atoms/symfony         namespace Atoms\Symfony\    Symfony adapter bundle
 ├── testing/        atoms/testing         namespace Atoms\Testing\    AtomHarness etc.
 ├── phpstan-rules/  atoms/phpstan-rules   namespace Atoms\PHPStan\    boundary rules
 └── cli/            atoms/cli             namespace Atoms\Cli\        `atoms` binary + build library
@@ -57,6 +57,11 @@ core  ←  client  ←  laravel
   client — it speaks the deploy HTTP API itself via ext-curl.
 - Nothing ships in `atoms/laravel` that could live in `atoms/client` or
   `atoms/core`.
+
+This diagram is enforced: `LayeringRule` (atoms/phpstan-rules) runs over every
+`packages/*/src` in `composer stan`, and a reference across a layer boundary is
+ATOMS-E100. The adapter-facing half of the contract — what each host
+supplies — is docs/adapters.md.
 
 ## The `atoms/core` ABI (frozen surface)
 
@@ -286,6 +291,7 @@ it before inventing a code. Ranges:
 | E06x | client / callback runtime | client |
 | E07x | CLI / configuration | cli |
 | E08x | worker runtime seams (callback channel, timers) | worker runtime |
+| E10x | adapter discipline: layering, frozen clock, adapter supply contracts | phpstan-rules + client |
 
 Every user-facing failure message in every package includes its `ATOMS-E###`
 code and the catalog fix line. New codes: add to the JSON **and** the

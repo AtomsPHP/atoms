@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Atoms\Symfony\Command;
 
 /**
- * @internal Phase 1 layering test — not yet a supported product
- *
  * A thin seam over process execution so the atoms:* console wrappers can be
  * driven by a fake in tests without spawning a real subprocess.
  */

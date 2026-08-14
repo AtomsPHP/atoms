@@ -6,9 +6,6 @@ namespace Atoms\Symfony\Command;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 
-/**
- * @internal Phase 1 layering test — not yet a supported product
- */
 #[AsCommand(name: 'atoms:list', description: 'List Atoms deployments (shells out to the atoms binary)')]
 final class AtomsListCommand extends AtomsBinaryCommand
 {

@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Atoms\Symfony\Command;
 
 /**
- * @internal Phase 1 layering test — not yet a supported product
- *
  * Real process execution via proc_open — deliberately dependency-free (no
  * symfony/process) since this bundle otherwise only requires
  * symfony/config|dependency-injection|http-kernel.

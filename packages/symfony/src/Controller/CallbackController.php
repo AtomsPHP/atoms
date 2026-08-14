@@ -5,27 +5,31 @@ declare(strict_types=1);
 namespace Atoms\Symfony\Controller;
 
 use Atoms\Client\Callback\CallbackKernel;
-use GuzzleHttp\Psr7\HttpFactory;
 use Psr\Http\Message\ResponseInterface as PsrResponse;
+use Psr\Http\Message\ServerRequestFactoryInterface;
 use Psr\Http\Message\ServerRequestInterface as PsrServerRequest;
+use Psr\Http\Message\StreamFactoryInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * @internal Phase 1 layering test — not yet a supported product
- *
  * Mounts atoms/client's PSR-15 {@see CallbackKernel} as a Symfony controller
- * without a bridge dependency: manual Request <-> PSR-7 conversion via
- * guzzlehttp/psr7 (the same library the bundle already relies on for its
- * PSR-17 default), since psr/http-message-bridge would be one more package
- * pulled in purely to save ~30 lines. Not routed automatically — see
- * Resources/config/routes.php and the package README.
+ * without a bridge dependency: manual Request <-> PSR-7 conversion against
+ * the plain PSR-17 interfaces (ServerRequestFactoryInterface,
+ * StreamFactoryInterface) rather than psr/http-message-bridge, which would be
+ * one more package pulled in purely to save ~30 lines. The concrete factory
+ * behind those interfaces is whatever the bundle resolved `atoms.psr17_factory`
+ * to (config's `psr17_factory` key, an app-defined service, or Guzzle by
+ * default — see AtomsBundle::registerHttpClient() and Psr17FactoryPass), so
+ * this controller stays implementation-agnostic. Routed automatically via
+ * {@see \Atoms\Symfony\Routing\AtomsRouteLoader} — see the package README.
  */
 final class CallbackController
 {
     public function __construct(
         private readonly CallbackKernel $kernel,
-        private readonly HttpFactory $psrFactory = new HttpFactory(),
+        private readonly ServerRequestFactoryInterface $requestFactory,
+        private readonly StreamFactoryInterface $streamFactory,
     ) {
     }
 
@@ -38,7 +42,7 @@ final class CallbackController
 
     private function toPsrRequest(Request $request): PsrServerRequest
     {
-        $psrRequest = $this->psrFactory->createServerRequest(
+        $psrRequest = $this->requestFactory->createServerRequest(
             $request->getMethod(),
             $request->getUri(),
             $request->server->all(),
@@ -48,7 +52,7 @@ final class CallbackController
             $psrRequest = $psrRequest->withHeader($name, array_map(strval(...), $values));
         }
 
-        return $psrRequest->withBody($this->psrFactory->createStream($request->getContent()));
+        return $psrRequest->withBody($this->streamFactory->createStream($request->getContent()));
     }
 
     private function toHttpFoundationResponse(PsrResponse $psrResponse): Response

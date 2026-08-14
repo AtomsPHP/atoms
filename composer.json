@@ -19,7 +19,8 @@
         "orchestra/testbench": "^9.0 || ^10.0",
         "phpstan/phpstan": "^2.0",
         "phpunit/phpunit": "^11.5",
-        "symfony/messenger": "^7.0"
+        "symfony/framework-bundle": "^7.4",
+        "symfony/messenger": "^7.4"
     },
     "repositories": [
         {
@@ -39,6 +40,7 @@
             "Atoms\\Testing\\Tests\\": "packages/testing/tests/",
             "Atoms\\PHPStan\\Tests\\": "packages/phpstan-rules/tests/",
             "Atoms\\Cli\\Tests\\": "packages/cli/tests/",
+            "Atoms\\Examples\\PlainPhp\\": "examples/plain-php/src/",
             "Atoms\\Tests\\Integration\\": "tests/Integration/"
         }
     },

@@ -36,7 +36,7 @@
 
 ## 1. Package architecture
 
-Seven packages. The split is dictated by *where code executes*, not by feature area — that's the discipline that keeps the Symfony port a bundle-sized project instead of a fork.
+Seven packages. The split is dictated by *where code executes*, not by feature area — that's the discipline that keeps the Symfony adapter a bundle-sized project instead of a fork.
 
 | Package | Executes in | Depends on | Contents |
 |---|---|---|---|
@@ -245,9 +245,9 @@ Everything hard lives here, framework-free:
 - **Ticket acquisition** for WebSockets; **trace propagation** (W3C traceparent on every RPC out, echoed into callbacks, so a monolith APM trace spans monolith → Atom → callback → queue — nobody has thought about observability *stitching* yet, and it's the first thing a production customer asks for).
 ### 5.2 The Laravel adapter (thin by design)
 
-Service provider binds `AtomsClient`; `Atoms` facade; auto-registers `POST /atoms/callback` → `CallbackKernel` (route name published, middleware-configurable, CSRF-exempted); queue bridge wraps AtomJobs in a `ShouldQueue` envelope so they flow through the customer's existing queue/Horizon setup; Artisan wrappers shell out to the `atoms` binary; `Atoms::fake()` for tests. Target: under ~1,500 lines. If the adapter grows past that, logic is leaking out of `atoms/client` and the Symfony port is quietly getting more expensive.
+Service provider binds `AtomsClient`; `Atoms` facade; auto-registers `POST /atoms/callback` → `CallbackKernel` (route name published, middleware-configurable, CSRF-exempted); queue bridge wraps AtomJobs in a `ShouldQueue` envelope so they flow through the customer's existing queue/Horizon setup; Artisan wrappers shell out to the `atoms` binary; `Atoms::fake()` for tests. Target: under ~1,500 lines. If the adapter grows past that, logic is leaking out of `atoms/client` and the Symfony adapter is quietly getting more expensive.
 
-### 5.3 The Symfony port (proof, and Phase 2/3 deliverable)
+### 5.3 The Symfony adapter (proof, and Phase 2/3 deliverable)
 
 Bundle + DI extension binding `AtomsClient`; a controller (or PSR-15 middleware via a runtime bridge) mounting `CallbackKernel`; a Messenger handler as the queue bridge; console commands wrapping the same binary. The Atoms path default becomes `src/Atoms` (configured in `atoms.json` — the toolchain never assumed `app/`). Estimated at a small bundle precisely because of the §1 split; building a skeletal version of it **during Phase 1, internally, as a design test** is cheap insurance — if the skeleton needs anything from `atoms/laravel`, the layering is wrong and we find out before the API is frozen.
 
@@ -406,4 +406,4 @@ Mostly consolidating decisions implied elsewhere, plus gaps:
 
 **Phase 3 (GA):** `atoms/symfony` public alpha; ephemeral-environment GA; contract-ordering enforcement in the deploy action; docs/onboarding; error-catalog completeness audit against real beta failure data.
 
-The single most important Phase 1 discipline: **nothing ships in `atoms/laravel` that could live in `atoms/client` or `atoms/core`.** Every exception to that rule is a line item in the eventual Symfony port's bill — and, worse, a place where the framework boundary and the *security* boundary stop coinciding.
+The single most important Phase 1 discipline: **nothing ships in `atoms/laravel` that could live in `atoms/client` or `atoms/core`.** Every exception to that rule is a line item in the eventual Symfony adapter's bill — and, worse, a place where the framework boundary and the *security* boundary stop coinciding.

@@ -10,8 +10,6 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * @internal Phase 1 layering test — not yet a supported product
- *
  * Base for the atoms:* console wrappers. Every subcommand shells out to the
  * real `atoms` binary rather than reimplementing CLI logic in the bundle —
  * doing the latter would pull atoms/cli into atoms/symfony, which is exactly

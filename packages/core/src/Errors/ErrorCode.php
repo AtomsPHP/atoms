@@ -64,4 +64,8 @@ enum ErrorCode: string
     case JobNotEncodable = 'ATOMS-E084';
     case InvalidTimerName = 'ATOMS-E085';
     case TimerLimitExceeded = 'ATOMS-E086';
+    case LayeringViolation = 'ATOMS-E100';
+    case SleepInAtom = 'ATOMS-E101';
+    case TimeWaitLoopInAtom = 'ATOMS-E102';
+    case NoQueueBridgeConfigured = 'ATOMS-E103';
 }

@@ -10,8 +10,6 @@ use Atoms\Serialization\Serializer;
 use Symfony\Component\Messenger\MessageBusInterface;
 
 /**
- * @internal Phase 1 layering test — not yet a supported product
- *
  * The Symfony-side implementation of atoms/client's QueueBridge: wraps a
  * dispatched AtomJob as an {@see AtomJobMessage} — normalized, JSON-safe
  * constructor arguments only, no object graphs on the bus — and hands it to

@@ -1,0 +1,20 @@
+parametersSchema:
+	atomsLayering: structure([
+		zones: listOf(structure([paths: listOf(string()), forbid: listOf(string()), allow: listOf(string())]))
+		forbiddenFunctions: listOf(string())
+	])
+
+parameters:
+	atomsLayering:
+		zones: []
+		forbiddenFunctions: [config, app, resolve, env, auth, cache, session, request, response, route, view, event, broadcast, now, collect, logger, abort, url, redirect, dispatch]
+
+services:
+	-
+		class: Atoms\PHPStan\AtomsLayeringConfig
+		arguments:
+			zones: %atomsLayering.zones%
+			forbiddenFunctions: %atomsLayering.forbiddenFunctions%
+
+rules:
+	- Atoms\PHPStan\Rules\LayeringRule

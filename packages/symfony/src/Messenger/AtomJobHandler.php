@@ -9,8 +9,6 @@ use Atoms\Serialization\Serializer;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 
 /**
- * @internal Phase 1 layering test — not yet a supported product
- *
  * Reconstructs an AtomJob from its {@see AtomJobMessage} wire envelope
  * (constructor arguments by name through the core Serializer, same algebra
  * the platform callback uses) and runs it: calls `handle()` when the job

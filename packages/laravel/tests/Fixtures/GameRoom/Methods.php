@@ -17,4 +17,14 @@ final class Methods extends AtomMethods
     {
         return $a + $b;
     }
+
+    /**
+     * Deliberately throws, so callback route tests can exercise the
+     * kernel's error-logging path (CallbackKernel::handleMethods()'s
+     * catch (\Throwable) branch).
+     */
+    public function explode(): never
+    {
+        throw new \RuntimeException('boom');
+    }
 }

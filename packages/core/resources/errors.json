@@ -408,6 +408,38 @@
             "fix": "Raise the per-Atom cap on scheduled timers (ATOMS_TIMERS_MAX on the Worker), or cancel/coalesce timers you no longer need before scheduling new ones.",
             "severity": "error",
             "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E100",
+            "title": "Package layering violation",
+            "message": "{symbol} is referenced from {file}, which is not allowed to depend on it.",
+            "fix": "Move the code that needs the symbol up into the adapter package that already depends on it (atoms/laravel, atoms/symfony), or express the need as a PSR interface the lower package can accept. The layers are defined in docs/conventions.md §Layering.",
+            "severity": "error",
+            "phase": "static-analysis"
+        },
+        {
+            "code": "ATOMS-E101",
+            "title": "Sleep called inside Atom code",
+            "message": "{symbol}() is called in {class}, but the Atoms runtime's clock does not advance inside a turn — the call blocks until the turn deadline kills it.",
+            "fix": "Delete the sleep. To act later, schedule a timer with $this->timers()->schedule($name, $at) and do the work in onTimer(); to hand work to your app, use $this->dispatch(). Nothing in an Atom may wait on wall-clock time.",
+            "severity": "error",
+            "phase": "static-analysis"
+        },
+        {
+            "code": "ATOMS-E102",
+            "title": "Elapsed-time wait loop inside Atom code",
+            "message": "The loop in {class} waits for wall-clock time to pass ({symbol}), which never happens within a single Atom turn.",
+            "fix": "Rewrite the loop so it terminates on data rather than on elapsed time, or move the wait out of the Atom: $this->timers()->schedule() delivers onTimer() in a later turn, and $this->dispatch() runs the work in your app.",
+            "severity": "error",
+            "phase": "static-analysis"
+        },
+        {
+            "code": "ATOMS-E103",
+            "title": "No queue bridge configured for Atoms callbacks",
+            "message": "An Atom dispatched {job}, but this application has no Atoms\\Client\\Callback\\QueueBridge wired, so the job cannot be queued.",
+            "fix": "Bind a QueueBridge. Laravel wires Atoms\\Laravel\\Queue\\LaravelQueueBridge automatically; Symfony wires Atoms\\Symfony\\Messenger\\MessengerQueueBridge once symfony/messenger and a message bus are present; any other host passes its own QueueBridge to CallbackKernel.",
+            "severity": "error",
+            "phase": "runtime"
         }
     ]
 }
