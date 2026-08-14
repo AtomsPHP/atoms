@@ -3,15 +3,11 @@
 /**
  * Conformance suite for Atoms-on-Cloudflare MVP.
  *
- * Runs 25 conformance checks against a live worker URL per the spec: 1-12
- * against the Worker alone, 13-17 against the callback channel (app()/
- * dispatch()), for which this suite itself plays the monolith — a
- * `node:http` listener bound to 127.0.0.1 that verifies Ed25519 signatures
- * with `node:crypto` — 18-22 against the WebSocket seam and
- * `broadcast()`, 23-24 against timers and the Durable Object alarm, and 25
- * against a close that has to WAKE a hibernated Durable Object. The WebSocket
- * checks use Node's built-in global `WebSocket` so no `ws` dependency is
- * ever added to a GPL-assembled package.json.
+ * Runs the conformance contract against a live Worker URL. For callback
+ * checks, this suite plays the monolith with a `node:http` listener bound to
+ * loopback that verifies Ed25519 signatures using `node:crypto`. WebSocket
+ * checks use Node's built-in global `WebSocket`, so the suite needs no extra
+ * client dependency.
  *
  * Config via env:
  *   ATOMS_BASE_URL (required)

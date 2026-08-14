@@ -3,12 +3,9 @@
 /**
  * Stage the php-wasm runtime out of node_modules, patched, into `.php-wasm/`.
  *
- * This exists so that the repository does not redistribute Playground's
- * GPL-licensed PHP binary. The artifact is fetched by npm from Playground's
- * own package at install time and staged here at build time; it is never
- * committed. GPLv2 obligations attach to distribution, and staging a file
- * into a gitignored directory on the machine that already downloaded it is
- * not distribution.
+ * The artifact is fetched from WordPress Playground's npm package at install
+ * time and staged here at build time. It is a large generated dependency and
+ * is never committed.
  *
  * Two things are staged, and the layout is upstream's rather than ours:
  *

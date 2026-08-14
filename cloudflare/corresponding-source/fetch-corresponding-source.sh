@@ -3,10 +3,9 @@
 # Rebuild the corresponding-source archive for the php-wasm binary this Worker
 # runs on, and verify it against SHA256SUMS.
 #
-# Atoms does not distribute that binary — it is fetched from npm at install
-# time — so nobody has to run this. It exists so the pinned artifact's source
-# can be obtained and checked on demand, which is worth having on its own
-# terms and is groundwork for M5. See README.md.
+# The binary is fetched from npm at install time. This script lets the pinned
+# artifact's source be obtained and checked on demand and is groundwork for
+# M5. See README.md.
 #
 # The verification is the point. A script that only downloads proves nothing:
 # it is the byte-for-byte match against the recorded hashes that turns "here
@@ -21,7 +20,7 @@
 # alone is 506 MB uncompressed and 158 MiB gzipped.
 #
 # See README.md for what this archive does and does not cover — the short
-# version is that it covers Playground's own GPL contributions and the whole
+# version is that it covers Playground's own contributions and the whole
 # build recipe, but not the source of PHP itself or of the statically linked
 # libraries, which the recipe fetches from third-party hosts at build time.
 
@@ -90,8 +89,6 @@ Verified. Both archives match the hashes recorded in SHA256SUMS.
   $out/$PREFIX.tar
   $out/$PREFIX.tar.gz
 
-The .tar.gz is the file to attach as a release asset. See the "upload step
-that has not happened yet" section of README.md — until that upload happens,
-this repository offers a reproduction procedure rather than the source
-itself, and the obligation is not fully discharged.
+The .tar.gz is a reproducible local copy of the pinned upstream source. See
+README.md for the scope and known gaps in the upstream build recipe.
 EOF

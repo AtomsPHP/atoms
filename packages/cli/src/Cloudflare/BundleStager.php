@@ -75,6 +75,21 @@ final class BundleStager
         );
 
         if (!$result->ok()) {
+            $diagnostic = trim($result->stderr . "\n" . $result->stdout);
+            if (preg_match(
+                '/ATOMS-E043: Bundle was built against atoms\/core (?<built>[^,\s]+), but this runtime supports (?<supported>\^\d+\.\d+(?:\.\d+)?)\./',
+                $diagnostic,
+                $match,
+            ) === 1) {
+                throw new AtomsError(
+                    ErrorCode::CoreVersionUnsupported,
+                    ErrorCatalog::format(ErrorCode::CoreVersionUnsupported, [
+                        'built' => trim($match['built'], '"'),
+                        'supported' => $match['supported'],
+                    ]),
+                );
+            }
+
             // The script reports precisely what it could not reconcile
             // (a manifest/bundle mismatch, a missing file); surface that rather
             // than replacing it with a generic message.
@@ -83,7 +98,7 @@ final class BundleStager
                 ErrorCatalog::format(ErrorCode::WranglerFailed, [
                     'command' => 'bundle-from-cli',
                     'status' => (string) $result->exitCode,
-                ]) . "\n" . trim($result->stderr . "\n" . $result->stdout),
+                ]) . "\n" . $diagnostic,
             );
         }
 

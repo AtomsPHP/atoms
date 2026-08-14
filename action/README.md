@@ -5,9 +5,8 @@ Worker **in your own Cloudflare account**. There is no Atoms-hosted service: the
 action installs the Atoms CLI, which shells out to a pinned, locally installed
 Wrangler and talks to Cloudflare's API directly with the credentials you supply.
 
-> No release tag is published for this repository yet. Reference the action as
-> `AtomsPHP/atoms/action@main`, or pin it to a commit SHA if you want the
-> workflow to be reproducible.
+Use the immutable `AtomsPHP/atoms/action@v0.1.0` release tag, or pin the action
+to its full commit SHA for maximum reproducibility.
 
 ## Credentials
 
@@ -48,12 +47,11 @@ the same way as the token, through the step environment.
 ## Usage
 
 ```yaml
-- uses: AtomsPHP/atoms/action@main
+- uses: AtomsPHP/atoms/action@v0.1.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-    worker-directory: .atoms/worker
 ```
 
 ### Inputs
@@ -64,19 +62,20 @@ the same way as the token, through the step environment.
 | `cloudflare-api-token` | Yes | — | Cloudflare API token with Workers Scripts:Edit on the target account |
 | `cloudflare-account-id` | Yes | — | Cloudflare account id to deploy into |
 | `working-directory` | No | `.` | Working directory containing `atoms.json` |
-| `worker-directory` | No | — | Worker directory, relative to `working-directory`. Passed to the CLI as `--worker-dir`; if omitted, the CLI resolves it from `atoms.json`. |
+| `worker-directory` | No | `.atoms/worker` | Existing custom Worker directory, relative to `working-directory`. The default is scaffolded automatically when missing or empty. |
 | `bundle` | No | — | Path to a prebuilt bundle. If omitted, builds locally. |
 | `php-version` | No | `8.3` | PHP version used to run the Atoms CLI |
-| `node-version` | No | `20` | Node version used to run Wrangler |
+| `node-version` | No | `22` | Node version used to run Wrangler |
 
 ## How it works
 
 1. **Masks** the Cloudflare API token so it cannot leak into the log.
 2. **Sets up PHP** (default 8.3) with `pdo_sqlite` and `curl`.
-3. **Sets up Node** (default 20) — Wrangler is a Node program.
-4. **Installs the Atoms CLI** via Composer.
-5. **Runs `npm ci`** in the Worker directory, if `worker-directory` was given.
-6. **Runs `atoms deploy --env <environment>`** in `working-directory`, with the
+3. **Sets up Node** (default 22) — Wrangler is a Node program.
+4. **Installs the matching Atoms CLI version** via Composer.
+5. **Scaffolds the pinned Worker runtime** at `.atoms/worker` when the default is missing or empty.
+6. **Runs `npm ci`** from the runtime's shipped lockfile.
+7. **Runs `atoms deploy --env <environment>`** in `working-directory`, with the
    Cloudflare credentials in the environment.
 
 ## The Worker directory
@@ -87,24 +86,15 @@ Wrangler at deploy time — no `npx` fetch, no unpinned version drifting into a
 production deploy. So the Worker directory must have had `npm ci` run in it
 before `atoms deploy` executes.
 
-The directory is resolved in this order:
+When `worker-directory` is omitted, the action uses `.atoms/worker`. If that
+directory is missing or empty, it installs the version of
+`@atomsphp/runtime-cloudflare` stamped into the action release and scaffolds the
+Worker before running `npm ci`. The shipped `package-lock.json` pins Wrangler,
+php-wasm, and every transitive dependency.
 
-1. the `worker-directory` input (passed to the CLI as `--worker-dir`), then
-2. `environments.<env>.worker_dir` in `atoms.json`, defaulting to
-   `.atoms/worker`.
-
-The action can only run `npm ci` for case 1, because when the input is empty
-the path lives in `atoms.json` and the action does not read that file. Two
-supported ways to work:
-
-- **Pass `worker-directory`** (recommended in CI). The action installs its
-  dependencies for you. It must be a checked-in Worker project with a
-  `package-lock.json`; the step fails with a clear error if there isn't one.
-- **Omit it** and take responsibility for the Worker directory yourself — add
-  your own `npm ci` step before this action, or restore it from a cache. If you
-  omit it and nothing installed the dependencies, the deploy fails with
-  **ATOMS-E073 "Wrangler not found"**, whose fix line says to run `npm install`
-  in the Worker directory or set `ATOMS_WRANGLER_BIN` to an absolute path.
+Passing `worker-directory` opts into a caller-managed Worker. The action never
+scaffolds or replaces it; the directory must already exist and contain its own
+`package-lock.json`. The action still runs its locked `npm ci` before deploy.
 
 ## Examples
 
@@ -121,12 +111,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms/action@main
+      - uses: AtomsPHP/atoms/action@v0.1.0
         with:
           environment: production
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          worker-directory: .atoms/worker
 ```
 
 ### Build locally, then deploy
@@ -134,12 +123,11 @@ jobs:
 ```yaml
 - uses: actions/checkout@v4
 - run: atoms build --output my-bundle.tar.gz
-- uses: AtomsPHP/atoms/action@main
+- uses: AtomsPHP/atoms/action@v0.1.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-    worker-directory: .atoms/worker
     bundle: my-bundle.tar.gz
 ```
 
@@ -158,12 +146,11 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms/action@main
+      - uses: AtomsPHP/atoms/action@v0.1.0
         with:
           environment: staging
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          worker-directory: .atoms/worker
 ```
 
 ### Bring your own Worker install
@@ -172,11 +159,12 @@ jobs:
 - uses: actions/checkout@v4
 - run: npm ci
   working-directory: .atoms/worker
-- uses: AtomsPHP/atoms/action@main
+- uses: AtomsPHP/atoms/action@v0.1.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    worker-directory: .atoms/worker
 ```
 
 ## Troubleshooting
@@ -184,7 +172,7 @@ jobs:
 | Code | Means | Do |
 |------|-------|----|
 | `ATOMS-E072` | Deploy credentials missing | Supply `cloudflare-api-token`; check the secret exists in this repository/environment. |
-| `ATOMS-E073` | Wrangler not found | Pass `worker-directory` so the action runs `npm ci`, or install the Worker directory yourself first. |
+| `ATOMS-E073` | Wrangler not found | Restore the default runtime scaffold, or ensure a custom Worker contains its locked Wrangler install. |
 | `ATOMS-E074` | Wrangler command failed | Read Wrangler's own output; it reports Cloudflare's rejection verbatim. Usually a token missing **Workers Scripts:Edit** on that account. |
 | `ATOMS-E075` | Cloudflare account not configured | Supply `cloudflare-account-id`, or set `account_id` for the environment in `atoms.json`. |
-| `ATOMS-E076` | Worker directory missing or incomplete | Point `worker-directory` (or `worker_dir` in `atoms.json`) at a checkout of the Atoms Cloudflare Worker and run `npm ci` in it. |
+| `ATOMS-E076` | Worker directory missing or incomplete | Remove an incomplete default scaffold so the action can recreate it, or repair the caller-managed Worker directory. |

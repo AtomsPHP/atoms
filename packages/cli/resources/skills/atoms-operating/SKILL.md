@@ -27,8 +27,10 @@ your own Wrangler; Atoms never proxies or retains them. In CI, supply them to
 the deploy action as `cloudflare-api-token` / `cloudflare-account-id`.
 
 Deploy needs a Worker project directory (`worker_dir` in atoms.json, default
-`.atoms/worker`) with `npm ci` already run in it — Atoms runs the Wrangler it
-finds there and never downloads one. Missing: ATOMS-E073.
+`.atoms/worker`) with `npm ci` already run in it. `atoms init` prints the exact
+version-matched `@atomsphp/runtime-cloudflare` scaffold command; run that once,
+then `npm ci` in the generated directory. Atoms runs the pinned Wrangler it
+finds there and never downloads one during deploy. Missing: ATOMS-E073.
 
 `atoms secrets:set PAYMENTS_API_KEY` stores the Worker secret
 `ATOMS_CONFIG_PAYMENTS_API_KEY`, because that is the name the Worker's config
@@ -61,6 +63,9 @@ back **schema**.
   the Atoms first for additive changes.
 - `ATOMS-E042` (bundle rejected) — the platform re-validation failed; `atoms
   validate` locally reproduces it exactly.
+- `ATOMS-E043` (unsupported core version) — the bundle's `atoms/core` version
+  is outside the Worker runtime's supported release line. Update the PHP
+  packages and Worker scaffold to compatible versions, then rebuild.
 
 ## This project's environments
 

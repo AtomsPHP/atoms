@@ -109,14 +109,23 @@ Wrangler needs a project to run in: a wrangler config, `src/`, and
 `--worker-dir`, `environments.<env>.worker_dir` in `atoms.json`, or the default
 `.atoms/worker`. An unusable directory is **ATOMS-E076**.
 
-**What remains manual, and why.** Getting that directory onto a user's machine
-is not automated in M3. The intended answer is
-`npm install @atomsphp/runtime-cloudflare`, and that package cannot exist until
-the repository is public and published — which is M7, deliberately
-(`atoms-cloudflare-oss-plan-2026-08-05.md` §4, M0/M7). Until then a user
-vendors or clones the Worker tree and points `worker_dir` at it. This is
-recorded as a known gap rather than hidden behind a scaffolding command that
-would have to be replaced.
+**Installing the Worker project.** M7 publishes a version-matched template and
+initializer. Run the exact command printed by `atoms init`:
+
+```sh
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
+  atoms-runtime-cloudflare init .atoms/worker
+cd .atoms/worker && npm ci
+```
+
+The explicit package version comes from the same release manifest as the CLI
+and deploy Action. The initializer refuses to overwrite a non-empty directory,
+and the template carries its own `package-lock.json`; `npm ci` therefore
+installs the audited php-wasm and Wrangler pins rather than resolving current
+registry versions. This setup command is deliberately outside the PHP CLI:
+`atoms` itself still never downloads a toolchain. The deploy Action performs
+the same pinned scaffold automatically for its default `.atoms/worker` path;
+a custom Worker directory remains the caller's responsibility.
 
 ### Credentials
 
@@ -154,7 +163,7 @@ DevCommand.php`):
 
 - **`ATOMS_CALLBACK_URL`** — not a secret, the monolith's callback endpoint.
   `atoms dev --callback-url <url>` (or `atoms.json`'s
-  `callback_urls.<env>`) passes it to `wrangler dev` as an ordinary
+  `callback_url.<env>`) passes it to `wrangler dev` as an ordinary
   `--var ATOMS_CALLBACK_URL:<url>`, exactly the way any other var reaches the
   Worker. `DevCommand` echoes the URL it wired at startup, so it is visible in
   the same terminal that started the dev server.
@@ -360,10 +369,9 @@ needs `php/runtime/` and `php/atoms-core/`, which are the Worker's own.
 
 **Nothing under `cloudflare/worker/src/**` or `cloudflare/worker/php/**`
 changed.** The emitted module is exactly the shape the host already reads, so
-the conformance suite (twelve checks at the time; 25 as of M2, 30 as of M1's
-PDO surface honesty pass — see `cloudflare/docs/mvp-spec.md` §Conformance
-suite) was untouched by the CLI integration and the vendored `atoms/core`
-copy needed no re-vendor on this account.
+the Worker conformance suite was untouched by the CLI integration (see
+`cloudflare/docs/mvp-spec.md` §Conformance suite), and the vendored
+`atoms/core` copy needed no re-vendor on this account.
 
 `build-bundle.mjs` stays, with its scope corrected: it is the conformance
 fixture builder, not — as its header used to say — a stand-in for the real
@@ -428,12 +436,10 @@ atoms deploy --env production
 
 Nothing in this sequence contacts a service operated by Atoms.
 
-## Known gaps at M3 (callback URL wiring corrected for M2)
+## Known gaps after M7 packaging
 
-- **The Worker project is placed by hand** (see §2). `@atomsphp/runtime-cloudflare`
-  needs M7.
 - **`atoms dev`'s callback URL is wired, as of M2.** `--callback-url` (or
-  `atoms.json`'s `callback_urls.<env>`) reaches the Worker as an
+  `atoms.json`'s `callback_url.<env>`) reaches the Worker as an
   `ATOMS_CALLBACK_URL` var via `wrangler dev --var`, and the Worker half is
   real: `Atom::app()`/`dispatch()` call back through it (`cloudflare/docs/
   mvp-spec.md` §The callback channel). `DevCommand` prints the URL it wired

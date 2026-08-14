@@ -40,6 +40,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
+const SUPPORTED_CORE_PATH = path.join(PROJECT_ROOT, 'release', 'supported-core');
 
 /** Guest prefix for the customer's own bundle files. */
 const APP_PREFIX = '/app';
@@ -49,6 +50,39 @@ const APP_PREFIX = '/app';
  * exactly what `src/index.js` and `php/runtime/bootstrap.php` already consume.
  */
 const BUNDLE_FORMAT = 0;
+
+/**
+ * Test an exact semantic version against the generated caret range stamped
+ * into this runtime. M7 ships ^0.1; accepting the general caret form here
+ * keeps the check correct when a later release tool advances that stamp.
+ */
+function supportsCore(version, range) {
+	const actual = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?$/.exec(version);
+	const supported = /^\^(\d+)\.(\d+)(?:\.(\d+))?$/.exec(range);
+	if (!actual || !supported) return false;
+
+	const [major, minor, patch] = actual.slice(1, 4).map(Number);
+	const supportedMajor = Number(supported[1]);
+	const supportedMinor = Number(supported[2]);
+	const supportedPatch = Number(supported[3] ?? 0);
+
+	if (major !== supportedMajor) return false;
+	if (supportedMajor === 0) {
+		return minor === supportedMinor && patch >= supportedPatch;
+	}
+	return minor > supportedMinor || (minor === supportedMinor && patch >= supportedPatch);
+}
+
+function assertCoreVersion(cli) {
+	const supported = fs.readFileSync(SUPPORTED_CORE_PATH, 'utf8').trim();
+	const built = cli.toolchain?.core_version;
+	if (typeof built !== 'string' || !supportsCore(built, supported)) {
+		throw new Error(
+			`ATOMS-E043: Bundle was built against atoms/core ${JSON.stringify(built ?? null)}, ` +
+				`but this runtime supports ${supported}.`,
+		);
+	}
+}
 
 /**
  * Read a ustar archive into a Map of name => contents (utf-8).
@@ -170,6 +204,7 @@ function hostManifest(cli) {
 	if (!Array.isArray(cli.atoms)) {
 		throw new Error('manifest.json has no "atoms" list');
 	}
+	assertCoreVersion(cli);
 
 	const atoms = {};
 	for (const atom of cli.atoms) {

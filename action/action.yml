@@ -16,10 +16,9 @@ inputs:
     default: '.'
   worker-directory:
     description: >-
-      Worker directory (holding package.json and node_modules/.bin/wrangler),
-      relative to working-directory. When set, the action runs `npm ci` there and
-      passes it to the CLI as --worker-dir. When empty, the CLI resolves it from
-      atoms.json and you are responsible for installing its dependencies.
+      Existing custom Worker directory, relative to working-directory. When
+      omitted, the action uses .atoms/worker and scaffolds the release-matched
+      Atoms runtime there if it is missing or empty.
     required: false
     default: ''
   bundle:
@@ -33,7 +32,7 @@ inputs:
   node-version:
     description: Node version used to run Wrangler
     required: false
-    default: '20'
+    default: '22'
 
 runs:
   using: composite
@@ -66,24 +65,52 @@ runs:
 
     - name: Install Atoms CLI
       shell: bash
+      env:
+        RELEASE_VERSION_FILE: ${{ github.action_path }}/runtime-version
       run: |
-        composer global require atoms/cli --no-interaction
+        release_version="$(tr -d '\r\n' < "$RELEASE_VERSION_FILE")"
+        composer global require "atoms/cli:$release_version" --no-interaction
         echo "$(composer global config bin-dir --absolute)" >> "$GITHUB_PATH"
 
-    - name: Install Worker dependencies
-      if: ${{ inputs.worker-directory != '' }}
+    - name: Prepare Worker runtime
+      id: worker
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
-        WORKER_DIR: ${{ inputs.worker-directory }}
+        INPUT_WORKER_DIR: ${{ inputs.worker-directory }}
+        RUNTIME_VERSION_FILE: ${{ github.action_path }}/runtime-version
       run: |
         set -euo pipefail
+        if [ -n "$INPUT_WORKER_DIR" ]; then
+          WORKER_DIR="$INPUT_WORKER_DIR"
+          if [ ! -d "$WORKER_DIR" ]; then
+            echo "::error::Custom Worker directory does not exist: $WORKER_DIR"
+            exit 1
+          fi
+        else
+          WORKER_DIR='.atoms/worker'
+          if [ -e "$WORKER_DIR" ] && [ ! -d "$WORKER_DIR" ]; then
+            echo "::error::Default Worker path exists but is not a directory: $WORKER_DIR"
+            exit 1
+          fi
+          if [ ! -d "$WORKER_DIR" ] || [ -z "$(ls -A -- "$WORKER_DIR" 2>/dev/null)" ]; then
+            runtime_version="$(tr -d '\r\n' < "$RUNTIME_VERSION_FILE")"
+            npm exec --yes \
+              --package="@atomsphp/runtime-cloudflare@$runtime_version" \
+              -- atoms-runtime-cloudflare init "$WORKER_DIR"
+          fi
+        fi
+        if [[ "$WORKER_DIR" == *$'\n'* || "$WORKER_DIR" == *$'\r'* ]]; then
+          echo "::error::Worker directory must not contain a newline."
+          exit 1
+        fi
         if [ ! -f "$WORKER_DIR/package-lock.json" ]; then
-          echo "::error::No package-lock.json in $WORKER_DIR (relative to the working directory). The Worker directory must be a checked-in Worker project — Atoms never downloads Wrangler for you."
+          echo "::error::No package-lock.json in $WORKER_DIR. Custom Worker directories are caller-managed and must include their lockfile."
           exit 1
         fi
         cd -- "$WORKER_DIR"
         npm ci
+        echo "directory=$WORKER_DIR" >> "$GITHUB_OUTPUT"
 
     - name: Deploy
       shell: bash
@@ -92,14 +119,12 @@ runs:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
         CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
         DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
-        DEPLOY_WORKER_DIR: ${{ inputs.worker-directory }}
+        DEPLOY_WORKER_DIR: ${{ steps.worker.outputs.directory }}
         DEPLOY_BUNDLE: ${{ inputs.bundle }}
       run: |
         set -euo pipefail
         args=(deploy --env "$DEPLOY_ENVIRONMENT")
-        if [ -n "$DEPLOY_WORKER_DIR" ]; then
-          args+=(--worker-dir "$DEPLOY_WORKER_DIR")
-        fi
+        args+=(--worker-dir "$DEPLOY_WORKER_DIR")
         if [ -n "$DEPLOY_BUNDLE" ]; then
           args+=(--bundle "$DEPLOY_BUNDLE")
         fi

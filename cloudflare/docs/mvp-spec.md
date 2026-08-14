@@ -30,8 +30,8 @@ no-ops.
 ## Runtime artifact
 
 The pinned artifact is `php_8_3.asyncify.{js,wasm}` (WordPress Playground PHP
-8.3 build, 64-bit ints, Asyncify). It is **not in the repository**: since the
-2026-08-08 licensing work `npm ci` installs `@php-wasm/web-8-3@3.1.48` and
+8.3 build, 64-bit ints, Asyncify). It is **not in the repository**: `npm ci`
+installs `@php-wasm/web-8-3@3.1.48` and
 `worker/scripts/prepare-runtime.mjs` stages both files into a gitignored
 `worker/.php-wasm/`, verifying their upstream sizes and SHA-256 digests and
 applying the one required patch `Module['Asyncify'] = Asyncify;` to the glue.
@@ -1273,8 +1273,7 @@ failures**, and CI sets it: a skip is the right answer for a Worker with no
 callback channel and the wrong one for a job that starts one.
 
 **18–22 — WebSockets and `broadcast()`.** Node's built-in global `WebSocket`
-(no `ws` dependency — `worker/package.json` is GPL-assembled, so every
-dependency is a licensing question). **18.** connect, `onConnect` observed,
+(no `ws` dependency). **18.** connect, `onConnect` observed,
 the full query string delivered as `params`, then a bad upgrade (too many
 channels; a type with no WebSocket handler) refused before any DO work; then
 the `invocable_method()` denylist in full — all six runtime handlers

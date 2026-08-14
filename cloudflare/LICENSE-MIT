@@ -1,31 +1,3 @@
-Everything under `cloudflare/` that Atoms wrote is licensed under the MIT
-License, reproduced below. That is the host JavaScript in `worker/src/`, the
-`Atoms\Cf\` guest prelude in `worker/php/runtime/`, the build and test scripts,
-the fixture application, and the documentation.
-
-Three things in this tree are not covered by it:
-
-  - `worker/php/atoms-core/` — verbatim copies of the `atoms/core` package,
-    which since 2026-08-08 lives in this same repository at packages/core.
-    Also MIT, but Atoms' grant for them is the repository-root LICENSE rather
-    than this file. See that directory's VENDORED-FROM.md.
-
-  - The PHP/WebAssembly runtime, which is GPL-2.0-or-later and is not in this
-    repository at all — `npm ci` fetches it from WordPress Playground's own npm
-    package and `worker/scripts/prepare-runtime.mjs` stages it into a
-    gitignored directory at build time.
-
-  - A Worker assembled from this directory, which combines the two and is
-    therefore GPL-2.0-or-later as a whole. `worker/LICENSE` explains that, and
-    why it does not conflict with the grant below. Files licensed here remain
-    available under MIT when taken on their own.
-
-There are no per-file SPDX headers. This file and `worker/LICENSE` are the
-grant; a header on every source file would restate them thirty times without
-adding anything a reader or a scanner cannot get from here.
-
-================================================================================
-
 MIT License
 
 Copyright (c) 2026 Atoms contributors

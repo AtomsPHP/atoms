@@ -5,9 +5,8 @@
  * a keypair generated for this run only.
  *
  * A committed test key — even a throwaway — gets flagged by every secret
- * scanner that looks at this repository, and this tree already goes out of
- * its way not to ship credentials (README.md §Licensing, THIRD_PARTY_NOTICES.md).
- * So this script generates a fresh Ed25519 keypair every time it runs, passes
+ * scanner that looks at this repository. This script generates a fresh
+ * Ed25519 keypair every time it runs, passes
  * the seed to the Worker as a `--var`, and writes the PUBLIC half plus the
  * listener port to `test/.callback-key.json`, which is gitignored.
  * `test/conformance.mjs` reads that file to stand up its own in-suite monolith

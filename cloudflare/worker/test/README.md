@@ -112,10 +112,8 @@ port recorded in `test/.callback-key.json` by `dev-with-callback.mjs`) —
 useful when running the listener alongside something else already bound to
 that port.
 
-**Client tooling for the WebSocket checks (18–22, 25): Node's built-in global
-`WebSocket`, not the `ws` package.** `worker/package.json` declares
-`GPL-2.0-or-later` because it describes the Worker *as assembled*, so a new
-dependency there is a licensing question, not just a convenience. Node 22's
+**Client tooling for the WebSocket checks: Node's built-in global `WebSocket`,
+not the `ws` package.** Node 22's
 global `WebSocket` accepts `{headers: {Authorization: '...'}}` on the upgrade
 (an undici extension, not standard `WebSocket`), which is what lets these
 checks work identically against an auth-on deployed Worker and an auth-off

@@ -1,23 +1,10 @@
 # Corresponding source for the php-wasm binary
 
-The PHP 8.3 interpreter this Worker runs on is a prebuilt WebAssembly
-binary compiled by the WordPress Playground project, and it is
-GPL-2.0-or-later. Playground compiles C extensions of its own authorship
-and its own patch to PHP's source *into* that binary, so GPL-licensed
-expression is genuinely present in it — the reasoning is set out in
-`../THIRD_PARTY_NOTICES.md`.
-
-GPLv2 §3 obliges whoever **distributes** that binary to also offer the
-complete corresponding source, which the licence defines as "the
-preferred form of the work for making modifications to it," plus "the
-scripts used to control compilation and installation of the executable."
-
-**Atoms does not distribute the binary, so §3 does not currently bind
-Atoms.** The file is not in this repository. `npm ci` fetches it from
-Playground's own package `@php-wasm/web-8-3@3.1.48`, and
-`../worker/scripts/prepare-runtime.mjs` stages it into a gitignored
-`../worker/.php-wasm/` after verifying its SHA-256. The copy on a
-builder's machine arrived there from Playground.
+The PHP 8.3 interpreter is a prebuilt WebAssembly binary compiled by the
+WordPress Playground project. It is fetched from
+`@php-wasm/web-8-3@3.1.48`; it is not committed to this repository.
+`../worker/scripts/prepare-runtime.mjs` stages it into the gitignored
+`../worker/.php-wasm/` directory after verifying its SHA-256.
 
 This directory is kept as **provenance**. It records exactly which
 upstream artifact the build pins, how that pin was checked against
@@ -28,27 +15,22 @@ recorded below on every build and refuses to proceed on a mismatch, so a
 silent swap of the interpreter underneath us fails the build rather than
 quietly invalidating this file.
 
-It is also the groundwork for M5. An owned php-wasm build has to know
-what the current one actually contains and how it was assembled, and the
-survey below is that, done once.
+It is also groundwork for M5. An owned php-wasm build has to know what the
+current one contains and how upstream builds it; the survey below records
+that evidence.
 
-## The one way this could have landed on Atoms, and did not
+## Repository history
 
 Written in the past tense as of 2026-08-08, because the hazard was real
 and is now closed.
 
-In the repository this tree was developed in, the binary was out of the
-working tree but **still reachable in that repository's history** —
-committed before it was removed. `git clone` of a published repository
-delivers the history, not just the tip, so publishing it would have been
-distribution and §3 would have attached to Atoms after all. Deleting a
-file does not unpublish it.
+In the repository where this tree was developed, the generated binary was out
+of the working tree but still reachable in history. This repository imported
+the Cloudflare tree as files rather than commits, so the large generated
+artifact is absent from both the current tree and its history.
 
-The move here therefore carried this tree as **files, not commits**: a
-`git archive` of the source tip, extracted into a repository that never
-had the old one as a git remote, so none of that history exists here to
-reach. Confirmed on a fresh clone — no blob over 5MB, and no blob whose
-content SHA-256 matches the one recorded below.
+Confirmed on a fresh clone: no blob over 5MB, and no blob whose content
+SHA-256 matches the one recorded below.
 
 The rule that follows is permanent and cheap: **never graft that
 predecessor history onto this repository, and never commit the binary.** `../worker/.gitignore` and `../worker/scripts/prepare-runtime.mjs`
@@ -85,9 +67,7 @@ preserves that layout, keeping the `.wasm` in its nested `8_3_32/`
 directory, so upstream's own `./8_3_32/php_8_3.wasm` import resolves
 untouched and only the Asyncify line remains. `prepare-runtime.mjs`
 documents the change at its patch site and fails loudly if the anchor
-moves or upstream starts exposing `Asyncify` itself;
-`../THIRD_PARTY_NOTICES.md` covers why the GPLv2 §2(a) notice that
-accompanied the vendored copy is no longer owed.
+moves or upstream starts exposing `Asyncify` itself.
 
 ### The pin is verified from inside the archive, not merely asserted
 
@@ -160,10 +140,9 @@ That matters for M5 — an owned build cannot start from "reproduce what
 Playground does" if what Playground does is fetch most of it from elsewhere
 at build time. Three separate things are going on.
 
-### Playground's own contributions are present, as source
+### Playground's own contributions are present as source
 
-These are the reason the binary is GPL at all rather than merely the
-output of a GPL toolchain, and they are genuinely in the archive:
+The archive contains these Playground-authored inputs:
 
 | In the archive | What it is |
 |---|---|
@@ -235,8 +214,8 @@ libz/asyncify/dist/root/lib/lib/libz.a: base-image
 	docker cp $$(docker create playground-php-wasm:libz):/root/lib/lib ./libz/asyncify/dist/root/lib
 ```
 
-So the corresponding source for, say, the linked libiconv is neither in
-the archive nor fetched by the PHP build. It is fetched only if someone
+So the source for, say, the linked libiconv is neither in the archive nor
+fetched by the PHP build. It is fetched only if someone
 separately re-runs that library's own Dockerfile, which downloads it from
 its upstream home at build time:
 
@@ -293,10 +272,8 @@ EMSDK_NOTTY=1 /root/emsdk/emsdk activate --notty 4.0.19
 4.0.19 is pinned, and the file carries a comment insisting every linked
 library be produced by that same version. The `emsdk` repository itself
 is cloned at HEAD, and the base image is `FROM ubuntu:noble`, a moving
-tag. Emscripten is a build tool, so it is not itself corresponding source
-(`../THIRD_PARTY_NOTICES.md` makes that distinction) — but the runtime
-support code it *emits into* the two staged files is, and that code is
-present in the glue, which is human-readable and comes from npm.
+tag. The runtime support code Emscripten emits into the staged files is
+present in the human-readable glue fetched from npm.
 
 ### Two observations from reading the recipe
 
@@ -317,34 +294,23 @@ Separately, `php/Dockerfile` copies both
 `1.9.2` exists in the tree. Taken literally, that step has nothing to
 copy for `1.2.0`.
 
-### The honest verdict
+### Provenance gaps
 
-Mirroring this archive gives a recipient Playground's own GPL
-contributions in source form, the complete build scripts, and an exact
-statement of what everything else is. That satisfies the "scripts used to
-control compilation" half of §3 fully, and it satisfies the "preferred
-form for making modifications" half for the Playground-authored code that
-is the reason the binary is GPL in the first place.
+The archive contains Playground's own source and complete build scripts. It
+does **not** contain PHP source or the source of the statically linked
+libraries. Those are fetched from third-party hosts at build time, unverified,
+and in two cases from unpinned refs; the libraries are produced by separate
+out-of-band steps whose committed outputs the PHP build consumes. If any host
+stops serving a version, the recipe stops being reconstructible from this
+archive alone.
 
-It does **not** put the source of PHP itself, or of any statically linked
-library, into the recipient's hands. Those are fetched from third-party
-hosts at build time, unverified, and in two cases from unpinned refs; the
-libraries are not even fetched by the build the artifact comes from, only
-by separate out-of-band steps whose committed outputs that build consumes.
-If any of those hosts stops serving a given version, the recipe stops
-being reconstructible, and nothing in this archive would let a recipient
-notice or repair that.
-
-Closing the gap properly means archiving the fetched tarballs alongside
-this one — PHP 8.3.32 first, since it is the largest single body of
-code in the binary — and recording a hash for each. That work belongs
-with the Tier 2 SBOM in `../THIRD_PARTY_NOTICES.md`, which has to
-establish the exact linked versions anyway. Note that `php.net` and
+Closing the gap means pinning and hashing every fetched source — PHP 8.3.32
+first, since it is the largest single body of code in the binary. That work
+belongs with M5's generated SBOM. Note that `php.net` and
 `gnu.org` were unreachable from the environment in which this directory
 was prepared (the egress proxy returns 403 on CONNECT for both), so the
 PHP and libiconv tarballs could not be mirrored here even as a first
 step; that is an environment limitation, not an upstream one.
 
-So this directory is an accurate account of *where* the source is, not a
-copy of all of it. For provenance and for scoping M5 that is what is
-wanted. It is worth knowing it would not be sufficient for anything more.
+This directory is therefore an accurate account of *where* the current
+runtime's source comes from, not a complete offline source mirror.

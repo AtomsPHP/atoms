@@ -178,6 +178,32 @@ final class DeployCommandTest extends TestCase
         self::assertSame([], $wrangler->calls, 'a bundle that will not stage must never be deployed');
     }
 
+    public function testUnsupportedCoreStagingFailureMapsToE043AndNeverDeploys(): void
+    {
+        $runner = new FakeProcessRunner(new ProcessResult(
+            1,
+            '',
+            'Error: ATOMS-E043: Bundle was built against atoms/core 0.2.0, but this runtime supports ^0.1.',
+        ));
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E043', $display);
+        self::assertStringContainsString('0.2.0', $display);
+        self::assertStringContainsString('^0.1', $display);
+        self::assertStringNotContainsString('ATOMS-E074', $display);
+        self::assertSame([], $wrangler->calls);
+    }
+
     public function testMissingApiTokenMapsToE072(): void
     {
         putenv('CLOUDFLARE_API_TOKEN');

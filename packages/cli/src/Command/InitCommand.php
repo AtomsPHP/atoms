@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Command;
 
+use Atoms\Cli\Release\RuntimeVersion;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -67,8 +68,8 @@ final class InitCommand extends AbstractCommand
                 ],
             ],
             'callback_url' => [
-                'production' => 'https://example.com',
-                'staging' => 'https://staging.example.com',
+                'production' => 'https://example.com/atoms/callback',
+                'staging' => 'https://staging.example.com/atoms/callback',
             ],
         ];
 
@@ -85,10 +86,19 @@ final class InitCommand extends AbstractCommand
             );
         }
 
+        $gitignorePath = $root . '/.gitignore';
+        $gitignore = is_file($gitignorePath) ? (string) file_get_contents($gitignorePath) : '';
+        if (preg_match('/^\/?\.atoms\/?$/m', $gitignore) !== 1) {
+            $prefix = $gitignore === '' || str_ends_with($gitignore, "\n") ? '' : "\n";
+            file_put_contents($gitignorePath, $prefix . "/.atoms/\n", FILE_APPEND);
+        }
+
         $output->writeln('<info>✓ Wrote atoms.json and atoms-composer.json.</info>');
         $output->writeln('  Next: atoms make:atom GameRoom --with-methods --with-migration');
         $output->writeln('  Then, to deploy: set each environment\'s "endpoint" and "account_id",');
-        $output->writeln('  put the Atoms Worker project at .atoms/worker (and `npm ci` in it),');
+        $output->writeln('  install the release-matched Worker project:');
+        $output->writeln('  ' . RuntimeVersion::scaffoldCommand());
+        $output->writeln('  cd .atoms/worker && npm ci');
         $output->writeln('  export CLOUDFLARE_API_TOKEN, and run `atoms deploy --env staging`.');
 
         return Command::SUCCESS;

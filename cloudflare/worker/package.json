@@ -4,7 +4,7 @@
   "type": "module",
   "version": "0.0.0",
   "description": "Atoms-on-Cloudflare MVP: one generic AtomDurableObject hosting a parked PHP loop.",
-  "license": "GPL-2.0-or-later",
+  "license": "MIT",
   "dependencies": {
     "@php-wasm/universal": "3.1.48",
     "@php-wasm/web-8-3": "3.1.48"
@@ -17,6 +17,8 @@
     "prepare-runtime": "node scripts/prepare-runtime.mjs",
     "bundle": "node scripts/build-bundle.mjs",
     "bundle:cli": "node scripts/bundle-from-cli.mjs",
+    "package:runtime": "node scripts/pack-runtime.mjs",
+    "test:package": "node test/runtime-package.mjs",
     "dev": "wrangler dev",
     "dev:callback": "node scripts/dev-with-callback.mjs",
     "deploy": "wrangler deploy",

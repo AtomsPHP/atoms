@@ -1,9 +1,3 @@
-//
-// The Worker this config assembles bundles the Playground-derived PHP
-// runtime, which is GPL-2.0-or-later, so the assembled Worker is a combined
-// work under that licence. This repository does not redistribute that runtime
-// — it is fetched from npm and staged into `.php-wasm/` at build time by
-// scripts/prepare-runtime.mjs. See ../README.md#licensing.
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "atoms-mvp-conformance",

@@ -1,0 +1,155 @@
+#!/usr/bin/env node
+
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
+import { stageRuntimePackage } from '../scripts/pack-runtime.mjs';
+
+const workerRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const release = JSON.parse(readFileSync(resolve(workerRoot, '../../release/manifest.json'), 'utf8'));
+
+function run(command, args, options = {}) {
+	const { expectFailure = false, ...spawnOptions } = options;
+	const result = spawnSync(command, args, { encoding: 'utf8', ...spawnOptions });
+	if (result.status !== 0 && !expectFailure) {
+		throw new Error(
+			`${command} ${args.join(' ')} failed (${result.status})\n${result.stdout}\n${result.stderr}`,
+		);
+	}
+	return result;
+}
+
+const temporaryRoot = mkdtempSync(join(tmpdir(), 'atoms-runtime-package-test-'));
+try {
+	const npmEnvironment = { ...process.env, npm_config_cache: join(temporaryRoot, 'npm-cache') };
+	const stage = join(temporaryRoot, 'package');
+	const packed = join(temporaryRoot, 'packed');
+	const target = join(temporaryRoot, 'worker');
+	mkdirSync(packed);
+
+	const { packageManifest, templateManifest } = stageRuntimePackage(stage);
+	assert.equal(packageManifest.name, '@atomsphp/runtime-cloudflare');
+	assert.equal(packageManifest.version, release.runtime.version);
+	assert.equal(packageManifest.license, 'MIT');
+	assert.equal(templateManifest.license, 'MIT');
+	assert.equal(templateManifest.devDependencies.wrangler, release.runtime.wrangler);
+	assert.ok(existsSync(join(stage, 'template', 'package-lock.json')));
+	assert.ok(!existsSync(join(stage, 'template', 'src', 'bundle.generated.js')));
+
+	const pack = run('npm', ['pack', stage, '--pack-destination', packed, '--json'], { env: npmEnvironment });
+	const packResult = JSON.parse(pack.stdout);
+	assert.equal(packResult.length, 1);
+	const tarball = join(packed, packResult[0].filename);
+
+	const listing = run('tar', ['-tzf', tarball]).stdout.split(/\r?\n/).filter(Boolean);
+	const forbidden = [
+		'/.php-wasm/',
+		'/node_modules/',
+		'/fixtures/',
+		'/test/',
+		'/bundle.generated.js',
+		'/pdo-matrix.json',
+		'/remote.json',
+	];
+	for (const fragment of forbidden) {
+		assert.ok(!listing.some((file) => file.includes(fragment)), `tarball contains forbidden ${fragment}`);
+	}
+	for (const required of [
+		'package/template/package-lock.json',
+		'package/template/release/supported-core',
+		'package/template/scripts/prepare-runtime.mjs',
+		'package/template/scripts/bundle-from-cli.mjs',
+		'package/template/src/index.js',
+		'package/LICENSE',
+		'package/THIRD_PARTY_NOTICES.md',
+		'package/corresponding-source/README.md',
+	]) {
+		assert.ok(listing.includes(required), `tarball is missing ${required}`);
+	}
+	assert.ok(!listing.includes('package/LICENSE-MIT'));
+
+	mkdirSync(target);
+	run('npm', [
+		'exec',
+		'--yes',
+		`--package=${tarball}`,
+		'--',
+		'atoms-runtime-cloudflare',
+		'init',
+		target,
+	], { env: npmEnvironment });
+	assert.ok(existsSync(join(target, 'package.json')));
+	assert.ok(existsSync(join(target, 'package-lock.json')));
+	assert.ok(existsSync(join(target, '.gitignore')));
+	assert.ok(existsSync(join(target, 'LICENSE')));
+	assert.ok(existsSync(join(target, 'THIRD_PARTY_NOTICES.md')));
+	assert.ok(!existsSync(join(target, 'src', 'bundle.generated.js')));
+
+	const emptyTar = Buffer.alloc(1024);
+	const bundle = join(temporaryRoot, 'bundle.tar.gz');
+	writeFileSync(bundle, gzipSync(emptyTar, { mtime: 0 }));
+	const manifestPath = join(temporaryRoot, 'manifest.json');
+	const workerBundle = join(target, 'src', 'bundle.generated.js');
+	const baseManifest = {
+		schema: 1,
+		project: 'runtime-package-test',
+		atoms: [],
+		toolchain: { core_version: release.version, php: '8.3', extensions: [], scoper_prefix: 'AtomsScoped' },
+		content_hash: createHash('sha256').update(emptyTar).digest('hex'),
+	};
+	writeFileSync(manifestPath, `${JSON.stringify(baseManifest)}\n`);
+	run('node', [join(target, 'scripts', 'bundle-from-cli.mjs'), bundle, manifestPath, workerBundle]);
+	assert.ok(existsSync(workerBundle), 'a release-matched bundle should stage');
+
+	rmSync(workerBundle);
+	writeFileSync(
+		manifestPath,
+		`${JSON.stringify({ ...baseManifest, toolchain: { ...baseManifest.toolchain, core_version: '999.0.0' } })}\n`,
+	);
+	const incompatible = run(
+		'node',
+		[join(target, 'scripts', 'bundle-from-cli.mjs'), bundle, manifestPath, workerBundle],
+		{ expectFailure: true },
+	);
+	assert.notEqual(incompatible.status, 0);
+	assert.match(incompatible.stderr, /ATOMS-E043/);
+	assert.match(incompatible.stderr, /999\.0\.0/);
+	assert.ok(incompatible.stderr.includes(release.core.supported));
+	assert.ok(!existsSync(workerBundle), 'an incompatible bundle must not be emitted');
+
+	const secondRun = run('npm', [
+		'exec',
+		'--yes',
+		`--package=${tarball}`,
+		'--',
+		'atoms-runtime-cloudflare',
+		'init',
+		target,
+	], { expectFailure: true, env: npmEnvironment });
+	assert.notEqual(secondRun.status, 0);
+	assert.match(secondRun.stderr, /refusing to overwrite/);
+
+	const nonempty = join(temporaryRoot, 'nonempty');
+	mkdirSync(nonempty);
+	writeFileSync(join(nonempty, 'owned-by-user.txt'), 'keep\n');
+	const refuseUserFile = run('npm', [
+		'exec',
+		'--yes',
+		`--package=${tarball}`,
+		'--',
+		'atoms-runtime-cloudflare',
+		'init',
+		nonempty,
+	], { expectFailure: true, env: npmEnvironment });
+	assert.notEqual(refuseUserFile.status, 0);
+	assert.equal(readFileSync(join(nonempty, 'owned-by-user.txt'), 'utf8'), 'keep\n');
+
+	console.log('runtime package allowlist and local-tarball scaffold: ok');
+} finally {
+	rmSync(temporaryRoot, { recursive: true, force: true });
+}

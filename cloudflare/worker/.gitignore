@@ -1,6 +1,7 @@
 node_modules/
 .wrangler/
 dist/
+.runtime-package/
 
 # Written by the CI worker job (and by anyone reproducing it locally) when it
 # backgrounds `wrangler dev` and polls /healthz.
