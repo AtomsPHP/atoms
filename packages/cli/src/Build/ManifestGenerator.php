@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Cli\Build;
 
 use Atoms\Cli\Config\AtomsJson;
+use Atoms\Cli\Release\RuntimeVersion;
 
 /**
  * Stage 6: assemble the manifest — the single contract artifact for everything
@@ -15,7 +16,6 @@ use Atoms\Cli\Config\AtomsJson;
 final class ManifestGenerator
 {
     private const WS_HANDLERS = ['onConnect', 'onMessage', 'onDisconnect'];
-    private const CORE_VERSION = '0.1.0';
 
     public function __construct(
         private readonly AtomsJson $config,
@@ -39,7 +39,7 @@ final class ManifestGenerator
             'jobs' => $this->jobs(),
             'shared' => $this->shared(),
             'toolchain' => [
-                'core_version' => self::CORE_VERSION,
+                'core_version' => RuntimeVersion::CORE_VERSION,
                 'php' => $this->config->php,
                 'extensions' => $extensions,
                 'scoper_prefix' => $scoperPrefix,

@@ -18,6 +18,7 @@ use Atoms\Cli\Command\SecretsListCommand;
 use Atoms\Cli\Command\SecretsSetCommand;
 use Atoms\Cli\Command\StatusCommand;
 use Atoms\Cli\Command\ValidateCommand;
+use Atoms\Cli\Release\RuntimeVersion;
 use Symfony\Component\Console\Application as ConsoleApplication;
 
 /**
@@ -28,7 +29,7 @@ use Symfony\Component\Console\Application as ConsoleApplication;
  */
 final class Application extends ConsoleApplication
 {
-    public const VERSION = '0.1.0';
+    public const VERSION = RuntimeVersion::VERSION;
 
     public function __construct(?Wrangler $wrangler = null)
     {

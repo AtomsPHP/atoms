@@ -3,6 +3,12 @@
     "description": "The Atoms runtime ABI: everything an Atom class can touch. Zero framework dependencies.",
     "version": "0.1.0",
     "license": "MIT",
+    "homepage": "https://atomsphp.dev",
+    "support": {
+        "docs": "https://docs.atomsphp.dev",
+        "issues": "https://github.com/AtomsPHP/atoms/issues",
+        "source": "https://github.com/AtomsPHP/atoms"
+    },
     "type": "library",
     "keywords": ["atoms", "actors", "runtime"],
     "require": {

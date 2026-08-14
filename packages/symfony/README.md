@@ -1,7 +1,7 @@
 # atoms/symfony
 
-Symfony bundle for Atoms: wires `Atoms\Client\AtomsClient`, the inbound
-callback stack (Ed25519 verification, Methods dispatch, AtomJob
+The supported Symfony bundle for Atoms wires `Atoms\Client\AtomsClient`, the
+inbound callback stack (Ed25519 verification, Methods dispatch, AtomJob
 reconstruction), a Messenger-backed queue bridge, and thin console wrappers
 around the `atoms` binary — all on top of `atoms/client` alone.
 `atoms/client` is deliberately framework-free (integration-plan §5.3), so
@@ -129,3 +129,12 @@ Methods classes resolve from the container only when listed under
 `methods_classes`; anything not listed there is instantiated with
 `new $class()` rather than autowired, even if the class itself would
 otherwise be autowirable.
+
+## Development and support
+
+This package is developed in the
+[Atoms monorepo](https://github.com/AtomsPHP/atoms). Its standalone repository
+is a read-only distribution mirror; report issues and send pull requests to
+the monorepo. Full documentation is at
+[docs.atomsphp.dev](https://docs.atomsphp.dev). Licensed under the
+[MIT License](LICENSE).

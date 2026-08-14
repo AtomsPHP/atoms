@@ -26,10 +26,9 @@ for us to patch on your behalf.
 
 ## Supported versions
 
-Pre-1.0. There are no tagged releases, and none of the packages are published
-to Packagist. **Only the default branch is supported.** Fixes land there; they
-are not backported anywhere, because there is nowhere to backport them to.
-This section will be replaced when the first release is cut.
+Atoms is pre-1.0. The latest tagged 0.1.x release and the default branch are
+supported; fixes land on the default branch first. Before `v0.1.0` exists,
+only the default branch is supported.
 
 ## What is in scope
 

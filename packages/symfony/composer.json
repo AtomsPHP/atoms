@@ -3,6 +3,12 @@
     "description": "Symfony bundle for Atoms: AtomsClient, the inbound callback stack, PSR-17/18 resolution, a Messenger queue bridge, and console wrappers around the atoms binary.",
     "version": "0.1.0",
     "license": "MIT",
+    "homepage": "https://atomsphp.dev",
+    "support": {
+        "docs": "https://docs.atomsphp.dev",
+        "issues": "https://github.com/AtomsPHP/atoms/issues",
+        "source": "https://github.com/AtomsPHP/atoms"
+    },
     "type": "symfony-bundle",
     "keywords": ["atoms", "symfony"],
     "require": {

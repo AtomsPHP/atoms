@@ -3,6 +3,12 @@
     "description": "The `atoms` command-line tool: init, make, validate, build (closure walk + scoper), deploy, rollback, local, ai:install.",
     "version": "0.1.0",
     "license": "MIT",
+    "homepage": "https://atomsphp.dev",
+    "support": {
+        "docs": "https://docs.atomsphp.dev",
+        "issues": "https://github.com/AtomsPHP/atoms/issues",
+        "source": "https://github.com/AtomsPHP/atoms"
+    },
     "type": "library",
     "keywords": [
         "atoms",
