@@ -174,7 +174,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PACKAGE_VERSION: ${{ needs.preflight.outputs.version }}
-        run: npm publish "dist/atomsphp-runtime-cloudflare-${PACKAGE_VERSION}.tgz" --access public --provenance
+        run: npm publish "./dist/atomsphp-runtime-cloudflare-${PACKAGE_VERSION}.tgz" --access public --provenance
 
   sync-mirrors:
     if: >-
