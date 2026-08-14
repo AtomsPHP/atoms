@@ -34,7 +34,10 @@ Authorization: Bearer {ATOMS_APP_KEY}   # only when that var is set
 
 **The client moved.** The `/v1/{customer}` prefix is gone from
 `AtomsClient`, `AtomsClient::destroy()` and `TicketClient`, and
-`AtomsConfig::$customer` is deleted.
+`AtomsConfig::$customer` is deleted. (`TicketClient` was a sketch when this
+decision was recorded; as of M4 the Worker implements
+`POST /tickets/{type}/{id}` and the client is real — see "The bearer key is
+the server-to-server credential" below.)
 
 The prefix existed to route a multi-tenant edge to one customer's Machines. The
 Worker is single-tenant by construction: it *is* the customer's deployment,
@@ -71,6 +74,25 @@ neither case what the operator believed was deployed. Failing at construction
 turns a silent misconfiguration into a startup error.
 
 `null` has to be typed out. It cannot be arrived at by accident.
+
+### The bearer key is the server-to-server credential; browsers use tickets
+
+A browser's `new WebSocket(url)` cannot set an `Authorization` header, and
+`checkAuth` covers every route — so before M4, any deployment that wanted
+browser WebSockets had to run with `ATOMS_APP_KEY` unset, which left
+`/invoke` open too. M4 closes that: the application's server calls
+`Atoms\Client\Tickets\TicketClient::acquire($type, $id, $claims)` →
+`POST /tickets/{type}/{id}` (bearer-gated), and hands the short-TTL,
+single-use, atom-scoped ticket to the browser, which presents it as
+`?ticket=` on the `/ws` upgrade. Claims minted by the server merge over the
+browser's query params (server wins), so `onConnect` code reading
+`$params['client_id']` gets a host-asserted value the browser cannot forge.
+When `ATOMS_APP_KEY` is unset the mint route still answers with **unsigned
+dev tickets** (`v1u.`), verified for everything but the signature, so
+browser code paths are identical in local dev and production. The binding
+details — format, HKDF key derivation from `ATOMS_APP_KEY`, validation
+order, single-use enforcement — live in `cloudflare/docs/mvp-spec.md`
+§Routing and auth.
 
 ## 2. How a PHP CLI drives Wrangler: a pinned local binary, never `npx`
 

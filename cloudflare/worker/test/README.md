@@ -4,7 +4,7 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 
 ## Tests
 
-`conformance.mjs` runs 30 checks against a live worker URL:
+`conformance.mjs` runs 38 checks against a live worker URL:
 
 1. **healthz** — `/healthz` endpoint responds
 2. **invoke + result envelope** — HTTP interface returns correct shape
@@ -36,6 +36,14 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 28. **pdo differential matrix** — ~160 cases, the SAME closure run against `AtomsPDO` and the check-27 comparator, classified and checked against the committed pin file `pdo-expected.json` in both directions (every observed difference must be pinned with exactly that class; every pin must be observed with exactly that class — the direction that catches a comparator that quietly became `AtomsPDO` itself), plus anti-vacuous floors and a hard zero on harness-breakage cases
 29. **sql result caps** — with `ATOMS_SQL_MAX_ROWS`/`ATOMS_SQL_MAX_RESULT_BYTES` set on both the Worker and the runner (matching, never defaulted, same pattern as check 15's turn deadline): one row under the row cap succeeds exactly, **exactly at the row cap also succeeds** (M1 review F-15 — verified against `bridge.js`'s actual code: the cap check runs before push, at the top of each loop iteration, so the loop simply ends once `sqlMaxRows` rows have been pushed and is never re-entered to trip the check; the at-cap row is not rejected, only the first row past it is), one row over fails `sql_result_too_large` with `cap:'rows'` (asserted primarily from `BridgeSqlException::getDetail()['cap']`, M1 review F-14 — this used to be readable only by parsing the message text, because the detail object was silently dropped in `SqlBridge::failure()` before ever reaching PHP; the message-text check is kept as a secondary assertion), a result well under the row cap but over the byte cap fails with `cap:'bytes'` (same primary/secondary assertion, proving the caps are independent), **run mode (`PDO::exec()`, which discards rows) is exercised directly and must succeed even for a statement that would generate far more than the row cap in rows mode** (M1 review F-15 — `bridge.js`'s `mode !== 'rows'` branch drains and discards without any cap check at all, verified directly rather than only documented), and the residency survives both failures
 30. **pdo compatibility doc is current** — re-uses check 28's report, byte-compares a fresh render (`scripts/gen-pdo-matrix.mjs`, a pure function) against the committed `cloudflare/docs/pdo-compatibility.md`; a mismatch fails naming the first differing line and the regeneration command. If check 28 produced no report, this FAILS rather than skips
+31. **connection tickets: mint + headerless connect** — `POST /tickets/Room/:id` returns the envelope (`v1.` 3-segment signed under auth-on, `v1u.` unsigned dev form under auth-off, sane `expires_at`, atom echo); a completely headerless upgrade carrying the ticket connects the way a browser would, the ticket's `client_id` claim overrides the spoofed query param (server wins), the reserved `ticket` key is never delivered to `onConnect`, and a URL at exactly the documented default `ATOMS_WS_MAX_PARAMS` plus the ticket still opens (the ticket is outside the param budgets)
+32. **mint validation** — non-string claim values, claims over the cap, and the reserved `ticket`/`channels` claim keys are `invalid_request`; minting for a `websocket: false` type is `not_supported` and for an unknown type `unknown_atom_type` (the same refusals `/ws` gives — no ticket exists that the upgrade would then refuse); wrong method/arity are 405/400
+33. **edge refusals** — garbage and wrong-atom-scoped tickets are 401 `ticket_invalid`; a hand-forged, already-expired `v1u.` dev ticket (forgeable by design — that is what makes expiry testable with no TTL wait) is `ticket_expired` under auth-off and `ticket_invalid` under auth-on, all before any DO is addressed
+34. **single-use** — after one successful connect, replaying the identical upgrade is 401 `ticket_used` and no socket; enforced for unsigned dev tickets too, which is why this runs in the default auth-off posture. When the runner knows a *positive* `ATOMS_WS_TICKET_SKEW_MS` matching the Worker's (the auth-on CI run does), an extra leg replays *after* `exp` but *inside* the skew allowance and still demands `ticket_used` — pinning that the claim row's GC threshold is the edge's `exp + skew` acceptance boundary, so the GC can never delete a row while the edge still accepts the ticket and thereby resurrect a burned jti
+35. **auth-on minting** — a headerless mint is 401 `unauthenticated` (a ticket cannot mint a ticket, and neither can nothing); the authed mint's signed ticket then admits a headerless browser-style upgrade with its claims merged
+36. **auth-on refusals** — a tampered signature and a forged `v1u.` dev ticket are both `ticket_invalid` (unsigned tickets are not credentials where a key is set); no credential at all is `unauthenticated`; and a genuinely expired *signed* ticket, waited out for real, is `ticket_expired` (this leg needs `ATOMS_WS_TICKET_SKEW_MS` in the runner env and a Worker started with a short `ATOMS_WS_TICKET_TTL_MS`)
+37. **credential precedence** — an upgrade carrying both a valid bearer and a ticket succeeds via the bearer, and the same ticket is still usable afterwards on a headerless upgrade: the bearer path strips it unverified and unconsumed
+38. **routing regression guard** — with auth on, a headerless `POST /invoke` and `GET /debug` are still 401: the `/ws` ticket carve-out leaked into no other route
 
 Checks 13–17 need the suite's own in-process callback listener (see below) and
 **skip** (never fail) when it is not configured — for example, when running
@@ -49,7 +57,12 @@ no such gate; they always run. Check 29 has its own, independent gate: it
 skips when `ATOMS_SQL_MAX_ROWS`/`ATOMS_SQL_MAX_RESULT_BYTES` are not set in the
 runner's own environment, and `ATOMS_REQUIRE_SQL_CAP_CHECKS=1` turns that skip
 into a failure, same device, separate flag. Check 30 never skips — a stale doc
-is not excused by a missing run.
+is not excused by a missing run. Checks 35–38 skip when `ATOMS_APP_KEY` is not
+set on both the Worker and the runner (31–34 run in either posture, thanks to
+the unsigned dev-ticket design); `ATOMS_REQUIRE_TICKET_CHECKS=1` turns any
+ticket-check skip into a failure, and CI's auth-enabled second run sets it.
+That second run uses `ATOMS_ONLY=2,35,36,37,38` — a comma-separated allowlist,
+the complement of `ATOMS_SKIP` — so it never re-pays the eviction waits.
 
 ## Running Locally
 

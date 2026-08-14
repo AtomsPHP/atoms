@@ -668,33 +668,150 @@ cloudflare/worker/
 - `GET /ws/:type/:id?channels=a,b,c&...` `Upgrade: websocket` → `101` carrying
   `webSocket`, or `4xx/5xx {"error":{...}}` in the same envelope shape as
   `/invoke` (M2). Validated in this order, all of it in `src/index.js` before
-  any DO is addressed:
-  1. `checkAuth()` — same bearer check as every other route.
+  any DO is addressed (steps renumbered in M4 when the ticket steps landed;
+  the M2 steps themselves are unchanged):
+  1. Credential gate. A valid bearer passes exactly as on every other route,
+     and any `?ticket=` key is then stripped **unverified and unconsumed**
+     (the jti is not claimed) — a bearer holder is fully trusted and needs
+     no claims. Otherwise, when `ATOMS_APP_KEY` is set, a `ticket` query key
+     must be present (verification is step 3, once the decoded segments are
+     in hand); neither credential → `unauthenticated` (401). (M4)
   2. `request.method === 'GET'`, else `method_not_allowed`.
-  3. `Upgrade: websocket` header present, else `invalid_request`.
-  4. `validateType(type)` / `validateId(id, config)` — the same functions
+  3. Ticket verification (M4) — when step 1 engaged the ticket path, and,
+     with auth off, whenever a `ticket` key is present at all. Runs before
+     anything else looks at the request, so a caller without a valid
+     credential cannot probe which atom types are deployed. All stateless,
+     at the edge; a forged, expired or mis-scoped ticket never costs an
+     activation. In order: overall length ≤ `ATOMS_WS_TICKET_MAX_BYTES`
+     (default 8192, from `config.js`); version/format and, when
+     `ATOMS_APP_KEY` is set, the HMAC-SHA256 signature — failure, or a
+     `v1u.` unsigned dev ticket presented to an auth-on deployment, is
+     `ticket_invalid` (401); payload shape (`ticket_invalid`); scope —
+     payload `t`/`i` must equal the decoded path `:type`/`:id`
+     (`ticket_invalid`); expiry — refused when
+     `now > exp + ATOMS_WS_TICKET_SKEW_MS` (default 5000) →
+     `ticket_expired` (401). With auth off the same checks run minus the
+     signature (`v1` and `v1u` both parse). A repeated `ticket` key: last
+     occurrence wins, matching the param map's repeat rule.
+  4. `Upgrade: websocket` header present, else `invalid_request`.
+  5. `validateType(type)` / `validateId(id, config)` — the same functions
      `/invoke` uses, so the id caps and the control-character/`\n`
      DO-name-collision guard are shared, not re-implemented.
-  5. `checkManifest(type)` → `unknown_atom_type` (404).
-  6. The manifest entry's `websocket` flag: explicit `false` → `not_supported`
+  6. `checkManifest(type)` → `unknown_atom_type` (404).
+  7. The manifest entry's `websocket` flag: explicit `false` → `not_supported`
      (501), naming the type; absent or `true` → allowed.
-  7. Parse and validate `?channels=` and the rest of the query string (caps
-     from `config.js`) — see §The WebSocket seam.
-  8. Forward to the DO: `index.js` cannot use the JSON envelope every other
+  8. Parse and validate `?channels=` and the rest of the query string (caps
+     from `config.js`) — see §The WebSocket seam. `ticket` is a **reserved
+     query key** (M4): stripped before the param map is built, excluded from
+     the `ATOMS_WS_MAX_PARAMS` count and the `ATOMS_WS_MAX_PARAM_BYTES`
+     total, never delivered to `onConnect`. A verified ticket's `claims` are
+     then merged **over** the query params — server wins — to form the map
+     `onConnect` receives; the merged map may exceed `ATOMS_WS_MAX_PARAMS`
+     by up to `ATOMS_WS_TICKET_MAX_CLAIMS`, bounded at mint, not re-checked
+     here.
+  9. Forward to the DO: `index.js` cannot use the JSON envelope every other
      route uses (`callDurableObject()`) because an upgrade needs the real
      `Request`/`Response` pair for workerd to hand back a `webSocket`, so it
      builds `stub.fetch(new Request('https://atoms.internal/ws?call=' +
      encodeURIComponent(JSON.stringify({type, id, params, channels})),
      request))` — `new Request(url, request)` preserves the method and headers
-     (including `Upgrade`) from the original request.
-  **Auth posture:** the bearer header is required exactly like every other
-  route when `ATOMS_APP_KEY` is set — no query-parameter credential, no
-  `Sec-WebSocket-Protocol` smuggling. A browser's `new WebSocket(url)` cannot
-  set an `Authorization` header; that is a **known gap**, not worked around.
-  The designated future answer is `Atoms\Client\Tickets\TicketClient`
-  (`POST /tickets/{type}/{id}` → a short-lived ticket), already sketched in
-  `packages/client/` and explicitly **not implemented** by any Worker route in
-  M2.
+     (including `Upgrade`) from the original request. When a presented ticket
+     was verified (every case except the bearer-strip in step 1), the `call`
+     blob additionally carries `ticket: {"jti": ..., "exp": ...}` and the DO
+     claims the jti — **single-use** — inside the serialized turn, after
+     `ensureActive()` and before `acceptWebSocket()`; a replayed jti →
+     `ticket_used` (401) in the DO's own envelope, and no socket. The claim
+     table (`__atoms_ws_tickets`, host-owned under the reserved `__atoms_`
+     prefix, expired rows GC'd on each claim) is durable SQLite, so replay
+     protection survives eviction and hibernation. The claim row's recorded
+     lifetime is `exp + ATOMS_WS_TICKET_SKEW_MS` — the edge's acceptance
+     boundary, not the ticket's bare `exp` — so the GC can never delete a
+     row while step 3 would still accept the ticket; with the bare `exp`, a
+     replay landing after `exp` but inside the skew allowance would GC the
+     row and re-claim the burned jti. A replayed ticket can
+     therefore cost one activation before refusal — accepted: replay
+     protection inherently needs state, and everything stateless was already
+     refused at the edge in step 3.
+  **Auth posture:** the bearer header works exactly like every other route
+  when `ATOMS_APP_KEY` is set, and remains the only credential for
+  server-to-server clients — no `Sec-WebSocket-Protocol` smuggling, and on
+  every route except `/ws` still no query-parameter credential of any kind.
+  A browser's `new WebSocket(url)` cannot set an `Authorization` header;
+  through M3 that was a **known gap**, not worked around, with
+  `Atoms\Client\Tickets\TicketClient` (`POST /tickets/{type}/{id}` → a
+  short-lived ticket) sketched in `packages/client/` as the designated
+  answer. M4 closes the gap as designed: the mint route below issues a
+  short-TTL, single-use, HMAC-signed ticket scoped to exactly one atom,
+  presented as `?ticket=` on the upgrade — the one deliberate exception to
+  "no query-string credential", defensible precisely because the ticket is
+  everything the shared bearer key is not: seconds-lived, consumed on first
+  presentation, bound to one `{type, id}`, and revoked wholesale by rotating
+  `ATOMS_APP_KEY`. Tickets are never *required*: a bearer keeps working on
+  `/ws` unchanged. With auth off the mint route still answers, returning
+  **unsigned dev tickets** (`v1u.`) so browser code paths are identical
+  between local dev and production — an unsigned ticket is not a credential
+  and confers no protection; an auth-off deployment is open by design.
+- `POST /tickets/:type/:id` body `{"claims": {...}}` (optional; flat
+  string→string map) → `200 {"ticket": "...", "expires_at": <epoch-ms>,
+  "atom": {"type": ..., "id": ...}}` or `4xx/5xx` in the standard error
+  envelope (M4). The mint half of the connection-ticket flow: the
+  application's server — which holds the bearer key and is the only party
+  that knows who the user is — mints here, hands the ticket to the browser,
+  and the browser presents it on `/ws`. Validated in this order, all in
+  `src/index.js`; **no DO is ever addressed** (minting is stateless):
+  1. `checkAuth()` — the same pre-dispatch bearer gate as `/invoke`. This
+     route is never ticket-exempt: a ticket cannot mint a ticket.
+  2. `request.method === 'POST'`, else `method_not_allowed`; three path
+     segments, else `invalid_request`.
+  3. `validateType` / `validateId` / `checkManifest` / the manifest
+     `websocket === false` refusal — the same four refusals `/ws` gives,
+     shared code, so a ticket is never mintable for a connection `/ws`
+     would refuse.
+  4. Body, if non-empty: a JSON object; its `claims`, if present, a flat
+     own-property string→string map with at most
+     `ATOMS_WS_TICKET_MAX_CLAIMS` (default 16) entries and
+     `ATOMS_WS_TICKET_MAX_CLAIM_BYTES` (default 2048) total UTF-8 bytes
+     over keys plus values. Claim keys `ticket` and `channels` are reserved
+     (`channels` as a claim would desync the delivered params from actual
+     channel membership, which is fixed from the query string) →
+     `invalid_request`.
+  5. Mint. Payload `{"t": type, "i": id, "exp": now + ATOMS_WS_TICKET_TTL_MS
+     (default 60000), "jti": <128-bit random hex>, "claims": {...}}`. With
+     `ATOMS_APP_KEY` set the ticket is
+     `v1.<base64url(payload)>.<base64url(sig)>`, sig = HMAC-SHA256 over
+     `"v1\n" + base64url(payload)` with a key derived from `ATOMS_APP_KEY`
+     via HKDF-SHA256 (empty salt, info string `atoms/ws-ticket/v1` — a
+     protocol constant, the same category as `WS_ATTACHMENT_VERSION`),
+     imported non-extractable and memoized per isolate. Rotating
+     `ATOMS_APP_KEY` therefore invalidates every outstanding ticket —
+     intended; tickets live seconds. With auth off: the unsigned dev form
+     `v1u.<base64url(payload)>`, same payload, and `/ws` runs the same
+     keyless checks on it — expiry, scope, claims merge, single-use — so
+     dev and production behave identically except for the signature.
+
+  Claims are the server-asserted identity channel: values the application
+  binds at mint (a `client_id`, a role, a seat) reach `onConnect` as
+  ordinary params but cannot be forged or overridden by the browser, which
+  is what makes existing `$params['client_id']` reads trustworthy without
+  app-code changes. A worst-case ticket (2048 claim bytes) is ≈3KB in the
+  URL, excluded from the param budgets. Client contract: on **any**
+  connection failure, mint a fresh ticket — a used ticket is never retried.
+  Stated plainly because the error taxonomy above might suggest otherwise: a
+  browser **cannot read** the HTTP status or body of a failed WebSocket
+  upgrade (`new WebSocket()` surfaces only an opaque `error` event and a
+  1006 close), so `ticket_invalid`, `ticket_expired` and `ticket_used` all
+  look identical from the browser — the distinct codes exist for logs,
+  server-side probes and non-browser clients, and the only correct browser
+  behavior is the unconditional re-mint;
+  reconnect = re-mint through the application, which is also where
+  rate-limiting the mint path belongs. Tickets authorize connection
+  establishment only; resume/redelivery tokens are a separate future
+  contract this does not foreclose. Config, resolved in `config.js` like
+  every other cap: `ATOMS_WS_TICKET_TTL_MS` (default 60000),
+  `ATOMS_WS_TICKET_SKEW_MS` (default 5000), `ATOMS_WS_TICKET_MAX_CLAIMS`
+  (default 16), `ATOMS_WS_TICKET_MAX_CLAIM_BYTES` (default 2048),
+  `ATOMS_WS_TICKET_MAX_BYTES` (default 8192). None is a secret; the signing
+  key is derived, never stored.
 
 DO identity: `idFromName(type + "\n" + id)`. Atom type must exist in the
 bundle manifest before any DO is touched. Method-name validation happens
@@ -741,8 +858,10 @@ in PHP against the manifest.
 `url.pathname === '/ws'` before it ever reads a JSON body (an upgrade has
 none), and runs the whole accept as one unit on the turn mutex
 (`this.enqueue()`): run the **same** `ensureActive()` activation gate `fetch()`
-uses; mint `connId = crypto.randomUUID()` and the `{v,id,ch}` attachment
-host-side; `ctx.acceptWebSocket(server, tags)`, then
+uses; claim the connection ticket's jti when the `call` blob carries one (M4 —
+single-use, `__atoms_ws_tickets`, replay → `ticket_used` and no socket; see
+§Routing and auth step 9); mint `connId = crypto.randomUUID()` and the
+`{v,id,ch}` attachment host-side; `ctx.acceptWebSocket(server, tags)`, then
 `server.serializeAttachment(attachment)`, then memoize the socket — in that
 order, so a frame arriving the instant after accept still finds a readable
 attachment; dispatch the `ws.connect` turn (`onConnect`); return the `101`
@@ -902,7 +1021,11 @@ never rewritten:
 - `ch` — the channel names this connection joined, in accepted order,
   already validated and de-duplicated.
 
-Nothing else — no `params`, no atom type/id, no timestamps, and the hard
+Nothing else — no `params`, no atom type/id, no timestamps, **no connection
+ticket and no ticket claims** (M4: the ticket authorizes the *handshake*; its
+claims are delivered once, in the `ws.connect` turn's params, and a
+hibernation wake neither re-verifies a ticket nor re-reads claims — ticket
+expiry never terminates an established connection), and the hard
 rule: **nothing derived from guest memory.** This is stated as the
 correctness rule it is, not a style preference: after a wake the guest is a
 *fresh interpreter* (a new `php.run()`, MEMFS rebuilt), so every PHP pointer,
@@ -946,7 +1069,11 @@ attachment check as defence in depth — it is the side that actually calls
 
 Channels are **fixed at connect time** from one query parameter,
 `?channels=a,b,c` (comma-separated, validated and de-duplicated in
-`index.js`). There is no join/leave API: the frozen `Connection` interface has
+`index.js`). The params map `onConnect` receives is every query key as sent —
+**except the reserved `ticket` key** (M4), which is stripped before the map is
+built, excluded from both param budgets, and never delivered to PHP; a
+verified ticket's claims are merged over the map, server wins (§Routing and
+auth step 8). There is no join/leave API: the frozen `Connection` interface has
 exactly `id()`, `send()`, `close()`, and none of them gained a method. Each
 channel becomes a tag `ATOMS_WS_CHANNEL_TAG_PREFIX + name` (default `"ch:"`);
 the connection itself gets one more tag, `ATOMS_WS_CONN_TAG_PREFIX + connId`
@@ -1224,10 +1351,16 @@ See `docs/cloudflare-toolchain.md` §3.
 ## Conformance suite
 
 `test/conformance.mjs` runs against any base URL (`ATOMS_BASE_URL`), so the
-same suite runs against `wrangler dev` and the deployed Worker. It is 30
+same suite runs against `wrangler dev` and the deployed Worker. It is 38
 checks: the original 12 (1–12, untouched, not renumbered, not weakened) plus
 13 more added across M2's three waves and its review round, plus 5 more added
-by M1's PDO surface honesty pass.
+by M1's PDO surface honesty pass, plus 8 more (31–38) added by M4's
+connection-ticket work — 31–34 run in either posture (the unsigned
+dev-ticket design makes mint, claims-merge, scope/expiry refusals and
+single-use observable with no key at all), 35–38 need `ATOMS_APP_KEY` set on
+both the Worker and the runner and otherwise skip
+(`ATOMS_REQUIRE_TICKET_CHECKS=1` turns those skips into failures, the same
+anti-silent-deletion device as the callback checks).
 
 1. healthz; 2. invoke + result envelope; 3. warm-residency (in-memory counter
 increments across turns); 4. isolation between two IDs; 5. migrations applied
@@ -1384,6 +1517,52 @@ no filesystem) is byte-compared against the committed
 differing line and the regeneration command. If check 28 produced no report at
 all, this **fails rather than skips** — a stale doc is never excused by a
 missing run.
+
+**31–38 — connection tickets (M4).** **31.** the happy path, both postures:
+mint (with the bearer when the runner has a key, without when not) → 200 with
+a sane `expires_at` and a ticket whose prefix matches the posture (`v1.`
+3-segment signed under auth-on, `v1u.` unsigned dev under auth-off); a
+**headerless** upgrade carrying `?ticket=` plus a spoofed
+`client_id` query param opens, and the params echoed by the fixture show the
+ticket claim winning (server-asserted `client_id`, not the spoofed one) and
+**no `ticket` key at all**; a URL carrying exactly `ATOMS_WS_MAX_PARAMS`
+params *plus* the ticket still opens (the reserved key is outside the
+budgets). **32.** mint validation: non-string claim values, more than
+`ATOMS_WS_TICKET_MAX_CLAIMS` entries, and the reserved `channels`/`ticket`
+claim keys → `invalid_request`; a `websocket: false` type → `not_supported`;
+an unknown type → `unknown_atom_type`; wrong method/arity → 405/400.
+**33.** edge refusals, asserted as the JSON error envelope on the refused
+upgrade: structural garbage → `ticket_invalid`; a ticket minted for atom A
+presented on atom B → `ticket_invalid`; a hand-forged, already-expired `v1u.`
+dev ticket — forgeable by design, which is what makes expiry testable with no
+TTL wait — → `ticket_expired` under auth-off, and `ticket_invalid` under
+auth-on (the forgery is refused before its `exp` is even read).
+**34.** single-use: connect once on a ticket, present the same ticket again →
+`ticket_used`, no socket; and — when the runner knows a **positive**
+`ATOMS_WS_TICKET_SKEW_MS` matching the Worker's and the TTL is short enough to
+wait out — a replay landing *after* `exp` but *inside* the skew allowance is
+still `ticket_used`, pinning that the claim row's GC threshold is the edge's
+`exp + skew` acceptance boundary and can never resurrect a burned jti (the
+auth-on CI run is configured for exactly this posture). **35.** auth-on minting: a headerless mint → 401
+`unauthenticated` (minting is never ticket-exempt); an authed mint → a
+3-segment `v1.` ticket; then the flagship assertion — a **headerless**
+browser-style upgrade with that ticket opens, claims merged. **36.** auth-on
+refusals: one flipped character in the signature segment → `ticket_invalid`; a
+forged `v1u.` dev ticket → `ticket_invalid` (unsigned tickets are not
+credentials); no bearer and no ticket → `unauthenticated`; and a genuinely
+expired **signed** ticket → `ticket_expired`, waited out for real — this leg
+needs `ATOMS_WS_TICKET_SKEW_MS` in the runner's own environment (matching the
+Worker's, never defaulted — the check-15/29 pattern) and a Worker started
+with a short `ATOMS_WS_TICKET_TTL_MS`, else it skips. **37.** bearer
+precedence: an upgrade carrying **both** a valid bearer and a ticket succeeds,
+and the same ticket is still usable afterwards on a headerless upgrade — the
+bearer path strips it unverified and unconsumed. **38.** the routing
+regression guard: with auth on, a headerless `POST /invoke` and `GET /debug`
+are still 401 — the `/ws` ticket carve-out leaked into no other route.
+**31–34 run whether or not `ATOMS_APP_KEY` is set** (they exercise signed
+tickets under auth-on and unsigned dev tickets under auth-off — same checks,
+both postures); 35–38 skip without a key, and
+`ATOMS_REQUIRE_TICKET_CHECKS=1` turns any ticket-check skip into a failure.
 
 Remote-only additions: measure cold activation, warm turn, and
 post-hibernation wake latencies; record them in `test/results/remote.json`.

@@ -8,6 +8,11 @@
  *        -> 4xx/5xx {"error":{"code","message","retryable"}}
  *   GET  /healthz                    -> {"ok":true}, never touches a DO
  *   GET  /debug/:type/:id/info       -> residency info, ATOMS_DEBUG_ENDPOINTS=1 only
+ *   GET  /ws/:type/:id               -> WebSocket upgrade; bearer OR a `?ticket=`
+ *                                       from POST /tickets (browsers cannot set
+ *                                       an Authorization header)
+ *   POST /tickets/:type/:id          body {"claims":{...}} (optional)
+ *        -> 200 {"ticket":..., "expires_at":..., "atom":{...}}, never touches a DO
  *
  * This is the invoke contract. `atoms/client` calls it directly; the
  * `/v1/{customer}` prefix it used to send is gone, because the Worker is
@@ -23,6 +28,7 @@ import bundle from './bundle.generated.js';
 import { loadConfig } from './config.js';
 import { AtomsError, normalizeError, retryableFor, statusFor } from './errors.js';
 import { decodeInt64Deep } from './int64.js';
+import { mintTicket, validateClaims, verifyTicket } from './tickets.js';
 import { WS_CONN_ID_PLACEHOLDER, attachmentByteLength, buildAttachment } from './websockets.js';
 
 export { AtomDurableObject } from './atom-do.js';
@@ -102,7 +108,15 @@ async function route(request, env) {
 	}
 
 	const authFailure = checkAuth(request, config);
-	if (authFailure) return authFailure;
+	// /ws accepts a second credential: a connection ticket in the query string
+	// (spec §Routing and auth), because a browser's `new WebSocket(url)` cannot
+	// set an Authorization header. When the bearer check failed AND a ticket
+	// key is present, the decision is deferred to wsUpgrade()'s stateless
+	// ticket verification instead of refusing here. Every other route —
+	// /tickets included, a ticket cannot mint a ticket — keeps the
+	// pre-dispatch gate exactly as before.
+	const wsTicketCandidate = parts[0] === 'ws' && url.searchParams.has('ticket');
+	if (authFailure && !wsTicketCandidate) return authFailure;
 
 	if (parts[0] === 'invoke') {
 		if (request.method !== 'POST') {
@@ -127,6 +141,16 @@ async function route(request, env) {
 		return debugInfo(env, config, decodeSeg(parts[1]), decodeSeg(parts[2]));
 	}
 
+	if (parts[0] === 'tickets') {
+		if (request.method !== 'POST') {
+			return errorResponse('method_not_allowed', 'POST /tickets/:type/:id');
+		}
+		if (parts.length !== 3) {
+			return errorResponse('invalid_request', 'expected /tickets/:type/:id');
+		}
+		return mintTicketRoute(request, config, decodeSeg(parts[1]), decodeSeg(parts[2]));
+	}
+
 	if (parts[0] === 'ws') {
 		if (request.method !== 'GET') {
 			return errorResponse('method_not_allowed', 'GET /ws/:type/:id');
@@ -134,7 +158,7 @@ async function route(request, env) {
 		if (parts.length !== 3) {
 			return errorResponse('invalid_request', 'expected /ws/:type/:id');
 		}
-		return wsUpgrade(request, env, config, url, decodeSeg(parts[1]), decodeSeg(parts[2]));
+		return wsUpgrade(request, env, config, url, decodeSeg(parts[1]), decodeSeg(parts[2]), authFailure === null);
 	}
 
 	return errorResponse('not_found', `no route for ${request.method} ${url.pathname}`);
@@ -304,9 +328,31 @@ async function debugInfo(env, config, type, id) {
  * @param {URL} url
  * @param {string} type
  * @param {string} id
+ * @param {boolean} bearerOk whether checkAuth() passed in route()
  * @returns {Promise<Response>}
  */
-async function wsUpgrade(request, env, config, url, type, id) {
+async function wsUpgrade(request, env, config, url, type, id, bearerOk) {
+	// Ticket verification runs before anything else looks at the request
+	// (spec §Routing and auth step 3): a caller without a valid credential
+	// must not be able to probe which atom types are deployed, so the
+	// unknown_atom_type refusal below is reachable only with a verified
+	// ticket, a valid bearer, or auth off. Three postures:
+	//   - valid bearer under auth-on: any ticket is stripped unverified and
+	//     unconsumed (a bearer holder is fully trusted and needs no claims);
+	//   - auth on, bearer absent/invalid: route() only let this through
+	//     because a ticket key is present — verify it, signature included;
+	//   - auth off: a present ticket still gets every keyless check (and is
+	//     consumed), so dev behaves like production minus the signature.
+	/** @type {{claims: Record<string, string>, jti: string, exp: number}|null} */
+	let verified = null;
+	if (!(config.appKey && bearerOk)) {
+		const tickets = url.searchParams.getAll('ticket');
+		if (tickets.length > 0) {
+			// Last occurrence wins, matching parseWsParams's repeat-key rule.
+			verified = await verifyTicket(config, tickets[tickets.length - 1], type, id, Date.now());
+		}
+	}
+
 	const upgradeHeader = (request.headers.get('upgrade') ?? '').toLowerCase();
 	if (upgradeHeader !== 'websocket') {
 		return errorResponse('invalid_request', 'expected "Upgrade: websocket"');
@@ -315,6 +361,51 @@ async function wsUpgrade(request, env, config, url, type, id) {
 	validateType(type);
 	validateId(id, config);
 
+	const eligibilityFailure = checkWsEligibility(type);
+	if (eligibilityFailure) return eligibilityFailure;
+
+	const params = parseWsParams(url, config);
+	// Ticket claims merge OVER the browser's params — server wins — so a
+	// claim like client_id reaches onConnect as an ordinary param the browser
+	// cannot forge or override. `channels` can never be a claim (refused at
+	// mint, refused again in verifyTicket), so channel membership always
+	// comes from the query string. Null prototype preserved from both sides.
+	const merged = Object.assign(Object.create(null), params, verified ? verified.claims : {});
+	const channels = parseWsChannels(merged.channels, config);
+	assertWsAcceptBudgets(channels, config);
+
+	const ns = env.ATOMS;
+	if (!ns || typeof ns.idFromName !== 'function') {
+		throw new AtomsError('internal', 'the ATOMS Durable Object binding is not configured');
+	}
+	const stub = ns.get(ns.idFromName(`${type}\n${id}`));
+
+	// Everything the DO needs that is NOT already on the forwarded Request
+	// (method, headers including Upgrade) crosses in one `call` query key,
+	// which cannot collide with the client's own params — those were
+	// re-encoded inside it, not merged with it. A verified ticket adds its
+	// {jti, exp} so the DO can claim the jti (single-use) inside the turn.
+	const call = encodeURIComponent(
+		JSON.stringify({
+			type,
+			id,
+			params: merged,
+			channels,
+			...(verified ? { ticket: { jti: verified.jti, exp: verified.exp } } : {}),
+		})
+	);
+	return stub.fetch(new Request(`https://atoms.internal/ws?call=${call}`, request));
+}
+
+/**
+ * The two manifest refusals `/ws` and `/tickets` share: an unknown type, and
+ * a type that declares no WebSocket handler. One implementation, so a ticket
+ * can never be minted for a connection the upgrade would refuse.
+ *
+ * @param {string} type
+ * @returns {Response|null}
+ */
+function checkWsEligibility(type) {
 	const manifestFailure = checkManifest(type);
 	if (manifestFailure) return manifestFailure;
 
@@ -327,23 +418,57 @@ async function wsUpgrade(request, env, config, url, type, id) {
 			`atom type ${JSON.stringify(type)} does not declare a WebSocket handler ("websocket": false in the manifest)`
 		);
 	}
+	return null;
+}
 
-	const params = parseWsParams(url, config);
-	const channels = parseWsChannels(params.channels, config);
-	assertWsAcceptBudgets(channels, config);
+/**
+ * `POST /tickets/:type/:id` — mint a connection ticket (spec §Routing and
+ * auth). Behind the same pre-dispatch bearer gate as `/invoke`; with auth off
+ * it mints the unsigned dev form so browser code paths are identical in local
+ * dev. Minting is stateless: no DO is ever addressed.
+ *
+ * @param {Request} request
+ * @param {import('./config.js').AtomsConfig} config
+ * @param {string} type
+ * @param {string} id
+ * @returns {Promise<Response>}
+ */
+async function mintTicketRoute(request, config, type, id) {
+	validateType(type);
+	validateId(id, config);
 
-	const ns = env.ATOMS;
-	if (!ns || typeof ns.idFromName !== 'function') {
-		throw new AtomsError('internal', 'the ATOMS Durable Object binding is not configured');
+	const eligibilityFailure = checkWsEligibility(type);
+	if (eligibilityFailure) return eligibilityFailure;
+
+	const declared = Number(request.headers.get('content-length') ?? '0');
+	if (Number.isFinite(declared) && declared > config.maxRequestBytes) {
+		return errorResponse('payload_too_large', `body exceeds ATOMS_MAX_REQUEST_BYTES (${config.maxRequestBytes})`);
 	}
-	const stub = ns.get(ns.idFromName(`${type}\n${id}`));
 
-	// Everything the DO needs that is NOT already on the forwarded Request
-	// (method, headers including Upgrade) crosses in one `call` query key,
-	// which cannot collide with the client's own params — those were
-	// re-encoded inside it, not merged with it.
-	const call = encodeURIComponent(JSON.stringify({ type, id, params, channels }));
-	return stub.fetch(new Request(`https://atoms.internal/ws?call=${call}`, request));
+	const raw = await request.text();
+	if (raw.length > config.maxRequestBytes) {
+		return errorResponse('payload_too_large', `body exceeds ATOMS_MAX_REQUEST_BYTES (${config.maxRequestBytes})`);
+	}
+
+	/** @type {unknown} */
+	let claimsRaw;
+	if (raw.trim() !== '') {
+		/** @type {any} */
+		let body;
+		try {
+			body = JSON.parse(raw);
+		} catch (e) {
+			return errorResponse('invalid_request', `request body is not valid JSON: ${String(e)}`);
+		}
+		if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+			return errorResponse('invalid_request', 'request body must be a JSON object');
+		}
+		claimsRaw = body.claims;
+	}
+
+	const claims = validateClaims(claimsRaw, config);
+	const minted = await mintTicket(config, type, id, claims, Date.now());
+	return json({ ticket: minted.ticket, expires_at: minted.expiresAt, atom: { type, id } });
 }
 
 /** Channel name format: `^[A-Za-z0-9][A-Za-z0-9._:@-]*$`. */
@@ -352,7 +477,9 @@ const CHANNEL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/;
 /**
  * The flat `string -> string` map `onConnect` receives: every query key as
  * sent, last value winning for repeats (matches `URLSearchParams` iteration
- * order), `channels` included verbatim.
+ * order), `channels` included verbatim — except the reserved `ticket` key,
+ * which is the connection credential (spec §Routing and auth): stripped in
+ * every auth mode, excluded from both budgets, never delivered to PHP.
  *
  * @param {URL} url
  * @param {import('./config.js').AtomsConfig} config
@@ -369,6 +496,9 @@ function parseWsParams(url, config) {
 	const params = Object.create(null);
 	let count = 0;
 	for (const [key, value] of url.searchParams) {
+		// The strip happens before the count and before the byte total below,
+		// so a browser URL at exactly the param caps plus a ticket still fits.
+		if (key === 'ticket') continue;
 		if (!Object.prototype.hasOwnProperty.call(params, key)) count++;
 		params[key] = value;
 	}
