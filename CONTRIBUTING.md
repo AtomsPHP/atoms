@@ -1,8 +1,8 @@
 # Contributing
 
-Atoms is pre-1.0. None of the packages are published to Packagist yet, there
-are no tagged releases, and public signatures outside the frozen `atoms/core`
-ABI move without deprecation cycles. Read that as an invitation rather than a
+Atoms is pre-1.0. Release tags and Packagist are the source of truth for what
+has been published; public signatures outside the frozen `atoms/core` ABI may
+still move between minor releases. Read that as an invitation rather than a
 warning: the cost of changing the right thing is still low.
 
 Atoms is open source and self-hosted. You deploy it into your own Cloudflare
@@ -21,7 +21,7 @@ The repository is two halves that meet at the `atoms/core` ABI.
 | `action/` | The deploy GitHub Action. |
 | `docs/` | `conventions.md` (normative), `integration-plan.md` (rationale), `two-worlds.md`, `errors.md` (the error catalog), `platform/api-contract.md`. |
 | `tests/Integration/` | Cross-package tests that no single package owns. |
-| `cloudflare/` | The Worker runtime: a PHP 8.3 WebAssembly interpreter parked inside a SQLite-backed Durable Object, its binding spec in `cloudflare/docs/mvp-spec.md`, and the conformance suite. Atoms' sources here are MIT; an assembled Worker is GPL-2.0-or-later. |
+| `cloudflare/` | The Worker runtime: a PHP 8.3 WebAssembly interpreter parked inside a SQLite-backed Durable Object, its binding spec in `cloudflare/docs/mvp-spec.md`, and the conformance suite. Atoms-authored source here is MIT; upstream components retain their own licenses. |
 
 The two halves have separate toolchains and separate test commands. A change
 to the ABI usually touches both — `cloudflare/worker/php/atoms-core/` is a
@@ -76,8 +76,7 @@ Package versions are pinned at `0.1.0` and inter-package constraints at
 The PHP interpreter is not in this repository. `npm ci` fetches it from
 Playground's `@php-wasm/web-8-3` package and the `prepare` lifecycle script
 stages it into a gitignored `cloudflare/worker/.php-wasm/`, verifying its
-hashes first. That is a licensing decision as much as a size one; see
-`cloudflare/README.md`.
+hashes first; see `cloudflare/README.md`.
 
 The conformance suite needs no Cloudflare account, no API token and no
 secret. It runs entirely against `wrangler dev` on localhost.
@@ -106,11 +105,11 @@ ATOMS_BASE_URL=http://127.0.0.1:8787 node test/conformance.mjs
 Bearer auth is off when `ATOMS_APP_KEY` is unset, which is the local-dev
 posture.
 
-Twelve checks, all of which must pass. Check 12 deliberately waits out a real
-Durable Object eviction — `ATOMS_EVICTION_WAIT_MS` defaults to 12500 — so a
-full run takes a few minutes. While iterating on something unrelated to
-eviction, skip that check rather than shortening the wait; a shorter window
-does not make check 12 faster, it makes it assert nothing.
+The full suite must pass. Several checks deliberately wait out real Durable
+Object eviction, so a full run takes a few minutes. While iterating on
+something unrelated to eviction, use the suite's documented `ATOMS_SKIP`
+mechanism rather than shortening the wait; a shorter window does not make an
+eviction check faster, it makes it assert nothing.
 
 ```sh
 ATOMS_BASE_URL=http://127.0.0.1:8787 ATOMS_SKIP=12 node test/conformance.mjs
@@ -167,7 +166,7 @@ reasoning from scratch:
   updating in the same PR — do not leave them disagreeing.
 - CI must be green. One workflow (`.github/workflows/ci.yml`) covers both
   halves from one clone: the PHP suites on 8.3 and 8.4, PHPStan, manifest
-  validation, and the 30-check conformance suite against a local
+  validation, and the Worker conformance suite against a local
   `wrangler dev`. No job needs a Cloudflare account or a token, and none may
   be made to need one. A red run is not "flaky" until you have shown it is.
 

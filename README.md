@@ -35,21 +35,22 @@ the consistency boundary.
 
 ## Status
 
-**Pre-1.0 and pre-release. Do not build production systems on this yet.**
+**Pre-1.0. The first coordinated release line is 0.1.x.**
 
-- The seven PHP packages are **not published on Packagist**. Install is from
-  source, out of this repository.
-- The Cloudflare runtime is an **MVP**, validated by a 30-check conformance
-  suite that passes locally and against a real deployed Worker. It is not a
-  managed service; you deploy it to your own account.
+- Release tags are the source of truth for registry availability. Before the
+  `v0.1.0` tag exists, contributors install from this monorepo; after it exists,
+  applications install the seven packages from Packagist and the Worker
+  template from npm.
+- The Cloudflare runtime is validated by its conformance suite locally and
+  against a real deployed Worker. It is not a managed service; you deploy it
+  to your own account.
 - `app()`, `dispatch()`, `broadcast()`, WebSockets and timers/alarms are
   implemented in the Worker runtime (M2). The one remaining typed
   `AtomsNotSupported` surface is the permanently-unsupported corner of the
   `db()->pdo()` shim (see `cloudflare/worker/php/README.md` §Documented leaks
   and limits) — a restriction, not a stub.
-- `atoms/client` and `atoms/cli` still speak the earlier hosted-platform HTTP
-  contract (`docs/platform/api-contract.md`), which the Cloudflare direction
-  supersedes. Rewiring the deploy path is outstanding work.
+- `atoms/client`, `atoms/cli`, the Laravel adapter, the Symfony bundle, and the
+  plain-PHP integration all target the self-hosted Cloudflare Worker contract.
 - APIs may change until 1.0, except the `atoms/core` ABI, which is frozen and
   only grows.
 
@@ -68,13 +69,31 @@ the consistency boundary.
 | `atoms/core` | The runtime ABI: `Atom` base class, serialization, migrations, error catalog. Framework-free, PHP 8.3. |
 | `atoms/client` | Framework-agnostic monolith SDK: stub proxies, RPC transport, callback kernel. |
 | `atoms/laravel` | Laravel adapter: service provider, `Atoms` facade, queue bridge, Artisan wrappers. |
-| `atoms/symfony` | Symfony bundle (skeleton — it also exists to prove the layering holds). |
+| `atoms/symfony` | Supported Symfony bundle: DI, route loader, Messenger bridge, and console wrappers. |
 | `atoms/testing` | `AtomHarness` and fakes for fast, infrastructure-free tests. |
 | `atoms/phpstan-rules` | Boundary enforcement in your IDE and CI. |
 | `atoms/cli` | The `atoms` binary: `init`, `make:atom`, `validate`, `build`, `deploy`, `dev`, `status`, `diff`, `rollback`, `secrets:*`, `ai:install`. |
 
 Every failure in every package carries a stable `ATOMS-E###` code and a fix
 line — see [`docs/errors.md`](docs/errors.md).
+
+## Install
+
+Laravel applications install the adapter and its CLI, then scaffold the
+release-matched Worker project:
+
+```sh
+composer require atoms/laravel:^0.1
+composer require --dev atoms/cli:^0.1 atoms/phpstan-rules:^0.1 atoms/testing:^0.1
+php artisan atoms:install
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
+  atoms-runtime-cloudflare init .atoms/worker
+cd .atoms/worker && npm ci
+```
+
+The complete Laravel, Symfony and plain-PHP paths live at
+[docs.atomsphp.dev](https://docs.atomsphp.dev). The maintained Laravel example
+is in [`examples/laravel/`](examples/laravel/).
 
 ## Working in this repository
 
@@ -99,43 +118,27 @@ npx wrangler dev                     # serves on 127.0.0.1:8787
 ATOMS_BASE_URL=http://127.0.0.1:8787 node test/conformance.mjs
 ```
 
-Twelve checks, all of which must pass. Check 12 waits out a real Durable Object
-eviction, so the run takes a couple of minutes. **No Cloudflare account is
+The full conformance suite must pass. Several checks wait out real Durable
+Object eviction, so the run takes a few minutes. **No Cloudflare account is
 needed for any of this.**
 
 The PHP interpreter is not in this repository. `npm ci` fetches it from
 WordPress Playground's own npm package and stages it into a gitignored
-`worker/.php-wasm/` after verifying its hashes. That is a licensing decision as
-much as a size one.
+`worker/.php-wasm/` after verifying its hashes.
 
 One GitHub Actions workflow ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))
 covers both halves: the PHP suites on 8.3 and 8.4, static analysis, and the
 Worker conformance suite under a local `wrangler dev`.
 
-## Licensing
+## Licensing and third-party components
 
-This repository is mixed-license, and [`LICENSE`](LICENSE) is not the whole
-story — it is worth reading this section rather than stopping at the file.
-
-Atoms' own code is **MIT**, granted by [`LICENSE`](LICENSE) and, for
-`cloudflare/`, by [`cloudflare/LICENSE-MIT`](cloudflare/LICENSE-MIT).
-`cloudflare/` is the exception that matters: it builds against a WordPress
-Playground PHP/WebAssembly runtime, so a Worker **assembled** from it is a
-combined work under GPL-2.0-or-later — see
-[`cloudflare/worker/LICENSE`](cloudflare/worker/LICENSE). That applies to the
-artifact, not to this repository: the runtime itself is fetched from npm at
-install time and never committed here, so nothing here redistributes GPL code.
-Deploying the Worker to infrastructure you control is not distribution, and
-GPLv2 is not the AGPL, so running it over a network triggers no source offer.
-
-**None of it relicenses your own PHP application code.** An Atom you write is
-carried into the runtime as data for an interpreter to read, not linked into
-it, and it targets the MIT-licensed `atoms/core` ABI.
-
-The full statement, including the honest qualifications, is in
-[`cloudflare/README.md`](cloudflare/README.md#licensing);
-[`cloudflare/THIRD_PARTY_NOTICES.md`](cloudflare/THIRD_PARTY_NOTICES.md)
-records what the runtime contains and under which licence.
+Atoms-authored source is **MIT**, granted by [`LICENSE`](LICENSE) and
+[`cloudflare/LICENSE-MIT`](cloudflare/LICENSE-MIT). The PHP/WebAssembly
+interpreter is fetched from WordPress Playground's npm package rather than
+committed here. Its component licenses, exact version, hashes, and source
+provenance are recorded in
+[`cloudflare/THIRD_PARTY_NOTICES.md`](cloudflare/THIRD_PARTY_NOTICES.md) and
+[`cloudflare/corresponding-source/`](cloudflare/corresponding-source/).
 
 ## More
 

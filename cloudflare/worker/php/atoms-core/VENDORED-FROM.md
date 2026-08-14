@@ -12,6 +12,7 @@ reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 | Re-verified | 2026-08-09, on the M3 Cloudflare toolchain change — all 22 files byte-identical to `packages/core`. `Errors/ErrorCode.php` and `resources/errors.json` were re-vendored (ATOMS-E073–E077 added, E072 reworded); the other 20 digests are unchanged |
 | Re-verified | 2026-08-12, on M2 wave 0 (timers ABI) — `Atom.php`, `Errors/ErrorCode.php`, `Runtime/AtomContext.php`, `Runtime/LifecycleInvoker.php` and `resources/errors.json` re-vendored (`AtomContext::timers()`, `Atom::timers()`/`onTimer()`, `LifecycleInvoker::timer()`, ATOMS-E080–E086 added); new file `Timers/Timers.php` added, 23 files total; the other 17 digests are unchanged |
 | Re-verified | 2026-08-13, on M4 T1 (adapter discipline error codes) — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E100–E103 added: layering violation, sleep-in-Atom, elapsed-time wait loop, no queue bridge configured); still 23 files total, the other 21 digests are unchanged |
+| Re-verified | 2026-08-13, on M7 documentation publication — `Errors/ErrorCatalog.php` re-vendored so stable error links use `docs.atomsphp.dev`; still 23 files total, the other 22 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -35,9 +36,8 @@ These files carry no SPDX headers, and must not be given any: a header is an
 edit, and the rule below is that they are never edited. Their licence is the
 `atoms/core` package's own, declared in that package's `composer.json`. They
 are the one tree under `cloudflare/` that is neither Atoms-authored-here nor
-third-party — and they are worth distinguishing from the php-wasm runtime,
-which is GPL and is a genuinely foreign artifact (and which is no longer
-carried in the repository at all: `npm ci` fetches it and
+third-party — and they are worth distinguishing from the upstream php-wasm
+runtime, which is not carried in the repository: `npm ci` fetches it and
 `scripts/prepare-runtime.mjs` stages it into a gitignored
 `worker/.php-wasm/`). Nothing here is linked into the
 WebAssembly binary; it is PHP source carried into the guest and interpreted.
@@ -84,7 +84,7 @@ efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/Met
 0f446033d4006ba86c48368dcce6e0dfd7e477e02f3483e540f944601d70cb62  Database.php
 7c996f6c31cff9bf210040f311bb534a140e79ae3c62b721c6266ad6d78353e2  Errors/AtomsError.php
 0b4bfcf9ea74ed277614139157b03696f4eae42dc85f420120f96663cf654283  Errors/CatalogEntry.php
-ee937355bb4a22b02287215525faabf25d2fd0b9427f160352953a65eda13b34  Errors/ErrorCatalog.php
+3d1a122b24f6e3dd88104816b2b3b96b846690a9acd9316cd142d16afb71c411  Errors/ErrorCatalog.php
 fdf9c0fc7a6764a28572de92f67a3a376a6900a4ea5d15628da3cc2c47761c31  Errors/ErrorCode.php
 e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Migration.php
 f433e85e2449339b31bf806c4c8dde1afbd9e06dda005a2dc5a3df62fcd1252e  Migrations/MigrationEntry.php

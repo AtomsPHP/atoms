@@ -97,21 +97,15 @@ not direction.
 - **The php-wasm runtime binary is never committed.** `npm ci` fetches it from
   `@php-wasm/web-8-3`, and `scripts/prepare-runtime.mjs` stages it into a
   gitignored `worker/.php-wasm/` after verifying the upstream size and SHA-256
-  of both the wasm and the JS glue. Committing it would make this repository
-  redistribute GPL code and re-attach every obligation the licensing work
-  removed. Never soften or skip the hash check either — a mismatch is a real
-  finding, not CI noise.
-- **The licence shape is settled; do not re-litigate it in code.** Atoms' own
-  source is MIT by grant file (`LICENSE`, `cloudflare/LICENSE-MIT`); a Worker
-  you *assemble* is GPL-2.0-or-later because of what it links at build time
-  (`cloudflare/worker/LICENSE`); end-user PHP application code is not
-  relicensed by any of it. `cloudflare/README.md` §Licensing and
-  `cloudflare/THIRD_PARTY_NOTICES.md` are the full account — cross-reference
-  them rather than restating them anywhere new.
-- **No per-file SPDX headers, and no `LICENSES/` directory.** Both were tried
-  and deliberately removed. The grant files are the grant. The one exception
-  is `worker/package.json`, which declares `GPL-2.0-or-later` because a
-  manifest describes the package *as assembled*.
+  of both the wasm and the JS glue. It is a large generated upstream artifact,
+  not repository source. Never soften or skip the hash check either — a
+  mismatch is a real finding, not CI noise.
+- **Licenses and provenance.** Atoms-authored source is MIT by grant file
+  (`LICENSE`, `cloudflare/LICENSE-MIT`). Upstream component licenses and
+  provenance are recorded in `THIRD_PARTY_NOTICES.md`.
+- **No speculative per-file SPDX headers or `LICENSES/` directory.** The grant
+  files cover Atoms-authored source; upstream packages carry their own
+  metadata and notices.
 - **`app()`, `dispatch()`, `broadcast()`, WebSockets and timers/alarms are
   implemented (M2)**, over a signed callback channel, the Hibernation API and
   a multiplexed Durable Object alarm respectively — see

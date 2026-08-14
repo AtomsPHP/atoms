@@ -44,7 +44,7 @@ final class ErrorCatalogTest extends TestCase
         self::assertSame(ErrorCode::MonolithClassInAtom, $entry->code);
         self::assertNotSame('', $entry->title);
         self::assertNotSame('', $entry->fix);
-        self::assertSame('https://docs.atoms.cloud/errors#atoms-e012', $entry->docsUrl);
+        self::assertSame('https://docs.atomsphp.dev/errors#atoms-e012', $entry->docsUrl);
         self::assertContains($entry->severity, ['error', 'warning']);
         self::assertNotSame('', $entry->phase);
     }
