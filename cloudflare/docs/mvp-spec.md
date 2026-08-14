@@ -859,10 +859,23 @@ awaited event: the DO is never evicted mid-event, only between them.
   monolith did not answer with a result envelope"); otherwise the method
   returns `json_decode($responseBody, true)['result']` — see the
   result-hydration gap in §The callback channel.
+- **`dispatchJob(string $job, array $args)`.** The form Atom code uses, and the
+  only one it can: an AtomJob's source is World B and never appears in a
+  bundle, so the guest cannot construct one. `SomeJob::class` is resolved by the
+  compiler, so naming the class neither loads it nor requires it to ship; the
+  arguments arrive already keyed by constructor parameter name and are each
+  normalized through `Serializer`. Produces a body byte-identical to
+  `dispatch()`'s below, and crosses the same way — the two differ only in where
+  the `args` map is built. A non-string key is `JobNotEncodable` (E084): the
+  wire form is an object keyed by parameter name, and a positional list could
+  not be reconstructed on the far side.
 - **`dispatch(AtomJob $job)`.** Reads the job's constructor parameters by
   reflection and, for each one, requires a same-named **public,
   non-static** instance property — `JobNotEncodable` (E084) otherwise — then
-  reads that property's value and normalizes it through `Serializer`. This is
+  reads that property's value and normalizes it through `Serializer`. Present
+  for ABI completeness and used by hosts that do load job classes (the test
+  harness); inside a deployed Atom the build refuses its `new` with
+  `ATOMS-E104` before it can fail as `Class "..." not found`. This is
   **exactly dual** to `Atoms\Client\Callback\CallbackKernel::constructJob()`,
   which does the reverse walk to reconstruct the job on the monolith side:
   same reflection, same source of truth (the constructor's parameter list),
@@ -1220,6 +1233,11 @@ See `docs/cloudflare-toolchain.md` §3.
 - `App\Jobs\Notify` (`fixtures/counter/app/Jobs/Notify.php`) — an `AtomJob`
   with promoted public `$atomId`/`$note` properties, the dispatch contract
   `dispatch()`'s encoder and `CallbackKernel::constructJob()` must agree on.
+  The fixture Atoms dispatch it **by name** — `dispatchJob(Notify::class,
+  ['atomId' => ..., 'note' => ...])` — which is what a real `atoms build`
+  bundle can do, since that bundle would not carry `Notify.php` at all. Checks
+  16 and 17 assert the delivered body, so they pin that the by-name form
+  produces exactly the frame the monolith already expects.
 
 ## Conformance suite
 

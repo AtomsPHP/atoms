@@ -64,6 +64,42 @@ final class MethodSignature
     }
 
     /**
+     * Do these argument NAMES satisfy this signature? Used for the by-name
+     * dispatch form, where the caller supplies `['param' => $value, ...]`: every
+     * name must be a real parameter, no name may repeat, and every required
+     * parameter must be present. A variadic signature is not exempt — a variadic
+     * collects positional arguments, so an unknown name is still unknown.
+     *
+     * @param list<string> $names
+     */
+    public function acceptsArgNames(array $names): bool
+    {
+        if (\count($names) !== \count(array_unique($names))) {
+            return false;
+        }
+
+        $known = [];
+        foreach ($this->params as $param) {
+            $known[$param->name] = $param;
+        }
+
+        foreach ($names as $name) {
+            if (!isset($known[$name])) {
+                return false;
+            }
+        }
+
+        $given = array_fill_keys($names, true);
+        foreach ($this->params as $param) {
+            if (!$param->optional && !$param->variadic && !isset($given[$param->name])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * @return array{name: string, params: list<array<string, mixed>>, return: string}
      */
     public function toManifest(): array

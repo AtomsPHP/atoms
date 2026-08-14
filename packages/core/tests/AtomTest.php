@@ -64,6 +64,28 @@ final class AtomTest extends TestCase
         self::assertSame([$job], $context->dispatched);
     }
 
+    public function testDispatchJobPassesTheClassNameThrough(): void
+    {
+        [$atom, $context] = $this->atom();
+
+        $atom->callDispatchJob(RecordResult::class, ['gameId' => 'g-1', 'score' => 42]);
+
+        self::assertSame(
+            [['job' => RecordResult::class, 'args' => ['gameId' => 'g-1', 'score' => 42]]],
+            $context->dispatchedJobs,
+        );
+        self::assertSame([], $context->dispatched, 'the by-name form must not construct the job');
+    }
+
+    public function testDispatchJobDefaultsToNoArguments(): void
+    {
+        [$atom, $context] = $this->atom();
+
+        $atom->callDispatchJob(RecordResult::class);
+
+        self::assertSame([['job' => RecordResult::class, 'args' => []]], $context->dispatchedJobs);
+    }
+
     public function testBroadcastPassThrough(): void
     {
         [$atom, $context] = $this->atom();

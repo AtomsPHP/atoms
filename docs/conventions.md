@@ -81,7 +81,9 @@ abstract class Atom
     protected function db(): Database;
     /** @return TApp (proxy) */
     protected function app(): object;
-    protected function dispatch(AtomJob $job): void;
+    protected function dispatch(AtomJob $job): void;          // World B only — see below
+    /** @param class-string<AtomJob> $job @param array<string, mixed> $args */
+    protected function dispatchJob(string $job, array $args = []): void;
     protected function config(string $key): mixed;
     protected function broadcast(string $channel, array $payload): void;
     protected function timers(): Timers\Timers;
@@ -100,7 +102,11 @@ abstract class Atom
 abstract class AtomMethods {}   // World B base: callback methods, full framework access
 abstract class AtomJob {}       // World B base: constructor args are the contract;
                                 // params MUST be promoted public properties with
-                                // serialization-algebra types
+                                // serialization-algebra types. The class does NOT
+                                // ship, so Atom code dispatches it BY NAME:
+                                // dispatchJob(X::class, ['param' => $v]). Building
+                                // one with `new` inside an Atom is ATOMS-E104 —
+                                // the class does not exist on the platform.
 
 interface Database
 {
@@ -115,6 +121,7 @@ Supporting types in core (exact FQCNs — other packages reference these):
 
 - `Atoms\Runtime\AtomContext` — interface the runtime/harness implements:
   `db(): Database`, `app(): object`, `dispatch(AtomJob $job): void`,
+  `dispatchJob(string $job, array $args = []): void`,
   `config(string $key): mixed`, `broadcast(string $channel, array $payload): void`,
   `timers(): Timers\Timers`.
 - `Atoms\Timers\Timers` — interface for named one-shot timers:

@@ -39,6 +39,14 @@ final class TestAtom extends Atom
         $this->dispatch($job);
     }
 
+    /**
+     * @param array<string, mixed> $args
+     */
+    public function callDispatchJob(string $job, array $args = []): void
+    {
+        $this->dispatchJob($job, $args);
+    }
+
     public function callConfig(string $key): mixed
     {
         return $this->config($key);

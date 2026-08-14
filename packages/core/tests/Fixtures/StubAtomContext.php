@@ -19,6 +19,9 @@ final class StubAtomContext implements AtomContext, Timers
     /** @var list<AtomJob> */
     public array $dispatched = [];
 
+    /** @var list<array{job: string, args: array<string, mixed>}> */
+    public array $dispatchedJobs = [];
+
     /** @var list<array{channel: string, payload: array<string, mixed>}> */
     public array $broadcasts = [];
 
@@ -51,6 +54,11 @@ final class StubAtomContext implements AtomContext, Timers
     public function dispatch(AtomJob $job): void
     {
         $this->dispatched[] = $job;
+    }
+
+    public function dispatchJob(string $job, array $args = []): void
+    {
+        $this->dispatchedJobs[] = ['job' => $job, 'args' => $args];
     }
 
     public function config(string $key): mixed

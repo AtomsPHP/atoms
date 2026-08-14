@@ -46,9 +46,35 @@ abstract class Atom
         return $this->context->app();
     }
 
+    /**
+     * Dispatch an already-constructed job.
+     *
+     * Not usable from Atom code: an AtomJob's source stays in the monolith, so
+     * the class this needs an instance of is not loaded on the platform. The
+     * build says so (`ATOMS-E104`) rather than letting it fail at runtime with
+     * `Class "..." not found`. Reach for {@see self::dispatchJob()} instead.
+     */
     protected function dispatch(AtomJob $job): void
     {
         $this->context->dispatch($job);
+    }
+
+    /**
+     * Dispatch a job by class name, passing its constructor arguments by name:
+     *
+     *     $this->dispatchJob(RecordGameResult::class, ['ref' => $ref, 'seat' => 1]);
+     *
+     * `RecordGameResult::class` is a compile-time constant — naming the job
+     * neither loads it nor drags its `handle()` (and everything that body
+     * imports) onto the platform. The runtime sends `{"job":FQCN,"args":{...}}`
+     * and your app reconstructs the real object from it.
+     *
+     * @param class-string<AtomJob> $job
+     * @param array<string, mixed> $args keyed by constructor parameter name
+     */
+    protected function dispatchJob(string $job, array $args = []): void
+    {
+        $this->context->dispatchJob($job, $args);
     }
 
     protected function config(string $key): mixed

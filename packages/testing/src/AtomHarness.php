@@ -50,7 +50,13 @@ final class AtomHarness
 
     private readonly Serializer $serializer;
 
-    /** @var list<object> */
+    /**
+     * Both dispatch forms land here in ONE shape — the wire shape, `{job, args}`
+     * keyed by constructor parameter name — so an assertion cannot tell (and
+     * must not care) whether the Atom used `dispatch()` or `dispatchJob()`.
+     *
+     * @var list<array{job: string, args: array<string, mixed>}>
+     */
     private array $dispatched = [];
 
     /** @var list<array{channel: string, payload: array<string, mixed>}> */
@@ -152,7 +158,10 @@ final class AtomHarness
             $appProxy,
             $this->config,
             function (object $job): void {
-                $this->dispatched[] = $job;
+                $this->dispatched[] = ['job' => $job::class, 'args' => $this->readJobArgs($job)];
+            },
+            function (string $job, array $args): void {
+                $this->dispatched[] = ['job' => $job, 'args' => $args];
             },
             function (string $channel, array $payload): void {
                 $this->broadcasts[] = ['channel' => $channel, 'payload' => $payload];
@@ -262,16 +271,21 @@ final class AtomHarness
     }
 
     /**
-     * Every job passed to `dispatch()` so far, each reconstructed by
-     * round-tripping its promoted constructor arguments through the
-     * serializer and building a fresh instance — proving the job is wire-safe,
-     * not just that the original object reference is being held.
+     * Every job dispatched so far — by either `dispatch()` or `dispatchJob()` —
+     * reconstructed by round-tripping its constructor arguments through the
+     * serializer and building a fresh instance, exactly as the monolith's
+     * callback kernel does. This proves the job is wire-safe rather than that
+     * an object reference is being held, and for `dispatchJob()` it is also
+     * what proves the named arguments actually satisfy the constructor.
      *
      * @return list<object>
      */
     public function dispatched(): array
     {
-        return array_map($this->reconstruct(...), $this->dispatched);
+        return array_map(
+            fn (array $record): object => $this->reconstruct($record['job'], $record['args']),
+            $this->dispatched,
+        );
     }
 
     /**
@@ -389,18 +403,76 @@ final class AtomHarness
         return class_exists($default) ? new $default() : null;
     }
 
-    private function reconstruct(object $job): object
+    /**
+     * Read a constructed job's arguments back off the object, by constructor
+     * parameter name — the same walk the platform runtime does for
+     * `dispatch()`, so both forms reach {@see reconstruct()} in one shape.
+     *
+     * @return array<string, mixed>
+     */
+    private function readJobArgs(object $job): array
     {
         $reflection = new \ReflectionClass($job);
+        $constructor = $reflection->getConstructor();
+
+        if ($constructor === null) {
+            return [];
+        }
+
+        $args = [];
+        foreach ($constructor->getParameters() as $param) {
+            $name = $param->getName();
+            $args[$name] = $reflection->getProperty($name)->getValue($job);
+        }
+
+        return $args;
+    }
+
+    /**
+     * @param array<string, mixed> $args keyed by constructor parameter name
+     */
+    private function reconstruct(string $jobClass, array $args): object
+    {
+        if (!class_exists($jobClass)) {
+            throw new \InvalidArgumentException(sprintf(
+                'Atoms: %s was dispatched but the class does not exist. In your app it must be '
+                . 'autoloadable — only the platform runtime is allowed not to know it.',
+                $jobClass,
+            ));
+        }
+
+        $reflection = new \ReflectionClass($jobClass);
         $constructor = $reflection->getConstructor();
 
         if ($constructor === null) {
             return $reflection->newInstance();
         }
 
+        // Ordered positionally against the constructor, filling declared
+        // defaults, so a named-argument map with an omitted optional parameter
+        // reconstructs the same object the monolith's kernel would build.
         $rawArgs = [];
         foreach ($constructor->getParameters() as $param) {
-            $rawArgs[] = $reflection->getProperty($param->getName())->getValue($job);
+            $name = $param->getName();
+
+            if (\array_key_exists($name, $args)) {
+                $rawArgs[] = $args[$name];
+
+                continue;
+            }
+
+            if ($param->isDefaultValueAvailable()) {
+                $rawArgs[] = $param->getDefaultValue();
+
+                continue;
+            }
+
+            throw new \InvalidArgumentException(sprintf(
+                'Atoms: %s was dispatched without a value for the required constructor '
+                . 'parameter "%s".',
+                $jobClass,
+                $name,
+            ));
         }
 
         $coerced = Boundary::roundTripArgs($rawArgs, $constructor, $this->serializer);

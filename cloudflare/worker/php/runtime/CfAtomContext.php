@@ -98,6 +98,13 @@ final class CfAtomContext implements AtomContext
      * `Atoms\Client\Callback\CallbackKernel::constructJob()`. Buffered on
      * commit / dropped on rollback when a transaction is open; delivered
      * immediately (fire-and-forget) otherwise.
+     *
+     * Implemented for ABI completeness, but unreachable from a deployed Atom:
+     * the caller needs an INSTANCE, and an AtomJob's source does not ship in
+     * the bundle, so `new SomeJob(...)` in Atom code is a build error
+     * (`ATOMS-E104`) pointing at {@see dispatchJob()}. Kept because the ABI is
+     * frozen and because a job class can legitimately be loaded in-guest by a
+     * host that bundles differently.
      */
     public function dispatch(AtomJob $job): void
     {
@@ -123,6 +130,53 @@ final class CfAtomContext implements AtomContext
             }
         }
 
+        $this->enqueueJob($class, $args);
+    }
+
+    /**
+     * Dispatch by class name — the form Atom code uses, because an AtomJob's
+     * source never ships to the platform. `SomeJob::class` is resolved by the
+     * compiler, so this needs neither the class nor an instance: the arguments
+     * arrive already separated from it, keyed by constructor parameter name,
+     * which is the same map {@see dispatch()} builds by reflection and the same
+     * one `CallbackKernel::constructJob()` reads on the monolith side. The wire
+     * body is byte-identical between the two paths.
+     *
+     * @param string $job
+     * @param array<string, mixed> $args
+     */
+    public function dispatchJob(string $job, array $args = []): void
+    {
+        $class = ltrim(trim($job), '\\');
+
+        if ($class === '') {
+            throw JobNotEncodable::unencodable($job, 'the job class name is empty');
+        }
+
+        $normalized = [];
+        foreach ($args as $name => $value) {
+            if (!is_string($name)) {
+                throw JobNotEncodable::unencodable($class, sprintf(
+                    'argument %s is positional; dispatchJob() takes constructor arguments by name',
+                    var_export($name, true)
+                ));
+            }
+
+            $normalized[$name] = $this->serializer->normalize($value);
+        }
+
+        $this->enqueueJob($class, $normalized);
+    }
+
+    /**
+     * The one place the `{"job":FQCN,"args":{...}}` frame is built and crossed,
+     * shared by both dispatch forms. `$args` is already normalized.
+     *
+     * @param string $class
+     * @param array<string, mixed> $args
+     */
+    private function enqueueJob($class, array $args): void
+    {
         $body = json_encode(
             ['job' => $class, 'args' => $args === [] ? new \stdClass() : $args],
             JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION

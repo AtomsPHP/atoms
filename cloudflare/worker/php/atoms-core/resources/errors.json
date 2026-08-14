@@ -148,8 +148,8 @@
         {
             "code": "ATOMS-E032",
             "title": "AtomJob constructor signature mismatch",
-            "message": "{atom} dispatches new {job}(...) with arguments that do not match its constructor.",
-            "fix": "AtomJob constructor parameters are the dispatch contract — keep promoted properties and the dispatch site in sync.",
+            "message": "{atom} dispatches {job} with arguments that do not match its constructor.",
+            "fix": "AtomJob constructor parameters are the dispatch contract — keep the promoted properties and the dispatch site in sync. With $this->dispatchJob() the array keys are the constructor parameter names.",
             "severity": "error",
             "phase": "build"
         },
@@ -237,7 +237,7 @@
             "code": "ATOMS-E061",
             "title": "Turn deadline exceeded",
             "message": "The Atom's turn exceeded the configured deadline.",
-            "fix": "Turns must stay short. Move slow work to an AtomJob via $this->dispatch(), and check for accidental blocking I/O.",
+            "fix": "Turns must stay short. Move slow work to an AtomJob via $this->dispatchJob(), and check for accidental blocking I/O.",
             "severity": "error",
             "phase": "runtime"
         },
@@ -373,7 +373,7 @@
             "code": "ATOMS-E082",
             "title": "app() called inside a database transaction",
             "message": "$this->app()->{method}() cannot be called inside $this->db()->transaction(): the transaction holds a synchronous Durable Object callback that cannot wait for an HTTP round trip.",
-            "fix": "Read what you need from the monolith before opening the transaction, or close the transaction and re-open it after the call. $this->dispatch() is allowed inside a transaction — it is queued on commit and dropped on rollback.",
+            "fix": "Read what you need from the monolith before opening the transaction, or close the transaction and re-open it after the call. $this->dispatchJob() is allowed inside a transaction — it is queued on commit and dropped on rollback.",
             "severity": "error",
             "phase": "runtime"
         },
@@ -421,7 +421,7 @@
             "code": "ATOMS-E101",
             "title": "Sleep called inside Atom code",
             "message": "{symbol}() is called in {class}, but the Atoms runtime's clock does not advance inside a turn — the call blocks until the turn deadline kills it.",
-            "fix": "Delete the sleep. To act later, schedule a timer with $this->timers()->schedule($name, $at) and do the work in onTimer(); to hand work to your app, use $this->dispatch(). Nothing in an Atom may wait on wall-clock time.",
+            "fix": "Delete the sleep. To act later, schedule a timer with $this->timers()->schedule($name, $at) and do the work in onTimer(); to hand work to your app, use $this->dispatchJob(). Nothing in an Atom may wait on wall-clock time.",
             "severity": "error",
             "phase": "static-analysis"
         },
@@ -429,7 +429,7 @@
             "code": "ATOMS-E102",
             "title": "Elapsed-time wait loop inside Atom code",
             "message": "The loop in {class} waits for wall-clock time to pass ({symbol}), which never happens within a single Atom turn.",
-            "fix": "Rewrite the loop so it terminates on data rather than on elapsed time, or move the wait out of the Atom: $this->timers()->schedule() delivers onTimer() in a later turn, and $this->dispatch() runs the work in your app.",
+            "fix": "Rewrite the loop so it terminates on data rather than on elapsed time, or move the wait out of the Atom: $this->timers()->schedule() delivers onTimer() in a later turn, and $this->dispatchJob() runs the work in your app.",
             "severity": "error",
             "phase": "static-analysis"
         },
@@ -440,6 +440,14 @@
             "fix": "Bind a QueueBridge. Laravel wires Atoms\\Laravel\\Queue\\LaravelQueueBridge automatically; Symfony wires Atoms\\Symfony\\Messenger\\MessengerQueueBridge once symfony/messenger and a message bus are present; any other host passes its own QueueBridge to CallbackKernel.",
             "severity": "error",
             "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E104",
+            "title": "AtomJob constructed inside Atom code",
+            "message": "{atom} builds {job} with new to dispatch it, but an AtomJob's code stays in your app and is never shipped to the platform, so that class does not exist there.",
+            "fix": "Dispatch it by name instead — $this->dispatchJob(TheJob::class, ['param' => $value, ...]) — passing the constructor arguments by name. Naming a class does not require it to ship, and your app reconstructs the real job from those arguments.",
+            "severity": "error",
+            "phase": "build"
         }
     ]
 }

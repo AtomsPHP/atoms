@@ -13,6 +13,7 @@ reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 | Re-verified | 2026-08-12, on M2 wave 0 (timers ABI) — `Atom.php`, `Errors/ErrorCode.php`, `Runtime/AtomContext.php`, `Runtime/LifecycleInvoker.php` and `resources/errors.json` re-vendored (`AtomContext::timers()`, `Atom::timers()`/`onTimer()`, `LifecycleInvoker::timer()`, ATOMS-E080–E086 added); new file `Timers/Timers.php` added, 23 files total; the other 17 digests are unchanged |
 | Re-verified | 2026-08-13, on M4 T1 (adapter discipline error codes) — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E100–E103 added: layering violation, sleep-in-Atom, elapsed-time wait loop, no queue bridge configured); still 23 files total, the other 21 digests are unchanged |
 | Re-verified | 2026-08-13, on M7 documentation publication — `Errors/ErrorCatalog.php` re-vendored so stable error links use `docs.atomsphp.dev`; still 23 files total, the other 22 digests are unchanged |
+| Re-verified | 2026-08-14, on the by-name dispatch fix — `Atom.php`, `Runtime/AtomContext.php`, `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (`AtomContext::dispatchJob()`/`Atom::dispatchJob()` added, ATOMS-E104 added, E032 reworded); still 23 files total, the other 19 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -76,7 +77,7 @@ of `Atoms\Database` in this runtime. It is still the reference for
 ## Digests (sha256)
 
 ```
-db10a4ba03e4d3cd723de9106908497a66539821fa0935a40572269ef633e736  Atom.php
+74fe8c320dddb1b690e43d491a4e663abc8af9b54f306adb6a2edaa8a57161fc  Atom.php
 e1cf8cea48ad7525422c43e4c7422c250ed66028b9d4cf3bf97f5fce5fe9e624  AtomJob.php
 4a4da51d856e552242a045b68d04e7e5754e48b1825c708d0736a0b8fadc87e9  AtomMethods.php
 efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/MethodsFor.php
@@ -85,13 +86,13 @@ efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/Met
 7c996f6c31cff9bf210040f311bb534a140e79ae3c62b721c6266ad6d78353e2  Errors/AtomsError.php
 0b4bfcf9ea74ed277614139157b03696f4eae42dc85f420120f96663cf654283  Errors/CatalogEntry.php
 3d1a122b24f6e3dd88104816b2b3b96b846690a9acd9316cd142d16afb71c411  Errors/ErrorCatalog.php
-fdf9c0fc7a6764a28572de92f67a3a376a6900a4ea5d15628da3cc2c47761c31  Errors/ErrorCode.php
+83362e39978897bb466cbc05e9d2c915d9576520efacde8aa88deee4fedb18d1  Errors/ErrorCode.php
 e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Migration.php
 f433e85e2449339b31bf806c4c8dde1afbd9e06dda005a2dc5a3df62fcd1252e  Migrations/MigrationEntry.php
 addfe71f9472e7f2e76422227ef06586818b546e09842cdcba8e8a97a1dcd690  Migrations/MigrationSet.php
 50af83b416b9dec8f9c16e4b0fa635ef4fb5be8e38134571f66d910bded18b9d  Migrations/Migrator.php
-96406fa06859eeeaed4301a16e03e3feae64c5500f38f92d2241007e3206c75a  resources/errors.json
-21a55572c112697f7594ba24b0dfece42183e11d2ba5027e2d4ab42ec0abb2be  Runtime/AtomContext.php
+ff7de090d0fb8d944afa61ff7acf0c045ce3780e0199732c706d65fad2cda27f
+5260d51a8ef5cdc6130bdbd7c5fd910fb7f020cda22e0acd1f70b1831fc46855  Runtime/AtomContext.php
 bad340c4631a86b8b0d33df013854e5494f7e639917c71e103ce0635cb47dc41  Runtime/LifecycleInvoker.php
 b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/Payload.php
 1486ab89bf416b88929159b6014b2a268b081f2efd1d46a314fe4d86948d8bc8  Serialization/SerializationException.php

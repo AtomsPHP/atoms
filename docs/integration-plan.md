@@ -157,7 +157,9 @@ Methods classes return these; Atoms receive them typed; the serializer (§4.2) h
 
 ### 3.4 AtomJobs and Methods: contract classes that stay home
 
-Both are World B code whose *signatures* are World A contract. The manifest captures them; the build fails if an Atom dispatches a job or calls a Methods method whose signature doesn't match (detectable statically because the Atom constructs `new RecordGameResult(...)` and calls `$this->app()->getPlayer(...)` — the closure walk sees both). This closes a gap in the current app-integration design: today nothing stops an Atom from calling `$this->app()->getPlyaer()` and finding out at runtime, 10–20ms and one confused on-call engineer later.
+Both are World B code whose *signatures* are World A contract. The manifest captures them; the build fails if an Atom dispatches a job or calls a Methods method whose signature doesn't match (detectable statically because the Atom names the job in `$this->dispatchJob(RecordGameResult::class, ['ref' => $ref])` and calls `$this->app()->getPlayer(...)` — the closure walk sees both).
+
+The dispatch site is **by name**, not `new RecordGameResult(...)`, and that is forced rather than stylistic: neither class ships, so neither can be instantiated in World A. `X::class` is a compile-time constant, so naming one costs nothing and loads nothing; constructing one is `ATOMS-E104` at build time (it used to be `Class "..." not found` at runtime, which a best-effort `catch (\Throwable)` around the dispatch swallowed whole). The wire form is unchanged either way — `{"job": FQCN, "args": {...}}`, keyed by constructor parameter name — because that map was always what crossed; only where it gets built moved. This closes a gap in the current app-integration design: today nothing stops an Atom from calling `$this->app()->getPlyaer()` and finding out at runtime, 10–20ms and one confused on-call engineer later.
 
 ---
 
@@ -178,7 +180,8 @@ abstract class Atom
     protected function db(): Database;              // §4.4
     /** @return TApp proxy */
     protected function app(): object;               // reverse RPC (app-integration doc)
-    protected function dispatch(AtomJob $job): void;
+    protected function dispatch(AtomJob $job): void;          // World B only (ATOMS-E104 in an Atom)
+    protected function dispatchJob(string $job, array $args = []): void;  // World A: by name
     protected function config(string $key): mixed;  // §4.5 — secrets/config, NOT env()
     protected function broadcast(string $channel, array $payload): void;
 
