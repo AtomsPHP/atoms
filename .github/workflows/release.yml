@@ -1,0 +1,254 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Safe pre-release operation
+        required: true
+        type: choice
+        options:
+          - seed-mirrors
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.manifest.outputs.version }}
+      runtime-package: ${{ steps.manifest.outputs.runtime-package }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite, sodium, curl
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cloudflare/worker/package-lock.json
+
+      - id: manifest
+        name: Read and verify release manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          php scripts/release/release.php check
+          version="$(php scripts/release/release.php get version)"
+          status="$(php scripts/release/release.php get status)"
+          runtime_package="$(php scripts/release/release.php get runtime.package)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "runtime-package=$runtime_package" >> "$GITHUB_OUTPUT"
+
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match release manifest v$version."
+              exit 1
+            fi
+            if [[ "$status" != "ready" ]]; then
+              echo "::error::Release manifest is $status; tags are refused until the standalone cutover PR sets ready."
+              exit 1
+            fi
+            git fetch origin main
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::The release commit is not contained in main."
+              exit 1
+            fi
+          elif [[ "${{ inputs.operation }}" != "seed-mirrors" ]]; then
+            echo "::error::Manual dispatch only supports the private seed-mirrors operation."
+            exit 1
+          fi
+
+      - name: Require successful main CI for a tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          runs="$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow ci.yml \
+            --commit "$GITHUB_SHA" \
+            --status completed \
+            --limit 20 \
+            --json conclusion,headSha)"
+          if ! jq -e --arg sha "$GITHUB_SHA" 'any(.[]; .headSha == $sha and .conclusion == "success")' <<< "$runs" > /dev/null; then
+            echo "::error::No successful ci.yml run exists for release commit $GITHUB_SHA."
+            exit 1
+          fi
+
+      - name: Validate Composer split artifacts
+        run: php scripts/release/release.php validate-splits
+
+      - name: Install PHP dependencies
+        if: startsWith(github.ref, 'refs/tags/')
+        run: composer install --no-interaction --no-progress
+
+      - name: Re-run PHP release gates
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          composer test
+          composer stan
+
+      - name: Install Worker dependencies
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: cloudflare/worker
+        run: npm ci
+
+      - name: Verify the public runtime tarball and local scaffold
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: cloudflare/worker
+        run: npm run test:package
+
+  publish-npm:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+
+      - id: registry
+        name: Check whether npm version is already published
+        env:
+          PACKAGE_NAME: ${{ needs.preflight.outputs.runtime-package }}
+          PACKAGE_VERSION: ${{ needs.preflight.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          encoded_package="${PACKAGE_NAME/@/%40}"
+          encoded_package="${encoded_package/\//%2F}"
+          if ! status="$(curl --silent --show-error --output "$RUNNER_TEMP/npm-version.json" --write-out '%{http_code}' \
+            "https://registry.npmjs.org/${encoded_package}/${PACKAGE_VERSION}")"; then
+            echo "::error::Could not query the npm registry."
+            exit 1
+          fi
+          case "$status" in
+            200)
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              echo "$PACKAGE_NAME@$PACKAGE_VERSION is already published; skipping immutable npm version."
+              ;;
+            404)
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::npm registry returned HTTP $status."
+              cat "$RUNNER_TEMP/npm-version.json"
+              exit 1
+              ;;
+          esac
+
+      - name: Build the allowlisted runtime tarball
+        if: steps.registry.outputs.publish == 'true'
+        working-directory: cloudflare/worker
+        run: npm run package:runtime
+
+      - name: Publish the runtime package
+        if: steps.registry.outputs.publish == 'true'
+        working-directory: cloudflare/worker
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PACKAGE_VERSION: ${{ needs.preflight.outputs.version }}
+        run: npm publish "dist/atomsphp-runtime-cloudflare-${PACKAGE_VERSION}.tgz" --access public --provenance
+
+  sync-mirrors:
+    if: >-
+      always() &&
+      needs.preflight.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' || needs.publish-npm.result == 'success')
+    needs:
+      - preflight
+      - publish-npm
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - id: mirror-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.ATOMS_RELEASE_APP_ID }}
+          private-key: ${{ secrets.ATOMS_RELEASE_APP_PRIVATE_KEY }}
+          owner: AtomsPHP
+          repositories: |
+            core
+            client
+            laravel
+            symfony
+            testing
+            phpstan-rules
+            cli
+          permission-contents: write
+
+      - name: Derive and push the seven package histories
+        env:
+          MIRROR_TOKEN: ${{ steps.mirror-token.outputs.token }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth="$(printf 'x-access-token:%s' "$MIRROR_TOKEN" | base64 | tr -d '\n')"
+          for package in core client laravel symfony testing phpstan-rules cli; do
+            split_commit="$(git subtree split --prefix="packages/$package" "$GITHUB_SHA")"
+            remote="https://github.com/AtomsPHP/$package.git"
+            git -c "http.extraheader=AUTHORIZATION: basic $auth" \
+              push "$remote" "$split_commit:refs/heads/main"
+            if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+              git -c "http.extraheader=AUTHORIZATION: basic $auth" \
+                push "$remote" "$split_commit:refs/tags/v$VERSION"
+            fi
+          done
+
+  github-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - preflight
+      - publish-npm
+      - sync-mirrors
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the immutable GitHub release if absent
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "$GITHUB_REF_NAME already has a GitHub release; skipping."
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "Atoms ${{ needs.preflight.outputs.version }}" \
+              --generate-notes
+          fi

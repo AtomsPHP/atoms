@@ -9,6 +9,25 @@ permissions:
   contents: read
 
 jobs:
+  release-metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check coordinated release metadata
+        run: php scripts/release/release.php check
+      - name: Validate Composer mirror splits
+        run: php scripts/release/release.php validate-splits
+      - name: Inspect and exercise the runtime package
+        working-directory: cloudflare/worker
+        run: npm run test:package
+
   tests:
     runs-on: ubuntu-latest
     strategy:
@@ -69,7 +88,7 @@ jobs:
           exit "$status"
 
   # The Cloudflare Worker half: build it, run it locally under workerd, and put
-  # the 30-check conformance suite through it. Everything here is local —
+  # the Worker conformance suite through it. Everything here is local —
   # `wrangler dev` needs no Cloudflare account, API token or login, and nothing
   # in this job deploys. Do not add credentials or `--remote` to make it
   # "work"; if it stops working, something in the worker broke.
@@ -130,6 +149,9 @@ jobs:
 
       - name: Install worker dependencies
         run: npm ci
+
+      - name: Inspect and exercise the public runtime scaffold
+        run: npm run test:package
 
       # The PHP runtime is fetched from npm and staged into .php-wasm/ rather
       # than committed, so a clean checkout has no interpreter until this runs.
