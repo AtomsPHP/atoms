@@ -1,0 +1,19 @@
+{
+    "project": "atoms-laravel-example",
+    "paths": {
+        "atoms": "app/Atoms",
+        "shared": "app/Atoms/Shared"
+    },
+    "php": "8.3",
+    "environments": {
+        "production": {
+            "endpoint": "https://atoms-laravel-example.<your-subdomain>.workers.dev",
+            "worker_name": "atoms-laravel-example",
+            "account_id": "",
+            "worker_dir": ".atoms/worker"
+        }
+    },
+    "callback_url": {
+        "production": "https://your-laravel-app.example/atoms/callback"
+    }
+}

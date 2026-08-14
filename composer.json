@@ -41,7 +41,8 @@
             "Atoms\\PHPStan\\Tests\\": "packages/phpstan-rules/tests/",
             "Atoms\\Cli\\Tests\\": "packages/cli/tests/",
             "Atoms\\Examples\\PlainPhp\\": "examples/plain-php/src/",
-            "Atoms\\Tests\\Integration\\": "tests/Integration/"
+            "Atoms\\Tests\\Integration\\": "tests/Integration/",
+            "App\\": "examples/laravel/app/"
         }
     },
     "scripts": {

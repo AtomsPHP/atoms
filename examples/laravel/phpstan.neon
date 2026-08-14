@@ -1,0 +1,7 @@
+includes:
+    - vendor/atoms/phpstan-rules/rules.neon
+
+parameters:
+    level: 8
+    paths:
+        - app/Atoms
