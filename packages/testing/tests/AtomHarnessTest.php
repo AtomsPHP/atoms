@@ -112,33 +112,6 @@ final class AtomHarnessTest extends TestCase
         $harness->shutdown();
     }
 
-    /**
-     * `dispatchJob(X::class, [...])` and `dispatch(new X(...))` are the same
-     * dispatch — only the World the caller lives in differs. The harness must
-     * not let a test tell them apart, or a suite written against one form would
-     * silently stop covering an Atom that switched to the other.
-     */
-    public function testBothDispatchFormsRecordIdentically(): void
-    {
-        $args = ['bob', 7, new Score(7, 'silver'), new \DateTimeImmutable('2026-03-03T00:00:00+00:00')];
-
-        $byName = $this->harness();
-        $byName->invoke('recordScore', $args);
-
-        $byInstance = $this->harness();
-        $byInstance->invoke('recordScoreByInstance', $args);
-
-        self::assertEquals($byName->dispatched(), $byInstance->dispatched());
-
-        foreach ([$byName, $byInstance] as $harness) {
-            $harness->assertDispatched(
-                RecordResult::class,
-                fn (RecordResult $job): bool => $job->user === 'bob' && $job->score->tier === 'silver',
-            );
-            $harness->shutdown();
-        }
-    }
-
     public function testBroadcastRecorderAndAssertion(): void
     {
         $harness = $this->harness();

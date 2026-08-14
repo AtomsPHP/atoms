@@ -55,7 +55,7 @@ final class ContractCheckerTest extends TestCase
             {
                 public function play(string $ref): void
                 {
-                    $this->dispatchJob(RecordGameResult::class, ['ref' => $ref, 'seat' => 1]);
+                    $this->dispatch(RecordGameResult::class, ['ref' => $ref, 'seat' => 1]);
                 }
             }
             PHP);
@@ -75,7 +75,7 @@ final class ContractCheckerTest extends TestCase
             {
                 public function play(string $ref): void
                 {
-                    $this->dispatchJob(RecordGameResult::class, ['ref' => $ref, 'set' => 1]);
+                    $this->dispatch(RecordGameResult::class, ['ref' => $ref, 'set' => 1]);
                 }
             }
             PHP);
@@ -95,7 +95,7 @@ final class ContractCheckerTest extends TestCase
             {
                 public function play(string $ref): void
                 {
-                    $this->dispatchJob(RecordGameResult::class, ['ref' => $ref]);
+                    $this->dispatch(RecordGameResult::class, ['ref' => $ref]);
                 }
             }
             PHP);
@@ -115,7 +115,7 @@ final class ContractCheckerTest extends TestCase
             {
                 public function play(string $ref): void
                 {
-                    $this->dispatchJob(PlayerSnapshot::class, ['id' => $ref]);
+                    $this->dispatch(PlayerSnapshot::class, ['id' => $ref]);
                 }
             }
             PHP);
@@ -138,7 +138,7 @@ final class ContractCheckerTest extends TestCase
             {
                 public function play(string $ref, string $job, array $args): void
                 {
-                    $this->dispatchJob($job, $args);
+                    $this->dispatch($job, $args);
                 }
             }
             PHP);

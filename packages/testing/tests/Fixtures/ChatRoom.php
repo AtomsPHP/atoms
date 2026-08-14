@@ -44,25 +44,14 @@ final class ChatRoom extends Atom
         return $this->app()->describe($score, $at);
     }
 
-    /** The World A form — what a real Atom compiles to, since the job never ships. */
     public function recordScore(string $username, int $points, Score $score, \DateTimeImmutable $recordedAt): void
     {
-        $this->dispatchJob(RecordResult::class, [
+        $this->dispatch(RecordResult::class, [
             'user' => $username,
             'points' => $points,
             'score' => $score,
             'recordedAt' => $recordedAt,
         ]);
-    }
-
-    /**
-     * The instance form. Still on the ABI and still usable wherever the job
-     * class is loaded, so the harness must record it indistinguishably from the
-     * call above — that equivalence is what the harness test pins.
-     */
-    public function recordScoreByInstance(string $username, int $points, Score $score, \DateTimeImmutable $recordedAt): void
-    {
-        $this->dispatch(new RecordResult($username, $points, $score, $recordedAt));
     }
 
     public function badReturn(): object

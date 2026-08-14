@@ -22,19 +22,20 @@ rule everything else follows:
 - **World B — Methods and AtomJob classes** (`GameRoom/Methods.php`,
   `Jobs/RecordGameResult.php`) stay in your monolith with full framework access.
   The Atom reaches World B through `$this->app()->method(...)` and
-  `$this->dispatchJob(SomeJob::class, ['param' => $value])`. Only their
+  `$this->dispatch(SomeJob::class, ['param' => $value])`. Only their
   **signatures** are the contract the build validates — the code never ships.
   Which is exactly why a job is dispatched BY NAME: the class is not on the
-  platform, so `$this->dispatch(new SomeJob(...))` cannot work there and is a
-  build error (`ATOMS-E104`). `SomeJob::class` is a compile-time constant, so
-  naming it neither loads nor ships anything.
+  platform, so `dispatch()` takes the class NAME, never an instance — building
+  a job with `new` inside an Atom is a build error (`ATOMS-E104`).
+  `SomeJob::class` is a compile-time constant, so naming it neither loads nor
+  ships anything.
 
 What an Atom may touch on `atoms/core` (frozen ABI):
 
 ```php
 $this->db();                       // Atoms\Database — pdo(), query(), execute(), transaction()
 $this->app()->getPlayer($id);      // reverse RPC into your Methods class (World B)
-$this->dispatchJob(RecordGameResult::class, [  // hand a job to the monolith queue
+$this->dispatch(RecordGameResult::class, [  // hand a job to the monolith queue
     'ref' => $ref,                                // keys are the job's constructor
     'seat' => 1,                                  // parameter names
 ]);
@@ -85,7 +86,7 @@ Turns are single-threaded per Atom. Two traps:
   Atom that called it.
 - **`app()` head-of-line blocking.** `$this->app()` is a synchronous round-trip
   to the monolith; while it is in flight the Atom processes no other turn. Keep
-  Methods calls fast; move slow work into an `AtomJob` via `$this->dispatchJob()`.
+  Methods calls fast; move slow work into an `AtomJob` via `$this->dispatch()`.
 
 ## Error catalog
 

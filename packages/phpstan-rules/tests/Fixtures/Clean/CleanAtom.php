@@ -21,7 +21,7 @@ final class CleanAtom extends Atom
 
         $snapshot = $this->app()->getPlayer($id);
 
-        $this->dispatchJob(RecordResult::class, ['playerId' => $id, 'recordedAt' => new \DateTimeImmutable()]);
+        $this->dispatch(RecordResult::class, ['playerId' => $id, 'recordedAt' => new \DateTimeImmutable()]);
 
         $this->broadcast('room', ['id' => $id]);
 

@@ -29,10 +29,10 @@ atoms-composer.json                 ← World A dependencies only
 
 | Where | Code | Executes in | Import | Behavior |
 |-------|------|-------------|--------|----------|
-| **Atom class** (e.g., `GameRoom.php`) | World A | Platform Atoms runtime | `atoms/core`, `atoms-composer.json` approved packages, `Shared/` | `$this->db()`, `$this->dispatchJob()`, `$this->app()`, WebSocket handlers |
+| **Atom class** (e.g., `GameRoom.php`) | World A | Platform Atoms runtime | `atoms/core`, `atoms-composer.json` approved packages, `Shared/` | `$this->db()`, `$this->dispatch()`, `$this->app()`, WebSocket handlers |
 | **Methods class** (e.g., `GameRoom/Methods.php`) | World B | Your Laravel/Symfony app | Full app access | `$this->app()->someMethod()` receives calls from Atoms |
 | **Shared DTOs** (e.g., `Shared/PlayerSnapshot.php`) | BOTH | Platform runtime + your app | `atoms/core` + stdlib only | Data crossing the RPC boundary |
-| **AtomJob** (e.g., `Jobs/RecordGameResult.php`) | World B | Your app's queue/job system | Full app access | Dispatched **by name** via `$this->dispatchJob(RecordGameResult::class, [...])` from Atoms |
+| **AtomJob** (e.g., `Jobs/RecordGameResult.php`) | World B | Your app's queue/job system | Full app access | Dispatched **by name** via `$this->dispatch(RecordGameResult::class, [...])` from Atoms |
 | **Migrations** (e.g., `GameRoom/migrations/001_*.sql`) | World A | Platform Atoms runtime at activation | SQL + no app context | Append-only, schema changes for the Atom's SQLite database |
 
 ## The Rule of Thumb
@@ -52,13 +52,14 @@ there. Dispatch it by name instead —
 ```php
 // In the Atom (World A). RecordGameResult::class is a compile-time constant,
 // so naming the job neither loads it nor ships it.
-$this->dispatchJob(RecordGameResult::class, ['ref' => $ref, 'seat' => 1]);
+$this->dispatch(RecordGameResult::class, ['ref' => $ref, 'seat' => 1]);
 ```
 
 The array is keyed by the job's **constructor parameter names**; your app
 reconstructs the real object from `{"job": FQCN, "args": {...}}` and hands it to
-your queue. `$this->dispatch(new RecordGameResult(...))` is the World B form and
-is refused at build time (`ATOMS-E104`) rather than at 3am.
+your queue. `dispatch()` takes the class name, never an instance — building a
+job with `new` inside an Atom is refused at build time (`ATOMS-E104`) rather
+than at 3am.
 
 ## Shared/ — Pure Data Zone
 

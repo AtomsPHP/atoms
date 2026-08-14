@@ -68,6 +68,16 @@ supplies — is docs/adapters.md.
 Everything below is wire-protocol-grade API. Implement exactly these
 signatures; additions are fine, changes are not.
 
+**Until 1.0, that freeze is a default, not a wall** — the same reasoning the
+error-catalog section gives for rewording. Nothing is on Packagist, so there is
+no installed base to protect, and a signature that cannot be used correctly is
+worth fixing while fixing it is still cheap. `dispatch()` was changed in place
+that way: it took an `AtomJob` instance, which required a class the platform
+never had, and now takes the class name plus its arguments. A change like that
+needs a deliberate decision and a build-time error that names the new shape
+(`ATOMS-E104` does it here) — never a quiet edit. Once `atoms/core` is
+published, the freeze is a wall.
+
 ```php
 namespace Atoms;
 
@@ -81,9 +91,8 @@ abstract class Atom
     protected function db(): Database;
     /** @return TApp (proxy) */
     protected function app(): object;
-    protected function dispatch(AtomJob $job): void;          // World B only — see below
     /** @param class-string<AtomJob> $job @param array<string, mixed> $args */
-    protected function dispatchJob(string $job, array $args = []): void;
+    protected function dispatch(string $job, array $args = []): void;
     protected function config(string $key): mixed;
     protected function broadcast(string $channel, array $payload): void;
     protected function timers(): Timers\Timers;
@@ -104,7 +113,7 @@ abstract class AtomJob {}       // World B base: constructor args are the contra
                                 // params MUST be promoted public properties with
                                 // serialization-algebra types. The class does NOT
                                 // ship, so Atom code dispatches it BY NAME:
-                                // dispatchJob(X::class, ['param' => $v]). Building
+                                // dispatch(X::class, ['param' => $v]). Building
                                 // one with `new` inside an Atom is ATOMS-E104 —
                                 // the class does not exist on the platform.
 
@@ -120,8 +129,8 @@ interface Database
 Supporting types in core (exact FQCNs — other packages reference these):
 
 - `Atoms\Runtime\AtomContext` — interface the runtime/harness implements:
-  `db(): Database`, `app(): object`, `dispatch(AtomJob $job): void`,
-  `dispatchJob(string $job, array $args = []): void`,
+  `db(): Database`, `app(): object`,
+  `dispatch(string $job, array $args = []): void`,
   `config(string $key): mixed`, `broadcast(string $channel, array $payload): void`,
   `timers(): Timers\Timers`.
 - `Atoms\Timers\Timers` — interface for named one-shot timers:

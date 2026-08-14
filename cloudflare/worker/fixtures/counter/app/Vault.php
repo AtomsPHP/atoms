@@ -339,7 +339,7 @@ final class Vault extends Atom
                 ['transfer-and-notify', 1]
             );
 
-            $this->dispatchJob(Notify::class, ['atomId' => $this->id, 'note' => $fail ? 'transfer-failed' : 'transfer-ok']);
+            $this->dispatch(Notify::class, ['atomId' => $this->id, 'note' => $fail ? 'transfer-failed' : 'transfer-ok']);
 
             if ($fail) {
                 throw new \RuntimeException('Deliberate transferAndNotify failure for rollback testing.');
@@ -357,7 +357,7 @@ final class Vault extends Atom
      */
     public function notifyThenThrow(): void
     {
-        $this->dispatchJob(Notify::class, ['atomId' => $this->id, 'note' => 'notify-then-throw']);
+        $this->dispatch(Notify::class, ['atomId' => $this->id, 'note' => 'notify-then-throw']);
 
         throw new \RuntimeException('Deliberate notifyThenThrow failure.');
     }

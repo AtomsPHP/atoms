@@ -8,15 +8,15 @@ use Atoms\Atom;
 use Atoms\PHPStan\Tests\Fixtures\Clean\RecordResult;
 
 /**
- * World A. Both dispatch forms, so the rule has to tell them apart rather than
- * flagging every mention of a job class.
+ * World A. Dispatches a job correctly, incorrectly, and a non-job — so the rule
+ * has to tell them apart rather than flag every mention of a job class.
  */
 final class DispatchAtom extends Atom
 {
     public function legal(string $id): void
     {
         // By name: a compile-time constant, so the job never has to ship.
-        $this->dispatchJob(RecordResult::class, [
+        $this->dispatch(RecordResult::class, [
             'playerId' => $id,
             'recordedAt' => new \DateTimeImmutable(),
         ]);

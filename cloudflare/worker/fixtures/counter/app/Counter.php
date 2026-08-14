@@ -141,7 +141,7 @@ final class Counter extends Atom
     {
         $this->turnsThisResidency++;
 
-        $this->dispatchJob(Notify::class, ['atomId' => $this->id, 'note' => $note]);
+        $this->dispatch(Notify::class, ['atomId' => $this->id, 'note' => $note]);
 
         return 'notified:' . $note;
     }

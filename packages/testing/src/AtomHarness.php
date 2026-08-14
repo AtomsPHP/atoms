@@ -51,9 +51,8 @@ final class AtomHarness
     private readonly Serializer $serializer;
 
     /**
-     * Both dispatch forms land here in ONE shape — the wire shape, `{job, args}`
-     * keyed by constructor parameter name — so an assertion cannot tell (and
-     * must not care) whether the Atom used `dispatch()` or `dispatchJob()`.
+     * Recorded in the wire shape — `{job, args}` keyed by constructor parameter
+     * name — because that is exactly what crosses to your app.
      *
      * @var list<array{job: string, args: array<string, mixed>}>
      */
@@ -157,9 +156,6 @@ final class AtomHarness
             $this->database,
             $appProxy,
             $this->config,
-            function (object $job): void {
-                $this->dispatched[] = ['job' => $job::class, 'args' => $this->readJobArgs($job)];
-            },
             function (string $job, array $args): void {
                 $this->dispatched[] = ['job' => $job, 'args' => $args];
             },
@@ -271,12 +267,11 @@ final class AtomHarness
     }
 
     /**
-     * Every job dispatched so far — by either `dispatch()` or `dispatchJob()` —
-     * reconstructed by round-tripping its constructor arguments through the
-     * serializer and building a fresh instance, exactly as the monolith's
-     * callback kernel does. This proves the job is wire-safe rather than that
-     * an object reference is being held, and for `dispatchJob()` it is also
-     * what proves the named arguments actually satisfy the constructor.
+     * Every job dispatched so far, reconstructed by round-tripping its
+     * constructor arguments through the serializer and building a fresh
+     * instance, exactly as the monolith's callback kernel does. That proves two
+     * things a recorded call alone would not: the arguments are wire-safe, and
+     * they actually satisfy the job's constructor.
      *
      * @return list<object>
      */
@@ -401,31 +396,6 @@ final class AtomHarness
         $default = $this->atomClass . '\\Methods';
 
         return class_exists($default) ? new $default() : null;
-    }
-
-    /**
-     * Read a constructed job's arguments back off the object, by constructor
-     * parameter name — the same walk the platform runtime does for
-     * `dispatch()`, so both forms reach {@see reconstruct()} in one shape.
-     *
-     * @return array<string, mixed>
-     */
-    private function readJobArgs(object $job): array
-    {
-        $reflection = new \ReflectionClass($job);
-        $constructor = $reflection->getConstructor();
-
-        if ($constructor === null) {
-            return [];
-        }
-
-        $args = [];
-        foreach ($constructor->getParameters() as $param) {
-            $name = $param->getName();
-            $args[$name] = $reflection->getProperty($name)->getValue($job);
-        }
-
-        return $args;
     }
 
     /**

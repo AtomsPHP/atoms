@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Atoms\Core\Tests\Fixtures;
 
 use Atoms\Atom;
-use Atoms\AtomJob;
 use Atoms\Database;
 use Atoms\Timers\Timers;
 
@@ -34,17 +33,12 @@ final class TestAtom extends Atom
         return $this->app();
     }
 
-    public function callDispatch(AtomJob $job): void
-    {
-        $this->dispatch($job);
-    }
-
     /**
      * @param array<string, mixed> $args
      */
-    public function callDispatchJob(string $job, array $args = []): void
+    public function callDispatch(string $job, array $args = []): void
     {
-        $this->dispatchJob($job, $args);
+        $this->dispatch($job, $args);
     }
 
     public function callConfig(string $key): mixed

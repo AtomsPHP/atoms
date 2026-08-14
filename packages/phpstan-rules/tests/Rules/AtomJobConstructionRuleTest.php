@@ -31,7 +31,7 @@ final class AtomJobConstructionRuleTest extends RuleTestCase
     {
         $file = __DIR__ . '/../Fixtures/Dispatch/DispatchAtom.php';
 
-        // dispatchJob() on line 19 is legal and NotAJob on line 34 belongs to
+        // dispatch() on line 19 is legal and NotAJob on line 34 belongs to
         // the boundary rules — exactly one error, on the `new` job.
         $this->analyse([$file], [
             [ErrorCatalog::format(ErrorCode::AtomJobConstructedInAtom, [

@@ -25,16 +25,15 @@ use PHPStan\Rules\RuleErrorBuilder;
 /**
  * Flags `$this->dispatch(new SomeJob(...))` inside WORLD_A code (ATOMS-E104).
  *
- * An AtomJob is World B: its source stays in the monolith and is never packed
- * into the bundle, so on the platform that class does not exist and `new
- * SomeJob(...)` raises `Class "SomeJob" not found` at the dispatch site. The
- * failure is easy to miss — a dispatch wrapped in `catch (\Throwable)` (a
- * reasonable thing to write for best-effort work) simply never happens, with
- * no delivery attempted and no failure counted anywhere.
+ * `dispatch()` takes a job's class NAME: an AtomJob is World B, its source is
+ * never packed into the bundle, and so the platform has no class to instantiate.
+ * Passing an instance instead gets a bare argument-type error from PHPStan's own
+ * checks, which says nothing about what to do about it; this rule is what
+ * explains the shape.
  *
- * `$this->dispatchJob(SomeJob::class, ['param' => $value])` is the World A
- * form and is not flagged: naming a class is a compile-time constant, so it
- * neither loads the class nor requires it to ship.
+ * `$this->dispatch(SomeJob::class, ['param' => $value])` is the correct form and
+ * is not flagged: naming a class is a compile-time constant, so it neither loads
+ * the class nor requires it to ship.
  *
  * This rule deliberately does NOT lean on the boundary-reference rules. Those
  * treat any class discovered under the configured Atoms paths as legal (a job

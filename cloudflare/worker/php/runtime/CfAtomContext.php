@@ -12,7 +12,6 @@
 
 namespace Atoms\Cf;
 
-use Atoms\AtomJob;
 use Atoms\Database;
 use Atoms\Runtime\AtomContext;
 use Atoms\Serialization\Serializer;
@@ -93,59 +92,20 @@ final class CfAtomContext implements AtomContext
     }
 
     /**
-     * Encode the job from its promoted public constructor properties and
-     * cross on the sync `dispatch.enqueue` op — dual to
-     * `Atoms\Client\Callback\CallbackKernel::constructJob()`. Buffered on
-     * commit / dropped on rollback when a transaction is open; delivered
-     * immediately (fire-and-forget) otherwise.
+     * Dispatch by class name. An AtomJob's source never ships to the platform,
+     * so there is no instance to take: `SomeJob::class` is resolved by the
+     * compiler from the calling file's own `use` statement, and the arguments
+     * arrive already separated from it, keyed by constructor parameter name —
+     * the same map `CallbackKernel::constructJob()` reads on the monolith side
+     * to rebuild the real object.
      *
-     * Implemented for ABI completeness, but unreachable from a deployed Atom:
-     * the caller needs an INSTANCE, and an AtomJob's source does not ship in
-     * the bundle, so `new SomeJob(...)` in Atom code is a build error
-     * (`ATOMS-E104`) pointing at {@see dispatchJob()}. Kept because the ABI is
-     * frozen and because a job class can legitimately be loaded in-guest by a
-     * host that bundles differently.
-     */
-    public function dispatch(AtomJob $job): void
-    {
-        $class = get_class($job);
-        $reflection = new \ReflectionClass($job);
-        $ctor = $reflection->getConstructor();
-
-        $args = [];
-        if ($ctor !== null) {
-            foreach ($ctor->getParameters() as $param) {
-                $name = $param->getName();
-
-                if (!$reflection->hasProperty($name)) {
-                    throw JobNotEncodable::missingProperty($class, $name);
-                }
-
-                $property = $reflection->getProperty($name);
-                if (!$property->isPublic() || $property->isStatic()) {
-                    throw JobNotEncodable::notPublic($class, $name);
-                }
-
-                $args[$name] = $this->serializer->normalize($property->getValue($job));
-            }
-        }
-
-        $this->enqueueJob($class, $args);
-    }
-
-    /**
-     * Dispatch by class name — the form Atom code uses, because an AtomJob's
-     * source never ships to the platform. `SomeJob::class` is resolved by the
-     * compiler, so this needs neither the class nor an instance: the arguments
-     * arrive already separated from it, keyed by constructor parameter name,
-     * which is the same map {@see dispatch()} builds by reflection and the same
-     * one `CallbackKernel::constructJob()` reads on the monolith side. The wire
-     * body is byte-identical between the two paths.
+     * Buffered on commit / dropped on rollback when a transaction is open;
+     * delivered immediately (fire-and-forget) otherwise.
      *
      * @param string $job
      * @param array<string, mixed> $args
      */
-    public function dispatchJob(string $job, array $args = []): void
+    public function dispatch(string $job, array $args = []): void
     {
         $class = ltrim(trim($job), '\\');
 
@@ -157,7 +117,7 @@ final class CfAtomContext implements AtomContext
         foreach ($args as $name => $value) {
             if (!is_string($name)) {
                 throw JobNotEncodable::unencodable($class, sprintf(
-                    'argument %s is positional; dispatchJob() takes constructor arguments by name',
+                    'argument %s is positional; dispatch() takes constructor arguments by name',
                     var_export($name, true)
                 ));
             }
@@ -169,8 +129,8 @@ final class CfAtomContext implements AtomContext
     }
 
     /**
-     * The one place the `{"job":FQCN,"args":{...}}` frame is built and crossed,
-     * shared by both dispatch forms. `$args` is already normalized.
+     * The one place the `{"job":FQCN,"args":{...}}` frame is built and crossed.
+     * `$args` is already normalized.
      *
      * @param string $class
      * @param array<string, mixed> $args

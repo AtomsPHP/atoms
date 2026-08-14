@@ -17,10 +17,10 @@ use PhpParser\NodeFinder;
 /**
  * Stage 4: check the Atom↔Methods and Atom↔AtomJob contracts statically. An Atom
  * that calls `$this->app()->foo(...)` must hit a real public Methods method with
- * compatible arity (E030/E031); `$this->dispatchJob(X::class, [...])` must target
- * a real AtomJob whose constructor accepts those argument names (E033/E032); and
- * `$this->dispatch(new X(...))` is refused outright (E104), because an AtomJob's
- * source never ships and so cannot be constructed on the platform.
+ * compatible arity (E030/E031); `$this->dispatch(X::class, [...])` must target a
+ * real AtomJob whose constructor accepts those argument names (E033/E032), and
+ * must name the class rather than construct it (E104) — an AtomJob's source
+ * never ships, so the platform has nothing to instantiate.
  */
 final class ContractChecker
 {
@@ -51,10 +51,6 @@ final class ContractChecker
             $dispatchViolation = $this->checkDispatch($atom, $call);
             if ($dispatchViolation !== null) {
                 $violations[] = $dispatchViolation;
-            }
-            $dispatchJobViolation = $this->checkDispatchJob($atom, $call);
-            if ($dispatchJobViolation !== null) {
-                $violations[] = $dispatchJobViolation;
             }
         }
 
@@ -113,15 +109,20 @@ final class ContractChecker
     }
 
     /**
-     * Shape: `$this->dispatch(new X(...))` — the World B form, and a build error
-     * inside an Atom.
+     * Shape: `$this->dispatch(X::class, ['param' => $value, ...])`.
      *
-     * An AtomJob's source stays in the monolith, so `new X(...)` on the platform
-     * raises `Class "X" not found` at the dispatch site. That failure is
-     * invisible in the worst case (a dispatch inside `try { } catch
-     * (\Throwable) { }` is simply never delivered, with nothing logged and no
-     * failure counted), so it is caught here instead — where the fix is
-     * mechanical and the message can name it.
+     * Two things can be wrong. The argument names must satisfy the job's
+     * constructor (E032) against a class that is really an AtomJob (E033) —
+     * those parameter names are the contract on both sides of the wire.
+     *
+     * And the first argument must be the class NAME, not an instance. Passing
+     * `new X(...)` (how `dispatch()` was called before it took a class string)
+     * is E104: an AtomJob's source stays in the monolith, so the platform has
+     * no such class to construct. Nothing else in the build would catch it —
+     * the symbol classifier inspects referenced classes and functions, not
+     * method calls on `$this` — so without this the build would pass and the
+     * Atom would die at runtime, silently if the dispatch sits in the
+     * `try { } catch (\Throwable) { }` that best-effort work usually carries.
      */
     private function checkDispatch(DiscoveredClass $atom, MethodCall $call): ?Violation
     {
@@ -130,51 +131,21 @@ final class ContractChecker
         }
 
         $first = $call->args[0] ?? null;
-        if (!$first instanceof Arg || !$first->value instanceof New_ || !$first->value->class instanceof Name) {
-            return null;
-        }
-
-        $new = $first->value;
-        /** @var Name $className */
-        $className = $new->class;
-        $jobName = $className->toString();
-        $job = $this->discovery->get($jobName);
-
-        if ($job === null || $job->kind !== ClassKind::Job) {
-            return new Violation(
-                ErrorCode::NotAnAtomJob,
-                $atom->relativePath,
-                $call->getStartLine(),
-                ['atom' => $atom->fqcn, 'class' => $jobName],
-                $jobName,
-            );
-        }
-
-        // A real AtomJob, dispatched the one way an Atom cannot dispatch it.
-        return new Violation(
-            ErrorCode::AtomJobConstructedInAtom,
-            $atom->relativePath,
-            $call->getStartLine(),
-            ['atom' => $atom->fqcn, 'job' => $jobName],
-            $jobName,
-        );
-    }
-
-    /**
-     * Shape: `$this->dispatchJob(X::class, ['param' => $value, ...])` — the World
-     * A form. The class must be a real AtomJob (E033) and the argument keys must
-     * satisfy its constructor (E032); the constructor parameter names are the
-     * contract on both sides of the wire.
-     */
-    private function checkDispatchJob(DiscoveredClass $atom, MethodCall $call): ?Violation
-    {
-        if (!$this->isThis($call->var) || !$this->nameIs($call->name, 'dispatchJob')) {
-            return null;
-        }
-
-        $first = $call->args[0] ?? null;
         if (!$first instanceof Arg) {
             return null;
+        }
+
+        if ($first->value instanceof New_) {
+            if (!$first->value->class instanceof Name) {
+                return null;
+            }
+
+            $jobName = $first->value->class->toString();
+            $job = $this->discovery->get($jobName);
+
+            return $job !== null && $job->kind === ClassKind::Job
+                ? $this->violation(ErrorCode::AtomJobConstructedInAtom, $atom, $call, ['job' => $jobName], $jobName)
+                : $this->violation(ErrorCode::NotAnAtomJob, $atom, $call, ['class' => $jobName], $jobName);
         }
 
         $jobName = $this->classConstName($first->value);
@@ -184,13 +155,7 @@ final class ContractChecker
 
         $job = $this->discovery->get($jobName);
         if ($job === null || $job->kind !== ClassKind::Job) {
-            return new Violation(
-                ErrorCode::NotAnAtomJob,
-                $atom->relativePath,
-                $call->getStartLine(),
-                ['atom' => $atom->fqcn, 'class' => $jobName],
-                $jobName,
-            );
+            return $this->violation(ErrorCode::NotAnAtomJob, $atom, $call, ['class' => $jobName], $jobName);
         }
 
         $names = $this->literalArgNames($call->args[1] ?? null);
@@ -199,25 +164,29 @@ final class ContractChecker
         }
 
         $ctor = SignatureReader::constructor($job->node);
-        if ($ctor === null) {
-            return $names === []
-                ? null
-                : $this->jobSignatureMismatch($atom, $call, $jobName);
-        }
+        $accepts = $ctor === null ? $names === [] : $ctor->acceptsArgNames($names);
 
-        return $ctor->acceptsArgNames($names)
+        return $accepts
             ? null
-            : $this->jobSignatureMismatch($atom, $call, $jobName);
+            : $this->violation(ErrorCode::AtomJobSignatureMismatch, $atom, $call, ['job' => $jobName], $jobName);
     }
 
-    private function jobSignatureMismatch(DiscoveredClass $atom, MethodCall $call, string $jobName): Violation
-    {
+    /**
+     * @param array<string, string> $extra merged over the always-present `atom`
+     */
+    private function violation(
+        ErrorCode $code,
+        DiscoveredClass $atom,
+        MethodCall $call,
+        array $extra,
+        string $symbol,
+    ): Violation {
         return new Violation(
-            ErrorCode::AtomJobSignatureMismatch,
+            $code,
             $atom->relativePath,
             $call->getStartLine(),
-            ['atom' => $atom->fqcn, 'job' => $jobName],
-            $jobName,
+            ['atom' => $atom->fqcn] + $extra,
+            $symbol,
         );
     }
 

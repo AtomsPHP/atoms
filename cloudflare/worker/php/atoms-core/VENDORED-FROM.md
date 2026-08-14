@@ -13,7 +13,7 @@ reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 | Re-verified | 2026-08-12, on M2 wave 0 (timers ABI) — `Atom.php`, `Errors/ErrorCode.php`, `Runtime/AtomContext.php`, `Runtime/LifecycleInvoker.php` and `resources/errors.json` re-vendored (`AtomContext::timers()`, `Atom::timers()`/`onTimer()`, `LifecycleInvoker::timer()`, ATOMS-E080–E086 added); new file `Timers/Timers.php` added, 23 files total; the other 17 digests are unchanged |
 | Re-verified | 2026-08-13, on M4 T1 (adapter discipline error codes) — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E100–E103 added: layering violation, sleep-in-Atom, elapsed-time wait loop, no queue bridge configured); still 23 files total, the other 21 digests are unchanged |
 | Re-verified | 2026-08-13, on M7 documentation publication — `Errors/ErrorCatalog.php` re-vendored so stable error links use `docs.atomsphp.dev`; still 23 files total, the other 22 digests are unchanged |
-| Re-verified | 2026-08-14, on the by-name dispatch fix — `Atom.php`, `Runtime/AtomContext.php`, `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (`AtomContext::dispatchJob()`/`Atom::dispatchJob()` added, ATOMS-E104 added, E032 reworded); still 23 files total, the other 19 digests are unchanged |
+| Re-verified | 2026-08-14, on the by-name dispatch fix — `Atom.php`, `Runtime/AtomContext.php`, `Errors/ErrorCode.php` and `resources/errors.json` re-vendored. `dispatch()` changed in place from `dispatch(AtomJob $job)` to `dispatch(string $job, array $args = [])`: the instance form needed the job class loaded in the guest, which a bundle never carries. A pre-1.0 signature change, taken deliberately — see `docs/conventions.md` §The `atoms/core` ABI. ATOMS-E104 added; E032/E061/E082/E084/E101/E102 reworded. Still 23 files total, the other 19 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -77,7 +77,7 @@ of `Atoms\Database` in this runtime. It is still the reference for
 ## Digests (sha256)
 
 ```
-74fe8c320dddb1b690e43d491a4e663abc8af9b54f306adb6a2edaa8a57161fc  Atom.php
+a7d360210c05d718b28c27879d8d807f371fd1321469aea23c3c155f082cafc7  Atom.php
 e1cf8cea48ad7525422c43e4c7422c250ed66028b9d4cf3bf97f5fce5fe9e624  AtomJob.php
 4a4da51d856e552242a045b68d04e7e5754e48b1825c708d0736a0b8fadc87e9  AtomMethods.php
 efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/MethodsFor.php
@@ -91,8 +91,7 @@ e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Mig
 f433e85e2449339b31bf806c4c8dde1afbd9e06dda005a2dc5a3df62fcd1252e  Migrations/MigrationEntry.php
 addfe71f9472e7f2e76422227ef06586818b546e09842cdcba8e8a97a1dcd690  Migrations/MigrationSet.php
 50af83b416b9dec8f9c16e4b0fa635ef4fb5be8e38134571f66d910bded18b9d  Migrations/Migrator.php
-ff7de090d0fb8d944afa61ff7acf0c045ce3780e0199732c706d65fad2cda27f
-5260d51a8ef5cdc6130bdbd7c5fd910fb7f020cda22e0acd1f70b1831fc46855  Runtime/AtomContext.php
+2fef396ffd1ecc482b7a26cf83e4e581960138b74e44b82add7d9825cc37498b  Runtime/AtomContext.php
 bad340c4631a86b8b0d33df013854e5494f7e639917c71e103ce0635cb47dc41  Runtime/LifecycleInvoker.php
 b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/Payload.php
 1486ab89bf416b88929159b6014b2a268b081f2efd1d46a314fe4d86948d8bc8  Serialization/SerializationException.php
@@ -100,6 +99,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 1fde1d8fa58f1bf741d746d8f82fd3dc847fb0ae44b04baa4c2eccd033df3295  Timers/Timers.php
 9976931fc24b29337ddddbb686432d537e45524f388cfbc60b37554af8db46f5  Websocket/Connection.php
 c0a739e750b0b2558133cb5c33e6ac119ed1f1526be41587a4f2bf21b5ba63d9  Websocket/Message.php
+eefa01d36900c3b68c5f0bfee308856709ca8bc4f652799adc88be1cf254cf70  resources/errors.json
 ```
 
 Verify with, from this directory:

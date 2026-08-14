@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Atoms\Testing\Internal;
 
-use Atoms\AtomJob;
 use Atoms\Database;
 use Atoms\Runtime\AtomContext;
 use Atoms\Testing\FakeTimers;
@@ -22,8 +21,7 @@ final class HarnessAtomContext implements AtomContext
 {
     /**
      * @param array<string, mixed> $config
-     * @param \Closure(AtomJob): void $onDispatch
-     * @param \Closure(string, array<string, mixed>): void $onDispatchJob
+     * @param \Closure(string, array<string, mixed>): void $onDispatch
      * @param \Closure(string, array<string, mixed>): void $onBroadcast
      */
     public function __construct(
@@ -31,7 +29,6 @@ final class HarnessAtomContext implements AtomContext
         private readonly object $appProxy,
         private readonly array $config,
         private readonly \Closure $onDispatch,
-        private readonly \Closure $onDispatchJob,
         private readonly \Closure $onBroadcast,
         private readonly FakeTimers $timers,
     ) {
@@ -47,14 +44,9 @@ final class HarnessAtomContext implements AtomContext
         return $this->appProxy;
     }
 
-    public function dispatch(AtomJob $job): void
+    public function dispatch(string $job, array $args = []): void
     {
-        ($this->onDispatch)($job);
-    }
-
-    public function dispatchJob(string $job, array $args = []): void
-    {
-        ($this->onDispatchJob)(ltrim(trim($job), '\\'), $args);
+        ($this->onDispatch)(ltrim(trim($job), '\\'), $args);
     }
 
     public function config(string $key): mixed
