@@ -30,10 +30,34 @@ final class WorkerConfigTest extends TestCase
         self::assertSame('ATOMS_CONFIG_', $config->configEnvPrefix);
         self::assertSame([], $config->configEnvKeys);
         self::assertSame(
-            ['ATOMS_APP_KEY', 'ATOMS_CONFIG_ENV_KEYS', 'ATOMS_CONFIG_ENV_DENY_KEYS'],
+            [
+                'ATOMS_SHARED_SECRET',
+                'ATOMS_SHARED_SECRET_PREVIOUS',
+                'ATOMS_APP_KEY',
+                'ATOMS_CALLBACK_SIGNING_KEY',
+                'ATOMS_CONFIG_ENV_KEYS',
+                'ATOMS_CONFIG_ENV_DENY_KEYS',
+            ],
             $config->configEnvDenyKeys,
         );
         self::assertNull($config->source);
+    }
+
+    /**
+     * `ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS` are the root of
+     * the app <-> Worker boundary; `ATOMS_APP_KEY` and
+     * `ATOMS_CALLBACK_SIGNING_KEY` are tombstones for the two secrets they
+     * replaced. All four must be refused under any prefix, not just the one a
+     * blank deny list happens to collide with.
+     */
+    public function testTheSharedSecretFamilyAndLegacyTombstonesAreAlwaysDenied(): void
+    {
+        $config = WorkerConfig::fromWorkerDir($this->freshDir());
+
+        foreach (['ATOMS_SHARED_SECRET', 'ATOMS_SHARED_SECRET_PREVIOUS', 'ATOMS_APP_KEY', 'ATOMS_CALLBACK_SIGNING_KEY'] as $name) {
+            self::assertFalse($config->isReadable($name), "{$name} must never be readable from Atom code");
+            self::assertNotNull($config->unreadableReason($name), "{$name} must carry a refusal reason");
+        }
     }
 
     /**
@@ -135,15 +159,16 @@ final class WorkerConfigTest extends TestCase
     /**
      * `config.js` falls back to the DEFAULT deny list when the variable is
      * blank, so modelling blank as "deny nothing" would let the CLI bless a
-     * write to ATOMS_APP_KEY — the Worker's own bearer secret.
+     * write to ATOMS_SHARED_SECRET or ATOMS_APP_KEY.
      */
     public function testABlankDenyListMeansTheDefaultsNotAnEmptyList(): void
     {
         foreach (['', ' ', "\u{00A0}"] as $blank) {
-            // The prefix matters to the scenario: under ATOMS_, the key
-            // "app key" lands exactly on ATOMS_APP_KEY. Under the default
-            // prefix it lands on ATOMS_CONFIG_APP_KEY, which is a perfectly
-            // ordinary config name and rightly not refused.
+            // The prefix matters to the scenario: under ATOMS_, the keys
+            // "shared secret" and "app key" land exactly on ATOMS_SHARED_SECRET
+            // and ATOMS_APP_KEY. Under the default prefix they land on
+            // ATOMS_CONFIG_SHARED_SECRET etc., which are perfectly ordinary
+            // config names and rightly not refused.
             $config = WorkerConfig::fromWorkerDir($this->workerDir(json_encode([
                 'vars' => [
                     'ATOMS_CONFIG_ENV_PREFIX' => 'ATOMS_',
@@ -152,13 +177,46 @@ final class WorkerConfigTest extends TestCase
             ], JSON_THROW_ON_ERROR)));
 
             self::assertSame(WorkerConfig::DEFAULT_DENY_KEYS, $config->configEnvDenyKeys);
+
+            self::assertFalse($config->isReadable('ATOMS_SHARED_SECRET'));
+            self::assertSame('ATOMS_SHARED_SECRET', $config->workerNameFor('shared secret'));
+            self::assertNotNull(
+                $config->keyRefusalReason('shared secret'),
+                'writing the shared secret must be refused, not reported as a stored config value',
+            );
+
             self::assertFalse($config->isReadable('ATOMS_APP_KEY'));
             self::assertSame('ATOMS_APP_KEY', $config->workerNameFor('app key'));
             self::assertNotNull(
                 $config->keyRefusalReason('app key'),
-                'writing the Worker bearer secret must be refused, not reported as a stored config value',
+                'the legacy app-key tombstone must still be refused',
             );
         }
+    }
+
+    /**
+     * `secrets:set ATOMS_SHARED_SECRET v` would otherwise store the root
+     * secret under ATOMS_CONFIG_ATOMS_SHARED_SECRET — a name outside the deny
+     * list and therefore readable via `$this->config()`. The literal key must
+     * be refused before it is ever prefixed, whatever case it arrives in.
+     */
+    public function testCredentialKeyNamesAreRefusedBeforePrefixing(): void
+    {
+        $config = WorkerConfig::fromWorkerDir($this->freshDir());
+
+        foreach (['ATOMS_SHARED_SECRET', 'ATOMS_SHARED_SECRET_PREVIOUS', 'ATOMS_APP_KEY', 'ATOMS_CALLBACK_SIGNING_KEY'] as $name) {
+            foreach ([$name, strtolower($name), " {$name} "] as $variant) {
+                self::assertNotNull(
+                    $config->keyRefusalReason($variant),
+                    "{$variant} must be refused as a secrets:set key",
+                );
+            }
+        }
+
+        self::assertNull(
+            $config->keyRefusalReason('PAYMENTS_API_KEY'),
+            'an ordinary key must not be caught by the credential-name guard',
+        );
     }
 
     /**

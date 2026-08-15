@@ -17,6 +17,7 @@ use Atoms\Cli\Command\RollbackCommand;
 use Atoms\Cli\Command\SecretsListCommand;
 use Atoms\Cli\Command\SecretsSetCommand;
 use Atoms\Cli\Command\StatusCommand;
+use Atoms\Cli\Command\TokenCommand;
 use Atoms\Cli\Command\ValidateCommand;
 use Atoms\Cli\Release\RuntimeVersion;
 use Symfony\Component\Console\Application as ConsoleApplication;
@@ -49,6 +50,7 @@ final class Application extends ConsoleApplication
             new SecretsSetCommand($wrangler),
             new SecretsListCommand($wrangler),
             new DevCommand($wrangler),
+            new TokenCommand(),
             new AiInstallCommand(),
         ]);
     }

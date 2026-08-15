@@ -7,8 +7,12 @@ namespace Atoms\Cli\Command;
 use Atoms\Cli\Build\Builder;
 use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
+use Atoms\Cli\Cloudflare\DevVars;
 use Atoms\Cli\Cloudflare\Wrangler;
+use Atoms\Cli\Process\ProcessRunner;
+use Atoms\Cli\Process\SymfonyProcessRunner;
 use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCode;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -17,24 +21,35 @@ use Symfony\Component\Console\Output\OutputInterface;
 /**
  * `atoms dev` — build, stage, and run the Worker locally under `wrangler dev`.
  *
- * Replaces `atoms local`, which ran `ghcr.io/atomsphp/runtime:local`: an image
- * of the superseded Amp runtime, built by a platform that no longer exists.
- *
  * No Cloudflare credentials are required. `wrangler dev` runs workerd on this
  * machine, so a developer with no Cloudflare account can still work — which is
  * why {@see CloudflareTarget::resolve()} is called with `requireCredentials`
  * false here and nowhere else.
  *
+ * ## The dev secret
+ *
+ * Every route the Worker serves, local or deployed, needs `ATOMS_SHARED_SECRET`
+ * (docs/shared-secret.md). This command guarantees one is present in the
+ * Worker project's `.dev.vars` before starting `wrangler dev`: an existing
+ * `ATOMS_SHARED_SECRET` line is left untouched; otherwise a fresh
+ * `base64_encode(random_bytes(32))` value is generated and appended, creating
+ * the file with mode 0600 when it does not yet exist. `wrangler dev` loads
+ * `.dev.vars` on its own, so the value never appears on this command's argv or
+ * in a `--var` flag — a secret there would sit in the process table and in
+ * shell history, which the CLI-never-holds-a-credential rule exists to
+ * prevent. This command prints the `.dev.vars` path and reminds the operator
+ * that the app side's own `.env` needs the identical value — never the value
+ * itself.
+ *
+ * A `.dev.vars` inside a git work tree must be gitignored before a secret is
+ * generated into it: a committed dev secret would be a known master key.
+ * Outside a git work tree, or once `.dev.vars` is gitignored, generation
+ * proceeds.
+ *
  * ## The callback channel
  *
  * `--callback-url` is passed to the Worker as an `ATOMS_CALLBACK_URL` var, and
  * the Worker calls back through it for `$this->app()` and `$this->dispatch()`.
- * The signing key is never passed by this command: `ATOMS_CALLBACK_SIGNING_KEY`
- * must already be in the Worker project's `.dev.vars`, which `wrangler dev`
- * loads on its own — putting a private key on this command's argv or in a
- * `--var` flag would put it in the process table and in shell history, which
- * the CLI-never-holds-a-credential rule exists to prevent. This command only
- * warns when the key looks to be missing.
  */
 #[AsCommand(name: 'dev', description: 'Run the Atoms Worker locally with wrangler dev')]
 final class DevCommand extends AbstractCommand
@@ -51,6 +66,7 @@ final class DevCommand extends AbstractCommand
         private readonly Wrangler $wrangler,
         private readonly BundleStager $stager = new BundleStager(),
         private readonly Builder $builder = new Builder(),
+        private readonly ProcessRunner $processRunner = new SymfonyProcessRunner(),
     ) {
         parent::__construct();
     }
@@ -80,6 +96,14 @@ final class DevCommand extends AbstractCommand
                 requireCredentials: false,
             );
 
+            $target->assertWorkerDir();
+            $devSecret = $this->ensureDevSecret($target->workerDir);
+            $output->writeln(
+                ($devSecret['generated'] ? 'Generated a per-machine dev secret at ' : 'Using the dev secret at ')
+                . $devSecret['path'] . '.'
+            );
+            $output->writeln('  Set the identical ATOMS_SHARED_SECRET in the app\'s .env.');
+
             if ($input->getOption('no-build') !== true) {
                 $output->writeln('Building bundle…');
                 // --fast: no PHP-Scoper stage. A dev loop reruns this on every
@@ -94,13 +118,6 @@ final class DevCommand extends AbstractCommand
             if ($callback !== null) {
                 $output->writeln('  ' . self::CALLBACK_VAR . '=' . $callback);
                 $output->writeln('  The Worker will call back to this URL for $this->app() and $this->dispatch().');
-                if (!$this->hasCallbackSigningKeyConfigured($target)) {
-                    $output->writeln(
-                        '  <comment>Warning: the Worker has no ATOMS_CALLBACK_SIGNING_KEY configured — '
-                        . 'app()/dispatch() will fail with ATOMS-E081. Add it to '
-                        . $target->workerDir . '/.dev.vars.</comment>'
-                    );
-                }
             }
 
             $result = $this->wrangler->dev(
@@ -118,21 +135,56 @@ final class DevCommand extends AbstractCommand
     }
 
     /**
-     * Best-effort check for an `ATOMS_CALLBACK_SIGNING_KEY` entry in the
-     * Worker project's `.dev.vars` — the only local-dev delivery vehicle for
-     * the signing key, since this command never passes it itself (see the
-     * class docblock). Absence is not fatal here: it is a warning, because
-     * the key may be provisioned some other way this command cannot see.
+     * Guarantee $workerDir/.dev.vars carries an ATOMS_SHARED_SECRET line,
+     * generating and appending one when absent.
+     *
+     * @return array{path: string, generated: bool}
+     *
+     * @throws AtomsError E105 when the directory is a git work tree and
+     *                    .dev.vars is not gitignored
      */
-    private function hasCallbackSigningKeyConfigured(CloudflareTarget $target): bool
+    private function ensureDevSecret(string $workerDir): array
     {
-        $path = $target->workerDir . '/.dev.vars';
-        if (!is_file($path)) {
-            return false;
+        $path = DevVars::path($workerDir);
+
+        if (DevVars::readSecret($workerDir) !== null) {
+            return ['path' => $path, 'generated' => false];
         }
 
-        $contents = file_get_contents($path);
+        $this->assertDevVarsIsGitSafe($workerDir);
+        DevVars::appendGeneratedSecret($workerDir);
 
-        return $contents !== false && preg_match('/^\s*ATOMS_CALLBACK_SIGNING_KEY\s*=/m', $contents) === 1;
+        return ['path' => $path, 'generated' => true];
+    }
+
+    /**
+     * A `.dev.vars` inside a git work tree must be gitignored before this
+     * command writes a generated secret into it: a committed dev secret would
+     * be a known master key, readable by anyone with the repository. Outside a
+     * git work tree there is nothing to protect against, so this passes
+     * silently — including when `git` itself is unavailable, which this
+     * treats the same as "not a work tree".
+     *
+     * @throws AtomsError E105
+     */
+    private function assertDevVarsIsGitSafe(string $workerDir): void
+    {
+        $inWorkTree = $this->processRunner->run(['git', '-C', $workerDir, 'rev-parse', '--is-inside-work-tree']);
+        if (!$inWorkTree->ok() || trim($inWorkTree->stdout) !== 'true') {
+            return;
+        }
+
+        // `git check-ignore -q PATH` exits 0 when PATH is ignored.
+        $ignored = $this->processRunner->run(['git', '-C', $workerDir, 'check-ignore', '-q', DevVars::FILE]);
+        if ($ignored->ok()) {
+            return;
+        }
+
+        throw new AtomsError(
+            ErrorCode::SharedSecretMissing,
+            ErrorCode::SharedSecretMissing->value . ': ' . $workerDir . ' is a git work tree, and its .dev.vars '
+                . 'is not listed in .gitignore. Add "' . DevVars::FILE . '" to ' . $workerDir . '/.gitignore, '
+                . 'then rerun `atoms dev` — a per-machine dev secret committed to git would be a known master key.',
+        );
     }
 }

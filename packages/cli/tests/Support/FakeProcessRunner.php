@@ -22,6 +22,16 @@ final class FakeProcessRunner implements ProcessRunner
     public ProcessResult $result;
 
     /**
+     * Optional per-command override, tried before {@see $result}: given the
+     * argv, return a result to use, or null to fall through to $result. Lets a
+     * single fake answer two different commands (e.g. `git rev-parse` and
+     * `git check-ignore`) differently without complicating the common case.
+     *
+     * @var (\Closure(list<string>): ?ProcessResult)|null
+     */
+    public ?\Closure $resultFor = null;
+
+    /**
      * @param array<string, string> $onPath
      */
     public function __construct(?ProcessResult $result = null, array $onPath = ['node' => '/usr/bin/node'])
@@ -34,7 +44,7 @@ final class FakeProcessRunner implements ProcessRunner
     {
         $this->runs[] = ['command' => $command, 'cwd' => $cwd, 'env' => $env, 'stdin' => $stdin];
 
-        return $this->result;
+        return ($this->resultFor !== null ? ($this->resultFor)($command) : null) ?? $this->result;
     }
 
     public function runForeground(array $command, ?string $cwd = null, array $env = []): ProcessResult
