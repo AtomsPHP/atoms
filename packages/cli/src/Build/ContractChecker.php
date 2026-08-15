@@ -19,8 +19,7 @@ use PhpParser\NodeFinder;
  * that calls `$this->app()->foo(...)` must hit a real public Methods method with
  * compatible arity (E030/E031); `$this->dispatch(X::class, [...])` must target a
  * real AtomJob whose constructor accepts those argument names (E033/E032), and
- * must name the class rather than construct it (E104) — an AtomJob's source
- * never ships, so the platform has nothing to instantiate.
+ * must name the class rather than construct it (E104).
  */
 final class ContractChecker
 {
@@ -111,18 +110,14 @@ final class ContractChecker
     /**
      * Shape: `$this->dispatch(X::class, ['param' => $value, ...])`.
      *
-     * Two things can be wrong. The argument names must satisfy the job's
-     * constructor (E032) against a class that is really an AtomJob (E033) —
-     * those parameter names are the contract on both sides of the wire.
+     * The argument names must satisfy the job's constructor (E032) on a class
+     * that is really an AtomJob (E033), and the first argument must be the class
+     * name rather than `new X(...)` (E104).
      *
-     * And the first argument must be the class NAME, not an instance. Passing
-     * `new X(...)` (how `dispatch()` was called before it took a class string)
-     * is E104: an AtomJob's source stays in the monolith, so the platform has
-     * no such class to construct. Nothing else in the build would catch it —
-     * the symbol classifier inspects referenced classes and functions, not
-     * method calls on `$this` — so without this the build would pass and the
-     * Atom would die at runtime, silently if the dispatch sits in the
-     * `try { } catch (\Throwable) { }` that best-effort work usually carries.
+     * E104 is load-bearing rather than a nicety: nothing else in the build looks
+     * at method calls on `$this`, so an instance would pass validation and die
+     * as `Class "X" not found` at runtime — invisibly, if the dispatch sits in a
+     * `catch (\Throwable)`.
      */
     private function checkDispatch(DiscoveredClass $atom, MethodCall $call): ?Violation
     {
@@ -206,9 +201,8 @@ final class ContractChecker
     }
 
     /**
-     * The string keys of a literal array argument, or null when the argument is
-     * absent, spread, or not a literal array of string-keyed entries — all cases
-     * this checker cannot decide and must leave to the runtime.
+     * The string keys of a literal array argument; null when it is spread or not
+     * a string-keyed literal, which this checker cannot decide.
      *
      * @return list<string>|null
      */

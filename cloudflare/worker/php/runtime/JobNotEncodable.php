@@ -1,13 +1,10 @@
 <?php
 
 /**
- * ATOMS-E084 — a dispatched job could not be encoded into its wire frame:
- * an empty class name, positional arguments where the wire form needs a map
- * keyed by constructor parameter name, or a value `json_encode()` refused.
- *
- * The runtime never reflects on the job — it never has the class — so this is
- * only ever about the `{"job":FQCN,"args":{...}}` frame the guest builds from
- * what `dispatch()` was handed.
+ * ATOMS-E084 — a dispatched job could not be encoded into its
+ * `{"job":FQCN,"args":{...}}` frame: an empty class name, positional arguments
+ * where the wire form needs a map keyed by parameter name, or a value
+ * `json_encode()` refused.
  *
  * No declare(strict_types=1) — see the note in host.php.
  */

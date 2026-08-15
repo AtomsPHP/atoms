@@ -23,18 +23,10 @@ interface AtomContext
     public function app(): object;
 
     /**
-     * Dispatch a job by class name, with its constructor arguments by name.
-     *
-     * Takes the class NAME, not an instance, because an AtomJob's source is
-     * World B and never ships: the class does not exist on the platform, so
-     * there is nothing to construct. `SomeJob::class` is resolved by the
-     * compiler from the calling file's own `use` statement, so naming the job
-     * neither loads it nor requires it to ship.
-     *
-     * `$args` is keyed by CONSTRUCTOR PARAMETER NAME — the same key space the
-     * wire form and `CallbackKernel::constructJob()` already use — and each
-     * value is normalized through the serializer, so only
-     * serialization-algebra types cross.
+     * See {@see \Atoms\Atom::dispatch()} for why this takes a name, not an
+     * instance. Implementations must key `$args` by constructor parameter name
+     * — the key space `CallbackKernel::constructJob()` reads on the far side —
+     * and normalize each value through the serializer.
      *
      * @param class-string<AtomJob> $job
      * @param array<string, mixed> $args

@@ -12,14 +12,9 @@ use Atoms\Cli\Config\AtomsJson;
 use Atoms\Cli\Tests\TestCase;
 
 /**
- * The Atom→AtomJob half of the contract check.
- *
- * The regression behind these: an Atom that dispatched `new SomeJob(...)`
- * validated clean and then died at runtime with `Class "SomeJob" not found`,
- * because a job's source is World B and never ships. Wrapped in the
- * `catch (\Throwable)` that best-effort dispatches usually carry, that failure
- * was completely silent — no delivery attempted, no failure counted. It has to
- * be caught here, at build time.
+ * The Atom→AtomJob half of the contract check. `new SomeJob(...)` used to
+ * validate clean and then fail at runtime as `Class "SomeJob" not found`, so
+ * the E104 case below is a regression test, not a nicety.
  */
 final class ContractCheckerTest extends TestCase
 {
@@ -123,11 +118,7 @@ final class ContractCheckerTest extends TestCase
         self::assertSame(['ATOMS-E033'], $codes);
     }
 
-    /**
-     * A computed class name or a non-literal argument array cannot be decided
-     * statically. Guessing would mean false positives on legal code, so these
-     * pass the build and are the runtime's problem.
-     */
+    /** Undecidable statically; guessing would false-positive on legal code. */
     public function testLeavesUndecidableDispatchesAlone(): void
     {
         $codes = $this->check(<<<'PHP'
@@ -147,8 +138,8 @@ final class ContractCheckerTest extends TestCase
     }
 
     /**
-     * Write $source over the sample app's Atom, discover the whole project, and
-     * return the contract violations for that Atom, sorted for a stable compare.
+     * Write $source over the sample app's Atom and return its violation codes,
+     * sorted for a stable compare.
      *
      * @return list<string>
      */

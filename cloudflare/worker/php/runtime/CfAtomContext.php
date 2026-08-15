@@ -92,15 +92,9 @@ final class CfAtomContext implements AtomContext
     }
 
     /**
-     * Dispatch by class name. An AtomJob's source never ships to the platform,
-     * so there is no instance to take: `SomeJob::class` is resolved by the
-     * compiler from the calling file's own `use` statement, and the arguments
-     * arrive already separated from it, keyed by constructor parameter name —
-     * the same map `CallbackKernel::constructJob()` reads on the monolith side
-     * to rebuild the real object.
-     *
-     * Buffered on commit / dropped on rollback when a transaction is open;
-     * delivered immediately (fire-and-forget) otherwise.
+     * Normalize the arguments and hand the frame to the bridge. Buffered on
+     * commit / dropped on rollback inside a transaction; delivered immediately
+     * (fire-and-forget) otherwise.
      *
      * @param string $job
      * @param array<string, mixed> $args

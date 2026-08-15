@@ -23,23 +23,13 @@ use PHPStan\Rules\RuleError;
 use PHPStan\Rules\RuleErrorBuilder;
 
 /**
- * Flags `$this->dispatch(new SomeJob(...))` inside WORLD_A code (ATOMS-E104).
+ * Flags `$this->dispatch(new SomeJob(...))` inside WORLD_A code (ATOMS-E104) —
+ * the editor-time twin of the build's own check. PHPStan already reports the
+ * argument type, but only this names the fix.
  *
- * `dispatch()` takes a job's class NAME: an AtomJob is World B, its source is
- * never packed into the bundle, and so the platform has no class to instantiate.
- * Passing an instance instead gets a bare argument-type error from PHPStan's own
- * checks, which says nothing about what to do about it; this rule is what
- * explains the shape.
- *
- * `$this->dispatch(SomeJob::class, ['param' => $value])` is the correct form and
- * is not flagged: naming a class is a compile-time constant, so it neither loads
- * the class nor requires it to ship.
- *
- * This rule deliberately does NOT lean on the boundary-reference rules. Those
- * treat any class discovered under the configured Atoms paths as legal (a job
- * colocated with its Atom is the normal layout), which is exactly why this
- * mistake reaches production silently — it needs a check keyed on what the
- * class IS, not on where its file sits.
+ * Keyed on the class BEING an AtomJob, not on where its file sits: the
+ * boundary-reference rules treat anything under the Atoms paths as legal, which
+ * is the normal place to keep a job and so exactly why this slips past them.
  *
  * @implements Rule<MethodCall>
  */

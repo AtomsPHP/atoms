@@ -64,11 +64,10 @@ final class MethodSignature
     }
 
     /**
-     * Do these argument NAMES satisfy this signature? Used for the by-name
-     * dispatch form, where the caller supplies `['param' => $value, ...]`: every
-     * name must be a real parameter, no name may repeat, and every required
-     * parameter must be present. A variadic signature is not exempt — a variadic
-     * collects positional arguments, so an unknown name is still unknown.
+     * Do these argument names satisfy this signature — every name a real
+     * parameter, none repeated, every required parameter present? Variadics are
+     * not exempt: a variadic collects positional arguments, so an unknown name
+     * is still unknown.
      *
      * @param list<string> $names
      */

@@ -7,15 +7,11 @@ namespace Atoms\PHPStan\Tests\Fixtures\Dispatch;
 use Atoms\Atom;
 use Atoms\PHPStan\Tests\Fixtures\Clean\RecordResult;
 
-/**
- * World A. Dispatches a job correctly, incorrectly, and a non-job — so the rule
- * has to tell them apart rather than flag every mention of a job class.
- */
+/** World A. A correct dispatch, an incorrect one, and a non-job. */
 final class DispatchAtom extends Atom
 {
     public function legal(string $id): void
     {
-        // By name: a compile-time constant, so the job never has to ship.
         $this->dispatch(RecordResult::class, [
             'playerId' => $id,
             'recordedAt' => new \DateTimeImmutable(),
@@ -27,10 +23,9 @@ final class DispatchAtom extends Atom
         $this->dispatch(new RecordResult($id, new \DateTimeImmutable()));
     }
 
+    /** A non-job stays the boundary rules' business, not this one's. */
     public function notAJob(): void
     {
-        // Constructing a non-job under the Atoms path stays the boundary
-        // rules' business, not this one's.
         $this->dispatch(new NotAJob());
     }
 }

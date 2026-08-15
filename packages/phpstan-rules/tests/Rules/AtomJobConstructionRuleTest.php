@@ -31,20 +31,17 @@ final class AtomJobConstructionRuleTest extends RuleTestCase
     {
         $file = __DIR__ . '/../Fixtures/Dispatch/DispatchAtom.php';
 
-        // dispatch() on line 19 is legal and NotAJob on line 34 belongs to
-        // the boundary rules — exactly one error, on the `new` job.
+        // Exactly one error: not the by-name call, not the non-job.
         $this->analyse([$file], [
             [ErrorCatalog::format(ErrorCode::AtomJobConstructedInAtom, [
                 'atom' => 'Atoms\PHPStan\Tests\Fixtures\Dispatch\DispatchAtom',
                 'job' => 'Atoms\PHPStan\Tests\Fixtures\Clean\RecordResult',
-            ]), 27],
+            ]), 23],
         ]);
     }
 
     public function testWorldBMayConstructJobsFreely(): void
     {
-        // A Methods class is World B: it runs in the monolith, where the job
-        // class is loaded like any other.
         $this->analyse([__DIR__ . '/../Fixtures/Dispatch/Methods.php'], []);
     }
 }

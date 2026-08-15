@@ -50,12 +50,7 @@ final class AtomHarness
 
     private readonly Serializer $serializer;
 
-    /**
-     * Recorded in the wire shape — `{job, args}` keyed by constructor parameter
-     * name — because that is exactly what crosses to your app.
-     *
-     * @var list<array{job: string, args: array<string, mixed>}>
-     */
+    /** @var list<array{job: string, args: array<string, mixed>}> the wire shape */
     private array $dispatched = [];
 
     /** @var list<array{channel: string, payload: array<string, mixed>}> */
@@ -267,11 +262,10 @@ final class AtomHarness
     }
 
     /**
-     * Every job dispatched so far, reconstructed by round-tripping its
-     * constructor arguments through the serializer and building a fresh
-     * instance, exactly as the monolith's callback kernel does. That proves two
-     * things a recorded call alone would not: the arguments are wire-safe, and
-     * they actually satisfy the job's constructor.
+     * Every job dispatched so far, rebuilt the way the callback kernel would —
+     * arguments round-tripped through the serializer, then a fresh instance. A
+     * recorded call alone would prove neither that the arguments are wire-safe
+     * nor that they satisfy the constructor.
      *
      * @return list<object>
      */
@@ -418,9 +412,8 @@ final class AtomHarness
             return $reflection->newInstance();
         }
 
-        // Ordered positionally against the constructor, filling declared
-        // defaults, so a named-argument map with an omitted optional parameter
-        // reconstructs the same object the monolith's kernel would build.
+        // Ordered against the constructor, filling declared defaults, so an
+        // omitted optional parameter rebuilds what the kernel would build.
         $rawArgs = [];
         foreach ($constructor->getParameters() as $param) {
             $name = $param->getName();
