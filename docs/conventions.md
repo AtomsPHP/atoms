@@ -68,15 +68,18 @@ supplies — is docs/adapters.md.
 Everything below is wire-protocol-grade API. Implement exactly these
 signatures; additions are fine, changes are not.
 
-**Until 1.0, that freeze is a default, not a wall** — the same reasoning the
-error-catalog section gives for rewording. Nothing is on Packagist, so there is
-no installed base to protect, and a signature that cannot be used correctly is
-worth fixing while fixing it is still cheap. `dispatch()` was changed in place
-that way: it took an `AtomJob` instance, which required a class the platform
-never had, and now takes the class name plus its arguments. A change like that
-needs a deliberate decision and a build-time error that names the new shape
-(`ATOMS-E104` does it here) — never a quiet edit. Once `atoms/core` is
-published, the freeze is a wall.
+**Through the 0.x line, that freeze is a default, not a wall.** The packages
+are on Packagist — `atoms/core` 0.1.0 published 2026-08-14 — but they are
+explicitly pre-release, and a `^0.1` constraint promises nothing across a minor.
+Publication is not the line; 1.0 is. Until then a signature that cannot be used
+correctly is worth fixing while fixing it is still cheap: `dispatch()` was
+changed in place that way, having taken an `AtomJob` instance that required a
+class the platform never had, and now taking the class name plus its arguments.
+
+A change like that needs a deliberate decision, a build-time error that names
+the new shape (`ATOMS-E104` does it here), and a note in the release notes for
+the minor that carries it — never a quiet edit, and never a call to make
+mid-task. At 1.0 the freeze becomes a wall.
 
 ```php
 namespace Atoms;
@@ -326,9 +329,10 @@ runbooks, search boxes and support threads. So:
   number, a credential that now exists. Leaving the old wording would have
   pointed users at a service that no longer runs.
 
-Nothing has been published yet, so there is no installed base to protect and no
-reason to treat pre-launch wording as frozen. Once `atoms/core` is on Packagist
-the bar for rewording rises, but the two bullets above stay the rule.
+Through 0.x the bar for rewording stays low: the packages are published, but
+pre-release, and message text is not something a `^0.1` constraint promises. At
+1.0 the bar rises — a code's wording starts showing up in users' runbooks — but
+the two bullets above stay the rule either way.
 
 ## Testing & tooling
 
