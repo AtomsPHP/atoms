@@ -125,7 +125,7 @@ final class CallbackCases
      * \u-escaped either way), so a row's expected body is only ever wrong if
      * the code or message itself is wrong.
      */
-    private static function errorBody(string $code, string $message): string
+    public static function errorBody(string $code, string $message): string
     {
         return (string) json_encode(
             ['error' => ['code' => $code, 'message' => $message]],
@@ -183,7 +183,7 @@ final class CallbackCases
             build: self::builder(
                 'methods',
                 $body,
-                signatureOverride: base64_encode(str_repeat("\x01", SODIUM_CRYPTO_SIGN_BYTES)),
+                signatureOverride: base64_encode(str_repeat("\x01", CallbackSigner::TAG_LENGTH_BYTES)),
             ),
             expectedStatus: 401,
             expectedBody: self::errorBody(

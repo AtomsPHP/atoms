@@ -5,33 +5,58 @@ declare(strict_types=1);
 namespace Atoms\Tests\Integration\Adapters\Support;
 
 /**
- * One Ed25519 keypair per test process (generated lazily, once, in static
- * state): the suite plays the platform's role as signer, so every host under
- * test is handed only {@see self::publicKeyBase64()} — exactly what a real
- * deployment would configure — while this class holds the private half and
- * signs on the suite's behalf.
+ * Signs callback envelopes the way a Worker configured with a given shared
+ * secret does: HKDF-SHA256 derives the 32-byte callback key from the secret
+ * (info `atoms/callback/v1`, empty salt), and HMAC-SHA256 signs
+ * `"v1\n{ts}\n{nonce}\n" . $body`, base64-encoded into `X-Atoms-Signature`.
  *
- * Mirrors the signing mechanics {@see \Atoms\Client\Tests\Callback\CallbackKernelTest}
- * uses directly (`"v1\n{ts}\n{nonce}\n{body}"`, detached Ed25519, base64), kept
- * here as a small reusable helper instead of a private per-test method so
- * every AdapterHost's cases can share it.
+ * Defaults to {@see self::DEFAULT_SHARED_SECRET} — the reference vector
+ * `docs/shared-secret.md` records — so a host booted with
+ * {@see \Atoms\Tests\Integration\Adapters\Host\HostOptions}'s own default and
+ * a signer built with no arguments agree without either side threading a
+ * secret through explicitly. Mirrors the signing mechanics
+ * {@see \Atoms\Client\Tests\Callback\CallbackKernelTest} uses directly
+ * (`"v1\n{ts}\n{nonce}\n{body}"`, HMAC-SHA256, base64), kept here as a small
+ * reusable helper instead of a private per-test method so every AdapterHost's
+ * cases can share it.
  */
 final class CallbackSigner
 {
-    private static ?string $publicKey = null;
+    /** The reference vector `docs/shared-secret.md` records: bytes 0x00-0x1f, base64. */
+    public const DEFAULT_SHARED_SECRET = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=';
 
-    private static ?string $secretKey = null;
+    /** Length, in bytes, of an HMAC-SHA256 tag — the shape a signature override must match to look plausible. */
+    public const TAG_LENGTH_BYTES = 32;
 
-    public function __construct()
+    private const CALLBACK_INFO = 'atoms/callback/v1';
+
+    private readonly string $sharedSecret;
+
+    private readonly string $callbackKey;
+
+    public function __construct(string $sharedSecretBase64 = self::DEFAULT_SHARED_SECRET)
     {
-        self::ensureKeypair();
+        $decoded = base64_decode($sharedSecretBase64, true);
+
+        if ($decoded === false || strlen($decoded) !== 32) {
+            throw new \InvalidArgumentException(
+                'CallbackSigner requires a base64-encoded 32-byte shared secret.',
+            );
+        }
+
+        $this->sharedSecret = $sharedSecretBase64;
+        $this->callbackKey = hash_hkdf('sha256', $decoded, 32, self::CALLBACK_INFO, '');
     }
 
-    public function publicKeyBase64(): string
+    /**
+     * The base64 shared secret this signer signs under — thread this into a
+     * host's {@see \Atoms\Tests\Integration\Adapters\Host\HostOptions::$sharedSecret}
+     * (or `$sharedSecretPrevious`) so the host verifies against the same key
+     * this signer signs with.
+     */
+    public function sharedSecretBase64(): string
     {
-        self::ensureKeypair();
-
-        return base64_encode((string) self::$publicKey);
+        return $this->sharedSecret;
     }
 
     /**
@@ -44,10 +69,8 @@ final class CallbackSigner
      */
     public function sign(string $timestamp, string $nonce, string $body, string $kind): array
     {
-        self::ensureKeypair();
-
         $message = "v1\n" . $timestamp . "\n" . $nonce . "\n" . $body;
-        $signature = base64_encode(sodium_crypto_sign_detached($message, (string) self::$secretKey));
+        $signature = base64_encode(hash_hmac('sha256', $message, $this->callbackKey, true));
 
         return [
             'X-Atoms-Kind' => $kind,
@@ -71,16 +94,5 @@ final class CallbackSigner
     public function now(): string
     {
         return (string) time();
-    }
-
-    private static function ensureKeypair(): void
-    {
-        if (self::$publicKey !== null) {
-            return;
-        }
-
-        $keypair = sodium_crypto_sign_keypair();
-        self::$publicKey = sodium_crypto_sign_publickey($keypair);
-        self::$secretKey = sodium_crypto_sign_secretkey($keypair);
     }
 }

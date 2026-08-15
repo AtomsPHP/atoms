@@ -51,8 +51,7 @@ final class PlainPhpHost implements AdapterHost
 
         $this->app = AtomsBootstrap::create(
             endpoint: $options->endpoint,
-            apiKey: $options->apiKey,
-            platformPublicKey: $options->publicKey,
+            sharedSecret: $options->sharedSecret,
             callbackPath: $options->callbackPath,
             http: $this->http,
             requestFactory: $factory,
@@ -62,6 +61,7 @@ final class PlainPhpHost implements AdapterHost
             queueBridge: $options->queueAvailable ? $this->queue : new NullQueueBridge('plain-php host has no queue'),
             resolver: $resolver,
             nonceStore: $options->nonceStore,
+            sharedSecretPrevious: $options->sharedSecretPrevious,
             logger: $this->logger,
             // S6: see BareKernelHost's identical comment — empty by default,
             // in which case behavior is unchanged from before this field

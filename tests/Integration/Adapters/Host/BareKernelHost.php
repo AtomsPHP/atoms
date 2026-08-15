@@ -53,9 +53,10 @@ final class BareKernelHost implements AdapterHost
         }
 
         $this->kernel = CallbackKernelFactory::create(
-            $options->publicKey,
+            $options->sharedSecret,
             $this->factory,
             $this->factory,
+            $options->sharedSecretPrevious,
             queueBridge: $options->queueAvailable ? $this->queue : new NullQueueBridge('bare host has no queue'),
             resolver: $resolver,
             nonceStore: $options->nonceStore,

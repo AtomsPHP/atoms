@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Atoms\Tests\Integration\Adapters;
 
 use Atoms\Client\AtomsClient;
+use Atoms\Errors\ErrorCatalog;
+use Atoms\Errors\ErrorCode;
 use Atoms\Tests\Integration\Adapters\Fixtures\GameRoom;
 use Atoms\Tests\Integration\Adapters\Fixtures\GameRoom\Methods as GameRoomMethods;
 use Atoms\Tests\Integration\Adapters\Fixtures\RankRoom\MethodsWithDependency as RankRoomMethods;
@@ -76,16 +78,16 @@ abstract class AdapterConformanceTestCase extends TestCase
     }
 
     /**
-     * @param array{endpoint?: string, apiKey?: ?string, publicKey?: string, callbackPath?: string, methodsClasses?: list<class-string>, nonceStore?: ?\Atoms\Client\Callback\NonceStore, queueAvailable?: bool, containerBindings?: array<class-string, object>} $overrides
+     * @param array{endpoint?: string, sharedSecret?: string, sharedSecretPrevious?: ?string, callbackPath?: string, methodsClasses?: list<class-string>, nonceStore?: ?\Atoms\Client\Callback\NonceStore, queueAvailable?: bool, containerBindings?: array<class-string, object>} $overrides
      */
     protected function defaultOptions(array $overrides = []): HostOptions
     {
         return new HostOptions(
             endpoint: $overrides['endpoint'] ?? 'http://worker.test',
-            apiKey: array_key_exists('apiKey', $overrides) ? $overrides['apiKey'] : 'k',
-            publicKey: $overrides['publicKey'] ?? $this->signer->publicKeyBase64(),
+            sharedSecret: $overrides['sharedSecret'] ?? $this->signer->sharedSecretBase64(),
             callbackPath: $overrides['callbackPath'] ?? '/atoms/callback',
             methodsClasses: $overrides['methodsClasses'] ?? [GameRoomMethods::class],
+            sharedSecretPrevious: array_key_exists('sharedSecretPrevious', $overrides) ? $overrides['sharedSecretPrevious'] : null,
             nonceStore: array_key_exists('nonceStore', $overrides) ? $overrides['nonceStore'] : null,
             queueAvailable: $overrides['queueAvailable'] ?? true,
             containerBindings: $overrides['containerBindings'] ?? [],
@@ -241,7 +243,11 @@ abstract class AdapterConformanceTestCase extends TestCase
     /**
      * S1: AtomsClient::get()->method(...) lands on the host's httpFake() with
      * the URL/Authorization shape docs/conventions.md and AtomsClient commit
-     * to. Client-capable hosts only.
+     * to — an `Authorization: Bearer <derived>` header carrying
+     * HKDF-SHA256(sharedSecret, info 'atoms/bearer/v1', 32 bytes, standard
+     * base64), computed here from the host's own configured secret rather
+     * than hardcoded, so this stays correct if the default test secret ever
+     * changes. Client-capable hosts only.
      */
     public function testS1ClientCallLandsOnHttpFakeWithExpectedShape(): void
     {
@@ -257,53 +263,90 @@ abstract class AdapterConformanceTestCase extends TestCase
 
         $request = $this->host->httpFake()->lastRequest();
         self::assertSame($this->options->endpoint . '/invoke/GameRoom/g-1/add', (string) $request->getUri());
-        self::assertSame('Bearer k', $request->getHeaderLine('Authorization'));
+        self::assertSame('Bearer ' . $this->derivedBearer($this->options->sharedSecret), $request->getHeaderLine('Authorization'));
         self::assertSame('application/json', $request->getHeaderLine('Content-Type'));
     }
 
     /**
-     * S1 (continued): a null apiKey means no Authorization header at all —
-     * AtomsConfig's "explicitly unauthenticated" posture, checked at the
-     * transport a client-capable host actually sends through.
+     * S2: a malformed shared secret — the empty string, invalid base64, or a
+     * decoded length other than 32 bytes — is a configuration error:
+     * AtomsConfig throws \InvalidArgumentException at construction for each
+     * shape, and that throw surfaces through the host's own wiring path
+     * (AtomsBootstrap::create() for plain-PHP). Client-capable hosts only.
      */
-    public function testS1ClientOmitsAuthorizationHeaderWhenApiKeyIsNull(): void
+    public function testS2MalformedSharedSecretThrowsAtConstruction(): void
     {
-        $this->skipUnlessSupports('client', 'S1');
+        $this->skipUnlessSupports('client', 'S2');
 
-        $host = $this->createHost();
-        $options = $this->defaultOptions(['apiKey' => null]);
-        $host->boot($options);
+        foreach (self::malformedSharedSecrets() as $label => $secret) {
+            $host = $this->createHost();
+            $options = $this->defaultOptions(['sharedSecret' => $secret]);
 
-        try {
-            $host->httpFake()->queueJson(200, ['result' => 5]);
-
-            /** @var AtomsClient $client */
-            $client = $host->service(AtomsClient::class);
-            $client->get(GameRoom::class, 'g-1')->add(2, 3);
-
-            $request = $host->httpFake()->lastRequest();
-            self::assertFalse($request->hasHeader('Authorization'));
-        } finally {
-            $host->shutdown();
+            try {
+                $host->boot($options);
+                self::fail(
+                    "host '{$host->name()}' should have thrown InvalidArgumentException for a malformed "
+                    . "shared secret ({$label}), but boot() succeeded.",
+                );
+            } catch (\InvalidArgumentException $e) {
+                self::assertInstanceOf(\InvalidArgumentException::class, $e, "host '{$host->name()}' ({$label})");
+            }
         }
     }
 
     /**
-     * S2: apiKey='' is a configuration error, not a posture — AtomsConfig
-     * throws at construction, and that throw must surface through the host's
-     * own wiring path (AtomsBootstrap::create() for plain-PHP). Client-
-     * capable hosts only.
+     * S3: the overlap mechanism is try-both on the acceptance side only. A
+     * callback signed under ATOMS_SHARED_SECRET_PREVIOUS verifies when the
+     * host holds both secrets, and is rejected with the same
+     * ErrorCode::CallbackSignatureInvalid envelope a tampered signature
+     * produces (case 3) when the host holds only the current one.
      */
-    public function testS2EmptyApiKeyThrowsAtConstruction(): void
+    public function testS3CallbackSignedUnderPreviousSecretAcceptedOnlyWithOverlapConfigured(): void
     {
-        $this->skipUnlessSupports('client', 'S2');
+        $currentSecret = base64_encode(random_bytes(32));
+        $previousSecret = base64_encode(random_bytes(32));
+        $previousSigner = new CallbackSigner($previousSecret);
+        $body = CallbackCases::methodsBody('GameRoom', 'g-1', 'add', [2, 3]);
 
-        $host = $this->createHost();
-        $options = $this->defaultOptions(['apiKey' => '']);
+        $hostWithOverlap = $this->createHost();
+        $optionsWithOverlap = $this->defaultOptions([
+            'sharedSecret' => $currentSecret,
+            'sharedSecretPrevious' => $previousSecret,
+        ]);
+        $hostWithOverlap->boot($optionsWithOverlap);
 
-        $this->expectException(\InvalidArgumentException::class);
+        try {
+            $request = CallbackCases::signedRequest($previousSigner, $optionsWithOverlap, 'methods', $body);
+            $response = $hostWithOverlap->handle($request);
 
-        $host->boot($options);
+            self::assertSame(200, $response->status, 'a callback signed under the previous secret should verify when the host holds both secrets');
+            self::assertSame('{"result":5}', $response->body);
+        } finally {
+            $hostWithOverlap->shutdown();
+        }
+
+        $hostWithoutOverlap = $this->createHost();
+        $optionsWithoutOverlap = $this->defaultOptions([
+            'sharedSecret' => $currentSecret,
+            'sharedSecretPrevious' => null,
+        ]);
+        $hostWithoutOverlap->boot($optionsWithoutOverlap);
+
+        try {
+            $request = CallbackCases::signedRequest($previousSigner, $optionsWithoutOverlap, 'methods', $body);
+            $response = $hostWithoutOverlap->handle($request);
+
+            self::assertSame(401, $response->status, 'a callback signed under the previous secret is rejected when the host holds only the current secret');
+            self::assertSame(
+                CallbackCases::errorBody(
+                    ErrorCode::CallbackSignatureInvalid->value,
+                    ErrorCatalog::format(ErrorCode::CallbackSignatureInvalid),
+                ),
+                $response->body,
+            );
+        } finally {
+            $hostWithoutOverlap->shutdown();
+        }
     }
 
     /**
@@ -438,6 +481,30 @@ abstract class AdapterConformanceTestCase extends TestCase
         } finally {
             $host->shutdown();
         }
+    }
+
+    /**
+     * The bearer HKDF-SHA256(sharedSecret, info 'atoms/bearer/v1', 32 bytes)
+     * derives, standard base64 — the value an AtomsClient configured with
+     * `$sharedSecretBase64` sends as `Authorization: Bearer <this>`.
+     */
+    private function derivedBearer(string $sharedSecretBase64): string
+    {
+        $decoded = (string) base64_decode($sharedSecretBase64, true);
+
+        return base64_encode(hash_hkdf('sha256', $decoded, 32, 'atoms/bearer/v1', ''));
+    }
+
+    /**
+     * @return array<string, string> label => malformed shared secret
+     */
+    private static function malformedSharedSecrets(): array
+    {
+        return [
+            'empty string' => '',
+            'invalid base64' => '!!!not valid base64!!!',
+            'wrong length (16 bytes)' => base64_encode(str_repeat("\x01", 16)),
+        ];
     }
 
     private function skipUnlessSupports(string $capability, string $caseLabel): void
