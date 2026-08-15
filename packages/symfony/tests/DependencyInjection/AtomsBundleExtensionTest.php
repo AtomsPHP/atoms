@@ -7,9 +7,11 @@ namespace Atoms\Symfony\Tests\DependencyInjection;
 use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
 use Atoms\Client\Callback\CallbackKernel;
+use Atoms\Client\Callback\HmacVerifier;
 use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Client\Callback\NullQueueBridge;
 use Atoms\Client\Callback\QueueBridge;
+use Atoms\Client\Crypto\KeyDerivation;
 use Atoms\Symfony\AtomsBundle;
 use Atoms\Symfony\Command\AtomsDeployCommand;
 use Atoms\Symfony\Controller\CallbackController;
@@ -34,6 +36,15 @@ use Symfony\Component\Messenger\MessageBusInterface;
 
 final class AtomsBundleExtensionTest extends TestCase
 {
+    /** The reference vector's secret (docs/shared-secret.md). */
+    private const SECRET = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=';
+
+    /** The bearer HKDF derives from it. */
+    private const BEARER = 'Dx6RY9LS43pOQhM4PMdaUWx3lk9mfyiiJZFfJtvl9E0=';
+
+    /** A second valid secret: 32 bytes of 0x02. */
+    private const PREVIOUS_SECRET = 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=';
+
     /**
      * @param array<string, mixed> $config
      */
@@ -50,7 +61,7 @@ final class AtomsBundleExtensionTest extends TestCase
         $container->registerExtension($extension);
         $container->loadFromExtension($extension->getAlias(), array_merge([
             'endpoint' => 'https://atoms.example.workers.dev',
-            'api_key' => 'atoms_v1_test_key',
+            'shared_secret' => self::SECRET,
         ], $config));
 
         return $container;
@@ -74,7 +85,6 @@ final class AtomsBundleExtensionTest extends TestCase
             'environment' => 'staging',
             'timeout' => 5.5,
             'max_attempts' => 7,
-            'platform_public_key' => 'a-test-key',
             'http_client' => 'test.psr18_client',
         ]);
         $container->register('test.psr18_client', FakePsr18Client::class)->setPublic(true);
@@ -83,35 +93,56 @@ final class AtomsBundleExtensionTest extends TestCase
         $config = $container->get(AtomsConfig::class);
         self::assertInstanceOf(AtomsConfig::class, $config);
         self::assertSame('https://atoms.example.workers.dev', $config->endpoint);
-        self::assertSame('atoms_v1_test_key', $config->apiKey);
-        self::assertTrue($config->isAuthenticated());
+        self::assertSame(self::SECRET, $config->sharedSecret);
+        self::assertSame(self::BEARER, $config->bearerToken());
+        self::assertNull($config->sharedSecretPrevious);
         self::assertSame('staging', $config->environment);
         self::assertSame(5.5, $config->timeout);
         self::assertSame(7, $config->maxAttempts);
-        self::assertSame('a-test-key', $config->platformPublicKey);
     }
 
-    /**
-     * A self-hosted Worker deployed with ATOMS_APP_KEY unset has its bearer
-     * check off entirely; omitting api_key is how the bundle expresses that.
-     */
-    public function testOmittedApiKeyYieldsAnExplicitlyUnauthenticatedConfig(): void
+    public function testRotationOverlapLandsInAtomsConfig(): void
     {
-        $container = $this->buildContainer(['api_key' => null]);
+        $container = $this->buildContainer(['shared_secret_previous' => self::PREVIOUS_SECRET]);
         $container->compile();
 
         $config = $container->get(AtomsConfig::class);
         self::assertInstanceOf(AtomsConfig::class, $config);
-        self::assertNull($config->apiKey);
-        self::assertFalse($config->isAuthenticated());
+        self::assertSame(self::PREVIOUS_SECRET, $config->sharedSecretPrevious);
+        self::assertCount(2, $config->callbackKeys());
+        self::assertSame(self::BEARER, $config->bearerToken(), 'a sender emits the current secret\'s bearer');
     }
 
-    public function testEmptyApiKeyIsRejectedRatherThanTreatedAsUnauthenticated(): void
+    public function testTheSharedSecretIsRequired(): void
     {
-        $container = $this->buildContainer(['api_key' => '']);
+        $this->expectException(\Exception::class);
+
+        $container = new ContainerBuilder();
+        $bundle = new AtomsBundle();
+        $extension = $bundle->getContainerExtension();
+        self::assertNotNull($extension);
+
+        $container->registerExtension($extension);
+        $container->loadFromExtension($extension->getAlias(), ['endpoint' => 'https://atoms.example.workers.dev']);
+        $container->compile();
+    }
+
+    public function testAnEmptySharedSecretIsRejectedWhileCompiling(): void
+    {
+        $container = $this->buildContainer(['shared_secret' => '']);
+
+        $this->expectException(\Exception::class);
+
+        $container->compile();
+    }
+
+    public function testAMalformedSharedSecretThrowsE105OnResolution(): void
+    {
+        $container = $this->buildContainer(['shared_secret' => 'not-base64-32-bytes']);
         $container->compile();
 
         $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E105/');
 
         $container->get(AtomsConfig::class);
     }
@@ -223,16 +254,35 @@ final class AtomsBundleExtensionTest extends TestCase
 
     public function testCallbackKernelAndControllerAreWired(): void
     {
-        $container = $this->buildContainer(['platform_public_key' => base64_encode(str_repeat('a', 32))]);
+        $container = $this->buildContainer();
         $container->compile();
 
         self::assertInstanceOf(CallbackKernel::class, $container->get(CallbackKernel::class));
         self::assertInstanceOf(CallbackController::class, $container->get(CallbackController::class));
     }
 
+    public function testCallbackVerifierUsesKeysDerivedFromBothSecrets(): void
+    {
+        $container = $this->buildContainer(['shared_secret_previous' => self::PREVIOUS_SECRET]);
+        $container->compile();
+
+        $kernel = $container->get(CallbackKernel::class);
+        self::assertInstanceOf(CallbackKernel::class, $kernel);
+
+        $verifier = (new \ReflectionProperty(CallbackKernel::class, 'verifier'))->getValue($kernel);
+        self::assertInstanceOf(HmacVerifier::class, $verifier);
+
+        $message = "v1\n1755200000\nabc\n{}";
+
+        foreach ([self::SECRET, self::PREVIOUS_SECRET] as $secret) {
+            $tag = hash_hmac('sha256', $message, KeyDerivation::callbackKey($secret), true);
+            self::assertTrue($verifier->verify($message, $tag));
+        }
+    }
+
     public function testCallbackTimestampWindowDefaultsTo300Seconds(): void
     {
-        $container = $this->buildContainer(['platform_public_key' => base64_encode(str_repeat('a', 32))]);
+        $container = $this->buildContainer();
         $container->compile();
 
         $kernel = $container->get(CallbackKernel::class);
@@ -242,10 +292,7 @@ final class AtomsBundleExtensionTest extends TestCase
 
     public function testCallbackTimestampWindowIsConfigurable(): void
     {
-        $container = $this->buildContainer([
-            'platform_public_key' => base64_encode(str_repeat('a', 32)),
-            'callback_timestamp_window' => 60,
-        ]);
+        $container = $this->buildContainer(['callback_timestamp_window' => 60]);
         $container->compile();
 
         $kernel = $container->get(CallbackKernel::class);
@@ -255,7 +302,7 @@ final class AtomsBundleExtensionTest extends TestCase
 
     public function testCallbackKernelLoggerIsNullWithoutAnAppLoggerService(): void
     {
-        $container = $this->buildContainer(['platform_public_key' => base64_encode(str_repeat('a', 32))]);
+        $container = $this->buildContainer();
         $container->compile();
 
         $kernel = $container->get(CallbackKernel::class);
@@ -265,7 +312,7 @@ final class AtomsBundleExtensionTest extends TestCase
 
     public function testCallbackKernelLoggerResolvesToAnAppLoggerServiceWhenOneExists(): void
     {
-        $container = $this->buildContainer(['platform_public_key' => base64_encode(str_repeat('a', 32))]);
+        $container = $this->buildContainer();
         $container->register('logger', NullLogger::class)->setPublic(false);
         $container->compile();
 
@@ -276,10 +323,7 @@ final class AtomsBundleExtensionTest extends TestCase
 
     public function testMethodsClassesServiceLocatorResolvesAnAutowiredEntry(): void
     {
-        $container = $this->buildContainer([
-            'platform_public_key' => base64_encode(str_repeat('a', 32)),
-            'methods_classes' => [CustomOtherRoomMethods::class],
-        ]);
+        $container = $this->buildContainer(['methods_classes' => [CustomOtherRoomMethods::class]]);
         $container->compile();
 
         $kernel = $container->get(CallbackKernel::class);

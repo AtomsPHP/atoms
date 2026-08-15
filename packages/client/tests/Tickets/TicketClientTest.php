@@ -18,6 +18,12 @@ use PHPUnit\Framework\TestCase;
 
 final class TicketClientTest extends TestCase
 {
+    /** The reference vector's secret (docs/shared-secret.md). */
+    private const SECRET = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=';
+
+    /** The bearer HKDF derives from it — asserted as a literal, per the vector. */
+    private const BEARER = 'Bearer Dx6RY9LS43pOQhM4PMdaUWx3lk9mfyiiJZFfJtvl9E0=';
+
     private FakePsr18Client $http;
 
     /** @var list<int> milliseconds passed to the injected sleep */
@@ -31,7 +37,7 @@ final class TicketClientTest extends TestCase
         $factory = new HttpFactory();
         $config = AtomsConfig::fromArray($configOverrides + [
             'endpoint' => 'https://atoms.example.workers.dev/',
-            'apiKey' => 'atoms_v1_secret',
+            'sharedSecret' => self::SECRET,
             'maxAttempts' => 3,
             'backoffBaseMs' => 50,
             'backoffJitter' => false,
@@ -73,7 +79,7 @@ final class TicketClientTest extends TestCase
         $req = $this->http->lastRequest();
         self::assertSame('POST', $req->getMethod());
         self::assertSame('https://atoms.example.workers.dev/tickets/Room/g%2F1', (string) $req->getUri());
-        self::assertSame('Bearer atoms_v1_secret', $req->getHeaderLine('Authorization'));
+        self::assertSame(self::BEARER, $req->getHeaderLine('Authorization'));
         self::assertSame('application/json', $req->getHeaderLine('Accept'));
         self::assertMatchesRegularExpression('/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/', $req->getHeaderLine('traceparent'));
         self::assertSame('', $req->getHeaderLine('Content-Type'), 'no claims => no body, no Content-Type');
@@ -92,15 +98,38 @@ final class TicketClientTest extends TestCase
         self::assertSame('{"claims":{"client_id":"u1","mode":"player"}}', (string) $req->getBody());
     }
 
-    public function testNullApiKeySendsNoAuthorizationHeaderAndStillSucceeds(): void
+    /**
+     * Minting carries the same derived bearer as an invocation, including when
+     * claims turn the request into a JSON POST.
+     */
+    public function testTheDerivedBearerIsSentOnEveryMint(): void
     {
-        $client = $this->client(['apiKey' => null]);
-        $this->http->queueJson(200, ['ticket' => 'v1u.devpayload', 'expires_at' => 2]);
+        $client = $this->client();
+        $this->http
+            ->queueJson(200, ['ticket' => 'v1.p.s', 'expires_at' => 1])
+            ->queueJson(200, ['ticket' => 'v1.p.s', 'expires_at' => 2]);
 
-        $ticket = $client->acquire('Room', 'g-1');
+        $client->acquire('Room', 'g-1');
+        $client->acquire('Room', 'g-1', ['client_id' => 'u1']);
 
-        self::assertSame('v1u.devpayload', $ticket->ticket);
-        self::assertFalse($this->http->lastRequest()->hasHeader('Authorization'));
+        foreach ($this->http->requests as $request) {
+            self::assertSame(self::BEARER, $request->getHeaderLine('Authorization'));
+        }
+
+        self::assertSame(
+            (new AtomsConfig('https://atoms.example.workers.dev', self::SECRET))->bearerToken(),
+            substr(self::BEARER, strlen('Bearer ')),
+        );
+    }
+
+    public function testAConfiguredPreviousSecretDoesNotChangeTheBearerSent(): void
+    {
+        $client = $this->client(['sharedSecretPrevious' => base64_encode(str_repeat("\x02", 32))]);
+        $this->http->queueJson(200, ['ticket' => 'v1.p.s', 'expires_at' => 3]);
+
+        $client->acquire('Room', 'g-1');
+
+        self::assertSame(self::BEARER, $this->http->lastRequest()->getHeaderLine('Authorization'));
     }
 
     public function testNotSupportedMapsToTicketAcquisitionFailedWithE067AndNoRetry(): void

@@ -30,10 +30,10 @@ use Psr\Log\LoggerInterface;
  * says it is safe.
  *
  * The deployed Worker is single-tenant — one Cloudflare account, one Worker,
- * one set of Atoms — so there is no `/v1/{customer}` prefix to build. Auth is a
- * single optional bearer key ({@see AtomsConfig::$apiKey}); when it is null the
- * client sends no Authorization header at all, matching a Worker deployed with
- * `ATOMS_APP_KEY` unset.
+ * one set of Atoms — so there is no `/v1/{customer}` prefix to build. Every
+ * call carries `Authorization: Bearer` with {@see AtomsConfig::bearerToken()},
+ * derived from the shared secret; the Worker derives the same value from its
+ * own copy and compares it.
  */
 final class AtomsClient
 {
@@ -307,6 +307,22 @@ final class AtomsClient
                 return new PlatformUnavailable($message, $code, $status);
             case 'invalid_request':
                 return new InvalidRequest($message, $status);
+            case 'misconfigured':
+                // The Worker answers this on every route but /healthz while its
+                // own ATOMS_SHARED_SECRET (and ATOMS_SHARED_SECRET_PREVIOUS,
+                // when set) do not decode to 32 bytes of base64. Nothing the
+                // app can retry, so say what to fix.
+                return new AtomsRequestFailed(
+                    sprintf(
+                        'The Atoms Worker is not configured to serve requests%s Set ATOMS_SHARED_SECRET on the '
+                        . 'Worker to the same base64-encoded 32 bytes this app holds '
+                        . '(`wrangler secret put ATOMS_SHARED_SECRET`).',
+                        $message === '' ? '.' : ': ' . rtrim($message, '.') . '.',
+                    ),
+                    $code,
+                    false,
+                    $status,
+                );
             default:
                 $retryable = in_array($code, self::RETRYABLE_CODES, true)
                     || ($error['retryable'] ?? false) === true;
@@ -318,14 +334,8 @@ final class AtomsClient
     private function baseRequest(string $method, string $uri): RequestInterface
     {
         $request = $this->requestFactory->createRequest($method, $uri)
-            ->withHeader('traceparent', $this->traceparent ?? $this->generateTraceparent());
-
-        // Null apiKey is an explicit "this Worker runs with auth off" posture:
-        // send no Authorization header rather than an empty bearer credential.
-        // AtomsConfig rejects the empty string outright, so a key here is real.
-        if ($this->config->apiKey !== null) {
-            $request = $request->withHeader('Authorization', 'Bearer ' . $this->config->apiKey);
-        }
+            ->withHeader('traceparent', $this->traceparent ?? $this->generateTraceparent())
+            ->withHeader('Authorization', 'Bearer ' . $this->config->bearerToken());
 
         if ($this->manifest !== null) {
             $request = $request->withHeader('X-Atoms-Manifest-Hash', $this->manifest->hash());

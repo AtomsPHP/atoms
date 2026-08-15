@@ -6,10 +6,11 @@ namespace Atoms\Client\Tests\Callback;
 
 use Atoms\AtomJob;
 use Atoms\Client\Callback\CallbackKernel;
-use Atoms\Client\Callback\Ed25519Verifier;
+use Atoms\Client\Callback\HmacVerifier;
 use Atoms\Client\Callback\InMemoryNonceStore;
 use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Client\Callback\QueueBridge;
+use Atoms\Client\Crypto\KeyDerivation;
 use Atoms\Client\Tests\Fixtures\GameRoom;
 use Atoms\Client\Tests\Fixtures\NotAJob;
 use Atoms\Client\Tests\Fixtures\SendWelcomeJob;
@@ -25,9 +26,10 @@ use Psr\Log\LoggerInterface;
 
 final class CallbackKernelTest extends TestCase
 {
-    private string $publicKey;
+    private const SECRET = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=';
 
-    private string $secretKey;
+    /** Raw 32-byte HMAC key the Worker signs callbacks with. */
+    private string $callbackKey;
 
     private RecordingQueueBridge $bridge;
 
@@ -35,9 +37,7 @@ final class CallbackKernelTest extends TestCase
 
     protected function setUp(): void
     {
-        $keypair = sodium_crypto_sign_keypair();
-        $this->publicKey = sodium_crypto_sign_publickey($keypair);
-        $this->secretKey = sodium_crypto_sign_secretkey($keypair);
+        $this->callbackKey = KeyDerivation::callbackKey(self::SECRET);
         $this->bridge = new RecordingQueueBridge();
         $this->nonces = new InMemoryNonceStore();
     }
@@ -48,7 +48,7 @@ final class CallbackKernelTest extends TestCase
         $resolver = (new MethodsResolver())->registerTypeMap(['GameRoom' => GameRoom::class]);
 
         return new CallbackKernel(
-            new Ed25519Verifier(base64_encode($this->publicKey)),
+            new HmacVerifier([$this->callbackKey]),
             $this->nonces,
             $resolver,
             $this->bridge,
@@ -73,7 +73,7 @@ final class CallbackKernelTest extends TestCase
         $nonce ??= bin2hex(random_bytes(16));
 
         $message = "v1\n" . $ts . "\n" . $nonce . "\n" . $body;
-        $signature = $signatureOverride ?? base64_encode(sodium_crypto_sign_detached($message, $this->secretKey));
+        $signature = $signatureOverride ?? base64_encode(hash_hmac('sha256', $message, $this->callbackKey, true));
 
         return $factory->createServerRequest('POST', 'https://app.test/_atoms/callback')
             ->withHeader('X-Atoms-Kind', $kind)
@@ -122,13 +122,47 @@ final class CallbackKernelTest extends TestCase
         self::assertSame(['result' => 'ada:9'], $this->decode($response));
     }
 
+    /**
+     * Rotation: a kernel holding the current and previous callback keys
+     * accepts a callback signed under either.
+     */
+    public function testCallbackSignedUnderThePreviousSecretIsAcceptedDuringAnOverlap(): void
+    {
+        $previousKey = $this->callbackKey;
+        $this->callbackKey = KeyDerivation::callbackKey(base64_encode(str_repeat("\x02", 32)));
+
+        $factory = new HttpFactory();
+        $kernel = new CallbackKernel(
+            new HmacVerifier([$this->callbackKey, $previousKey]),
+            $this->nonces,
+            (new MethodsResolver())->registerTypeMap(['GameRoom' => GameRoom::class]),
+            $this->bridge,
+            $factory,
+            $factory,
+        );
+
+        $payload = [
+            'atom' => ['type' => 'GameRoom', 'id' => 'g-1'],
+            'method' => 'add',
+            'args' => [2, 3],
+        ];
+
+        $current = $kernel->handle($this->signedRequest('methods', $payload));
+        self::assertSame(200, $current->getStatusCode());
+
+        $this->callbackKey = $previousKey;
+        $stale = $kernel->handle($this->signedRequest('methods', $payload));
+        self::assertSame(200, $stale->getStatusCode());
+        self::assertSame(['result' => 5], $this->decode($stale));
+    }
+
     public function testBadSignatureIsRejected401E064(): void
     {
         $request = $this->signedRequest('methods', [
             'atom' => ['type' => 'GameRoom', 'id' => 'g-1'],
             'method' => 'add',
             'args' => [2, 3],
-        ], signatureOverride: base64_encode(str_repeat("\x01", SODIUM_CRYPTO_SIGN_BYTES)));
+        ], signatureOverride: base64_encode(str_repeat("\x01", 32)));
 
         $response = $this->kernel()->handle($request);
 
@@ -267,7 +301,7 @@ final class CallbackKernelTest extends TestCase
         $resolver = (new MethodsResolver())->registerTypeMap(['GameRoom' => GameRoom::class]);
 
         return new CallbackKernel(
-            new Ed25519Verifier(base64_encode($this->publicKey)),
+            new HmacVerifier([$this->callbackKey]),
             $this->nonces,
             $resolver,
             $bridge,
