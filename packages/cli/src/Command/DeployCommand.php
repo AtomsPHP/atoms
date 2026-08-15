@@ -75,7 +75,17 @@ final class DeployCommand extends AbstractCommand
             $this->stager->stage($target, $bundlePath, $manifestPath);
 
             $output->writeln('Deploying Worker ' . $target->workerName . ' with wrangler…');
-            $wrangler = $this->wrangler->deploy($target);
+            if ($target->debugEndpoints) {
+                // Debug endpoints are a second gate behind the Worker's auth
+                // check — but with auth off (or terminated in front of the
+                // Worker), the flag is the only thing in front of /debug, so
+                // enabling it deserves a visible line in the deploy log.
+                $output->writeln(
+                    '  ' . $target::DEBUG_ENDPOINTS_VAR . '=1 (debug endpoints enabled by atoms.json '
+                    . '"debug_endpoints" for ' . $env . ')'
+                );
+            }
+            $wrangler = $this->wrangler->deploy($target, $target->runtimeVars());
 
             // Wrangler's own output is the deploy log — including the URL it
             // published to and any Cloudflare API rejection. Reprinting it is

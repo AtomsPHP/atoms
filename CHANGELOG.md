@@ -3,6 +3,29 @@
 All notable changes to Atoms are documented here. The seven Composer packages,
 the Cloudflare runtime, and deploy Action use one coordinated version.
 
+## [0.1.2] - Unreleased
+
+- **Changed:** the scaffolded Worker project
+  (`@atomsphp/runtime-cloudflare`) now ships with the Worker's `/debug`
+  routes **off**, matching the Worker's own default. The template's
+  `wrangler.jsonc` is built from a new `wrangler.scaffold.jsonc` (worker
+  name `atoms-worker`) instead of the conformance harness's config, which
+  had leaked its `ATOMS_DEBUG_ENDPOINTS=1` var and `atoms-mvp-conformance`
+  name into customer deployments. The conformance suite still runs with the
+  flag on via the harness's own `wrangler.jsonc`, which no longer ships.
+- **Added:** a supported, re-scaffold-proof way to enable debug endpoints:
+  `"debug_endpoints": true` on an environment in `atoms.json`. Both
+  `atoms dev` and `atoms deploy` forward it to Wrangler as
+  `--var ATOMS_DEBUG_ENDPOINTS:1`, and both print a line when it is in
+  force. Editing the Worker directory's `wrangler.jsonc` was never durable —
+  `.atoms/worker` is gitignored and the deploy Action regenerates it on a
+  fresh checkout. The value must be a JSON boolean; a string such as
+  `"false"` is refused (ATOMS-E070) rather than coerced. `/debug` remains
+  behind the Worker's auth check when that is enabled; the flag is a second
+  gate, and with auth off (local dev, or access control terminated in front
+  of the Worker) it is the only one — see `docs/cloudflare-toolchain.md`
+  §Debug endpoints.
+
 ## [0.1.1] - Unreleased
 
 - **Fixed:** `dispatch()` took an `AtomJob` instance, which could never work —
@@ -33,3 +56,5 @@ deploy workflow, and the Cloudflare Durable Object PHP runtime.
 [0.1.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.0
 
 [0.1.1]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.1
+
+[0.1.2]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.2

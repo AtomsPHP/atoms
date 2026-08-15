@@ -31,11 +31,21 @@ final class CloudflareTarget
     public const DEFAULT_WORKER_DIR = '.atoms/worker';
 
     /**
+     * The Worker var gating the `/debug` routes. Off by default in the Worker
+     * (`worker/src/config.js`) and absent from the scaffolded wrangler.jsonc;
+     * atoms.json's per-environment `debug_endpoints` is the one switch, and it
+     * reaches Wrangler as a `--var` so it survives the Worker directory being
+     * regenerated.
+     */
+    public const DEBUG_ENDPOINTS_VAR = 'ATOMS_DEBUG_ENDPOINTS';
+
+    /**
      * @param string      $endpoint   Base URL the deployed Worker serves on; what `atoms/client` calls.
      * @param string      $workerName `wrangler --name`.
      * @param string      $accountId  Cloudflare account id; '' when unresolved.
      * @param string|null $apiToken   Cloudflare API token; null when unresolved.
      * @param string      $workerDir  Absolute path to the Worker project (holds wrangler + src/).
+     * @param bool        $debugEndpoints Whether atoms.json enables the Worker's /debug routes for this environment.
      */
     public function __construct(
         public readonly string $environment,
@@ -44,6 +54,7 @@ final class CloudflareTarget
         public readonly string $accountId,
         public readonly ?string $apiToken,
         public readonly string $workerDir,
+        public readonly bool $debugEndpoints = false,
     ) {
     }
 
@@ -91,7 +102,22 @@ final class CloudflareTarget
             accountId: $accountId,
             apiToken: $token,
             workerDir: self::absolute($config->rootDir, $dir),
+            debugEndpoints: $env['debug_endpoints'],
         );
+    }
+
+    /**
+     * Worker vars this environment's atoms.json asks for, in the shape
+     * Wrangler's `--var` takes. Both `atoms dev` and `atoms deploy` pass these
+     * through, which is what makes atoms.json the single declaration: the
+     * scaffolded Worker directory is gitignored and regenerated, so a var that
+     * only lived in its wrangler.jsonc would not survive CI.
+     *
+     * @return array<string, string>
+     */
+    public function runtimeVars(): array
+    {
+        return $this->debugEndpoints ? [self::DEBUG_ENDPOINTS_VAR => '1'] : [];
     }
 
     /**

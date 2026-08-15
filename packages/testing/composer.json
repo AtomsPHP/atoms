@@ -1,7 +1,7 @@
 {
     "name": "atoms/testing",
     "description": "Test tooling for Atoms: AtomHarness (in-process Atom execution against temp SQLite), fakes and recorders.",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "license": "MIT",
     "homepage": "https://atomsphp.dev",
     "support": {

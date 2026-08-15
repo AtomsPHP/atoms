@@ -96,6 +96,44 @@ final class CloudflareTargetTest extends TestCase
         self::assertArrayNotHasKey('CLOUDFLARE_API_TOKEN', $target->credentialEnv());
     }
 
+    public function testDebugEndpointsDefaultOffAndYieldNoRuntimeVars(): void
+    {
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production', 'token');
+
+        self::assertFalse($target->debugEndpoints);
+        self::assertSame([], $target->runtimeVars());
+    }
+
+    public function testDebugEndpointsFromAtomsJsonBecomeTheWranglerVar(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        $json['environments']['production']['debug_endpoints'] = true;
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+
+        $target = CloudflareTarget::resolve(
+            \Atoms\Cli\Config\AtomsJson::load($root . '/atoms.json'),
+            'production',
+            'token',
+        );
+
+        self::assertTrue($target->debugEndpoints);
+        self::assertSame(['ATOMS_DEBUG_ENDPOINTS' => '1'], $target->runtimeVars());
+    }
+
+    public function testANonBooleanDebugEndpointsIsRefusedNotCoerced(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        // "false" the string would silently enable a debug surface if coerced.
+        $json['environments']['production']['debug_endpoints'] = 'false';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*debug_endpoints.*boolean/s');
+        \Atoms\Cli\Config\AtomsJson::load($root . '/atoms.json');
+    }
+
     public function testInvokeUrlIsThePrefixlessSingleTenantRoute(): void
     {
         $target = CloudflareTarget::resolve($this->sampleApp(), 'production', 'token');

@@ -90,7 +90,20 @@ final class DevCommand extends AbstractCommand
 
             $callback = self::stringOption($input, 'callback-url') ?? $config->callbackUrls[$env] ?? null;
 
+            // atoms.json is the durable home for Worker settings — the Worker
+            // project directory is gitignored and regenerated, so its
+            // wrangler.jsonc is not. Forwarded here and on deploy, so dev and
+            // deploy agree on what one declaration means.
+            $vars = $target->runtimeVars();
+
             $output->writeln('Starting wrangler dev on port ' . $port . '…');
+            if ($target->debugEndpoints) {
+                $output->writeln(
+                    '  ' . $target::DEBUG_ENDPOINTS_VAR . '=1 (debug endpoints enabled by atoms.json '
+                    . '"debug_endpoints" for ' . $env . '; with local dev auth off, the flag is the only '
+                    . 'gate in front of /debug)'
+                );
+            }
             if ($callback !== null) {
                 $output->writeln('  ' . self::CALLBACK_VAR . '=' . $callback);
                 $output->writeln('  The Worker will call back to this URL for $this->app() and $this->dispatch().');
@@ -103,11 +116,11 @@ final class DevCommand extends AbstractCommand
                 }
             }
 
-            $result = $this->wrangler->dev(
-                $target,
-                $port,
-                $callback === null ? [] : [self::CALLBACK_VAR => $callback],
-            );
+            if ($callback !== null) {
+                $vars[self::CALLBACK_VAR] = $callback;
+            }
+
+            $result = $this->wrangler->dev($target, $port, $vars);
         } catch (AtomsError $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
 

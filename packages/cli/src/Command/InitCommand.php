@@ -53,18 +53,25 @@ final class InitCommand extends AbstractCommand
             // Atoms-hosted endpoint to default to. The workers.dev placeholders
             // below are obviously placeholders on purpose: a plausible-looking
             // wrong default is worse than one that cannot be mistaken for real.
+            // `debug_endpoints` is the supported switch for the Worker's
+            // /debug routes (off by default). It lives here rather than in the
+            // Worker directory's wrangler.jsonc because that directory is
+            // gitignored and regenerated; `atoms dev` and `atoms deploy` both
+            // forward it to Wrangler as a --var.
             'environments' => [
                 'production' => [
                     'endpoint' => 'https://' . $project . '.<your-subdomain>.workers.dev',
                     'worker_name' => $project,
                     'account_id' => '',
                     'worker_dir' => '.atoms/worker',
+                    'debug_endpoints' => false,
                 ],
                 'staging' => [
                     'endpoint' => 'https://' . $project . '-staging.<your-subdomain>.workers.dev',
                     'worker_name' => $project . '-staging',
                     'account_id' => '',
                     'worker_dir' => '.atoms/worker',
+                    'debug_endpoints' => false,
                 ],
             ],
             'callback_url' => [

@@ -85,6 +85,40 @@ final class DeployCommandTest extends TestCase
         $deploy = $wrangler->lastCall('deploy');
         self::assertNotNull($deploy);
         self::assertSame('acme-games', $deploy['target']->workerName);
+        // The fixture does not enable debug endpoints, so no --var overrides
+        // ride along: what ships is exactly what the Worker config declares.
+        self::assertSame([], $deploy['args']['vars']);
+    }
+
+    /**
+     * The one supported, re-scaffold-proof way to turn the Worker's /debug
+     * routes on: atoms.json's per-environment `debug_endpoints`, forwarded as
+     * a Wrangler `--var`. The Worker directory is gitignored and regenerated
+     * in CI, so a var living only in its wrangler.jsonc would not survive.
+     */
+    public function testDebugEndpointsInAtomsJsonAreForwardedAsAVar(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        $config['environments']['production']['debug_endpoints'] = true;
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        $deploy = $wrangler->lastCall('deploy');
+        self::assertNotNull($deploy);
+        self::assertSame(['ATOMS_DEBUG_ENDPOINTS' => '1'], $deploy['args']['vars']);
+        // Enabling a debug surface must be visible in the deploy log.
+        self::assertStringContainsString('ATOMS_DEBUG_ENDPOINTS=1', $tester->getDisplay());
     }
 
     /**

@@ -218,6 +218,53 @@ operational secret today; direct `wrangler secret put`/`wrangler dev
 describes. An `--operational` flag that bypasses the prefix is a candidate
 follow-up, not something M2 built.
 
+### Debug endpoints: off by default, enabled in atoms.json
+
+The Worker's `GET /debug/:type/:id/info` route is a first-line diagnostic
+(residency info, turn counts, boot timings, the `ws`/`timers`/callback debug
+blocks) gated on the Worker's `ATOMS_DEBUG_ENDPOINTS` variable, whose default
+is off (`worker/src/config.js`). The scaffolded Worker project does not set
+it, so **a customer deployment ships with debug endpoints off** unless the
+project turns them on.
+
+**What the flag is, and is not.** `/debug` sits behind the Worker's auth
+check like every route except `/healthz`: when the Worker's bearer check is
+on, reaching `/debug` requires credentials whether or not the flag is set.
+The flag is therefore a second gate — defense in depth over what the route
+reveals — not the only one. The posture to keep in mind is the inverse one:
+when the Worker's auth is **off** — local dev, or a deployment that
+terminates access control in front of the Worker (Cloudflare Access and the
+like) — the flag is the *only* thing between the network and `/debug`. That
+is why it defaults off and why enabling it is an explicit, per-environment
+declaration.
+
+**How to turn it on** — one setting, in a file the user owns:
+
+```json
+"environments": {
+  "staging": { "endpoint": "…", "debug_endpoints": true }
+}
+```
+
+Both `atoms dev` and `atoms deploy` read it from the environment they target
+and forward it to Wrangler as `--var ATOMS_DEBUG_ENDPOINTS:1`
+(`CloudflareTarget::runtimeVars()`), so the two always agree on what the one
+declaration means, and both print an `ATOMS_DEBUG_ENDPOINTS=1` line when it
+is in force. It must be a JSON boolean; a string is refused (**ATOMS-E070**)
+rather than coerced, so `"false"` can never silently enable a debug surface.
+
+**Why atoms.json and not the Worker's wrangler.jsonc.** The default Worker
+directory `.atoms/worker` is gitignored (`atoms init` does that) and the
+deploy Action re-scaffolds it whenever it is missing or empty — which in CI
+is every fresh checkout. An edit to its `wrangler.jsonc` therefore does not
+survive a deploy. atoms.json is committed and is already where the
+environment's other durable settings live, and `--var` is already how the
+callback URL reaches `wrangler dev` — this reuses that channel on both
+paths. (The conformance harness in `cloudflare/worker` is intentionally
+different: its own `wrangler.jsonc` keeps the flag on because checks 5/10/12
+need it, and that file is not what customers receive —
+`wrangler.scaffold.jsonc` is.)
+
 ### Deploying does not mean deployed
 
 Cloudflare propagates a new Worker version and its variables **eventually**.

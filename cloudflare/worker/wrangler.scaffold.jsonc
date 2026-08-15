@@ -1,14 +1,23 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 
-	// The conformance-harness config, used to run this repository's own worker
-	// under `wrangler dev` for the 38-check suite. It is NOT what customers
-	// receive: `scripts/pack-runtime.mjs` ships the sibling
-	// `wrangler.scaffold.jsonc` as the template's `wrangler.jsonc` instead.
-	// Keep the two in sync structurally; the deliberate differences are the
-	// worker name and ATOMS_DEBUG_ENDPOINTS, which the suite (checks 5/10/12)
-	// needs on and customers get off by default.
-	"name": "atoms-mvp-conformance",
+	// The customer-facing Wrangler config: `scripts/pack-runtime.mjs` ships this
+	// file as `wrangler.jsonc` in the @atomsphp/runtime-cloudflare template,
+	// which `atoms init`/the deploy Action scaffold into `.atoms/worker`. The
+	// sibling `wrangler.jsonc` in this repository is the conformance-harness
+	// config and is NOT what customers receive — keep the two in sync when
+	// changing anything module- or DO-shaped, and keep the differences (worker
+	// name, debug endpoints) deliberate.
+	//
+	// NOTE: in a customer project this file lives in a gitignored, regenerated
+	// directory (`.atoms/worker`), so local edits do not survive a re-scaffold.
+	// Durable configuration belongs in atoms.json: `atoms dev` and
+	// `atoms deploy` forward the settings there (for example
+	// `"debug_endpoints": true`) as `wrangler --var` overrides.
+	//
+	// The name is cosmetic for `atoms deploy`, which selects the real Worker
+	// with `--name` from atoms.json (`worker_name`, defaulting to the project).
+	"name": "atoms-worker",
 	"main": "src/index.js",
 	"compatibility_date": "2026-08-01",
 
@@ -31,19 +40,17 @@
 	"durable_objects": {
 		"bindings": [{ "name": "ATOMS", "class_name": "AtomDurableObject" }]
 	},
-	// SQLite storage backend, declared with a migration tag. Wrangler rejects
-	// `migrations` and the newer declarative `exports` block together
-	// ("mutually exclusive"); the equivalent declarative form is
-	//   "exports": { "AtomDurableObject": { "type": "durable-object", "storage": "sqlite" } }
-	// and both dry-run clean. The migration tag is kept because it is the
-	// shape the phase-2 spike exercised end to end under `wrangler dev`.
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["AtomDurableObject"] }],
 
 	// Operational values live in env, with defaults resolved in src/config.js.
 	// ATOMS_APP_KEY is a secret (`wrangler secret put ATOMS_APP_KEY`); when it
 	// is unset, bearer auth is off, which is the local-dev posture.
+	//
+	// ATOMS_DEBUG_ENDPOINTS is deliberately NOT set here: the /debug routes
+	// default off (src/config.js). To turn them on, set
+	// `"debug_endpoints": true` on the environment in atoms.json — not in this
+	// file, which a re-scaffold overwrites.
 	"vars": {
-		"ATOMS_DEBUG_ENDPOINTS": "1",
 		"ATOMS_LOG_LEVEL": "info"
 	},
 

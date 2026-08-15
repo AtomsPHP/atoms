@@ -1,7 +1,7 @@
 {
     "name": "atoms/cli",
     "description": "The `atoms` command-line tool: init, make, validate, build (closure walk + scoper), deploy, rollback, local, ai:install.",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "license": "MIT",
     "homepage": "https://atomsphp.dev",
     "support": {

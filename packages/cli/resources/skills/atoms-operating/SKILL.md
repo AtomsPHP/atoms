@@ -32,6 +32,14 @@ version-matched `@atomsphp/runtime-cloudflare` scaffold command; run that once,
 then `npm ci` in the generated directory. Atoms runs the pinned Wrangler it
 finds there and never downloads one during deploy. Missing: ATOMS-E073.
 
+The Worker's `/debug` routes are off by default. To enable them for an
+environment, set `"debug_endpoints": true` on that environment in atoms.json —
+never by editing the Worker directory's wrangler.jsonc, which is gitignored
+and regenerated, so the edit would not survive a deploy. `atoms dev` and
+`atoms deploy` both forward the setting to Wrangler as a `--var`. The routes
+sit behind the Worker's auth check when that is on; with auth off (local dev,
+or access control in front of the Worker) the flag is the only gate.
+
 `atoms secrets:set PAYMENTS_API_KEY` stores the Worker secret
 `ATOMS_CONFIG_PAYMENTS_API_KEY`, because that is the name the Worker's config
 allowlist resolves `$this->config('PAYMENTS_API_KEY')` to. The prefix is read

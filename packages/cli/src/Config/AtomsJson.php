@@ -19,7 +19,12 @@ use Atoms\Errors\ErrorCode;
  * An account id in particular is better supplied by the environment than
  * committed, which is why atoms.json only offers to hold it.
  *
- * @phpstan-type Environment array{endpoint: string, region: string, worker_name: string, account_id: string, worker_dir: string}
+ * `debug_endpoints` is the durable switch for the Worker's `/debug` routes:
+ * the scaffolded Worker project is gitignored and regenerated, so the setting
+ * lives here, in a file the user owns, and `atoms dev`/`atoms deploy` forward
+ * it to Wrangler as a `--var` override. Off unless explicitly true.
+ *
+ * @phpstan-type Environment array{endpoint: string, region: string, worker_name: string, account_id: string, worker_dir: string, debug_endpoints: bool}
  */
 final class AtomsJson
 {
@@ -206,10 +211,28 @@ final class AtomsJson
                 'worker_name' => self::optionalString($env, 'worker_name'),
                 'account_id' => self::optionalString($env, 'account_id'),
                 'worker_dir' => self::optionalString($env, 'worker_dir'),
+                'debug_endpoints' => self::optionalBool($env, "environment '{$name}'", 'debug_endpoints'),
             ];
         }
 
         return $out;
+    }
+
+    /**
+     * Absent means false. Anything but a JSON boolean is refused rather than
+     * coerced: `"debug_endpoints": "false"` silently reading as enabled is
+     * exactly the kind of surprise this key must not have.
+     *
+     * @param array<array-key, mixed> $source
+     */
+    private static function optionalBool(array $source, string $context, string $key): bool
+    {
+        $value = $source[$key] ?? false;
+        if (!\is_bool($value)) {
+            throw self::invalid("{$context}: \"{$key}\" must be a JSON boolean (true or false)");
+        }
+
+        return $value;
     }
 
     /**
