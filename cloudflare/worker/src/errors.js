@@ -41,7 +41,6 @@
  *   | 'timer_limit'
  *   | 'ticket_invalid'
  *   | 'ticket_expired'
- *   | 'ticket_used'
  *   | 'internal'
  * )} AtomsErrorCode
  */
@@ -92,21 +91,16 @@ const CODE_TABLE = {
 	// reclassified as a retryable `internal`. A bad timer name is not retryable.
 	timer_invalid_name: { status: 500, retryable: false },
 	timer_limit: { status: 500, retryable: false },
-	// Connection-ticket refusals (spec §Routing and auth). All three are
+	// Connection-ticket refusals (spec §Routing and auth). Both are
 	// credential failures on the /ws upgrade, so 401 like `unauthenticated` —
-	// but distinct slugs, because the client remedies differ: ticket_invalid
-	// (malformed, forged, mis-scoped, or an unsigned dev ticket under auth-on)
-	// and ticket_expired both mean "mint a fresh ticket"; ticket_used means
-	// "each ticket is single-use — mint one per connection attempt", and is
-	// the one an operator wants to see distinctly in logs, since it is the
-	// only refusal that implies the ticket was already presented once.
-	// None is retryable: re-sending the same request re-presents the same
-	// ticket, which can never succeed. ticket_used is raised DO-side (the jti
-	// claim needs durable state) and reaches the client via wsErrorResponse;
-	// the other two are raised at the edge before any DO is addressed.
+	// but distinct slugs for logs, server-side probes and non-browser
+	// clients: ticket_invalid (malformed, forged, mis-scoped, or an unsigned
+	// dev ticket under auth-on) and ticket_expired both mean "mint a fresh
+	// ticket". Neither is retryable: re-sending the same request re-presents
+	// the same ticket, which can never succeed. Both are raised at the edge
+	// before any DO is addressed.
 	ticket_invalid: { status: 401, retryable: false },
 	ticket_expired: { status: 401, retryable: false },
-	ticket_used: { status: 401, retryable: false },
 	// Matches the retired platform contract's table and what atoms/client
 	// already expects (AtomsClient.php maps this to TurnDeadlineExceeded and
 	// only retries when the call site opts in).

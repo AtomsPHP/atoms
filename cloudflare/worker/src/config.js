@@ -86,9 +86,6 @@ export const RESERVED_TABLE_PREFIX = '__atoms_';
 /** Table that holds this Atom's scheduled timers inside the DO's SQLite. */
 export const TIMERS_TABLE = '__atoms_timers';
 
-/** Table that records claimed (single-use) WebSocket connection-ticket jtis. */
-export const WS_TICKETS_TABLE = '__atoms_ws_tickets';
-
 /** Meta keys the host itself owns. */
 export const META_KEYS = {
 	type: 'atom_type',

@@ -4,9 +4,9 @@
  * A ticket is the browser's credential for `GET /ws/:type/:id`: browsers
  * cannot set an `Authorization` header on `new WebSocket(url)`, so the
  * application's server mints one at `POST /tickets/:type/:id` (bearer-gated)
- * and the browser presents it as `?ticket=`. Short-TTL, single-use, scoped to
- * exactly one atom, and a carrier for server-asserted claims that merge over
- * the browser's own query params.
+ * and the browser presents it as `?ticket=`. Short-TTL, scoped to exactly one
+ * atom, and a carrier for server-asserted claims that merge over the
+ * browser's own query params.
  *
  * Wire forms:
  *
@@ -27,10 +27,11 @@
  * signed ticket can never alias as a "valid" unsigned one, and an auth-on
  * deployment rejects `v1u.` outright before looking at anything else.
  *
- * Everything here is stateless. The one stateful property — single use — is
- * enforced DO-side (`atom-do.js` claims the jti after `ensureActive()`,
- * before `acceptWebSocket()`), because replay protection inherently needs
- * durable state and the ticket's `{type, id}` scope maps 1:1 onto one DO.
+ * Everything here is stateless, and so is the whole ticket contract: a
+ * ticket is deliberately reusable until it expires, and the seconds-scale
+ * TTL is the entire defense against a leaked URL (spec §Routing and auth).
+ * The `jti` is a per-mint identifier for logs and any future revocation
+ * contract; nothing consumes it.
  */
 
 import { AtomsError } from './errors.js';

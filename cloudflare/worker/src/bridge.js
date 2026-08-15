@@ -18,7 +18,7 @@
  * Every failure becomes an `{"ok":false,"error":{...}}` reply, which the PHP
  * helpers turn into exceptions.
  */
-import { LOG_LEVELS, META_TABLE, META_KEYS, RESERVED_TABLE_PREFIX, TIMERS_TABLE, WS_TICKETS_TABLE } from './config.js';
+import { LOG_LEVELS, META_TABLE, META_KEYS, RESERVED_TABLE_PREFIX, TIMERS_TABLE } from './config.js';
 import { AtomsError, normalizeError } from './errors.js';
 import {
 	decodeInt64Deep,
@@ -104,35 +104,6 @@ export class Bridge {
 		this.sql.exec(
 			`CREATE TABLE IF NOT EXISTS ${TIMERS_TABLE} (name TEXT PRIMARY KEY, due_at_ms INTEGER NOT NULL)`
 		);
-		this.sql.exec(
-			`CREATE TABLE IF NOT EXISTS ${WS_TICKETS_TABLE} (jti TEXT PRIMARY KEY, expires_at_ms INTEGER NOT NULL)`
-		);
-	}
-
-	/**
-	 * Claim a connection ticket's jti — the single-use enforcement (spec
-	 * §Routing and auth step 9). Consume-on-presentation: the jti is burned
-	 * the moment the upgrade reaches this atom, whether or not the socket is
-	 * ultimately established, so a client must mint a fresh ticket per
-	 * connection attempt. SELECT-then-INSERT is race-free here because the
-	 * caller holds the DO's turn mutex; durability in this table is what
-	 * makes replay refusal survive eviction and hibernation.
-	 *
-	 * Expired rows are GC'd on every claim, which bounds the table to the
-	 * connects of one TTL window — no cap, no alarm needed.
-	 *
-	 * @param {string} jti
-	 * @param {number} expiresAtMs the ticket's own exp, so the row dies with it
-	 * @param {number} nowMs
-	 * @throws {AtomsError} `ticket_used` on a replay
-	 */
-	claimWsTicket(jti, expiresAtMs, nowMs) {
-		this.sql.exec(`DELETE FROM ${WS_TICKETS_TABLE} WHERE expires_at_ms < ?`, nowMs);
-		const seen = this.sql.exec(`SELECT 1 AS one FROM ${WS_TICKETS_TABLE} WHERE jti = ?`, jti).toArray();
-		if (seen.length > 0) {
-			throw new AtomsError('ticket_used', 'this connection ticket has already been used; mint a fresh one');
-		}
-		this.sql.exec(`INSERT INTO ${WS_TICKETS_TABLE} (jti, expires_at_ms) VALUES (?, ?)`, jti, expiresAtMs);
 	}
 
 	/**

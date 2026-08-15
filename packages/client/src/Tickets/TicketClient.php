@@ -28,11 +28,12 @@ use Psr\Http\Message\StreamFactoryInterface;
  * reading `$params['client_id']` gets a value the browser cannot forge. The
  * keys `ticket` and `channels` are reserved and refused by the Worker.
  *
- * Tickets are single-use and consumed on presentation: on ANY connection
- * failure, mint a fresh one — never retry a used ticket. That rule is
- * unconditional because a browser cannot read the HTTP status or body of a
- * failed WebSocket upgrade: every ticket refusal (invalid, expired, already
- * used) surfaces identically as an opaque connection failure, so there is
+ * Tickets are short-lived and reusable until they expire — the seconds-scale
+ * TTL is the defense against a leaked URL, so a reconnect inside the TTL may
+ * retry the same URL. On ANY connection failure, mint a fresh one: a browser
+ * cannot read the HTTP status or body of a failed WebSocket upgrade, so every
+ * ticket refusal (invalid, expired) surfaces identically as an opaque
+ * connection failure and there is
  * nothing to branch on browser-side. When the Worker
  * runs with `ATOMS_APP_KEY` unset (auth off), minting still works and
  * returns an unsigned dev ticket, so browser code paths are identical

@@ -3380,22 +3380,23 @@ checks.push(async () => {
     }
 });
 
-// CHECK 34: single-use. A ticket is consumed on presentation: after one
-// successful connect, replaying the identical upgrade must be refused with
-// ticket_used and no socket. Runs in both postures — the jti claim is
-// enforced for unsigned dev tickets too, which is exactly what lets the
-// strongest ticket property get coverage in the default auth-off CI run.
+// CHECK 34: reusable within TTL. A ticket is a pure bearer credential whose
+// short TTL is its entire replay defense (spec §Routing and auth): no jti
+// claim, no burn, no DO-side state. The same ticket must open a second
+// connection both while the first socket is still open and after it has
+// closed. This is a contract assertion, not a smoke test — a reintroduced
+// single-use burn fails it. Runs in both postures, so the default auth-off
+// CI run covers it with unsigned dev tickets.
 checks.push(async () => {
     const checkNum = 34;
-    const name = 'tickets: single-use — a replayed ticket is ticket_used';
-    const id = atomId('tkt-once');
+    const name = 'tickets: reusable within TTL — no single-use burn';
+    const id = atomId('tkt-reuse');
 
     // Warm the atom BEFORE minting: a cold activation (PHP boot +
-    // migrations) inside the connect/replay cycle adds seconds of latency —
-    // enough to flake on a slow runner, and enough that a run against a
-    // test-shortened TTL would expire the ticket at the edge before the
-    // replay ever reaches the DO's jti claim, turning the ticket_used
-    // assertion into a vacuous ticket_expired.
+    // migrations) inside the connect/reconnect cycle adds seconds of
+    // latency — enough that a run against a test-shortened TTL would expire
+    // the ticket mid-check and turn the reuse assertion into a vacuous
+    // ticket_expired failure.
     await invoke('Room', id, 'stats', []);
 
     const mint = await mintTicketReq('Room', id);
@@ -3405,83 +3406,55 @@ checks.push(async () => {
     }
     const path = `/ws/Room/${id}?channels=lobby&ticket=${encodeURIComponent(mint.data.ticket)}`;
 
-    // The replay happens while the first socket is still open: single-use is
-    // a property of the jti claim, not of the socket's lifecycle, and a close
-    // handshake can take seconds locally — long enough to expire a
-    // test-shortened TTL and turn this into a vacuous ticket_expired.
+    // Concurrent reuse: the second connect happens while the first socket is
+    // still open.
     const sock = await openSocket(path, { auth: false });
     try {
         await sock.next();
 
-        const replay = await wsHandshakeAttempt(path, { auth: false });
-        if (replay.status !== 401 || replay.data?.error?.code !== 'ticket_used') {
-            fail(
-                checkNum,
-                name,
-                `the replay gave ${replay.status}/${replay.data?.error?.code} (expected 401/ticket_used)`
-            );
+        const second = await openSocket(path, { auth: false });
+        try {
+            await second.next();
+        } catch (e) {
+            fail(checkNum, name, `the concurrent second connect on the same ticket failed: ${e.message}`);
             return;
+        } finally {
+            await second.close();
         }
     } finally {
         await sock.close();
     }
 
-    // The post-expiry, within-skew replay. The DO's claim row must live to
-    // the edge's acceptance boundary (exp + skew), not the ticket's bare
-    // exp: with the bare exp, a replay landing in the (exp, exp + skew]
-    // window passes the edge, GCs the claim row, and re-claims the burned
-    // jti — a real single-use break an in-TTL replay can never observe.
-    // Needs the runner to know a POSITIVE skew matching the Worker's and a
-    // TTL short enough to wait out; the auth-on CI run is configured for
-    // exactly this posture.
-    let skewNote = '';
-    if (WS_TICKET_SKEW_MS === null || WS_TICKET_SKEW_MS <= 0) {
-        skewNote = 'within-skew replay leg skipped (needs a positive ATOMS_WS_TICKET_SKEW_MS in the runner env)';
-    } else {
-        const m2 = await mintTicketReq('Room', id);
-        if (m2.status !== 200) {
-            fail(checkNum, name, `the within-skew leg's mint gave ${m2.status}`);
-            return;
-        }
-        const path2 = `/ws/Room/${id}?channels=lobby&ticket=${encodeURIComponent(m2.data.ticket)}`;
-        const waitMs = m2.data.expires_at - Date.now() + Math.ceil(WS_TICKET_SKEW_MS / 2);
-        if (waitMs > 8000) {
-            if (REQUIRE_TICKET_CHECKS) {
-                fail(
-                    checkNum,
-                    name,
-                    `the within-skew replay leg would need a ${waitMs}ms wait — start the Worker with a short ATOMS_WS_TICKET_TTL_MS`
-                );
-                return;
-            }
-            skewNote = 'within-skew replay leg skipped (server TTL too long to wait out)';
-        } else {
-            const sock2 = await openSocket(path2, { auth: false });
-            try {
-                await sock2.next();
-                await new Promise((r) => setTimeout(r, waitMs));
-                const lateReplay = await wsHandshakeAttempt(path2, { auth: false });
-                if (lateReplay.status !== 401 || lateReplay.data?.error?.code !== 'ticket_used') {
-                    fail(
-                        checkNum,
-                        name,
-                        `the post-expiry, within-skew replay gave ${lateReplay.status}/${lateReplay.data?.error?.code} ` +
-                            `(expected 401/ticket_used — the claim row must outlive the edge's acceptance window)`
-                    );
-                    return;
-                }
-                skewNote = 'within-skew replay also refused with ticket_used';
-            } finally {
-                await sock2.close();
-            }
-        }
+    // Reuse after close: the reconnect-without-re-mint the reusable contract
+    // exists for — a browser that drops inside the TTL retries the same URL.
+    // A FRESH ticket, so exactly one connect/close cycle sits inside its TTL
+    // window: close handshakes take seconds locally, and reusing the first
+    // ticket here would expire a test-shortened TTL and fail this leg for
+    // the wrong reason.
+    const m2 = await mintTicketReq('Room', id);
+    if (m2.status !== 200) {
+        fail(checkNum, name, `the post-close leg's mint gave ${m2.status}`);
+        return;
+    }
+    const path2 = `/ws/Room/${id}?channels=lobby&ticket=${encodeURIComponent(m2.data.ticket)}`;
+    const first = await openSocket(path2, { auth: false });
+    try {
+        await first.next();
+    } finally {
+        await first.close();
+    }
+    let reconnect;
+    try {
+        reconnect = await openSocket(path2, { auth: false });
+        await reconnect.next();
+    } catch (e) {
+        fail(checkNum, name, `the post-close reconnect on the same ticket failed: ${e.message}`);
+        return;
+    } finally {
+        if (reconnect) await reconnect.close();
     }
 
-    pass(
-        checkNum,
-        name,
-        ['first connect succeeded, identical replay refused with ticket_used', skewNote].filter(Boolean).join('; ')
-    );
+    pass(checkNum, name, 'same-ticket reuse connected both concurrently and across a close');
 });
 
 // CHECK 35: the auth-on posture's core promise — minting requires the bearer
@@ -3614,21 +3587,22 @@ checks.push(async () => {
 });
 
 // CHECK 37: credential precedence — a valid bearer authenticates the
-// upgrade, and any ticket riding along is stripped UNVERIFIED AND UNCONSUMED
-// (a bearer holder is fully trusted and needs no claims). Pinned by showing
-// the same ticket still works afterwards on a headerless upgrade.
+// upgrade, and any ticket riding along is stripped UNVERIFIED (a bearer
+// holder is fully trusted and needs no claims). Pinned by riding along a
+// TAMPERED ticket: headerless it must be 401 ticket_invalid (proving the
+// tamper is real, so the leg below cannot pass vacuously); with the bearer
+// the same upgrade must connect, proving the ticket path never ran.
 checks.push(async () => {
     const checkNum = 37;
-    const name = 'tickets (auth on): bearer wins; a ridden-along ticket is not consumed';
+    const name = 'tickets (auth on): bearer wins; a ridden-along ticket is stripped unverified';
     if (!APP_KEY) {
         skip(checkNum, name, 'needs ATOMS_APP_KEY set on the Worker and the runner', REQUIRE_TICKET_CHECKS, 'ATOMS_APP_KEY');
         return;
     }
     const id = atomId('tkt-precedence');
 
-    // Warm the atom first, same reasoning as check 34: the ticket has to
-    // survive a full connect/close cycle before its second presentation, and
-    // a cold activation against a test-shortened TTL would expire it.
+    // Warm the atom first, same reasoning as check 34: a cold activation
+    // against a test-shortened TTL would expire the ticket mid-check.
     await invoke('Room', id, 'stats', []);
 
     const mint = await mintTicketReq('Room', id);
@@ -3636,33 +3610,37 @@ checks.push(async () => {
         fail(checkNum, name, `mint gave ${mint.status}: ${JSON.stringify(mint.data)}`);
         return;
     }
-    const path = `/ws/Room/${id}?channels=lobby&ticket=${encodeURIComponent(mint.data.ticket)}`;
+    const t = mint.data.ticket;
+    const tampered = t.slice(0, -1) + (t.endsWith('A') ? 'B' : 'A');
+    const path = `/ws/Room/${id}?channels=lobby&ticket=${encodeURIComponent(tampered)}`;
 
-    // Bearer + ticket: the bearer authenticates (openSocket sends it by
-    // default). The headerless second presentation happens while the first
-    // socket is still open — a close handshake can take seconds locally,
-    // long enough to expire a test-shortened TTL and make this check fail
-    // for the wrong reason.
+    // Non-vacuity guard: headerless, the tampered ticket must be refused by
+    // the verifier — otherwise the bearer leg below proves nothing.
+    const headerless = await wsHandshakeAttempt(path, { auth: false });
+    if (headerless.status !== 401 || headerless.data?.error?.code !== 'ticket_invalid') {
+        fail(
+            checkNum,
+            name,
+            `the tampered ticket gave ${headerless.status}/${headerless.data?.error?.code} headerless ` +
+                `(expected 401/ticket_invalid — without that, the bearer leg is vacuous)`
+        );
+        return;
+    }
+
+    // Bearer + the same tampered ticket: the bearer authenticates (openSocket
+    // sends it by default) and the ticket must be stripped without ever
+    // reaching the verifier — a verified ticket would 401 here.
     const withBearer = await openSocket(path);
     try {
         await withBearer.next();
-
-        // The identical ticket must still be presentable — headerless this
-        // time — proving the bearer path neither verified nor claimed its jti.
-        const headerless = await openSocket(path, { auth: false });
-        try {
-            await headerless.next();
-        } catch (e) {
-            fail(checkNum, name, `the ticket was consumed (or refused) after riding along with a bearer: ${e.message}`);
-            return;
-        } finally {
-            await headerless.close();
-        }
+    } catch (e) {
+        fail(checkNum, name, `the bearer upgrade was refused — the ridden-along ticket was verified, not stripped: ${e.message}`);
+        return;
     } finally {
         await withBearer.close();
     }
 
-    pass(checkNum, name, 'bearer-authenticated upgrade left the ticket unconsumed; headerless reuse connected');
+    pass(checkNum, name, 'tampered ticket refused headerless, ignored under a valid bearer');
 });
 
 // CHECK 38: the routing regression guard — the /ws ticket carve-out must

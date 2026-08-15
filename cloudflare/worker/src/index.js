@@ -337,12 +337,12 @@ async function wsUpgrade(request, env, config, url, type, id, bearerOk) {
 	// must not be able to probe which atom types are deployed, so the
 	// unknown_atom_type refusal below is reachable only with a verified
 	// ticket, a valid bearer, or auth off. Three postures:
-	//   - valid bearer under auth-on: any ticket is stripped unverified and
-	//     unconsumed (a bearer holder is fully trusted and needs no claims);
+	//   - valid bearer under auth-on: any ticket is stripped unverified
+	//     (a bearer holder is fully trusted and needs no claims);
 	//   - auth on, bearer absent/invalid: route() only let this through
 	//     because a ticket key is present — verify it, signature included;
-	//   - auth off: a present ticket still gets every keyless check (and is
-	//     consumed), so dev behaves like production minus the signature.
+	//   - auth off: a present ticket still gets every keyless check, so dev
+	//     behaves like production minus the signature.
 	/** @type {{claims: Record<string, string>, jti: string, exp: number}|null} */
 	let verified = null;
 	if (!(config.appKey && bearerOk)) {
@@ -383,17 +383,10 @@ async function wsUpgrade(request, env, config, url, type, id, bearerOk) {
 	// Everything the DO needs that is NOT already on the forwarded Request
 	// (method, headers including Upgrade) crosses in one `call` query key,
 	// which cannot collide with the client's own params — those were
-	// re-encoded inside it, not merged with it. A verified ticket adds its
-	// {jti, exp} so the DO can claim the jti (single-use) inside the turn.
-	const call = encodeURIComponent(
-		JSON.stringify({
-			type,
-			id,
-			params: merged,
-			channels,
-			...(verified ? { ticket: { jti: verified.jti, exp: verified.exp } } : {}),
-		})
-	);
+	// re-encoded inside it, not merged with it. A verified ticket
+	// contributes only its merged claims above; the ticket itself never
+	// crosses to the DO.
+	const call = encodeURIComponent(JSON.stringify({ type, id, params: merged, channels }));
 	return stub.fetch(new Request(`https://atoms.internal/ws?call=${call}`, request));
 }
 

@@ -185,13 +185,14 @@ contract and is history only.
 - `POST {baseUrl}/invoke/{type}/{id}/{method}` body `{"args": [...]}`.
 - `POST {baseUrl}/tickets/{type}/{id}` body `{"claims": {...}}` (optional flat
   string→string map) → `{"ticket": "...", "expires_at": <epoch-ms>, "atom":
-  {...}}` — mints a short-TTL, single-use WebSocket connection ticket, scoped
+  {...}}` — mints a short-TTL WebSocket connection ticket, scoped
   to one atom, presented by a browser as `?ticket=` on the `/ws` upgrade
   (browsers cannot set an `Authorization` header on `new WebSocket()`).
   Bearer-gated exactly like `/invoke` when `ATOMS_APP_KEY` is set; an
   auth-off Worker mints unsigned dev tickets so browser code paths match
-  production. Client contract: a ticket is consumed on presentation — on any
-  connection failure mint a fresh one, never retry a used one. Spec:
+  production. Client contract: a ticket is reusable until it expires — the
+  short TTL is the replay defense — and on any connection failure the
+  browser mints a fresh one, since it cannot read why an upgrade failed. Spec:
   `cloudflare/docs/mvp-spec.md` §Routing and auth (M4).
 - `Authorization: Bearer {apiKey}` when a key is configured. `apiKey` is
   nullable: `null` means **explicitly** unauthenticated and sends no header,

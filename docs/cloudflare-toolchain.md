@@ -83,7 +83,7 @@ browser WebSockets had to run with `ATOMS_APP_KEY` unset, which left
 `/invoke` open too. M4 closes that: the application's server calls
 `Atoms\Client\Tickets\TicketClient::acquire($type, $id, $claims)` →
 `POST /tickets/{type}/{id}` (bearer-gated), and hands the short-TTL,
-single-use, atom-scoped ticket to the browser, which presents it as
+atom-scoped ticket to the browser, which presents it as
 `?ticket=` on the `/ws` upgrade. Claims minted by the server merge over the
 browser's query params (server wins), so `onConnect` code reading
 `$params['client_id']` gets a host-asserted value the browser cannot forge.
@@ -91,8 +91,8 @@ When `ATOMS_APP_KEY` is unset the mint route still answers with **unsigned
 dev tickets** (`v1u.`), verified for everything but the signature, so
 browser code paths are identical in local dev and production. The binding
 details — format, HKDF key derivation from `ATOMS_APP_KEY`, validation
-order, single-use enforcement — live in `cloudflare/docs/mvp-spec.md`
-§Routing and auth.
+order, the reusable-until-expiry contract — live in
+`cloudflare/docs/mvp-spec.md` §Routing and auth.
 
 ## 2. How a PHP CLI drives Wrangler: a pinned local binary, never `npx`
 

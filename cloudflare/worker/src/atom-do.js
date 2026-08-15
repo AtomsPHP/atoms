@@ -230,13 +230,6 @@ export class AtomDurableObject extends DurableObject {
 		const { type, id } = call;
 		const params = typeof call.params === 'object' && call.params !== null ? call.params : {};
 		const channels = Array.isArray(call.channels) ? call.channels.map(String) : [];
-		const ticket =
-			typeof call.ticket === 'object' &&
-			call.ticket !== null &&
-			typeof call.ticket.jti === 'string' &&
-			typeof call.ticket.exp === 'number'
-				? { jti: call.ticket.jti, exp: call.ticket.exp }
-				: null;
 
 		const collector = this.callbacks.newCollector();
 		const run = this.enqueue(async () => {
@@ -244,23 +237,6 @@ export class AtomDurableObject extends DurableObject {
 			// invoke. If it throws, nothing below runs and nothing has been
 			// accepted.
 			await this.ensureActive(type, id);
-
-			// Step A3b: single-use ticket claim, when the edge verified one
-			// (spec §Routing and auth step 9). After ensureActive so the claim
-			// lands in this atom's own durable storage; before accept, so a
-			// replayed ticket never yields a socket or an onConnect turn. The
-			// ticket_used throw unwinds to the catch below and becomes the
-			// standard 401 envelope.
-			//
-			// The row's lifetime is exp + skew — the edge's acceptance
-			// boundary, not the ticket's own exp. With the bare exp, a replay
-			// landing after exp but inside the skew allowance would pass the
-			// edge, GC the claim row (expires_at_ms < now), and re-claim the
-			// burned jti: the row must outlive every instant at which the
-			// edge would still accept the ticket.
-			if (ticket) {
-				this.bridge.claimWsTicket(ticket.jti, ticket.exp + this.config.wsTicketSkewMs, Date.now());
-			}
 
 			// Step A4: host-minted identity. Nothing here is derived from guest
 			// memory — id and channels are the whole attachment.

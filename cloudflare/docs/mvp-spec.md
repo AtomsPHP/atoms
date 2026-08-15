@@ -715,23 +715,11 @@ cloudflare/worker/
      builds `stub.fetch(new Request('https://atoms.internal/ws?call=' +
      encodeURIComponent(JSON.stringify({type, id, params, channels})),
      request))` — `new Request(url, request)` preserves the method and headers
-     (including `Upgrade`) from the original request. When a presented ticket
-     was verified (every case except the bearer-strip in step 1), the `call`
-     blob additionally carries `ticket: {"jti": ..., "exp": ...}` and the DO
-     claims the jti — **single-use** — inside the serialized turn, after
-     `ensureActive()` and before `acceptWebSocket()`; a replayed jti →
-     `ticket_used` (401) in the DO's own envelope, and no socket. The claim
-     table (`__atoms_ws_tickets`, host-owned under the reserved `__atoms_`
-     prefix, expired rows GC'd on each claim) is durable SQLite, so replay
-     protection survives eviction and hibernation. The claim row's recorded
-     lifetime is `exp + ATOMS_WS_TICKET_SKEW_MS` — the edge's acceptance
-     boundary, not the ticket's bare `exp` — so the GC can never delete a
-     row while step 3 would still accept the ticket; with the bare `exp`, a
-     replay landing after `exp` but inside the skew allowance would GC the
-     row and re-claim the burned jti. A replayed ticket can
-     therefore cost one activation before refusal — accepted: replay
-     protection inherently needs state, and everything stateless was already
-     refused at the edge in step 3.
+     (including `Upgrade`) from the original request. A verified ticket
+     contributes only its merged claims (step 8); the ticket itself never
+     crosses to the DO, and the DO holds no ticket state of any kind — every
+     ticket check is stateless and already happened at the edge in step 3,
+     so a refused ticket never costs an activation.
   **Auth posture:** the bearer header works exactly like every other route
   when `ATOMS_APP_KEY` is set, and remains the only credential for
   server-to-server clients — no `Sec-WebSocket-Protocol` smuggling, and on
@@ -741,12 +729,19 @@ cloudflare/worker/
   `Atoms\Client\Tickets\TicketClient` (`POST /tickets/{type}/{id}` → a
   short-lived ticket) sketched in `packages/client/` as the designated
   answer. M4 closes the gap as designed: the mint route below issues a
-  short-TTL, single-use, HMAC-signed ticket scoped to exactly one atom,
+  short-TTL, HMAC-signed ticket scoped to exactly one atom,
   presented as `?ticket=` on the upgrade — the one deliberate exception to
   "no query-string credential", defensible precisely because the ticket is
-  everything the shared bearer key is not: seconds-lived, consumed on first
-  presentation, bound to one `{type, id}`, and revoked wholesale by rotating
-  `ATOMS_APP_KEY`. Tickets are never *required*: a bearer keeps working on
+  everything the shared bearer key is not: seconds-lived, bound to one
+  `{type, id}`, and revoked wholesale by rotating
+  `ATOMS_APP_KEY`. A ticket is deliberately **not** single-use: it is
+  reusable until it expires, so a reconnect inside the TTL can retry the
+  same URL without a round trip through the application, and the whole
+  ticket contract stays stateless — replay protection would have been its
+  only stateful property, costing a DO-side claim per connect. Replay of a
+  leaked URL is bounded by the seconds-scale TTL, the same posture
+  short-lived query-string WebSocket credentials carry across the wider
+  ecosystem. Tickets are never *required*: a bearer keeps working on
   `/ws` unchanged. With auth off the mint route still answers, returning
   **unsigned dev tickets** (`v1u.`) so browser code paths are identical
   between local dev and production — an unsigned ticket is not a credential
@@ -786,7 +781,7 @@ cloudflare/worker/
      `ATOMS_APP_KEY` therefore invalidates every outstanding ticket —
      intended; tickets live seconds. With auth off: the unsigned dev form
      `v1u.<base64url(payload)>`, same payload, and `/ws` runs the same
-     keyless checks on it — expiry, scope, claims merge, single-use — so
+     keyless checks on it — expiry, scope, claims merge — so
      dev and production behave identically except for the signature.
 
   Claims are the server-asserted identity channel: values the application
@@ -794,16 +789,16 @@ cloudflare/worker/
   ordinary params but cannot be forged or overridden by the browser, which
   is what makes existing `$params['client_id']` reads trustworthy without
   app-code changes. A worst-case ticket (2048 claim bytes) is ≈3KB in the
-  URL, excluded from the param budgets. Client contract: on **any**
-  connection failure, mint a fresh ticket — a used ticket is never retried.
-  Stated plainly because the error taxonomy above might suggest otherwise: a
+  URL, excluded from the param budgets. Client contract: a ticket is
+  reusable until it expires, so a reconnect inside the TTL may simply retry
+  the same URL; on **any** connection failure, mint a fresh ticket. That
+  rule is unconditional because a
   browser **cannot read** the HTTP status or body of a failed WebSocket
   upgrade (`new WebSocket()` surfaces only an opaque `error` event and a
-  1006 close), so `ticket_invalid`, `ticket_expired` and `ticket_used` all
+  1006 close), so `ticket_invalid` and `ticket_expired`
   look identical from the browser — the distinct codes exist for logs,
-  server-side probes and non-browser clients, and the only correct browser
-  behavior is the unconditional re-mint;
-  reconnect = re-mint through the application, which is also where
+  server-side probes and non-browser clients. Re-minting goes through the
+  application, which is also where
   rate-limiting the mint path belongs. Tickets authorize connection
   establishment only; resume/redelivery tokens are a separate future
   contract this does not foreclose. Config, resolved in `config.js` like
@@ -858,9 +853,7 @@ in PHP against the manifest.
 `url.pathname === '/ws'` before it ever reads a JSON body (an upgrade has
 none), and runs the whole accept as one unit on the turn mutex
 (`this.enqueue()`): run the **same** `ensureActive()` activation gate `fetch()`
-uses; claim the connection ticket's jti when the `call` blob carries one (M4 —
-single-use, `__atoms_ws_tickets`, replay → `ticket_used` and no socket; see
-§Routing and auth step 9); mint `connId = crypto.randomUUID()` and the
+uses; mint `connId = crypto.randomUUID()` and the
 `{v,id,ch}` attachment host-side; `ctx.acceptWebSocket(server, tags)`, then
 `server.serializeAttachment(attachment)`, then memoize the socket — in that
 order, so a frame arriving the instant after accept still finds a readable
@@ -1357,7 +1350,7 @@ checks: the original 12 (1–12, untouched, not renumbered, not weakened) plus
 by M1's PDO surface honesty pass, plus 8 more (31–38) added by M4's
 connection-ticket work — 31–34 run in either posture (the unsigned
 dev-ticket design makes mint, claims-merge, scope/expiry refusals and
-single-use observable with no key at all), 35–38 need `ATOMS_APP_KEY` set on
+within-TTL reuse observable with no key at all), 35–38 need `ATOMS_APP_KEY` set on
 both the Worker and the runner and otherwise skip
 (`ATOMS_REQUIRE_TICKET_CHECKS=1` turns those skips into failures, the same
 anti-silent-deletion device as the callback checks).
@@ -1537,13 +1530,10 @@ presented on atom B → `ticket_invalid`; a hand-forged, already-expired `v1u.`
 dev ticket — forgeable by design, which is what makes expiry testable with no
 TTL wait — → `ticket_expired` under auth-off, and `ticket_invalid` under
 auth-on (the forgery is refused before its `exp` is even read).
-**34.** single-use: connect once on a ticket, present the same ticket again →
-`ticket_used`, no socket; and — when the runner knows a **positive**
-`ATOMS_WS_TICKET_SKEW_MS` matching the Worker's and the TTL is short enough to
-wait out — a replay landing *after* `exp` but *inside* the skew allowance is
-still `ticket_used`, pinning that the claim row's GC threshold is the edge's
-`exp + skew` acceptance boundary and can never resurrect a burned jti (the
-auth-on CI run is configured for exactly this posture). **35.** auth-on minting: a headerless mint → 401
+**34.** reusable within TTL: the same ticket opens a second connection both
+while the first socket is still open and after it has closed — the contract
+assertion that no single-use burn exists, so the short TTL is knowably the
+ticket's whole replay story. **35.** auth-on minting: a headerless mint → 401
 `unauthenticated` (minting is never ticket-exempt); an authed mint → a
 3-segment `v1.` ticket; then the flagship assertion — a **headerless**
 browser-style upgrade with that ticket opens, claims merged. **36.** auth-on
@@ -1554,9 +1544,9 @@ expired **signed** ticket → `ticket_expired`, waited out for real — this leg
 needs `ATOMS_WS_TICKET_SKEW_MS` in the runner's own environment (matching the
 Worker's, never defaulted — the check-15/29 pattern) and a Worker started
 with a short `ATOMS_WS_TICKET_TTL_MS`, else it skips. **37.** bearer
-precedence: an upgrade carrying **both** a valid bearer and a ticket succeeds,
-and the same ticket is still usable afterwards on a headerless upgrade — the
-bearer path strips it unverified and unconsumed. **38.** the routing
+precedence: a **tampered** ticket is 401 `ticket_invalid` headerless (the
+non-vacuity guard), then the same upgrade with a valid bearer connects — the
+bearer path strips the ticket unverified. **38.** the routing
 regression guard: with auth on, a headerless `POST /invoke` and `GET /debug`
 are still 401 — the `/ws` ticket carve-out leaked into no other route.
 **31–34 run whether or not `ATOMS_APP_KEY` is set** (they exercise signed

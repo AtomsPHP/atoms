@@ -303,15 +303,12 @@ jobs:
             ATOMS_REQUIRE_TICKET_CHECKS=1 \
             npm test
         env:
-          # 3000, not smaller: checks 34/37 carry a minted ticket through a
-          # full connect/close cycle before its second presentation, and the
+          # 3000, not smaller: check 34 carries a minted ticket through a
+          # full connect/close/reconnect cycle (the reuse contract), and the
           # TTL has to outlive that cycle even on a slow runner (the atoms
           # are pre-warmed by the checks, so no PHP boot is inside the
-          # window). The skew is POSITIVE on purpose: check 34's within-skew
-          # replay leg — the one that catches a claim-row GC threshold
-          # drifting below the edge's exp+skew acceptance boundary — only
-          # exists when the window it probes exists. Check 36's expiry wait
-          # is TTL + skew + margin ≈ 5.5s and 34's skew leg ≈ 4s.
+          # window). The skew exists for check 36's signed-expiry leg, whose
+          # wait is TTL + skew + margin ≈ 5.5s.
           ATOMS_WS_TICKET_TTL_MS: '3000'
           ATOMS_WS_TICKET_SKEW_MS: '2000'
 
