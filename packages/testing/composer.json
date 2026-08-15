@@ -1,7 +1,7 @@
 {
     "name": "atoms/testing",
     "description": "Test tooling for Atoms: AtomHarness (in-process Atom execution against temp SQLite), fakes and recorders.",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "license": "MIT",
     "homepage": "https://atomsphp.dev",
     "support": {
@@ -10,7 +10,10 @@
         "source": "https://github.com/AtomsPHP/atoms"
     },
     "type": "library",
-    "keywords": ["atoms", "testing"],
+    "keywords": [
+        "atoms",
+        "testing"
+    ],
     "require": {
         "php": "^8.3",
         "ext-pdo_sqlite": "*",

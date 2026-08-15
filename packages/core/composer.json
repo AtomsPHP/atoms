@@ -1,7 +1,7 @@
 {
     "name": "atoms/core",
     "description": "The Atoms runtime ABI: everything an Atom class can touch. Zero framework dependencies.",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "license": "MIT",
     "homepage": "https://atomsphp.dev",
     "support": {
@@ -10,7 +10,11 @@
         "source": "https://github.com/AtomsPHP/atoms"
     },
     "type": "library",
-    "keywords": ["atoms", "actors", "runtime"],
+    "keywords": [
+        "atoms",
+        "actors",
+        "runtime"
+    ],
     "require": {
         "php": "^8.3",
         "ext-pdo": "*"
