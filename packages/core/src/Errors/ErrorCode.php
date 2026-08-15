@@ -70,4 +70,5 @@ enum ErrorCode: string
     case TimeWaitLoopInAtom = 'ATOMS-E102';
     case NoQueueBridgeConfigured = 'ATOMS-E103';
     case AtomJobConstructedInAtom = 'ATOMS-E104';
+    case SharedSecretMissing = 'ATOMS-E105';
 }

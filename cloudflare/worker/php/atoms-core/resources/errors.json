@@ -260,8 +260,8 @@
         {
             "code": "ATOMS-E064",
             "title": "Callback signature verification failed",
-            "message": "Rejected a platform callback: bad or missing Ed25519 signature.",
-            "fix": "Check the configured platform public key. If keys were rotated, update config and retry.",
+            "message": "Rejected a callback from the Worker: bad or missing HMAC signature.",
+            "fix": "Check that ATOMS_SHARED_SECRET is identical on the app and the Worker. During rotation the verifier also accepts a callback signed under ATOMS_SHARED_SECRET_PREVIOUS; configure the overlap pair on both sides before flipping either.",
             "severity": "error",
             "phase": "runtime"
         },
@@ -285,7 +285,7 @@
             "code": "ATOMS-E067",
             "title": "WebSocket ticket acquisition failed",
             "message": "Could not acquire a WebSocket connection ticket for {type}/{id}: {reason}.",
-            "fix": "The Worker mints tickets at POST /tickets/{type}/{id}; when ATOMS_APP_KEY is set the client must send the same key as its bearer. Check the key configuration, that the atom type is deployed, and that it does not declare \"websocket\": false. Tickets are short-lived and reusable until they expire: on any connection failure, mint a fresh one.",
+            "fix": "The Worker mints tickets at POST /tickets/{type}/{id}; when bearer auth is required the client must send the bearer derived from ATOMS_SHARED_SECRET (the same value `atoms token` prints). Check the secret configuration, that the atom type is deployed, and that it does not declare \"websocket\": false. Tickets are short-lived and reusable until they expire: on any connection failure, mint a fresh one.",
             "severity": "error",
             "phase": "runtime"
         },
@@ -365,15 +365,15 @@
             "code": "ATOMS-E080",
             "title": "Callback channel not configured",
             "message": "$this->app()/dispatch() requires the Worker's callback channel, which is not configured.",
-            "fix": "Set ATOMS_CALLBACK_URL on the Worker to your monolith's callback endpoint (the route where Atoms\\Client\\Callback\\CallbackKernel is mounted), and ATOMS_CALLBACK_SIGNING_KEY to the base64 of a 32-byte Ed25519 seed. `atoms dev --callback-url` sets the first for local runs.",
+            "fix": "Set ATOMS_CALLBACK_URL on the Worker to your monolith's callback endpoint (the route where Atoms\\Client\\Callback\\CallbackKernel is mounted). Callbacks are signed with a key derived from ATOMS_SHARED_SECRET, which the Worker requires anyway. `atoms dev --callback-url` sets the URL for local runs.",
             "severity": "error",
             "phase": "runtime"
         },
         {
             "code": "ATOMS-E081",
             "title": "Callback signing key missing or unusable",
-            "message": "ATOMS_CALLBACK_URL is set but the Worker has no usable Ed25519 signing key.",
-            "fix": "ATOMS_CALLBACK_URL is set but the Worker has no usable signing key, and Atoms never sends an unsigned callback. Set ATOMS_CALLBACK_SIGNING_KEY (wrangler secret put) to the base64 of a 32-byte Ed25519 seed, and give the matching public key to Ed25519Verifier in your app.",
+            "message": "ATOMS_CALLBACK_URL is set but the Worker has no usable callback signing key.",
+            "fix": "ATOMS_CALLBACK_URL is set but the Worker cannot derive a callback signing key, and Atoms never sends an unsigned callback. The key is derived from ATOMS_SHARED_SECRET (HKDF-SHA256, info \"atoms/callback/v1\"): set ATOMS_SHARED_SECRET (`wrangler secret put`) to the base64 of 32 random bytes — the same value your app holds — and the app verifies with the same derivation.",
             "severity": "error",
             "phase": "runtime"
         },
@@ -456,6 +456,14 @@
             "fix": "Pass the class name and its constructor arguments by name instead: $this->dispatch(TheJob::class, ['param' => $value, ...]). Naming a class does not require it to ship, and your app reconstructs the real job from those arguments.",
             "severity": "error",
             "phase": "build"
+        },
+        {
+            "code": "ATOMS-E105",
+            "title": "Shared secret missing or malformed",
+            "message": "ATOMS_SHARED_SECRET is missing, or does not decode to exactly 32 bytes of base64.",
+            "fix": "Generate one with `openssl rand -base64 32` and configure the identical value on the app and the Worker (`wrangler secret put ATOMS_SHARED_SECRET`). The secret itself is never transmitted: clients authenticate with the bearer derived from it (`atoms token` prints it). ATOMS_SHARED_SECRET_PREVIOUS, when set for rotation, must satisfy the same format.",
+            "severity": "error",
+            "phase": "runtime"
         }
     ]
 }
