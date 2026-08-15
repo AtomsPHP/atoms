@@ -224,11 +224,11 @@ deliberate.** `SecretsSetCommand` always maps a name through
 `SecretName::toWorker()`, which prefixes it with `ATOMS_CONFIG_`
 (§"Secrets carry a prefix", above) — so `atoms secrets:set ATOMS_SHARED_SECRET`
 would store `ATOMS_CONFIG_ATOMS_SHARED_SECRET`, a name nothing in the
-bearer/ticket/callback paths reads, and it fails with `ATOMS-E077` besides:
-`WorkerConfig::DEFAULT_DENY_KEYS` carries `ATOMS_SHARED_SECRET`,
-`ATOMS_SHARED_SECRET_PREVIOUS`, and `ATOMS_CALLBACK_SIGNING_KEY` as a
-tombstone (`docs/shared-secret.md` §The deny lists are load-bearing), so the
-prefixed name lands on the deny list too. `wrangler secret put
+bearer/ticket/callback paths reads — and one guest code *could* read. So the
+command refuses the raw name before prefixing (`ATOMS-E077`):
+`WorkerConfig::CREDENTIAL_KEYS` names `ATOMS_SHARED_SECRET` and
+`ATOMS_SHARED_SECRET_PREVIOUS`, and `keyRefusalReason()` checks the input
+against it ahead of any transform. `wrangler secret put
 ATOMS_SHARED_SECRET` and `atoms dev`'s `.dev.vars` provisioning are the only
 paths, exactly as this section describes — there is no CLI shortcut for this
 secret, and there is not meant to be one: a root this central does not belong

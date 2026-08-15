@@ -164,7 +164,7 @@ final class SecretsCommandTest extends TestCase
      */
     public function testSetRefusesTheWorkersOwnCredentialNamesEvenLowercased(): void
     {
-        foreach (['ATOMS_SHARED_SECRET', 'atoms_shared_secret', 'ATOMS_SHARED_SECRET_PREVIOUS', 'ATOMS_APP_KEY', 'ATOMS_CALLBACK_SIGNING_KEY'] as $key) {
+        foreach (['ATOMS_SHARED_SECRET', 'atoms_shared_secret', 'ATOMS_SHARED_SECRET_PREVIOUS'] as $key) {
             $wrangler = new FakeWrangler();
             $tester = new CommandTester(new SecretsSetCommand($wrangler));
 

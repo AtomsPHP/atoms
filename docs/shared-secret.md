@@ -155,19 +155,14 @@ reads arbitrary guest memory still cannot exfiltrate a key.
 
 ### The deny lists are load-bearing
 
-`config.js`'s built-in `config.get()` deny list gains
-`ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS`. The two legacy
-names `ATOMS_APP_KEY` and `ATOMS_CALLBACK_SIGNING_KEY` **stay on the list
-as tombstones**: they cost nothing, and a half-migrated deployment that
-still has the old secrets set must not become able to hand them to guest
-code via a well-meant `ATOMS_CONFIG_ENV_KEYS` entry. The operator's deny
-list remains additive to the built-in one, never a replacement.
-`packages/cli`'s `WorkerConfig::DEFAULT_DENY_KEYS` mirrors the same set —
-including `ATOMS_CALLBACK_SIGNING_KEY`, which it had previously omitted —
-so `atoms deploy`/`atoms secrets` never bless writing any of these as
-plaintext `vars`. Both lists carry an assertion (conformance on the Worker
-side, a unit test on the CLI side) that a guest cannot resolve either new
-name.
+`config.js`'s built-in `config.get()` deny list holds
+`ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS`, replacing the
+retired names. The operator's deny list remains additive to the built-in
+one, never a replacement. `packages/cli`'s
+`WorkerConfig::DEFAULT_DENY_KEYS` mirrors the same set, so
+`atoms deploy`/`atoms secrets` never bless writing either as a plaintext
+`var`. Both lists carry an assertion (conformance on the Worker side, a
+unit test on the CLI side) that a guest cannot resolve either name.
 
 A customer Atom that could read the shared secret through `config.get()`
 would hold the root of everything — strictly worse than the two-key design

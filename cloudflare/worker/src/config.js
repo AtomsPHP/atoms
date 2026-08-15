@@ -494,17 +494,10 @@ export function loadConfig(env) {
  * every key on the boundary, so the list is part of the contract rather than
  * hygiene — the conformance suite asserts a guest resolves null for both
  * names whatever the allowlist says.
- *
- * `ATOMS_APP_KEY` and `ATOMS_CALLBACK_SIGNING_KEY` are tombstones: they cost
- * nothing, and they keep a half-migrated deployment that still has those
- * values set from being able to hand them to guest code through a well-meant
- * `ATOMS_CONFIG_ENV_KEYS` entry.
  */
 const BUILT_IN_CONFIG_DENY_KEYS = [
 	'ATOMS_SHARED_SECRET',
 	'ATOMS_SHARED_SECRET_PREVIOUS',
-	'ATOMS_APP_KEY',
-	'ATOMS_CALLBACK_SIGNING_KEY',
 	'ATOMS_CONFIG_ENV_KEYS',
 	'ATOMS_CONFIG_ENV_DENY_KEYS',
 ];

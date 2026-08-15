@@ -41,18 +41,13 @@ final class WorkerConfig
     /**
      * `ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS` are the root of
      * the app <-> Worker boundary (docs/shared-secret.md) and must never be
-     * readable from Atom code. `ATOMS_APP_KEY` and `ATOMS_CALLBACK_SIGNING_KEY`
-     * stay on the list as tombstones for the two retired secrets they name: a
-     * deployment that still has either set must not have it become readable
-     * through a well-meant `ATOMS_CONFIG_ENV_KEYS` entry.
+     * readable from Atom code.
      *
      * @var list<string>
      */
     public const DEFAULT_DENY_KEYS = [
         'ATOMS_SHARED_SECRET',
         'ATOMS_SHARED_SECRET_PREVIOUS',
-        'ATOMS_APP_KEY',
-        'ATOMS_CALLBACK_SIGNING_KEY',
         'ATOMS_CONFIG_ENV_KEYS',
         'ATOMS_CONFIG_ENV_DENY_KEYS',
     ];
@@ -83,8 +78,6 @@ final class WorkerConfig
     public const CREDENTIAL_KEYS = [
         'ATOMS_SHARED_SECRET',
         'ATOMS_SHARED_SECRET_PREVIOUS',
-        'ATOMS_APP_KEY',
-        'ATOMS_CALLBACK_SIGNING_KEY',
     ];
 
     /**

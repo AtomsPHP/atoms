@@ -749,13 +749,10 @@ get no overlap (below).
 `config.get()` of either resolves null whatever `ATOMS_CONFIG_ENV_KEYS` says —
 an Atom that could read the secret would hold the root of everything, which is
 why this is part of the contract rather than hygiene, and why the conformance
-suite asserts it. `ATOMS_APP_KEY` and `ATOMS_CALLBACK_SIGNING_KEY` stay on the
-list as tombstones: they cost nothing, and they stop a half-migrated deployment
-that still has those values set from handing them to guest code through a
-well-meant allowlist entry. The operator's list is additive to the built-in one,
+suite asserts it. The operator's list is additive to the built-in one,
 never a replacement. `packages/cli`'s `WorkerConfig::DEFAULT_DENY_KEYS` mirrors
-the same set, so `atoms deploy`/`atoms secrets` never bless writing any of them
-as plaintext `vars`.
+the same set, so `atoms deploy`/`atoms secrets` never bless writing either of
+them as plaintext `vars`.
 
 #### Routes
 
