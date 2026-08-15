@@ -84,6 +84,6 @@ final class Boot extends Atom
             [$this->id, date('Y-m-d H:i:s')]
         );
 
-        $this->dispatch(new Notify($this->id, 'boot:' . $seen));
+        $this->dispatch(Notify::class, ['atomId' => $this->id, 'note' => 'boot:' . $seen]);
     }
 }

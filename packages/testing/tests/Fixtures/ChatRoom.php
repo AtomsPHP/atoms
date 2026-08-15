@@ -46,7 +46,12 @@ final class ChatRoom extends Atom
 
     public function recordScore(string $username, int $points, Score $score, \DateTimeImmutable $recordedAt): void
     {
-        $this->dispatch(new RecordResult($username, $points, $score, $recordedAt));
+        $this->dispatch(RecordResult::class, [
+            'user' => $username,
+            'points' => $points,
+            'score' => $score,
+            'recordedAt' => $recordedAt,
+        ]);
     }
 
     public function badReturn(): object

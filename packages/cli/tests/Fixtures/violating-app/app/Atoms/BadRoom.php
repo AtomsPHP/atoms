@@ -24,6 +24,6 @@ final class BadRoom extends \Atoms\Atom
         $back = unserialize($blob);              // E018 (deduped by symbol)
 
         $this->app()->missingMethod($user);      // E030: no such Methods method
-        $this->dispatch(new BadJob('only-one')); // E032: constructor arity mismatch
+        $this->dispatch(BadJob::class, ['nope' => 1]); // E032: no such constructor parameter
     }
 }

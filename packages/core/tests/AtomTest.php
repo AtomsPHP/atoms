@@ -54,14 +54,25 @@ final class AtomTest extends TestCase
         self::assertNull($atom->callConfig('MISSING'));
     }
 
-    public function testDispatchPassThrough(): void
+    public function testDispatchPassesTheClassNameThrough(): void
     {
         [$atom, $context] = $this->atom();
-        $job = new RecordResult('g-1', 42);
 
-        $atom->callDispatch($job);
+        $atom->callDispatch(RecordResult::class, ['gameId' => 'g-1', 'score' => 42]);
 
-        self::assertSame([$job], $context->dispatched);
+        self::assertSame(
+            [['job' => RecordResult::class, 'args' => ['gameId' => 'g-1', 'score' => 42]]],
+            $context->dispatchedJobs,
+        );
+    }
+
+    public function testDispatchDefaultsToNoArguments(): void
+    {
+        [$atom, $context] = $this->atom();
+
+        $atom->callDispatch(RecordResult::class);
+
+        self::assertSame([['job' => RecordResult::class, 'args' => []]], $context->dispatchedJobs);
     }
 
     public function testBroadcastPassThrough(): void
