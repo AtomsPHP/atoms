@@ -58,15 +58,18 @@ valuable:
 - **Eviction and residency.** A poisoned residency that survives an error, or
   in-memory state that outlives an eviction it should not have, is in scope.
 - **The signed callback path** in `atoms/client`
-  (`packages/client/src/Callback/`). Callbacks from the platform to a
-  monolith carry a detached Ed25519 signature verified against a configured
-  public key, over a canonical `v1\n{ts}\n{nonce}\n{body}` message, with a
-  timestamp-skew window and a single-use nonce store. Signature-verification
-  bypasses, replay through a weak or shared nonce store, canonicalisation
-  mismatches between signer and verifier, and anything that makes the kernel
-  act on an unverified request are in scope.
-- **Bearer authentication** on the Worker (`ATOMS_APP_KEY`), and any way to
-  reach a debug endpoint that `ATOMS_DEBUG_ENDPOINTS` should have gated.
+  (`packages/client/src/Callback/`). Callbacks from the Worker to a monolith
+  carry an HMAC-SHA256 signature — the key HKDF-derived from
+  `ATOMS_SHARED_SECRET` (`docs/shared-secret.md`) — over a canonical
+  `v1\n{ts}\n{nonce}\n{body}` message, with a timestamp-skew window and a
+  single-use nonce store. Signature-verification bypasses, replay through a
+  weak or shared nonce store, canonicalisation mismatches between signer and
+  verifier, and anything that makes the kernel act on an unverified request
+  are in scope.
+- **Bearer authentication** on the Worker — the `Authorization` header is
+  checked against the bearer derived from `ATOMS_SHARED_SECRET`, under
+  `ATOMS_BEARER_AUTH=required` — and any way to reach a debug endpoint that
+  `ATOMS_DEBUG_ENDPOINTS` should have gated.
 - **Build integrity.** `atoms build` must never execute customer code, and
   `cloudflare/worker/scripts/prepare-runtime.mjs` must fail rather than stage
   a runtime whose hash does not match the pin. A way around either is in
@@ -81,8 +84,8 @@ valuable:
 - Vulnerabilities in Cloudflare Workers, Durable Objects, or wrangler. Report
   those to Cloudflare.
 - Anything that requires the attacker to already control the deployment, the
-  Cloudflare account, the `ATOMS_APP_KEY` secret, or the source tree that gets
-  built. Atoms trusts whoever deploys it.
+  Cloudflare account, the `ATOMS_SHARED_SECRET` secret, or the source tree
+  that gets built. Atoms trusts whoever deploys it.
 - Customer PHP that is malicious toward its own Atom's data. An Atom's
   database belongs to that Atom; the boundary we defend is the one *between*
   Atoms and the one between the guest and the host.

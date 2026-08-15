@@ -12,7 +12,7 @@ This document records three decisions that M3 had to make and that everything
 downstream inherits. Each is written with its rejected alternatives, because
 the alternatives are all reasonable and will otherwise be re-proposed.
 
-## 1. Runtime auth: the client moved, and auth-off is a real posture
+## 1. Runtime auth: the client moved, and the bearer is derived
 
 ### The disagreement
 
@@ -27,8 +27,12 @@ The Worker serves
 
 ```
 POST {baseUrl}/invoke/{type}/{id}/{method}
-Authorization: Bearer {ATOMS_APP_KEY}   # only when that var is set
+Authorization: Bearer $(atoms token)
 ```
+
+`atoms token` prints the bearer derived from `ATOMS_SHARED_SECRET` — see
+"Bearer auth is mandatory" below and `docs/shared-secret.md`, the decision
+record for the whole boundary.
 
 ### The decision
 
@@ -36,7 +40,7 @@ Authorization: Bearer {ATOMS_APP_KEY}   # only when that var is set
 `AtomsClient`, `AtomsClient::destroy()` and `TicketClient`, and
 `AtomsConfig::$customer` is deleted. (`TicketClient` was a sketch when this
 decision was recorded; as of M4 the Worker implements
-`POST /tickets/{type}/{id}` and the client is real — see "The bearer key is
+`POST /tickets/{type}/{id}` and the client is real — see "The bearer is
 the server-to-server credential" below.)
 
 The prefix existed to route a multi-tenant edge to one customer's Machines. The
@@ -50,49 +54,57 @@ Moving the client is also the cheaper edit in the sense that matters:
 client's URL shape breaks no wire contract, because the wire contract it was
 implementing no longer has an implementation.
 
-### Auth-off is deliberate, so the client tolerates it — but only explicitly
+### Bearer auth is mandatory; `ATOMS_BEARER_AUTH` is the explicit posture switch
 
-The Worker disables its bearer check entirely when `ATOMS_APP_KEY` is unset or
-empty (`worker/src/index.js::checkAuth`). That is not an oversight. It is the
-local-dev default under `wrangler dev`, and a self-hoster may legitimately put
-Cloudflare Access or mTLS in front of the Worker instead of a shared bearer
-key. A client that *required* a key would make both of those unusable.
+`ATOMS_SHARED_SECRET` — 32 random bytes, base64, identical on the monolith and
+the Worker — is the one root every key on this boundary derives from
+(`worker/src/config.js`, `Atoms\Client\Crypto\KeyDerivation`). It is
+mandatory: callbacks cannot be signed without it, so its presence and shape
+are checked independently of the auth posture below. If `ATOMS_SHARED_SECRET`
+is missing, or does not decode to exactly 32 bytes of base64, every route
+except `GET /healthz` answers `misconfigured` (HTTP 500, `retryable: false`)
+— a misconfigured Worker is loudly broken, never silently open.
 
-So `AtomsConfig::$apiKey` is nullable, with three states and no fourth:
+`ATOMS_BEARER_AUTH` is the explicit posture switch: `required` (the default)
+or `disabled`. Anything else is treated as `required` — a typo fails closed.
+`disabled` exists for exactly one posture: an authenticating proxy such as
+Cloudflare Access in front of the Worker. It turns off the bearer *comparison*
+only — the secret stays mandatory, and tickets and callbacks stay signed.
 
-| `apiKey` | Meaning | Behaviour |
-|---|---|---|
-| a string | Authenticated | Sends `Authorization: Bearer {key}` |
-| `null` | **Explicitly** unauthenticated | Sends no `Authorization` header |
-| `''` | Configuration error | Throws at construction |
+`AtomsConfig::$sharedSecret` (`packages/client/src/AtomsConfig.php`) is a
+required string, validated at construction: trimmed of ASCII whitespace,
+strict base64, exactly 32 decoded bytes, or the constructor throws
+(`ATOMS-E105`). There is no unauthenticated posture to express on the client
+— a Worker running `ATOMS_BEARER_AUTH=disabled` still receives the bearer on
+every call; it just does not check it. The client derives `Authorization:
+Bearer {bearer}` from the secret (`KeyDerivation::bearerToken()`) and never
+sends the secret itself. `atoms token` prints the same value for a human
+running curl.
 
-The empty string is the case worth being strict about. `ATOMS_APP_KEY` or
-`ATOMS_API_KEY` resolving to empty — an unset CI secret, a typo'd variable
-name — would otherwise produce `Authorization: Bearer ` on every request:
-accepted by an auth-off Worker, rejected confusingly by a real one, and in
-neither case what the operator believed was deployed. Failing at construction
-turns a silent misconfiguration into a startup error.
+The full derivation, the reference vector, and why the secret must never
+travel are recorded once, normatively, in `docs/shared-secret.md`.
 
-`null` has to be typed out. It cannot be arrived at by accident.
+### The bearer is the server-to-server credential; browsers use tickets
 
-### The bearer key is the server-to-server credential; browsers use tickets
-
-A browser's `new WebSocket(url)` cannot set an `Authorization` header, and
-`checkAuth` covers every route — so before M4, any deployment that wanted
-browser WebSockets had to run with `ATOMS_APP_KEY` unset, which left
-`/invoke` open too. M4 closes that: the application's server calls
+A browser's `new WebSocket(url)` cannot set an `Authorization` header, and the
+bearer check covers every other route. The application's server calls
 `Atoms\Client\Tickets\TicketClient::acquire($type, $id, $claims)` →
-`POST /tickets/{type}/{id}` (bearer-gated), and hands the short-TTL,
-atom-scoped ticket to the browser, which presents it as
-`?ticket=` on the `/ws` upgrade. Claims minted by the server merge over the
+`POST /tickets/{type}/{id}` (bearer-gated under `ATOMS_BEARER_AUTH=required`),
+and hands the short-TTL, atom-scoped ticket to the browser, which presents it
+as `?ticket=` on the `/ws` upgrade. Claims minted by the server merge over the
 browser's query params (server wins), so `onConnect` code reading
 `$params['client_id']` gets a host-asserted value the browser cannot forge.
-When `ATOMS_APP_KEY` is unset the mint route still answers with **unsigned
-dev tickets** (`v1u.`), verified for everything but the signature, so
-browser code paths are identical in local dev and production. The binding
-details — format, HKDF key derivation from `ATOMS_APP_KEY`, validation
-order, the reusable-until-expiry contract — live in
-`cloudflare/docs/mvp-spec.md` §Routing and auth.
+
+`POST /tickets` always mints the signed `v1.` form — under
+`ATOMS_BEARER_AUTH=disabled` too, since a shared secret, and therefore a
+signing key, is always configured — and `/ws` always verifies the signature,
+so browser code paths are identical in local dev and production. The
+signing key is HKDF-derived from the decoded `ATOMS_SHARED_SECRET` (info
+`atoms/ws-ticket/v1`); rotating the secret invalidates every outstanding
+ticket at once, with no overlap window. The binding details — format,
+validation order, the reusable-until-expiry contract — live in
+`cloudflare/docs/mvp-spec.md` §Routing and auth; the derivation itself is
+`docs/shared-secret.md`.
 
 ## 2. How a PHP CLI drives Wrangler: a pinned local binary, never `npx`
 
@@ -177,11 +189,11 @@ sentence above false at the very first hop. The environment is the only inlet.
 `atoms dev` requires neither: `wrangler dev` runs workerd locally, so a
 developer with no Cloudflare account can still work.
 
-### The callback channel's two variables (M2)
+### The callback channel: `ATOMS_CALLBACK_URL` and the derived signing key
 
-`app()`/`dispatch()` need two Worker vars, and they travel to the Worker by
-two different, deliberately asymmetric paths (`packages/cli/src/Command/
-DevCommand.php`):
+`app()`/`dispatch()` need one Worker var and one Worker secret, and they
+travel to the Worker by two different, deliberately asymmetric paths
+(`packages/cli/src/Command/DevCommand.php`):
 
 - **`ATOMS_CALLBACK_URL`** — not a secret, the monolith's callback endpoint.
   `atoms dev --callback-url <url>` (or `atoms.json`'s
@@ -189,34 +201,39 @@ DevCommand.php`):
   `--var ATOMS_CALLBACK_URL:<url>`, exactly the way any other var reaches the
   Worker. `DevCommand` echoes the URL it wired at startup, so it is visible in
   the same terminal that started the dev server.
-- **`ATOMS_CALLBACK_SIGNING_KEY`** — a secret (the base64 of a 32-byte Ed25519
-  seed), and the CLI **never** passes it. Locally it must already be in the
-  Worker project's `.dev.vars`, which `wrangler dev` loads on its own; in
-  production it is `wrangler secret put ATOMS_CALLBACK_SIGNING_KEY`, run
-  directly, the same as any other Worker secret. `atoms dev` only performs a
-  best-effort check that `.dev.vars` has an `ATOMS_CALLBACK_SIGNING_KEY` line
-  and warns — it does not fail the command — when it looks absent, because the
-  key may be provisioned some other way the CLI cannot see.
+- **The callback signing key** — HKDF-derived on the Worker from
+  `ATOMS_SHARED_SECRET` (info `atoms/callback/v1`), not a variable of its own.
+  The CLI **never** passes the secret. In production it is
+  `wrangler secret put ATOMS_SHARED_SECRET`, run directly, the same as any
+  other Worker secret. Locally, `atoms dev` provisions a fresh per-machine dev
+  secret into the Worker project's gitignored `.dev.vars` — creating the file
+  if needed, never overwriting a value already there, and warning if the file
+  is not gitignored — so a developer never types the secret in by hand.
 
-**Why the CLI never carries the key.** Putting a private key on `atoms dev`'s
-argv or behind a `--var` flag would place it in the process table and in
-shell history — precisely what the CLI-never-holds-a-credential rule (root
-`AGENTS.md`) exists to prevent. `.dev.vars` and `wrangler secret put` are
-Wrangler's own delivery vehicles for a secret; `atoms dev` only ever reaches
-for the one variable (`ATOMS_CALLBACK_URL`) that is not one.
+**Why the CLI never carries the secret on its own argv.** Putting it on
+`atoms dev`'s argv or behind a `--var` flag would place it in the process
+table and in shell history — precisely what the CLI-never-holds-a-credential
+rule (root `AGENTS.md`) exists to prevent. `.dev.vars` and
+`wrangler secret put` are Wrangler's own delivery vehicles for a secret;
+`atoms dev` writes straight to the `.dev.vars` file it provisions rather than
+passing the value as an argument anywhere, and otherwise only ever reaches for
+the one variable (`ATOMS_CALLBACK_URL`) that is not a secret at all.
 
-**Known gap: `atoms secrets:set` cannot set this key, or any other
-operational (non-`ATOMS_CONFIG_`) secret.** `SecretsSetCommand` always maps a
-name through `SecretName::toWorker()`, which prefixes it with
-`ATOMS_CONFIG_` (§"Secrets carry a prefix", above) — so
-`atoms secrets:set ATOMS_CALLBACK_SIGNING_KEY` would store
-`ATOMS_CONFIG_ATOMS_CALLBACK_SIGNING_KEY`, a name the callback channel never
-reads, and would raise `ATOMS-E077` besides, since that prefixed name is on
-the config deny list for a different reason. There is no CLI path for an
-operational secret today; direct `wrangler secret put`/`wrangler dev
---var`/`.dev.vars` is the documented way to set one, exactly as this section
-describes. An `--operational` flag that bypasses the prefix is a candidate
-follow-up, not something M2 built.
+**`ATOMS_SHARED_SECRET` is not settable via `atoms secrets:set`, and that is
+deliberate.** `SecretsSetCommand` always maps a name through
+`SecretName::toWorker()`, which prefixes it with `ATOMS_CONFIG_`
+(§"Secrets carry a prefix", above) — so `atoms secrets:set ATOMS_SHARED_SECRET`
+would store `ATOMS_CONFIG_ATOMS_SHARED_SECRET`, a name nothing in the
+bearer/ticket/callback paths reads, and it fails with `ATOMS-E077` besides:
+`WorkerConfig::DEFAULT_DENY_KEYS` carries `ATOMS_SHARED_SECRET`,
+`ATOMS_SHARED_SECRET_PREVIOUS`, and `ATOMS_CALLBACK_SIGNING_KEY` as a
+tombstone (`docs/shared-secret.md` §The deny lists are load-bearing), so the
+prefixed name lands on the deny list too. `wrangler secret put
+ATOMS_SHARED_SECRET` and `atoms dev`'s `.dev.vars` provisioning are the only
+paths, exactly as this section describes — there is no CLI shortcut for this
+secret, and there is not meant to be one: a root this central does not belong
+behind a command whose whole contract is prefixing keys for guest code to
+read.
 
 ### Deploying does not mean deployed
 
@@ -465,11 +482,12 @@ Nothing in this sequence contacts a service operated by Atoms.
   `ATOMS_CALLBACK_URL` var via `wrangler dev --var`, and the Worker half is
   real: `Atom::app()`/`dispatch()` call back through it (`cloudflare/docs/
   mvp-spec.md` §The callback channel). `DevCommand` prints the URL it wired
-  and, best-effort, checks the Worker project's `.dev.vars` for an
-  `ATOMS_CALLBACK_SIGNING_KEY` entry — if it looks absent, it warns that
-  `app()`/`dispatch()` will fail with `ATOMS-E081` rather than silently
-  leaving the operator to discover it mid-request. See §2a below for the two
-  variables and why the CLI never carries the key itself.
+  and provisions the Worker project's `.dev.vars` with a per-machine
+  `ATOMS_SHARED_SECRET` if one is not already there, so `app()`/`dispatch()`
+  has a usable signing key (`ATOMS-E081` covers the case where it still does
+  not) without the operator discovering it mid-request. See "The callback
+  channel" above for `ATOMS_CALLBACK_URL`, the derived key, and why the CLI
+  never carries the secret itself.
 - **`AtomsClient::destroy()` has no Worker route.** It targets
   `DELETE {baseUrl}/atoms/{type}/{id}`, which the Worker answers `not_found`.
   The URL shape is settled; the route is not implemented.

@@ -207,17 +207,18 @@ contract and is history only.
   {...}}` — mints a short-TTL WebSocket connection ticket, scoped
   to one atom, presented by a browser as `?ticket=` on the `/ws` upgrade
   (browsers cannot set an `Authorization` header on `new WebSocket()`).
-  Bearer-gated exactly like `/invoke` when `ATOMS_APP_KEY` is set; an
-  auth-off Worker mints unsigned dev tickets so browser code paths match
-  production. Client contract: a ticket is reusable until it expires — the
-  short TTL is the replay defense — and on any connection failure the
-  browser mints a fresh one, since it cannot read why an upgrade failed. Spec:
+  Bearer-gated exactly like `/invoke` under `ATOMS_BEARER_AUTH=required`; the
+  route always mints the signed `v1.` ticket form, including under
+  `ATOMS_BEARER_AUTH=disabled`, so browser code paths match production.
+  Client contract: a ticket is reusable until it expires — the short TTL is
+  the replay defense — and on any connection failure the browser mints a
+  fresh one, since it cannot read why an upgrade failed. Spec:
   `cloudflare/docs/mvp-spec.md` §Routing and auth (M4).
-- `Authorization: Bearer {apiKey}` when a key is configured. `apiKey` is
-  nullable: `null` means **explicitly** unauthenticated and sends no header,
-  matching a Worker whose `ATOMS_APP_KEY` is unset; `''` throws at
-  construction, because an empty key is a misconfiguration rather than a
-  posture.
+- `Authorization: Bearer {bearer}`, where `{bearer}` is
+  `HKDF(ATOMS_SHARED_SECRET, "atoms/bearer/v1")` — `AtomsConfig::$sharedSecret`
+  is a required, validated string (`docs/shared-secret.md`), so the client
+  always sends a bearer. `ATOMS_BEARER_AUTH=disabled` on the Worker skips the
+  comparison; it does not change what the client sends.
 - Additive headers we send (allowed within v1):
   - `Idempotency-Key: <32 hex chars>` — stable across retries of one logical call.
   - `X-Atoms-Manifest-Hash: <sha256>` — manifest hash the monolith was built
@@ -247,12 +248,18 @@ never used, so no toolchain is fetched at deploy time. See
 Implemented by `Atoms\Client\Callback\CallbackKernel` (PSR-15); verified
 **before** anything else runs:
 
-- Headers: `X-Atoms-Signature` (base64 Ed25519), `X-Atoms-Timestamp` (unix
-  seconds), `X-Atoms-Nonce` (32 hex), `X-Atoms-Kind` (`methods` | `job`).
+- Headers: `X-Atoms-Signature` (standard base64 of a 32-byte HMAC-SHA256
+  tag), `X-Atoms-Timestamp` (unix seconds), `X-Atoms-Nonce` (32 hex),
+  `X-Atoms-Kind` (`methods` | `job`).
 - Signed message: `"v1\n" . timestamp . "\n" . nonce . "\n" . rawBody`.
-- Verify with `sodium_crypto_sign_verify_detached` against the configured
-  platform public key; reject if |now − timestamp| > 300s (configurable);
-  nonce LRU (default 10,000 entries, configurable) rejects replays.
+- Verify with `hash_equals()` against `HKDF(ATOMS_SHARED_SECRET,
+  "atoms/callback/v1")`, rejecting any signature that does not decode to
+  exactly 32 bytes before comparing; during a rotation overlap the same
+  check also tries the key derived from `ATOMS_SHARED_SECRET_PREVIOUS`,
+  accepting a signature that verifies under either (`Atoms\Client\Crypto\
+  KeyDerivation::callbackKeys()`). Reject if |now − timestamp| > 300s
+  (configurable); nonce LRU (default 10,000 entries, configurable) rejects
+  replays.
 - `methods` body: `{"atom":{"type":"GameRoom","id":"g-1"},"method":"getPlayer",
   "args":[...],"manifest_hash":"..."}` → resolve Methods class, denormalize
   args against the method signature, invoke, respond `{"result": <json>}`.
@@ -266,15 +273,19 @@ Methods resolution default: Atom class `App\Atoms\GameRoom` → Methods class
 `App\Atoms\GameRoom\Methods`; `#[MethodsFor]` or an explicit map overrides.
 (`Atoms\Client\Callback\MethodsResolver`.)
 
-As of M2 (2026-08-12), the Cloudflare Worker is the production signer of this
-channel (`cloudflare/worker/src/callbacks.js`, platform `Ed25519` WebCrypto —
-see `cloudflare/docs/mvp-spec.md` §The callback channel for headers, message
-construction and key handling). It omits `manifest_hash` from the `methods`
-body — a documented gap, safe today because `CallbackKernel::handleMethods()`
-never reads that key — and its dispatch job bodies are encoded dual to
-`CallbackKernel::constructJob()`: both sides walk the job's constructor
-parameters and key `args` by **parameter name**, resolved from a same-named
-**promoted public** constructor property on the guest side.
+The Cloudflare Worker is the production signer of this channel
+(`cloudflare/worker/src/callbacks.js`, HMAC-SHA256 WebCrypto — see
+`cloudflare/docs/mvp-spec.md` §The callback channel for headers and message
+construction, and `docs/shared-secret.md` for the key derivation). It omits
+`manifest_hash` from the `methods` body — a documented gap, safe today
+because `CallbackKernel::handleMethods()` never reads that key — and its
+dispatch job bodies are encoded dual to `CallbackKernel::constructJob()`:
+both sides walk the job's constructor parameters and key `args` by
+**parameter name**, resolved from a same-named **promoted public**
+constructor property on the guest side.
+
+`atoms/client` verifies with PHP's built-in `hash_hmac()`/`hash_equals()`
+and declares no `ext-sodium` dependency.
 
 ## `atoms.json` (toolchain anchor) and `atoms-composer.json`
 
