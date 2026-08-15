@@ -68,6 +68,19 @@ supplies — is docs/adapters.md.
 Everything below is wire-protocol-grade API. Implement exactly these
 signatures; additions are fine, changes are not.
 
+**Through the 0.x line, that freeze is a default, not a wall.** The packages
+are on Packagist — `atoms/core` 0.1.0 published 2026-08-14 — but they are
+explicitly pre-release, and a `^0.1` constraint promises nothing across a minor.
+Publication is not the line; 1.0 is. Until then a signature that cannot be used
+correctly is worth fixing while fixing it is still cheap: `dispatch()` was
+changed in place that way, having taken an `AtomJob` instance that required a
+class the platform never had, and now taking the class name plus its arguments.
+
+A change like that needs a deliberate decision, a build-time error that names
+the new shape (`ATOMS-E104` does it here), and a note in the release notes for
+the minor that carries it — never a quiet edit, and never a call to make
+mid-task. At 1.0 the freeze becomes a wall.
+
 ```php
 namespace Atoms;
 
@@ -81,7 +94,8 @@ abstract class Atom
     protected function db(): Database;
     /** @return TApp (proxy) */
     protected function app(): object;
-    protected function dispatch(AtomJob $job): void;
+    /** @param class-string<AtomJob> $job @param array<string, mixed> $args */
+    protected function dispatch(string $job, array $args = []): void;
     protected function config(string $key): mixed;
     protected function broadcast(string $channel, array $payload): void;
     protected function timers(): Timers\Timers;
@@ -100,7 +114,11 @@ abstract class Atom
 abstract class AtomMethods {}   // World B base: callback methods, full framework access
 abstract class AtomJob {}       // World B base: constructor args are the contract;
                                 // params MUST be promoted public properties with
-                                // serialization-algebra types
+                                // serialization-algebra types. The class does NOT
+                                // ship, so Atom code dispatches it BY NAME:
+                                // dispatch(X::class, ['param' => $v]). Building
+                                // one with `new` inside an Atom is ATOMS-E104 —
+                                // the class does not exist on the platform.
 
 interface Database
 {
@@ -114,7 +132,8 @@ interface Database
 Supporting types in core (exact FQCNs — other packages reference these):
 
 - `Atoms\Runtime\AtomContext` — interface the runtime/harness implements:
-  `db(): Database`, `app(): object`, `dispatch(AtomJob $job): void`,
+  `db(): Database`, `app(): object`,
+  `dispatch(string $job, array $args = []): void`,
   `config(string $key): mixed`, `broadcast(string $channel, array $payload): void`,
   `timers(): Timers\Timers`.
 - `Atoms\Timers\Timers` — interface for named one-shot timers:
@@ -321,9 +340,10 @@ runbooks, search boxes and support threads. So:
   number, a credential that now exists. Leaving the old wording would have
   pointed users at a service that no longer runs.
 
-Nothing has been published yet, so there is no installed base to protect and no
-reason to treat pre-launch wording as frozen. Once `atoms/core` is on Packagist
-the bar for rewording rises, but the two bullets above stay the rule.
+Through 0.x the bar for rewording stays low: the packages are published, but
+pre-release, and message text is not something a `^0.1` constraint promises. At
+1.0 the bar rises — a code's wording starts showing up in users' runbooks — but
+the two bullets above stay the rule either way.
 
 ## Testing & tooling
 

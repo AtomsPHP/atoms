@@ -17,8 +17,9 @@ use PhpParser\NodeFinder;
 /**
  * Stage 4: check the Atom↔Methods and Atom↔AtomJob contracts statically. An Atom
  * that calls `$this->app()->foo(...)` must hit a real public Methods method with
- * compatible arity (E030/E031); `$this->dispatch(new X(...))` must target a real
- * AtomJob with a compatible constructor (E033/E032).
+ * compatible arity (E030/E031); `$this->dispatch(X::class, [...])` must target a
+ * real AtomJob whose constructor accepts those argument names (E033/E032), and
+ * must name the class rather than construct it (E104).
  */
 final class ContractChecker
 {
@@ -106,48 +107,125 @@ final class ContractChecker
         return null;
     }
 
+    /**
+     * Shape: `$this->dispatch(X::class, ['param' => $value, ...])`.
+     *
+     * The argument names must satisfy the job's constructor (E032) on a class
+     * that is really an AtomJob (E033), and the first argument must be the class
+     * name rather than `new X(...)` (E104).
+     *
+     * E104 is load-bearing rather than a nicety: nothing else in the build looks
+     * at method calls on `$this`, so an instance would pass validation and die
+     * as `Class "X" not found` at runtime — invisibly, if the dispatch sits in a
+     * `catch (\Throwable)`.
+     */
     private function checkDispatch(DiscoveredClass $atom, MethodCall $call): ?Violation
     {
-        // Shape: $this->dispatch(new X(...))
         if (!$this->isThis($call->var) || !$this->nameIs($call->name, 'dispatch')) {
             return null;
         }
 
         $first = $call->args[0] ?? null;
-        if (!$first instanceof Arg || !$first->value instanceof New_ || !$first->value->class instanceof Name) {
+        if (!$first instanceof Arg) {
             return null;
         }
 
-        $new = $first->value;
-        /** @var Name $className */
-        $className = $new->class;
-        $jobName = $className->toString();
-        $job = $this->discovery->get($jobName);
+        if ($first->value instanceof New_) {
+            if (!$first->value->class instanceof Name) {
+                return null;
+            }
 
+            $jobName = $first->value->class->toString();
+            $job = $this->discovery->get($jobName);
+
+            return $job !== null && $job->kind === ClassKind::Job
+                ? $this->violation(ErrorCode::AtomJobConstructedInAtom, $atom, $call, ['job' => $jobName], $jobName)
+                : $this->violation(ErrorCode::NotAnAtomJob, $atom, $call, ['class' => $jobName], $jobName);
+        }
+
+        $jobName = $this->classConstName($first->value);
+        if ($jobName === null) {
+            return null; // a computed class name — nothing to check statically
+        }
+
+        $job = $this->discovery->get($jobName);
         if ($job === null || $job->kind !== ClassKind::Job) {
-            return new Violation(
-                ErrorCode::NotAnAtomJob,
-                $atom->relativePath,
-                $call->getStartLine(),
-                ['atom' => $atom->fqcn, 'class' => $jobName],
-                $jobName,
-            );
+            return $this->violation(ErrorCode::NotAnAtomJob, $atom, $call, ['class' => $jobName], $jobName);
+        }
+
+        $names = $this->literalArgNames($call->args[1] ?? null);
+        if ($names === null) {
+            return null; // not a literal array — not statically checkable
         }
 
         $ctor = SignatureReader::constructor($job->node);
-        [$argc, $checkable] = $this->argCount($new->args);
-        $accepts = $ctor === null ? $argc === 0 : $ctor->acceptsArgCount($argc);
-        if ($checkable && !$accepts) {
-            return new Violation(
-                ErrorCode::AtomJobSignatureMismatch,
-                $atom->relativePath,
-                $call->getStartLine(),
-                ['atom' => $atom->fqcn, 'job' => $jobName],
-                $jobName,
-            );
+        $accepts = $ctor === null ? $names === [] : $ctor->acceptsArgNames($names);
+
+        return $accepts
+            ? null
+            : $this->violation(ErrorCode::AtomJobSignatureMismatch, $atom, $call, ['job' => $jobName], $jobName);
+    }
+
+    /**
+     * @param array<string, string> $extra merged over the always-present `atom`
+     */
+    private function violation(
+        ErrorCode $code,
+        DiscoveredClass $atom,
+        MethodCall $call,
+        array $extra,
+        string $symbol,
+    ): Violation {
+        return new Violation(
+            $code,
+            $atom->relativePath,
+            $call->getStartLine(),
+            ['atom' => $atom->fqcn] + $extra,
+            $symbol,
+        );
+    }
+
+    /**
+     * The FQCN behind a `X::class` expression, or null for anything else.
+     */
+    private function classConstName(Node $expr): ?string
+    {
+        if (!$expr instanceof Node\Expr\ClassConstFetch
+            || !$expr->class instanceof Name
+            || !$expr->name instanceof Identifier
+            || strtolower($expr->name->toString()) !== 'class') {
+            return null;
         }
 
-        return null;
+        return $expr->class->toString();
+    }
+
+    /**
+     * The string keys of a literal array argument; null when it is spread or not
+     * a string-keyed literal, which this checker cannot decide.
+     *
+     * @return list<string>|null
+     */
+    private function literalArgNames(?Node $arg): ?array
+    {
+        if ($arg === null) {
+            return []; // omitted $args — the same as passing []
+        }
+
+        if (!$arg instanceof Arg || $arg->unpack || !$arg->value instanceof Node\Expr\Array_) {
+            return null;
+        }
+
+        $names = [];
+        foreach ($arg->value->items as $item) {
+            if ($item === null || $item->unpack || !$item->key instanceof Node\Scalar\String_) {
+                return null;
+            }
+
+            $names[] = $item->key->value;
+        }
+
+        return $names;
     }
 
     /**

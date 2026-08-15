@@ -148,8 +148,8 @@
         {
             "code": "ATOMS-E032",
             "title": "AtomJob constructor signature mismatch",
-            "message": "{atom} dispatches new {job}(...) with arguments that do not match its constructor.",
-            "fix": "AtomJob constructor parameters are the dispatch contract — keep promoted properties and the dispatch site in sync.",
+            "message": "{atom} dispatches {job} with arguments that do not match its constructor.",
+            "fix": "AtomJob constructor parameters are the dispatch contract — keep the promoted properties and the dispatch site in sync. The array keys you pass to $this->dispatch() are those parameter names.",
             "severity": "error",
             "phase": "build"
         },
@@ -395,9 +395,9 @@
         },
         {
             "code": "ATOMS-E084",
-            "title": "Dispatched job cannot be encoded from its promoted properties",
+            "title": "Dispatched job cannot be encoded",
             "message": "{class} cannot be dispatched: {reason}.",
-            "fix": "An AtomJob's constructor parameters are its dispatch contract and must be promoted public properties. Declare public function __construct(public readonly int $orderId) — non-promoted state cannot cross the boundary.",
+            "fix": "Pass the constructor arguments to $this->dispatch() as a map keyed by parameter name — ['orderId' => $id], not [$id] — and make sure every value is a serialization-algebra type. An AtomJob's constructor parameters are its dispatch contract and must be promoted public properties, so your app can rebuild it from that map.",
             "severity": "error",
             "phase": "runtime"
         },
@@ -448,6 +448,14 @@
             "fix": "Bind a QueueBridge. Laravel wires Atoms\\Laravel\\Queue\\LaravelQueueBridge automatically; Symfony wires Atoms\\Symfony\\Messenger\\MessengerQueueBridge once symfony/messenger and a message bus are present; any other host passes its own QueueBridge to CallbackKernel.",
             "severity": "error",
             "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E104",
+            "title": "AtomJob constructed inside Atom code",
+            "message": "{atom} passes a constructed {job} to $this->dispatch(). An AtomJob's code stays in your app and is never shipped to the platform, so that class does not exist there.",
+            "fix": "Pass the class name and its constructor arguments by name instead: $this->dispatch(TheJob::class, ['param' => $value, ...]). Naming a class does not require it to ship, and your app reconstructs the real job from those arguments.",
+            "severity": "error",
+            "phase": "build"
         }
     ]
 }

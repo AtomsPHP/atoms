@@ -35,3 +35,4 @@ rules:
 	- Atoms\PHPStan\Rules\AtomCallSiteRule
 	- Atoms\PHPStan\Rules\AtomSleepCallRule
 	- Atoms\PHPStan\Rules\AtomTimeWaitLoopRule
+	- Atoms\PHPStan\Rules\AtomJobConstructionRule

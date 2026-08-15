@@ -12,7 +12,6 @@
 
 namespace Atoms\Cf;
 
-use Atoms\AtomJob;
 use Atoms\Database;
 use Atoms\Runtime\AtomContext;
 use Atoms\Serialization\Serializer;
@@ -93,36 +92,45 @@ final class CfAtomContext implements AtomContext
     }
 
     /**
-     * Encode the job from its promoted public constructor properties and
-     * cross on the sync `dispatch.enqueue` op — dual to
-     * `Atoms\Client\Callback\CallbackKernel::constructJob()`. Buffered on
-     * commit / dropped on rollback when a transaction is open; delivered
-     * immediately (fire-and-forget) otherwise.
+     * Normalize the arguments and hand the frame to the bridge. Buffered on
+     * commit / dropped on rollback inside a transaction; delivered immediately
+     * (fire-and-forget) otherwise.
+     *
+     * @param string $job
+     * @param array<string, mixed> $args
      */
-    public function dispatch(AtomJob $job): void
+    public function dispatch(string $job, array $args = []): void
     {
-        $class = get_class($job);
-        $reflection = new \ReflectionClass($job);
-        $ctor = $reflection->getConstructor();
+        $class = ltrim(trim($job), '\\');
 
-        $args = [];
-        if ($ctor !== null) {
-            foreach ($ctor->getParameters() as $param) {
-                $name = $param->getName();
-
-                if (!$reflection->hasProperty($name)) {
-                    throw JobNotEncodable::missingProperty($class, $name);
-                }
-
-                $property = $reflection->getProperty($name);
-                if (!$property->isPublic() || $property->isStatic()) {
-                    throw JobNotEncodable::notPublic($class, $name);
-                }
-
-                $args[$name] = $this->serializer->normalize($property->getValue($job));
-            }
+        if ($class === '') {
+            throw JobNotEncodable::unencodable($job, 'the job class name is empty');
         }
 
+        $normalized = [];
+        foreach ($args as $name => $value) {
+            if (!is_string($name)) {
+                throw JobNotEncodable::unencodable($class, sprintf(
+                    'argument %s is positional; dispatch() takes constructor arguments by name',
+                    var_export($name, true)
+                ));
+            }
+
+            $normalized[$name] = $this->serializer->normalize($value);
+        }
+
+        $this->enqueueJob($class, $normalized);
+    }
+
+    /**
+     * The one place the `{"job":FQCN,"args":{...}}` frame is built and crossed.
+     * `$args` is already normalized.
+     *
+     * @param string $class
+     * @param array<string, mixed> $args
+     */
+    private function enqueueJob($class, array $args): void
+    {
         $body = json_encode(
             ['job' => $class, 'args' => $args === [] ? new \stdClass() : $args],
             JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION
