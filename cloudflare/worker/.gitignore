@@ -4,8 +4,11 @@ dist/
 .runtime-package/
 
 # Written by the CI worker job (and by anyone reproducing it locally) when it
-# backgrounds `wrangler dev` and polls /healthz.
+# backgrounds `wrangler dev` and polls /healthz. The -auth and -misconfigured
+# variants are the second and third posture's logs.
 wrangler.log
+wrangler-auth.log
+wrangler-misconfigured.log
 wrangler.pid
 
 # The php-wasm runtime is fetched from npm and staged here by

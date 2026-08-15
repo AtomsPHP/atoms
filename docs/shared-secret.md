@@ -262,7 +262,7 @@ spec, including:
 
 The conformance runner accepts either `ATOMS_SHARED_SECRET` (full
 capability: derive, forge test tickets, verify callbacks — the local/CI
-posture) or a pre-derived bearer via `ATOMS_BEARER` (invoke-only checks
+posture) or a pre-derived bearer via `ATOMS_BEARER_TOKEN` (invoke-only checks
 against a deployed Worker, so the root does not have to travel to the
 runner; the checks that need the root skip). CI generates a fresh secret
 per run; nothing commits one.

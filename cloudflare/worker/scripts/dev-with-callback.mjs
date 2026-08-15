@@ -29,6 +29,8 @@
  * Usage: node scripts/dev-with-callback.mjs [--port <workerPort>]
  * Env:
  *   ATOMS_CALLBACK_PORT   port the in-suite listener will bind (default 8788)
+ *   ATOMS_SHARED_SECRET   used verbatim when set (CI mints and masks its own);
+ *                         when unset, a fresh per-run secret is generated.
  *   ATOMS_BEARER_AUTH     forwarded verbatim when set: `required` (the Worker's
  *                         own default) or `disabled` for the proxy-fronted
  *                         posture. Never defaulted here.
@@ -82,8 +84,10 @@ const passThrough = [
 ];
 
 // 32 random bytes, base64 — exactly what the Worker requires and what the app
-// side would hold. Fresh every run.
-const sharedSecret = randomBytes(32).toString('base64');
+// side would hold. An ATOMS_SHARED_SECRET already in the environment wins (CI
+// mints and masks its own per-run secret, and the mask only covers that exact
+// value); otherwise fresh every run.
+const sharedSecret = (process.env.ATOMS_SHARED_SECRET ?? '').trim() || randomBytes(32).toString('base64');
 
 const secretFile = join(workerRoot, 'test', '.dev-secret.json');
 mkdirSync(dirname(secretFile), { recursive: true });
