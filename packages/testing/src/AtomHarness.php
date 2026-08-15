@@ -50,7 +50,7 @@ final class AtomHarness
 
     private readonly Serializer $serializer;
 
-    /** @var list<object> */
+    /** @var list<array{job: string, args: array<string, mixed>}> the wire shape */
     private array $dispatched = [];
 
     /** @var list<array{channel: string, payload: array<string, mixed>}> */
@@ -151,8 +151,8 @@ final class AtomHarness
             $this->database,
             $appProxy,
             $this->config,
-            function (object $job): void {
-                $this->dispatched[] = $job;
+            function (string $job, array $args): void {
+                $this->dispatched[] = ['job' => $job, 'args' => $args];
             },
             function (string $channel, array $payload): void {
                 $this->broadcasts[] = ['channel' => $channel, 'payload' => $payload];
@@ -262,16 +262,19 @@ final class AtomHarness
     }
 
     /**
-     * Every job passed to `dispatch()` so far, each reconstructed by
-     * round-tripping its promoted constructor arguments through the
-     * serializer and building a fresh instance — proving the job is wire-safe,
-     * not just that the original object reference is being held.
+     * Every job dispatched so far, rebuilt the way the callback kernel would —
+     * arguments round-tripped through the serializer, then a fresh instance. A
+     * recorded call alone would prove neither that the arguments are wire-safe
+     * nor that they satisfy the constructor.
      *
      * @return list<object>
      */
     public function dispatched(): array
     {
-        return array_map($this->reconstruct(...), $this->dispatched);
+        return array_map(
+            fn (array $record): object => $this->reconstruct($record['job'], $record['args']),
+            $this->dispatched,
+        );
     }
 
     /**
@@ -389,18 +392,50 @@ final class AtomHarness
         return class_exists($default) ? new $default() : null;
     }
 
-    private function reconstruct(object $job): object
+    /**
+     * @param array<string, mixed> $args keyed by constructor parameter name
+     */
+    private function reconstruct(string $jobClass, array $args): object
     {
-        $reflection = new \ReflectionClass($job);
+        if (!class_exists($jobClass)) {
+            throw new \InvalidArgumentException(sprintf(
+                'Atoms: %s was dispatched but the class does not exist. In your app it must be '
+                . 'autoloadable — only the platform runtime is allowed not to know it.',
+                $jobClass,
+            ));
+        }
+
+        $reflection = new \ReflectionClass($jobClass);
         $constructor = $reflection->getConstructor();
 
         if ($constructor === null) {
             return $reflection->newInstance();
         }
 
+        // Ordered against the constructor, filling declared defaults, so an
+        // omitted optional parameter rebuilds what the kernel would build.
         $rawArgs = [];
         foreach ($constructor->getParameters() as $param) {
-            $rawArgs[] = $reflection->getProperty($param->getName())->getValue($job);
+            $name = $param->getName();
+
+            if (\array_key_exists($name, $args)) {
+                $rawArgs[] = $args[$name];
+
+                continue;
+            }
+
+            if ($param->isDefaultValueAvailable()) {
+                $rawArgs[] = $param->getDefaultValue();
+
+                continue;
+            }
+
+            throw new \InvalidArgumentException(sprintf(
+                'Atoms: %s was dispatched without a value for the required constructor '
+                . 'parameter "%s".',
+                $jobClass,
+                $name,
+            ));
         }
 
         $coerced = Boundary::roundTripArgs($rawArgs, $constructor, $this->serializer);

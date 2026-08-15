@@ -386,7 +386,7 @@ door's `writeReply()`, so unbounded is not an option.
   transport failure, a timeout, or a non-2xx response is logged
   (`atoms.callback.delivery_failed`, with `job`/`reason`/`status`/`elapsed_ms`)
   and dropped — silently from the customer's point of view, because
-  `dispatch(): void` is frozen ABI and cannot report a delivery failure
+  `dispatch(): void` returns nothing and could not report a delivery failure
   without becoming a blocking call. Initiation failures (channel not
   configured, no signing key, an unencodable job, `dispatch_limit`) are the
   opposite: loud, and thrown from `dispatch()` itself, because they are
@@ -859,22 +859,32 @@ awaited event: the DO is never evicted mid-event, only between them.
   monolith did not answer with a result envelope"); otherwise the method
   returns `json_decode($responseBody, true)['result']` — see the
   result-hydration gap in §The callback channel.
-- **`dispatch(AtomJob $job)`.** Reads the job's constructor parameters by
-  reflection and, for each one, requires a same-named **public,
-  non-static** instance property — `JobNotEncodable` (E084) otherwise — then
-  reads that property's value and normalizes it through `Serializer`. This is
-  **exactly dual** to `Atoms\Client\Callback\CallbackKernel::constructJob()`,
-  which does the reverse walk to reconstruct the job on the monolith side:
-  same reflection, same source of truth (the constructor's parameter list),
-  the map keyed by constructor **parameter name** on both sides. There is no
+- **`dispatch(string $job, array $args)`.** The form Atom code uses, and the
+  only one it can: an AtomJob's source is World B and never appears in a
+  bundle, so the guest cannot construct one. `SomeJob::class` is resolved by the
+  compiler, so naming the class neither loads it nor requires it to ship; the
+  arguments arrive already keyed by constructor parameter name and are each
+  normalized through `Serializer`. A non-string key is `JobNotEncodable` (E084):
+  the wire form is an object keyed by parameter name, and a positional list
+  could not be reconstructed on the far side.
+
+  The `args` map is **exactly** what `Atoms\Client\Callback\CallbackKernel::
+  constructJob()` consumes to rebuild the job on the monolith side, keyed by
+  constructor **parameter name** on both ends — the guest builds the map from
+  the call site, the kernel walks the constructor to spend it. There is no
   runtime "is this an `AtomJob`" check on the guest side (unlike the kernel's
-  `ATOMS-E033`): the frozen ABI's `dispatch(AtomJob $job)` parameter type
-  already enforces it. The body is `{"job":FQCN,"args":{...}}` (an empty
-  `args` is encoded as `new \stdClass()`, never `[]`, because the wire form is
-  an object) and crosses on the sync `dispatch.enqueue` op via
-  `host_sync_raw()`, carrying `job` as a label alongside `body` purely for the
-  host's delivery-failure logs — never used to build the request (the
-  opaque-body invariant).
+  `ATOMS-E033`): the guest never has the class, so it cannot ask, and the build
+  answers instead. The body is `{"job":FQCN,"args":{...}}` (an empty `args` is
+  encoded as `new \stdClass()`, never `[]`, because the wire form is an object)
+  and crosses on the sync `dispatch.enqueue` op via `host_sync_raw()`, carrying
+  `job` as a label alongside `body` purely for the host's delivery-failure logs
+  — never used to build the request (the opaque-body invariant).
+
+  `dispatch()` took an `AtomJob` instance until 2026-08-14. That signature
+  could not work: it needed the job class loaded in the guest, which a bundle
+  never carries, so every call failed with `Class "..." not found` — silently,
+  when the dispatch sat inside a `catch (\Throwable)`. It now takes the class
+  name, and `atoms build` reports `ATOMS-E104` on the old shape.
 - **`CallbackChannel::exceptionFor()`** (`worker/php/runtime/
   CallbackChannel.php`) is the one place both doors map a host door failure
   onto a typed exception, so `app()` (park door) and `dispatch()` (sync door)
@@ -1220,6 +1230,11 @@ See `docs/cloudflare-toolchain.md` §3.
 - `App\Jobs\Notify` (`fixtures/counter/app/Jobs/Notify.php`) — an `AtomJob`
   with promoted public `$atomId`/`$note` properties, the dispatch contract
   `dispatch()`'s encoder and `CallbackKernel::constructJob()` must agree on.
+  The fixture Atoms dispatch it **by name** — `dispatch(Notify::class,
+  ['atomId' => ..., 'note' => ...])` — which is what a real `atoms build`
+  bundle can do, since that bundle would not carry `Notify.php` at all. Checks
+  16 and 17 assert the delivered body, so they pin that the by-name form
+  produces exactly the frame the monolith already expects.
 
 ## Conformance suite
 

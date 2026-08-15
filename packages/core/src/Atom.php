@@ -46,9 +46,22 @@ abstract class Atom
         return $this->context->app();
     }
 
-    protected function dispatch(AtomJob $job): void
+    /**
+     * Dispatch a job to your app's queue:
+     *
+     *     $this->dispatch(RecordGameResult::class, ['ref' => $ref, 'seat' => 1]);
+     *
+     * By class name, never an instance: an AtomJob's code stays in your app and
+     * is not on the platform, so there is nothing here to `new`. A `::class`
+     * constant is resolved by the compiler, so naming one costs nothing. The
+     * runtime sends `{"job":FQCN,"args":{...}}`; your app rebuilds the object.
+     *
+     * @param class-string<AtomJob> $job
+     * @param array<string, mixed> $args keyed by constructor parameter name
+     */
+    protected function dispatch(string $job, array $args = []): void
     {
-        $this->context->dispatch($job);
+        $this->context->dispatch($job, $args);
     }
 
     protected function config(string $key): mixed

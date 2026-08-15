@@ -23,7 +23,7 @@ final class GameRoom extends Atom
         $this->db()->execute('INSERT INTO game_room_events (payload) VALUES (?)', [$ref]);
 
         $player = $this->app()->getPlayer($ref);
-        $this->dispatch(new RecordGameResult($ref, $seat ?? 0));
+        $this->dispatch(RecordGameResult::class, ['ref' => $ref, 'seat' => $seat ?? 0]);
 
         return $player;
     }

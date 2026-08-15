@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Atoms\Core\Tests\Fixtures;
 
-use Atoms\AtomJob;
 use Atoms\Database;
 use Atoms\Runtime\AtomContext;
 use Atoms\Timers\Timers;
@@ -16,8 +15,8 @@ use Atoms\Timers\Timers;
  */
 final class StubAtomContext implements AtomContext, Timers
 {
-    /** @var list<AtomJob> */
-    public array $dispatched = [];
+    /** @var list<array{job: string, args: array<string, mixed>}> */
+    public array $dispatchedJobs = [];
 
     /** @var list<array{channel: string, payload: array<string, mixed>}> */
     public array $broadcasts = [];
@@ -48,9 +47,9 @@ final class StubAtomContext implements AtomContext, Timers
         return $this->appProxy;
     }
 
-    public function dispatch(AtomJob $job): void
+    public function dispatch(string $job, array $args = []): void
     {
-        $this->dispatched[] = $job;
+        $this->dispatchedJobs[] = ['job' => $job, 'args' => $args];
     }
 
     public function config(string $key): mixed

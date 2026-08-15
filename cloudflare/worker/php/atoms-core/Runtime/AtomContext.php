@@ -22,7 +22,16 @@ interface AtomContext
      */
     public function app(): object;
 
-    public function dispatch(AtomJob $job): void;
+    /**
+     * See {@see \Atoms\Atom::dispatch()} for why this takes a name, not an
+     * instance. Implementations must key `$args` by constructor parameter name
+     * — the key space `CallbackKernel::constructJob()` reads on the far side —
+     * and normalize each value through the serializer.
+     *
+     * @param class-string<AtomJob> $job
+     * @param array<string, mixed> $args
+     */
+    public function dispatch(string $job, array $args = []): void;
 
     public function config(string $key): mixed;
 

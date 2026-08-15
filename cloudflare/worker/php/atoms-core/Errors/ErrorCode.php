@@ -68,4 +68,5 @@ enum ErrorCode: string
     case SleepInAtom = 'ATOMS-E101';
     case TimeWaitLoopInAtom = 'ATOMS-E102';
     case NoQueueBridgeConfigured = 'ATOMS-E103';
+    case AtomJobConstructedInAtom = 'ATOMS-E104';
 }

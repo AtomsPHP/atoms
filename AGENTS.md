@@ -63,6 +63,10 @@ not direction.
 - **`atoms/core` is the runtime ABI.** Its public surface is wire-protocol
   grade: never change an existing signature, only add. It depends on nothing
   framework-ish (`psr/*` interfaces only). It must run on PHP 8.3.
+  Pre-1.0, changing one is still on the table when a signature is genuinely
+  unusable — see `docs/conventions.md` §The `atoms/core` ABI. It takes an
+  explicit decision and a build error naming the new shape; it is never a
+  judgement call to make mid-task.
 - **Layering is the product.** core ← client ← {laravel, symfony};
   core ← {testing, phpstan-rules, cli}. The Symfony bundle must never need
   `atoms/laravel`; the CLI and testing packages must never need
