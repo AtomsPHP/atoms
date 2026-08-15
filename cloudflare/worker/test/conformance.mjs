@@ -25,6 +25,17 @@
  *     rather than merely started it, by comparing when the job response was
  *     sent against when the invoke response arrived)
  *   ATOMS_SKIP=n,m (comma-separated check numbers to skip)
+ *   ATOMS_ONLY=n,m (comma-separated allowlist: run ONLY these check numbers.
+ *     Complements ATOMS_SKIP; exists so an auth-enabled second run can
+ *     exercise just the ticket checks without re-paying the eviction waits.
+ *     An allowlist is self-maintaining where a 30-entry skip list is not.)
+ *   ATOMS_WS_TICKET_SKEW_MS (required for check 36's signed-expiry leg and,
+ *     when positive, enables check 34's within-skew replay leg; must match
+ *     the value the Worker was started with — never defaulted here)
+ *   ATOMS_REQUIRE_TICKET_CHECKS=1 (turn the connection-ticket skips — checks
+ *     35-38 and check 36's conditional expiry leg — into failures. Set it on
+ *     the auth-enabled run; the anti-silent-deletion device from
+ *     ATOMS_REQUIRE_CALLBACK_CHECKS)
  */
 
 import { createPublicKey, randomBytes, verify as verifyEd25519 } from 'node:crypto';
@@ -62,6 +73,21 @@ const SKIP = (process.env.ATOMS_SKIP || '')
     .split(',')
     .map(s => parseInt(s.trim()))
     .filter(n => !isNaN(n));
+const ONLY = (process.env.ATOMS_ONLY || '')
+    .split(',')
+    .map(s => parseInt(s.trim()))
+    .filter(n => !isNaN(n));
+// Check 36's signed-expiry leg must know the Worker's verification-side clock
+// allowance to wait out `expires_at + skew`, and check 34's within-skew
+// replay leg exists only when that allowance is positive (never defaulted
+// here, same rule as ATOMS_TURN_DEADLINE_MS). Absent => those legs skip.
+const WS_TICKET_SKEW_MS = process.env.ATOMS_WS_TICKET_SKEW_MS
+    ? parseInt(process.env.ATOMS_WS_TICKET_SKEW_MS, 10)
+    : null;
+// Same anti-silent-deletion device as ATOMS_REQUIRE_CALLBACK_CHECKS, for the
+// connection-ticket checks: set on the auth-enabled run, where 35-38 must
+// run rather than skip.
+const REQUIRE_TICKET_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_TICKET_CHECKS || '');
 
 if (!BASE_URL) {
     console.error('Error: ATOMS_BASE_URL env var is required');
@@ -210,10 +236,16 @@ const atomId = (name) => `${name}-${RUN}`;
  * from the base URL's scheme so a deployed `https://` base URL works instead of
  * dying with Node's `Protocol "https:" not supported`.
  *
+ * `opts.auth === false` omits the Authorization header even when a key is
+ * configured — a browser cannot set one, so the ticket-path refusals must be
+ * probed the way a browser would arrive, or the bearer would quietly satisfy
+ * the auth gate and the assertion would test the wrong credential.
+ *
  * @param {string} path
+ * @param {{auth?: boolean}} [opts]
  * @returns {Promise<{status: number, data: any}>}
  */
-function wsHandshakeAttempt(path) {
+function wsHandshakeAttempt(path, opts = {}) {
     return new Promise((resolve, reject) => {
         const url = new URL(path, baseUrl);
         const headers = {
@@ -222,7 +254,7 @@ function wsHandshakeAttempt(path) {
             'Sec-WebSocket-Key': randomBytes(16).toString('base64'),
             'Sec-WebSocket-Version': '13',
         };
-        if (APP_KEY) headers.Authorization = `Bearer ${APP_KEY}`;
+        if (APP_KEY && opts.auth !== false) headers.Authorization = `Bearer ${APP_KEY}`;
         const requestFn = url.protocol === 'https:' ? httpsRequest : httpRequest;
 
         // The probe must SETTLE on every path, or a regression turns a failed
@@ -278,23 +310,27 @@ function wsHandshakeAttempt(path) {
 /**
  * Open a WebSocket to the worker's `/ws` route and wait for it to connect.
  * Node 22's global `WebSocket` accepts `{headers: {Authorization: ...}}`
- * (an undici extension), so this works identically whether
- * `ATOMS_APP_KEY` is set or not — no ticket, no query-string credential.
+ * (an undici extension), so by default this sends the bearer whether
+ * `ATOMS_APP_KEY` is set or not. Pass `{auth: false}` to connect the way a
+ * browser does — no headers at all — with a `?ticket=` minted from
+ * `POST /tickets` carried in `path` as the credential instead (checks 31+).
  *
  * The returned handle collects inbound frames into arrival order; `.next()`
  * awaits (and consumes) the next one, whether it already arrived or is still
  * to come, with a bounded timeout so a check fails instead of hanging.
  *
  * @param {string} path e.g. `/ws/Room/<id>?channels=lobby`
+ * @param {{auth?: boolean}} [sockOpts]
  * @returns {Promise<{
  *   send: (data: string|Uint8Array) => void,
  *   next: (timeoutMs?: number) => Promise<string|ArrayBuffer>,
  *   close: (code?: number, reason?: string) => Promise<void>,
  * }>}
  */
-function openSocket(path) {
+function openSocket(path, sockOpts = {}) {
     const url = new URL(path, baseUrl).toString().replace(/^http/, 'ws');
-    const opts = APP_KEY ? { headers: { Authorization: `Bearer ${APP_KEY}` } } : undefined;
+    const opts =
+        APP_KEY && sockOpts.auth !== false ? { headers: { Authorization: `Bearer ${APP_KEY}` } } : undefined;
     const ws = opts ? new WebSocket(url, opts) : new WebSocket(url);
     ws.binaryType = 'arraybuffer';
 
@@ -349,6 +385,36 @@ function openSocket(path) {
             });
         },
     }));
+}
+
+// ------------------------------------------------------------ tickets
+
+/** Mint a connection ticket over the route the suite already trusts. */
+async function mintTicketReq(type, id, claims = null) {
+    return request('POST', `/tickets/${type}/${id}`, claims ? { claims } : null);
+}
+
+/**
+ * Hand-build the unsigned dev form (`v1u.<base64url(payload)>`). Legitimate
+ * precisely BECAUSE unsigned tickets are forgeable by design: it is what
+ * makes the keyless refusals (expiry, scope) testable instantly, with no TTL
+ * wait and no env matching — and what check 36 presents to an auth-enabled
+ * Worker to prove a forgery is not a credential there.
+ */
+function forgeDevTicket(payload) {
+    return 'v1u.' + Buffer.from(JSON.stringify(payload)).toString('base64url');
+}
+
+/** A syntactically plausible ticket payload for one atom. */
+function devPayload(type, id, overrides = {}) {
+    return {
+        t: type,
+        i: id,
+        exp: Date.now() + 60000,
+        jti: randomBytes(16).toString('hex'),
+        claims: {},
+        ...overrides,
+    };
 }
 
 // ------------------------------------------------------- callback listener
@@ -3138,12 +3204,489 @@ checks.push(async () => {
     );
 });
 
+// CHECK 31: connection tickets — the happy path, in whichever posture this
+// run is in: mint envelope shape (signed v1 under auth-on, unsigned v1u dev
+// form under auth-off), then a HEADERLESS upgrade carrying the ticket — the
+// way a browser arrives — with a spoofed query param the ticket's claim must
+// override, the reserved `ticket` key never delivered, and the ticket
+// excluded from the param budgets.
+checks.push(async () => {
+    const checkNum = 31;
+    const name = 'tickets: mint + headerless connect, claims win, ticket stripped';
+    const problems = [];
+    const id = atomId('tkt-happy');
+
+    const mint = await mintTicketReq('Room', id, { client_id: 'server-truth' });
+    if (mint.status !== 200) {
+        fail(checkNum, name, `mint gave ${mint.status}: ${JSON.stringify(mint.data)}`);
+        return;
+    }
+    const ticket = mint.data?.ticket;
+    const wanted = APP_KEY ? /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/ : /^v1u\.[A-Za-z0-9_-]+$/;
+    if (typeof ticket !== 'string' || !wanted.test(ticket)) {
+        problems.push(`ticket=${JSON.stringify(ticket)} does not match ${wanted} for this posture`);
+    }
+    const now = Date.now();
+    if (
+        typeof mint.data?.expires_at !== 'number' ||
+        mint.data.expires_at <= now ||
+        mint.data.expires_at > now + 24 * 3600 * 1000
+    ) {
+        problems.push(`expires_at=${JSON.stringify(mint.data?.expires_at)} is not a sane future epoch-ms`);
+    }
+    if (mint.data?.atom?.type !== 'Room' || mint.data?.atom?.id !== id) {
+        problems.push(`atom echo=${JSON.stringify(mint.data?.atom)} (expected Room/${id})`);
+    }
+
+    // Headerless, like a browser: the ticket is the only credential. The
+    // browser self-asserts client_id=spoofed; the server-minted claim must
+    // win, and the ticket key itself must never reach onConnect.
+    const sock = await openSocket(
+        `/ws/Room/${id}?channels=lobby&client_id=spoofed&ticket=${encodeURIComponent(ticket)}`,
+        { auth: false }
+    );
+    try {
+        const welcome = JSON.parse(/** @type {string} */ (await sock.next()));
+        if (welcome.params?.client_id !== 'server-truth') {
+            problems.push(`params.client_id=${JSON.stringify(welcome.params?.client_id)} (expected the claim "server-truth")`);
+        }
+        if (welcome.params && 'ticket' in welcome.params) {
+            problems.push(`the reserved "ticket" key was delivered to onConnect: ${JSON.stringify(welcome.params.ticket)}`);
+        }
+        if (welcome.params?.channels !== 'lobby') {
+            problems.push(`params.channels=${JSON.stringify(welcome.params?.channels)} (expected "lobby")`);
+        }
+    } finally {
+        await sock.close();
+    }
+
+    // Budget exclusion: exactly the documented default ATOMS_WS_MAX_PARAMS
+    // (32) query keys PLUS the ticket must still open — same
+    // over-the-documented-default practice as check 18's 40 channels. A
+    // fresh mint, because the first ticket was consumed by the connect above.
+    const mint2 = await mintTicketReq('Room', id);
+    if (mint2.status !== 200) {
+        problems.push(`second mint gave ${mint2.status}`);
+    } else {
+        const filler = Array.from({ length: 30 }, (_, i) => `p${i}=x`).join('&');
+        const sock2 = await openSocket(
+            `/ws/Room/${id}?channels=lobby&client_id=c&${filler}&ticket=${encodeURIComponent(mint2.data.ticket)}`,
+            { auth: false }
+        );
+        try {
+            await sock2.next();
+        } catch (e) {
+            problems.push(`32 params + ticket did not open: ${e.message}`);
+        } finally {
+            await sock2.close();
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, `${APP_KEY ? 'signed v1' : 'unsigned v1u'} minted, claims merged, ticket outside the budgets`);
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 32: mint validation — claims shape and caps, reserved claim keys,
+// and the eligibility refusals shared with /ws (a ticket must never be
+// mintable for a connection the upgrade would refuse).
+checks.push(async () => {
+    const checkNum = 32;
+    const name = 'tickets: mint validation and eligibility refusals';
+    const problems = [];
+    const id = atomId('tkt-mintval');
+
+    const expect = async (label, promise, status, code) => {
+        const r = await promise;
+        if (r.status !== status || r.data?.error?.code !== code) {
+            problems.push(`${label} gave ${r.status}/${r.data?.error?.code} (expected ${status}/${code})`);
+        }
+    };
+
+    await expect('a non-string claim value', mintTicketReq('Room', id, { n: 5 }), 400, 'invalid_request');
+    // 40 claims — over the documented default ATOMS_WS_TICKET_MAX_CLAIMS (16),
+    // same over-the-default practice as check 18's 40 channels.
+    await expect(
+        '40 claims',
+        mintTicketReq('Room', id, Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`c${i}`, 'x']))),
+        400,
+        'invalid_request'
+    );
+    await expect('a reserved "ticket" claim key', mintTicketReq('Room', id, { ticket: 'x' }), 400, 'invalid_request');
+    await expect('a reserved "channels" claim key', mintTicketReq('Room', id, { channels: 'lobby' }), 400, 'invalid_request');
+    // Counter declares no WebSocket handlers ("websocket": false) — the same
+    // refusal /ws gives, so no ticket exists that /ws would then refuse.
+    await expect('minting for a websocket:false type', mintTicketReq('Counter', id), 501, 'not_supported');
+    await expect('minting for an unknown type', mintTicketReq('NotAnAtom', id), 404, 'unknown_atom_type');
+    await expect('GET on the mint route', request('GET', `/tickets/Room/${id}`), 405, 'method_not_allowed');
+    await expect('a two-segment mint path', request('POST', `/tickets/Room`), 400, 'invalid_request');
+
+    if (problems.length === 0) {
+        pass(checkNum, name, 'claims caps, reserved keys, and shared eligibility all refused correctly');
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 33: stateless edge refusals on /ws, probed headerless. Garbage and
+// scope run identically in both postures; the forged, already-expired dev
+// ticket is what makes expiry testable with no TTL wait — keyless posture
+// must name ticket_expired, while an auth-on Worker must refuse the same
+// forgery as ticket_invalid before even reading its exp (a v1u forgery is
+// not a credential there).
+checks.push(async () => {
+    const checkNum = 33;
+    const name = 'tickets: garbage, wrong-atom scope, and expired refused at the edge';
+    const problems = [];
+    const id = atomId('tkt-refuse');
+
+    const garbage = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=zzz`, { auth: false });
+    if (garbage.status !== 401 || garbage.data?.error?.code !== 'ticket_invalid') {
+        problems.push(`garbage ticket gave ${garbage.status}/${garbage.data?.error?.code} (expected 401/ticket_invalid)`);
+    }
+
+    const idA = atomId('tkt-scope-a');
+    const idB = atomId('tkt-scope-b');
+    const mintA = await mintTicketReq('Room', idA);
+    if (mintA.status !== 200) {
+        problems.push(`scope-test mint gave ${mintA.status}`);
+    } else {
+        const crossed = await wsHandshakeAttempt(
+            `/ws/Room/${idB}?ticket=${encodeURIComponent(mintA.data.ticket)}`,
+            { auth: false }
+        );
+        if (crossed.status !== 401 || crossed.data?.error?.code !== 'ticket_invalid') {
+            problems.push(
+                `a ticket for ${idA} presented on ${idB} gave ${crossed.status}/${crossed.data?.error?.code} (expected 401/ticket_invalid)`
+            );
+        }
+    }
+
+    const expired = forgeDevTicket(devPayload('Room', id, { exp: Date.now() - 60000 }));
+    const expectCode = APP_KEY ? 'ticket_invalid' : 'ticket_expired';
+    const late = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=${encodeURIComponent(expired)}`, { auth: false });
+    if (late.status !== 401 || late.data?.error?.code !== expectCode) {
+        problems.push(
+            `an expired forged dev ticket gave ${late.status}/${late.data?.error?.code} (expected 401/${expectCode} in this posture)`
+        );
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, `all refused 401 before any DO was addressed (expired => ${expectCode})`);
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 34: reusable within TTL. A ticket is a pure bearer credential whose
+// short TTL is its entire replay defense (spec §Routing and auth): no jti
+// claim, no burn, no DO-side state. The same ticket must open a second
+// connection both while the first socket is still open and after it has
+// closed. This is a contract assertion, not a smoke test — a reintroduced
+// single-use burn fails it. Runs in both postures, so the default auth-off
+// CI run covers it with unsigned dev tickets.
+checks.push(async () => {
+    const checkNum = 34;
+    const name = 'tickets: reusable within TTL — no single-use burn';
+    const id = atomId('tkt-reuse');
+
+    // Warm the atom BEFORE minting: a cold activation (PHP boot +
+    // migrations) inside the connect/reconnect cycle adds seconds of
+    // latency — enough that a run against a test-shortened TTL would expire
+    // the ticket mid-check and turn the reuse assertion into a vacuous
+    // ticket_expired failure.
+    await invoke('Room', id, 'stats', []);
+
+    const mint = await mintTicketReq('Room', id);
+    if (mint.status !== 200) {
+        fail(checkNum, name, `mint gave ${mint.status}: ${JSON.stringify(mint.data)}`);
+        return;
+    }
+    const path = `/ws/Room/${id}?channels=lobby&ticket=${encodeURIComponent(mint.data.ticket)}`;
+
+    // Concurrent reuse: the second connect happens while the first socket is
+    // still open.
+    const sock = await openSocket(path, { auth: false });
+    try {
+        await sock.next();
+
+        const second = await openSocket(path, { auth: false });
+        try {
+            await second.next();
+        } catch (e) {
+            fail(checkNum, name, `the concurrent second connect on the same ticket failed: ${e.message}`);
+            return;
+        } finally {
+            await second.close();
+        }
+    } finally {
+        await sock.close();
+    }
+
+    // Reuse after close: the reconnect-without-re-mint the reusable contract
+    // exists for — a browser that drops inside the TTL retries the same URL.
+    // A FRESH ticket, so exactly one connect/close cycle sits inside its TTL
+    // window: close handshakes take seconds locally, and reusing the first
+    // ticket here would expire a test-shortened TTL and fail this leg for
+    // the wrong reason.
+    const m2 = await mintTicketReq('Room', id);
+    if (m2.status !== 200) {
+        fail(checkNum, name, `the post-close leg's mint gave ${m2.status}`);
+        return;
+    }
+    const path2 = `/ws/Room/${id}?channels=lobby&ticket=${encodeURIComponent(m2.data.ticket)}`;
+    const first = await openSocket(path2, { auth: false });
+    try {
+        await first.next();
+    } finally {
+        await first.close();
+    }
+    let reconnect;
+    try {
+        reconnect = await openSocket(path2, { auth: false });
+        await reconnect.next();
+    } catch (e) {
+        fail(checkNum, name, `the post-close reconnect on the same ticket failed: ${e.message}`);
+        return;
+    } finally {
+        if (reconnect) await reconnect.close();
+    }
+
+    pass(checkNum, name, 'same-ticket reuse connected both concurrently and across a close');
+});
+
+// CHECK 35: the auth-on posture's core promise — minting requires the bearer
+// (a ticket cannot mint a ticket, and neither can nothing), and the signed
+// ticket then admits a completely headerless browser-style upgrade with its
+// claims merged.
+checks.push(async () => {
+    const checkNum = 35;
+    const name = 'tickets (auth on): mint is bearer-gated, signed ticket admits headerless upgrade';
+    if (!APP_KEY) {
+        skip(checkNum, name, 'needs ATOMS_APP_KEY set on the Worker and the runner', REQUIRE_TICKET_CHECKS, 'ATOMS_APP_KEY');
+        return;
+    }
+    const problems = [];
+    const id = atomId('tkt-authed');
+
+    const bare = await fetch(new URL(`/tickets/Room/${id}`, baseUrl), { method: 'POST' });
+    const bareData = await bare.json().catch(() => ({}));
+    if (bare.status !== 401 || bareData?.error?.code !== 'unauthenticated') {
+        problems.push(`a headerless mint gave ${bare.status}/${bareData?.error?.code} (expected 401/unauthenticated)`);
+    }
+
+    const mint = await mintTicketReq('Room', id, { client_id: 'real' });
+    if (mint.status !== 200 || !/^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(mint.data?.ticket ?? '')) {
+        problems.push(`the authed mint gave ${mint.status}, ticket=${JSON.stringify(mint.data?.ticket)} (expected a 3-segment v1)`);
+    } else {
+        const sock = await openSocket(
+            `/ws/Room/${id}?channels=lobby&client_id=spoofed&ticket=${encodeURIComponent(mint.data.ticket)}`,
+            { auth: false }
+        );
+        try {
+            const welcome = JSON.parse(/** @type {string} */ (await sock.next()));
+            if (welcome.params?.client_id !== 'real') {
+                problems.push(`params.client_id=${JSON.stringify(welcome.params?.client_id)} (expected the claim "real")`);
+            }
+        } catch (e) {
+            problems.push(`the headerless upgrade with a signed ticket failed: ${e.message}`);
+        } finally {
+            await sock.close();
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, 'headerless mint 401, signed ticket connected a headerless browser-style client');
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 36: auth-on refusals — a tampered signature, a forged unsigned dev
+// ticket (the critical anti-downgrade assertion: v1u is not a credential
+// where a key is set), no credential at all, and — when the environment
+// allows the short wait — a genuinely expired SIGNED ticket.
+checks.push(async () => {
+    const checkNum = 36;
+    const name = 'tickets (auth on): tamper, v1u forgery, no credential, signed expiry';
+    if (!APP_KEY) {
+        skip(checkNum, name, 'needs ATOMS_APP_KEY set on the Worker and the runner', REQUIRE_TICKET_CHECKS, 'ATOMS_APP_KEY');
+        return;
+    }
+    const problems = [];
+    const notes = [];
+    const id = atomId('tkt-refuse-on');
+
+    const mint = await mintTicketReq('Room', id);
+    if (mint.status !== 200) {
+        fail(checkNum, name, `mint gave ${mint.status}: ${JSON.stringify(mint.data)}`);
+        return;
+    }
+    const t = mint.data.ticket;
+    const tampered = t.slice(0, -1) + (t.endsWith('A') ? 'B' : 'A');
+    const flipped = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=${encodeURIComponent(tampered)}`, { auth: false });
+    if (flipped.status !== 401 || flipped.data?.error?.code !== 'ticket_invalid') {
+        problems.push(`a tampered signature gave ${flipped.status}/${flipped.data?.error?.code} (expected 401/ticket_invalid)`);
+    }
+
+    const forged = forgeDevTicket(devPayload('Room', id));
+    const unsigned = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=${encodeURIComponent(forged)}`, { auth: false });
+    if (unsigned.status !== 401 || unsigned.data?.error?.code !== 'ticket_invalid') {
+        problems.push(`a forged v1u ticket gave ${unsigned.status}/${unsigned.data?.error?.code} (expected 401/ticket_invalid)`);
+    }
+
+    const naked = await wsHandshakeAttempt(`/ws/Room/${id}?channels=lobby`, { auth: false });
+    if (naked.status !== 401 || naked.data?.error?.code !== 'unauthenticated') {
+        problems.push(`no credential at all gave ${naked.status}/${naked.data?.error?.code} (expected 401/unauthenticated)`);
+    }
+
+    // Signed expiry: a real minted ticket, waited out. Needs the Worker's
+    // verification skew in the runner env (never defaulted, the check-15
+    // pattern) and a server TTL short enough to wait — CI's auth-on run
+    // starts the Worker with a short ATOMS_WS_TICKET_TTL_MS for exactly this.
+    if (WS_TICKET_SKEW_MS === null) {
+        if (REQUIRE_TICKET_CHECKS) {
+            problems.push('the signed-expiry leg needs ATOMS_WS_TICKET_SKEW_MS in the runner env, and this run asserted it must be available');
+        } else {
+            notes.push('signed-expiry leg skipped (env var: ATOMS_WS_TICKET_SKEW_MS)');
+        }
+    } else {
+        const m2 = await mintTicketReq('Room', id);
+        const waitMs = m2.data.expires_at - Date.now() + WS_TICKET_SKEW_MS + 500;
+        if (m2.status !== 200) {
+            problems.push(`the expiry-leg mint gave ${m2.status}`);
+        } else if (waitMs > 8000) {
+            if (REQUIRE_TICKET_CHECKS) {
+                problems.push(
+                    `the signed-expiry leg would need a ${waitMs}ms wait — start the Worker with a short ATOMS_WS_TICKET_TTL_MS`
+                );
+            } else {
+                notes.push('signed-expiry leg skipped (server TTL too long to wait out; set ATOMS_WS_TICKET_TTL_MS low)');
+            }
+        } else {
+            await new Promise((r) => setTimeout(r, waitMs));
+            const stale = await wsHandshakeAttempt(
+                `/ws/Room/${id}?ticket=${encodeURIComponent(m2.data.ticket)}`,
+                { auth: false }
+            );
+            if (stale.status !== 401 || stale.data?.error?.code !== 'ticket_expired') {
+                problems.push(
+                    `the waited-out signed ticket gave ${stale.status}/${stale.data?.error?.code} (expected 401/ticket_expired)`
+                );
+            }
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, ['tamper/forgery/no-credential all refused', ...notes].join('; '));
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 37: credential precedence — a valid bearer authenticates the
+// upgrade, and any ticket riding along is stripped UNVERIFIED (a bearer
+// holder is fully trusted and needs no claims). Pinned by riding along a
+// TAMPERED ticket: headerless it must be 401 ticket_invalid (proving the
+// tamper is real, so the leg below cannot pass vacuously); with the bearer
+// the same upgrade must connect, proving the ticket path never ran.
+checks.push(async () => {
+    const checkNum = 37;
+    const name = 'tickets (auth on): bearer wins; a ridden-along ticket is stripped unverified';
+    if (!APP_KEY) {
+        skip(checkNum, name, 'needs ATOMS_APP_KEY set on the Worker and the runner', REQUIRE_TICKET_CHECKS, 'ATOMS_APP_KEY');
+        return;
+    }
+    const id = atomId('tkt-precedence');
+
+    // Warm the atom first, same reasoning as check 34: a cold activation
+    // against a test-shortened TTL would expire the ticket mid-check.
+    await invoke('Room', id, 'stats', []);
+
+    const mint = await mintTicketReq('Room', id);
+    if (mint.status !== 200) {
+        fail(checkNum, name, `mint gave ${mint.status}: ${JSON.stringify(mint.data)}`);
+        return;
+    }
+    const t = mint.data.ticket;
+    const tampered = t.slice(0, -1) + (t.endsWith('A') ? 'B' : 'A');
+    const path = `/ws/Room/${id}?channels=lobby&ticket=${encodeURIComponent(tampered)}`;
+
+    // Non-vacuity guard: headerless, the tampered ticket must be refused by
+    // the verifier — otherwise the bearer leg below proves nothing.
+    const headerless = await wsHandshakeAttempt(path, { auth: false });
+    if (headerless.status !== 401 || headerless.data?.error?.code !== 'ticket_invalid') {
+        fail(
+            checkNum,
+            name,
+            `the tampered ticket gave ${headerless.status}/${headerless.data?.error?.code} headerless ` +
+                `(expected 401/ticket_invalid — without that, the bearer leg is vacuous)`
+        );
+        return;
+    }
+
+    // Bearer + the same tampered ticket: the bearer authenticates (openSocket
+    // sends it by default) and the ticket must be stripped without ever
+    // reaching the verifier — a verified ticket would 401 here.
+    const withBearer = await openSocket(path);
+    try {
+        await withBearer.next();
+    } catch (e) {
+        fail(checkNum, name, `the bearer upgrade was refused — the ridden-along ticket was verified, not stripped: ${e.message}`);
+        return;
+    } finally {
+        await withBearer.close();
+    }
+
+    pass(checkNum, name, 'tampered ticket refused headerless, ignored under a valid bearer');
+});
+
+// CHECK 38: the routing regression guard — the /ws ticket carve-out must
+// leak into no other route. With auth on, a headerless /invoke and a
+// headerless /debug are still 401 (the /debug gate runs before the
+// debug-disabled check, so this holds whatever ATOMS_DEBUG_ENDPOINTS says).
+checks.push(async () => {
+    const checkNum = 38;
+    const name = 'tickets (auth on): /invoke and /debug still require the bearer';
+    if (!APP_KEY) {
+        skip(checkNum, name, 'needs ATOMS_APP_KEY set on the Worker and the runner', REQUIRE_TICKET_CHECKS, 'ATOMS_APP_KEY');
+        return;
+    }
+    const problems = [];
+    const id = atomId('tkt-noleak');
+
+    const inv = await fetch(new URL(`/invoke/Counter/${id}/increment`, baseUrl), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{"args":[1]}',
+    });
+    const invData = await inv.json().catch(() => ({}));
+    if (inv.status !== 401 || invData?.error?.code !== 'unauthenticated') {
+        problems.push(`headerless /invoke gave ${inv.status}/${invData?.error?.code} (expected 401/unauthenticated)`);
+    }
+
+    const dbg = await fetch(new URL(`/debug/Counter/${id}/info`, baseUrl));
+    const dbgData = await dbg.json().catch(() => ({}));
+    if (dbg.status !== 401 || dbgData?.error?.code !== 'unauthenticated') {
+        problems.push(`headerless /debug gave ${dbg.status}/${dbgData?.error?.code} (expected 401/unauthenticated)`);
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, 'the ticket carve-out is /ws-only');
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
 // ---------------------------------------------------------------- run
 
 async function run() {
     console.log(`\nAtoms-on-Cloudflare MVP Conformance Suite`);
     console.log(`Base URL: ${baseUrl}`);
     console.log(`Skip: ${SKIP.length ? SKIP.join(', ') : 'none'}`);
+    console.log(`Only: ${ONLY.length ? ONLY.join(', ') : 'all'}`);
     console.log(`Eviction wait: ${EVICTION_WAIT_MS}ms`);
 
     const keyFile = loadCallbackKeyFile();
@@ -3163,6 +3706,10 @@ async function run() {
             const checkNum = i + 1;
             if (SKIP.includes(checkNum)) {
                 console.log(`⊘ CHECK ${checkNum}: skipped`);
+                continue;
+            }
+            if (ONLY.length > 0 && !ONLY.includes(checkNum)) {
+                console.log(`⊘ CHECK ${checkNum}: skipped (not in ATOMS_ONLY)`);
                 continue;
             }
 

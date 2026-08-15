@@ -282,6 +282,14 @@
             "phase": "runtime"
         },
         {
+            "code": "ATOMS-E067",
+            "title": "WebSocket ticket acquisition failed",
+            "message": "Could not acquire a WebSocket connection ticket for {type}/{id}: {reason}.",
+            "fix": "The Worker mints tickets at POST /tickets/{type}/{id}; when ATOMS_APP_KEY is set the client must send the same key as its bearer. Check the key configuration, that the atom type is deployed, and that it does not declare \"websocket\": false. Tickets are short-lived and reusable until they expire: on any connection failure, mint a fresh one.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
             "code": "ATOMS-E070",
             "title": "atoms.json missing or invalid",
             "message": "Could not read atoms.json at the repository root: {reason}.",

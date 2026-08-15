@@ -41,6 +41,7 @@ This catalog is the single source of truth: `packages/core/resources/errors.json
 | ATOMS-E064 | Callback signature verification failed | error | runtime | Check the configured platform public key. If keys were rotated, update config and retry. |
 | ATOMS-E065 | Callback replay detected | error | runtime | Usually clock skew (>300s) on the app host, or a genuine replay. Sync clocks; investigate repeated nonces. |
 | ATOMS-E066 | No Methods class for callback target | error | runtime | Create {expectedClass} (or mark a class with #[MethodsFor({atomType}::class)]). |
+| ATOMS-E067 | WebSocket ticket acquisition failed | error | runtime | The Worker mints tickets at POST /tickets/{type}/{id}; when ATOMS_APP_KEY is set the client must send the same key as its bearer. Check the key configuration, that the atom type is deployed, and that it does not declare "websocket": false. Tickets are short-lived and reusable until they expire: on any connection failure, mint a fresh one. |
 | ATOMS-E070 | atoms.json missing or invalid | error | cli | Run `atoms init` to create it, or fix the reported JSON error. |
 | ATOMS-E071 | atoms-composer.json invalid or package not allowed | error | cli | atoms-composer.json may only contain `require` (from the approved package list) and `repositories`. |
 | ATOMS-E072 | Deploy credentials missing | error | cli | Export CLOUDFLARE_API_TOKEN. It is never accepted as a command-line option — a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`. |

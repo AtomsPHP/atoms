@@ -137,8 +137,9 @@ not direction.
 
 - **One CI workflow tests everything, from one clone.** `.github/workflows/ci.yml`
   runs the PHP suites (`composer test` on 8.3 and 8.4), `composer stan`,
-  manifest lint, *and* the Worker's 30-check conformance suite under a
-  local `wrangler dev`. Keep that true: a change to either half must leave the
+  manifest lint, *and* the Worker's 38-check conformance suite under a
+  local `wrangler dev` (run twice for the two auth postures: the full suite
+  with auth off, then the ticket checks again with a per-run bearer key). Keep that true: a change to either half must leave the
   whole workflow green, and no job may need a Cloudflare account, an API
   token, or a cross-repo fetch of any kind.
 - **The conformance suite is the acceptance gate for `cloudflare/`.** Its
@@ -177,7 +178,10 @@ ATOMS_BASE_URL=http://127.0.0.1:8787 node test/conformance.mjs
 
 The conformance runner reads `ATOMS_BASE_URL` (required), `ATOMS_APP_KEY`
 (optional bearer token; unset means auth is off), `ATOMS_EVICTION_WAIT_MS`
-(default 12500) and `ATOMS_SKIP` (comma-separated check numbers). Debug
+(default 12500), `ATOMS_SKIP` (comma-separated check numbers) and
+`ATOMS_ONLY` (comma-separated allowlist — run only these checks; how the
+auth-enabled second run exercises the ticket checks, 31–38, without
+re-paying the eviction waits). Debug
 endpoints, which checks 5/10/12 need, are gated on the worker's own
 `ATOMS_DEBUG_ENDPOINTS` var, already set in `wrangler.jsonc`. Checks 13-17
 (the callback channel) additionally need `ATOMS_CALLBACK_PORT` (the runner's

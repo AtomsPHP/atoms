@@ -14,6 +14,7 @@ reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 | Re-verified | 2026-08-13, on M4 T1 (adapter discipline error codes) — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E100–E103 added: layering violation, sleep-in-Atom, elapsed-time wait loop, no queue bridge configured); still 23 files total, the other 21 digests are unchanged |
 | Re-verified | 2026-08-13, on M7 documentation publication — `Errors/ErrorCatalog.php` re-vendored so stable error links use `docs.atomsphp.dev`; still 23 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-14, on the by-name dispatch fix — `Atom.php`, `Runtime/AtomContext.php`, `Errors/ErrorCode.php` and `resources/errors.json` re-vendored. `dispatch()` changed in place from `dispatch(AtomJob $job)` to `dispatch(string $job, array $args = [])`: the instance form needed the job class loaded in the guest, which a bundle never carries. A pre-1.0 signature change, taken deliberately — see `docs/conventions.md` §The `atoms/core` ABI. ATOMS-E104 added; E032/E061/E082/E084/E101/E102 reworded. Still 23 files total, the other 19 digests are unchanged |
+| Re-verified | 2026-08-14, on M4 connection tickets — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E067 added: WebSocket ticket acquisition failed; its fix line reworded when the single-use design was dropped pre-merge); still 23 files total, the other 21 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -86,7 +87,7 @@ efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/Met
 7c996f6c31cff9bf210040f311bb534a140e79ae3c62b721c6266ad6d78353e2  Errors/AtomsError.php
 0b4bfcf9ea74ed277614139157b03696f4eae42dc85f420120f96663cf654283  Errors/CatalogEntry.php
 3d1a122b24f6e3dd88104816b2b3b96b846690a9acd9316cd142d16afb71c411  Errors/ErrorCatalog.php
-83362e39978897bb466cbc05e9d2c915d9576520efacde8aa88deee4fedb18d1  Errors/ErrorCode.php
+2476480ccc992c38d7372630a6bb0729cc28724fbefdab6d43f24389ce3f5d10  Errors/ErrorCode.php
 e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Migration.php
 f433e85e2449339b31bf806c4c8dde1afbd9e06dda005a2dc5a3df62fcd1252e  Migrations/MigrationEntry.php
 addfe71f9472e7f2e76422227ef06586818b546e09842cdcba8e8a97a1dcd690  Migrations/MigrationSet.php
@@ -99,7 +100,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 1fde1d8fa58f1bf741d746d8f82fd3dc847fb0ae44b04baa4c2eccd033df3295  Timers/Timers.php
 9976931fc24b29337ddddbb686432d537e45524f388cfbc60b37554af8db46f5  Websocket/Connection.php
 c0a739e750b0b2558133cb5c33e6ac119ed1f1526be41587a4f2bf21b5ba63d9  Websocket/Message.php
-eefa01d36900c3b68c5f0bfee308856709ca8bc4f652799adc88be1cf254cf70  resources/errors.json
+a948ca47bc54a8b3c43af14776c0c1af304f924b9d4995a87300995614634c1e  resources/errors.json
 ```
 
 Verify with, from this directory:

@@ -39,6 +39,8 @@
  *   | 'ws_fanout_limit'
  *   | 'timer_invalid_name'
  *   | 'timer_limit'
+ *   | 'ticket_invalid'
+ *   | 'ticket_expired'
  *   | 'internal'
  * )} AtomsErrorCode
  */
@@ -89,6 +91,16 @@ const CODE_TABLE = {
 	// reclassified as a retryable `internal`. A bad timer name is not retryable.
 	timer_invalid_name: { status: 500, retryable: false },
 	timer_limit: { status: 500, retryable: false },
+	// Connection-ticket refusals (spec §Routing and auth). Both are
+	// credential failures on the /ws upgrade, so 401 like `unauthenticated` —
+	// but distinct slugs for logs, server-side probes and non-browser
+	// clients: ticket_invalid (malformed, forged, mis-scoped, or an unsigned
+	// dev ticket under auth-on) and ticket_expired both mean "mint a fresh
+	// ticket". Neither is retryable: re-sending the same request re-presents
+	// the same ticket, which can never succeed. Both are raised at the edge
+	// before any DO is addressed.
+	ticket_invalid: { status: 401, retryable: false },
+	ticket_expired: { status: 401, retryable: false },
 	// Matches the retired platform contract's table and what atoms/client
 	// already expects (AtomsClient.php maps this to TurnDeadlineExceeded and
 	// only retries when the call site opts in).

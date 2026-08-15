@@ -64,6 +64,11 @@ import { AtomsError } from './errors.js';
  * @property {number}   wsMaxSendBytes          Outbound cap for one Connection::send() or one broadcast frame.
  * @property {number}   wsMaxBroadcastSockets   Fan-out cap for one broadcast() call.
  * @property {number}   wsDebugMaxConnections   Connection rows the debug endpoint will list.
+ * @property {number}   wsTicketTtlMs           Mint-time lifetime stamped into a connection ticket's `exp`.
+ * @property {number}   wsTicketSkewMs          Verification-side clock allowance added to `exp` (0 is legal; tests use it).
+ * @property {number}   wsTicketMaxClaims       Claim entries allowed in one mint request.
+ * @property {number}   wsTicketMaxClaimBytes   Total UTF-8 bytes of claim keys plus values in one mint request.
+ * @property {number}   wsTicketMaxBytes        Longest ticket string `/ws` will even look at.
  * @property {number}   timersMax             Per-Atom cap on scheduled timers (ATOMS_TIMERS_MAX).
  * @property {number}   timerNameMaxBytes     Byte-length cap on a timer name (ATOMS_TIMER_NAME_MAX_BYTES).
  * @property {number}   timersMaxPerAlarm     Due timers processed by one alarm() invocation before it re-arms and returns, rather than looping unbounded (ATOMS_TIMERS_MAX_PER_ALARM).
@@ -359,6 +364,13 @@ export function loadConfig(env) {
 		wsMaxSendBytes: int(env, 'ATOMS_WS_MAX_SEND_BYTES', 131072),
 		wsMaxBroadcastSockets: int(env, 'ATOMS_WS_MAX_BROADCAST_SOCKETS', 1000),
 		wsDebugMaxConnections: int(env, 'ATOMS_WS_DEBUG_MAX_CONNECTIONS', 100),
+		wsTicketTtlMs: posInt(env, 'ATOMS_WS_TICKET_TTL_MS', 60000),
+		// Plain int, not posInt: a skew of 0 is a legal (tighter) setting, and
+		// the conformance suite's expiry check runs with exactly that.
+		wsTicketSkewMs: int(env, 'ATOMS_WS_TICKET_SKEW_MS', 5000),
+		wsTicketMaxClaims: int(env, 'ATOMS_WS_TICKET_MAX_CLAIMS', 16),
+		wsTicketMaxClaimBytes: int(env, 'ATOMS_WS_TICKET_MAX_CLAIM_BYTES', 2048),
+		wsTicketMaxBytes: posInt(env, 'ATOMS_WS_TICKET_MAX_BYTES', 8192),
 
 		timersMax: int(env, 'ATOMS_TIMERS_MAX', 10000),
 		timerNameMaxBytes: int(env, 'ATOMS_TIMER_NAME_MAX_BYTES', 256),

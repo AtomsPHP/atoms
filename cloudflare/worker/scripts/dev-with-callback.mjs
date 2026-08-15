@@ -34,9 +34,16 @@
  *                           in a file other than src/config.js.
  *   ATOMS_SQL_MAX_ROWS, ATOMS_SQL_MAX_RESULT_BYTES  forwarded to the Worker
  *                           verbatim when set (conformance check 29's result-
- *                           set size guard, M1 design §4.4); when unset, the
- *                           Worker's own defaults apply. Never defaulted here
- *                           — same rule as ATOMS_TURN_DEADLINE_MS above.
+ *                           set size guard); when unset, the Worker's own
+ *                           defaults apply. Never defaulted here — same rule
+ *                           as ATOMS_TURN_DEADLINE_MS above.
+ *   ATOMS_APP_KEY           forwarded verbatim when set: an auth-enabled dev
+ *                           run for the connection-ticket checks (35-38).
+ *                           Same throwaway-argv caveat as the signing seed
+ *                           above; a deployed Worker uses `wrangler secret`.
+ *   ATOMS_WS_TICKET_TTL_MS, ATOMS_WS_TICKET_SKEW_MS  forwarded verbatim when
+ *                           set (check 36's signed-expiry leg needs a short
+ *                           TTL and a known skew); never defaulted here.
  */
 
 import { generateKeyPairSync } from 'node:crypto';
@@ -62,6 +69,9 @@ const callbackPort = process.env.ATOMS_CALLBACK_PORT || DEFAULT_CALLBACK_PORT;
 const turnDeadlineMs = process.env.ATOMS_TURN_DEADLINE_MS;
 const sqlMaxRows = process.env.ATOMS_SQL_MAX_ROWS;
 const sqlMaxResultBytes = process.env.ATOMS_SQL_MAX_RESULT_BYTES;
+const appKey = process.env.ATOMS_APP_KEY;
+const wsTicketTtlMs = process.env.ATOMS_WS_TICKET_TTL_MS;
+const wsTicketSkewMs = process.env.ATOMS_WS_TICKET_SKEW_MS;
 
 // The PKCS8-prefix trick this derives from: subarray(-32) on the DER export
 // is the raw seed / raw public key.
@@ -100,6 +110,15 @@ if (typeof sqlMaxRows === 'string' && sqlMaxRows !== '') {
 }
 if (typeof sqlMaxResultBytes === 'string' && sqlMaxResultBytes !== '') {
     argv.push('--var', `ATOMS_SQL_MAX_RESULT_BYTES:${sqlMaxResultBytes}`);
+}
+if (typeof appKey === 'string' && appKey !== '') {
+    argv.push('--var', `ATOMS_APP_KEY:${appKey}`);
+}
+if (typeof wsTicketTtlMs === 'string' && wsTicketTtlMs !== '') {
+    argv.push('--var', `ATOMS_WS_TICKET_TTL_MS:${wsTicketTtlMs}`);
+}
+if (typeof wsTicketSkewMs === 'string' && wsTicketSkewMs !== '') {
+    argv.push('--var', `ATOMS_WS_TICKET_SKEW_MS:${wsTicketSkewMs}`);
 }
 
 const wranglerBin = join(workerRoot, 'node_modules', '.bin', 'wrangler');

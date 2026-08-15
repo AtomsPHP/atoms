@@ -242,9 +242,81 @@ jobs:
         env:
           ATOMS_BASE_URL: http://127.0.0.1:${{ env.WORKER_PORT }}
 
+      # The second posture: bearer auth ON. Checks 31-34 already ran above
+      # with unsigned dev tickets; 35-38 are the signed half and need a real
+      # key on both the Worker and the runner. A full second suite run would
+      # re-pay the eviction waits (checks 12/21/24/25 — minutes) for zero new
+      # coverage, so ATOMS_ONLY scopes this run to the ticket checks plus
+      # check 2 as a bearer smoke test; ATOMS_REQUIRE_TICKET_CHECKS turns any
+      # ticket-check skip into a failure, so a broken auth setup cannot
+      # quietly delete the signed half. The key is generated per run and
+      # travels the same --var argv path as the callback seed (one shell
+      # step, never a file — see dev-with-callback.mjs's stated caveat).
+      # ATOMS_WS_TICKET_TTL_MS/ATOMS_WS_TICKET_SKEW_MS are passed to the
+      # Worker AND read by check 36 so the two never drift, the same pattern
+      # as ATOMS_TURN_DEADLINE_MS/check 15; the TTL is small so the
+      # signed-expiry wait costs ~2s.
+      - name: Ticket checks with bearer auth on
+        run: |
+          # wrangler.pid is the `npm run` wrapper; killing it alone orphans
+          # the wrangler/workerd children, which keep the port and would make
+          # this step silently test the auth-OFF server. Take down the whole
+          # tree, then require the port to actually go quiet before starting
+          # the auth-on server — a still-answering /healthz here is the old
+          # server, not a head start.
+          kill "$(cat wrangler.pid)" 2>/dev/null || true
+          pkill -f 'wrangler-dist/cli.js dev' 2>/dev/null || true
+          pkill -f 'workerd serve' 2>/dev/null || true
+          freed=0
+          for i in $(seq 1 15); do
+            if ! curl -fsS "http://127.0.0.1:${WORKER_PORT}/healthz" > /dev/null 2>&1; then freed=1; break; fi
+            sleep 1
+          done
+          if [ "$freed" != "1" ]; then
+            echo "::error::the auth-off worker is still answering on port ${WORKER_PORT}; refusing to run the auth-on checks against it"
+            exit 1
+          fi
+          export ATOMS_APP_KEY="$(openssl rand -hex 32)"
+          npm run dev:callback -- --port "$WORKER_PORT" > wrangler-auth.log 2>&1 &
+          echo $! > wrangler.pid
+          up=0
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${WORKER_PORT}/healthz" > /dev/null 2>&1; then
+              echo "auth-on worker answered /healthz after ~$((i * 2))s"
+              up=1
+              break
+            fi
+            if ! kill -0 "$(cat wrangler.pid)" 2>/dev/null; then
+              echo "::error::wrangler dev (auth-on) exited before serving /healthz"
+              cat wrangler-auth.log
+              exit 1
+            fi
+            sleep 2
+          done
+          if [ "$up" != "1" ]; then
+            echo "::error::auth-on worker never served /healthz within 120s"
+            cat wrangler-auth.log
+            exit 1
+          fi
+          ATOMS_BASE_URL="http://127.0.0.1:${WORKER_PORT}" \
+            ATOMS_ONLY=2,34,35,36,37,38 \
+            ATOMS_REQUIRE_TICKET_CHECKS=1 \
+            npm test
+        env:
+          # 3000, not smaller: check 34 carries a minted ticket through a
+          # full connect/close/reconnect cycle (the reuse contract), and the
+          # TTL has to outlive that cycle even on a slow runner (the atoms
+          # are pre-warmed by the checks, so no PHP boot is inside the
+          # window). The skew exists for check 36's signed-expiry leg, whose
+          # wait is TTL + skew + margin ≈ 5.5s.
+          ATOMS_WS_TICKET_TTL_MS: '3000'
+          ATOMS_WS_TICKET_SKEW_MS: '2000'
+
       # Unconditional: when a check fails, the interesting half of the story is
       # on the worker's side of the connection, and the runner is gone after
       # the job ends.
       - name: Wrangler log
         if: always()
-        run: cat wrangler.log || true
+        run: |
+          cat wrangler.log || true
+          cat wrangler-auth.log 2>/dev/null || true
