@@ -52,8 +52,18 @@ function base64UrlEncode(bytes) {
 }
 
 /**
+ * Non-canonical rejecting: a base64(url) group's unused low-order "wasted"
+ * bits (present whenever the encoded byte count is not a multiple of 3) are
+ * conventionally zero and simply discarded on decode — meaning two distinct
+ * strings can decode to the identical byte string if they differ only in
+ * those wasted bits. Left unchecked, that turns `verifyTicket`'s signature
+ * check into a malleability hole: flipping the ticket's last character can
+ * decode to the same signature bytes and still verify, so a "tampered"
+ * ticket is silently accepted. Requiring the round trip to reproduce the
+ * exact input closes it for both the signature and payload segments.
+ *
  * @param {string} s
- * @returns {Uint8Array|null} null on anything that is not base64url
+ * @returns {Uint8Array|null} null on anything that is not canonical base64url
  */
 function base64UrlDecode(s) {
 	if (!/^[A-Za-z0-9_-]*$/.test(s)) return null;
@@ -62,6 +72,7 @@ function base64UrlDecode(s) {
 		const binary = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
 		const bytes = new Uint8Array(binary.length);
 		for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+		if (base64UrlEncode(bytes) !== s) return null;
 		return bytes;
 	} catch {
 		return null;
