@@ -62,7 +62,7 @@ jobs:
               exit 1
             fi
             if [[ "$status" != "ready" ]]; then
-              echo "::error::Release manifest is $status; tags are refused until the standalone cutover PR sets ready."
+              echo "::error::Release manifest is $status; tags are refused until the release PR sets status to ready."
               exit 1
             fi
             git fetch origin main

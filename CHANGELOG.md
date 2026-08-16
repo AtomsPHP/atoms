@@ -3,7 +3,7 @@
 All notable changes to Atoms are documented here. The seven Composer packages,
 the Cloudflare runtime, and deploy Action use one coordinated version.
 
-## [Unreleased]
+## [0.2.0] - Unreleased
 
 - **Security:** One operator-facing secret, `ATOMS_SHARED_SECRET` (32 random
   bytes, base64, identical on the app and the Worker, never transmitted),
@@ -43,9 +43,9 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   overwriting a value already there) instead of running keyless. Local and
   production run the identical auth code path, including signed tickets.
 
-### UPGRADING from 0.1.x
+### UPGRADING to 0.2.0
 
-This change deletes four variables outright — `ATOMS_APP_KEY`,
+This release deletes four variables outright — `ATOMS_APP_KEY`,
 `ATOMS_API_KEY`, `ATOMS_CALLBACK_SIGNING_KEY`, `ATOMS_PLATFORM_PUBLIC_KEY` —
 with no compatibility shim. A deployment still setting only the old names
 fails loudly: the Worker answers `misconfigured` on every route but
@@ -126,3 +126,5 @@ deploy workflow, and the Cloudflare Durable Object PHP runtime.
 [0.1.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.0
 
 [0.1.1]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.1
+
+[0.2.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.2.0
