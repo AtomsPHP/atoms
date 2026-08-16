@@ -202,18 +202,13 @@ contract and is history only.
 `atoms/client` calls the Worker:
 
 - `POST {baseUrl}/invoke/{type}/{id}/{method}` body `{"args": [...]}`.
-- `POST {baseUrl}/tickets/{type}/{id}` body `{"claims": {...}}` (optional flat
-  string→string map) → `{"ticket": "...", "expires_at": <epoch-ms>, "atom":
-  {...}}` — mints a short-TTL WebSocket connection ticket, scoped
-  to one atom, presented by a browser as `?ticket=` on the `/ws` upgrade
-  (browsers cannot set an `Authorization` header on `new WebSocket()`).
-  Bearer-gated exactly like `/invoke` under `ATOMS_BEARER_AUTH=required`; the
-  route always mints the signed `v1.` ticket form, including under
-  `ATOMS_BEARER_AUTH=disabled`, so browser code paths match production.
-  Client contract: a ticket is reusable until it expires — the short TTL is
-  the replay defense — and on any connection failure the browser mints a
-  fresh one, since it cannot read why an upgrade failed. Spec:
-  `cloudflare/docs/mvp-spec.md` §Routing and auth (M4).
+- WebSocket connection tickets are **not** minted over HTTP: there is no
+  `POST /tickets` route. `Atoms\Client\Tickets\TicketIssuer` issues them
+  locally, in the application process, from the same derived key the Worker
+  verifies against — no round trip. `docs/ws-ticket-protocol.md` is
+  normative for the wire format, limits, expiry rule, and vectors; the
+  Worker's `GET /ws/{type}/{id}` upgrade remains the strict, stateless
+  verifier, spec'd in `cloudflare/docs/mvp-spec.md` §Routing and auth.
 - `Authorization: Bearer {bearer}`, where `{bearer}` is
   `HKDF(ATOMS_SHARED_SECRET, "atoms/bearer/v1")` — `AtomsConfig::$sharedSecret`
   is a required, validated string (`docs/shared-secret.md`), so the client

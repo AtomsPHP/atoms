@@ -5,7 +5,9 @@ the normative contract for the single symmetric root on the app ↔ Worker
 boundary. `cloudflare/docs/mvp-spec.md` §The callback channel, §Routing and
 auth and `docs/cloudflare-toolchain.md` restate the parts each half
 implements; where a restatement and this document disagree, this document
-wins.
+wins. `docs/ws-ticket-protocol.md` is normative for the WebSocket ticket wire
+format and its vectors; this document stays supreme for the key material,
+its derivation, and rotation.
 
 ## The decision
 
@@ -18,7 +20,7 @@ string, 32-byte output:
 | purpose | `info` | output form | use |
 |---|---|---|---|
 | bearer | `atoms/bearer/v1` | 32 bytes, then **standard base64 (RFC 4648, padded — exactly 44 characters)** | the `Authorization: Bearer` value: the monolith derives and sends it, the Worker derives and compares |
-| WebSocket tickets | `atoms/ws-ticket/v1` | 32 bytes, imported as a non-extractable HMAC-SHA256 WebCrypto key | ticket signing and verification, Worker-internal |
+| WebSocket tickets | `atoms/ws-ticket/v1` | 32 bytes: raw bytes via `hash_hkdf()` on the monolith, imported as a non-extractable HMAC-SHA256 WebCrypto key on the Worker | ticket signing (application, `TicketIssuer`) and verification (Worker) — see `docs/ws-ticket-protocol.md` |
 | callbacks | `atoms/callback/v1` | 32 bytes: non-extractable HMAC-SHA256 WebCrypto key on the Worker; the same 32 raw bytes via `hash_hkdf()` on the monolith | callback HMAC-SHA256 signing (Worker) and verification (monolith) |
 
 The IKM for every derivation is the **decoded 32 raw bytes**, not the
@@ -109,24 +111,28 @@ and is not acceptable. Local and production run the same code path —
 including ticket signing, which is why the unsigned `v1u.` dev ticket form
 no longer exists (below).
 
-## Tickets: always signed, `v1u.` deleted
+## Tickets: always signed, `v1u.` deleted, now issued locally
 
 The unsigned dev ticket existed only because the auth-off posture had no
-key to sign with. There is now always a key, so `POST /tickets` always
-mints the signed `v1.` form — under `ATOMS_BEARER_AUTH=disabled` too — and
+key to sign with. There is now always a key, so ticket issuance always
+produces the signed `v1.` form — under `ATOMS_BEARER_AUTH=disabled` too — and
 `/ws` always verifies the signature. The `v1u.` form is deleted outright:
 minting it, accepting it, and the special-case rejection text all go. A dev
 machine's tickets are signed by that machine's dev secret and are
 worthless anywhere else.
 
+Tickets are no longer minted by the Worker. `Atoms\Client\Tickets\TicketIssuer`
+mints them locally, in the application process, from the same derived key —
+pure computation, no HTTP round trip. The wire format, its limits, and the
+expiry rule are normative in `docs/ws-ticket-protocol.md`; this document
+stays authoritative for the key derivation alone.
+
 The ticket HKDF `info` stays `atoms/ws-ticket/v1`; only the IKM changes
 (decoded shared-secret bytes instead of the old app-key string). Rotating
-the secret still invalidates every outstanding ticket at once — deliberate,
-unchanged, and tickets get **no** previous-secret overlap: they carry a
-seconds-scale TTL and are re-minted through the application, which is also
-where rate-limiting the mint path belongs. A ticket signed under
-`ATOMS_SHARED_SECRET_PREVIOUS` is `ticket_invalid`, and the conformance
-suite asserts that.
+the secret still invalidates every outstanding ticket that was signed under
+the fully-retired secret — but, per below, tickets now join the rotation
+overlap, so a ticket signed under `ATOMS_SHARED_SECRET_PREVIOUS` is accepted
+for the length of the overlap window, not refused outright.
 
 ## Callbacks: same envelope, HMAC instead of Ed25519
 
@@ -169,22 +175,26 @@ would hold the root of everything — strictly worse than the two-key design
 this replaces. That is why the deny list is part of the contract, not
 hygiene.
 
-## Rotation: `ATOMS_SHARED_SECRET_PREVIOUS`, two sites, try-both
+## Rotation: `ATOMS_SHARED_SECRET_PREVIOUS`, three sites, try-both
 
 One secret means one flip would invalidate bearer auth, tickets and
 callback trust together. The overlap mechanism is a second, *optional*
-secret — never a second live secret — accepted at **exactly two
+secret — never a second live secret — accepted at **exactly three
 verification sites**:
 
 1. **The Worker's bearer check.** It derives `bearer(current)` and, when
    `ATOMS_SHARED_SECRET_PREVIOUS` is set, `bearer(previous)`, and accepts
    a request whose token matches either — constant-time compare against
    each.
-2. **The monolith's callback verification.** It derives the callback key
+2. **The Worker's ticket signature check.** It verifies a ticket's HMAC
+   under the current derived ticket key and, when
+   `ATOMS_SHARED_SECRET_PREVIOUS` is set, under the previous one, and
+   accepts on either match. See `docs/ws-ticket-protocol.md` §Rotation.
+3. **The monolith's callback verification.** It derives the callback key
    from both secrets and accepts a callback whose HMAC verifies under
    either.
 
-Both sites are **try-both, never a key selector**: verification always
+All three sites are **try-both, never a key selector**: verification always
 attempts the current key, then the previous, and accepts on the first
 match. A key id is not a trusted input — the previous secret is a fixed,
 operator-provisioned fallback tried unconditionally during the window,
@@ -193,20 +203,29 @@ for logging, it is advisory only and selects nothing.
 
 The overlap is asymmetric on purpose: **a verifier accepts both, a sender
 emits only the current value.** The monolith always sends
-`bearer(current)`; the Worker always signs callbacks with the current key.
-The previous secret widens *acceptance*, never *emission*, so neither side
-guesses which value a straggler still uses. Tickets, per above, get no
-overlap at all.
+`bearer(current)` and always signs tickets with the current key; the
+Worker always signs callbacks with the current key. The previous secret
+widens *acceptance*, never *emission*, so neither side guesses which value
+a straggler still uses. This now covers tickets too, not just bearer and
+callbacks — the earlier design gave tickets no overlap at all, on the
+justification that a ticket was cheap to re-mint through the Worker; that
+justification died along with the mint route (`docs/ws-ticket-protocol.md`
+§Rotation explains why, and records the rejected alternative of keeping
+tickets strict).
 
-Runbook (zero downtime for bearer and callbacks):
+Runbook (zero downtime for bearer, tickets and callbacks):
 
 1. Worker: set `ATOMS_SHARED_SECRET` = new, `ATOMS_SHARED_SECRET_PREVIOUS`
-   = old, deploy. The Worker now accepts both bearers.
+   = old, deploy. The Worker now accepts both bearers and both ticket
+   signatures.
 2. Monolith: deploy with the same pair. New instances emit the new bearer
-   and verify callbacks under both keys; a still-old instance emits the
-   old bearer, which the Worker still accepts.
+   and sign new tickets with the new key, and verify callbacks under both
+   keys; a still-old instance emits the old bearer and signs tickets with
+   the old key, both of which the Worker still accepts.
 3. Once every instance on both sides holds the new secret, delete
-   `ATOMS_SHARED_SECRET_PREVIOUS` from both and redeploy.
+   `ATOMS_SHARED_SECRET_PREVIOUS` from both and redeploy. This step still
+   invalidates every outstanding old-secret ticket at once, along with the
+   old bearer and old callback key.
 
 ## What this trades away — recorded, not to be re-litigated
 
@@ -249,7 +268,8 @@ spec, including:
 - HMAC verification of every callback the suite's listener receives, tag
   length asserted;
 - rotation cases: `bearer(previous)` accepted when the overlap is
-  configured, a previous-secret-signed ticket refused;
+  configured, and a previous-secret-signed ticket accepted under the same
+  overlap (`docs/ws-ticket-protocol.md` §Rotation);
 - deny-list cases: a guest `config.get()` of either new name resolves
   null, whatever the allowlist says;
 - the misconfigured-Worker case: no secret → `misconfigured` on `/invoke`,
