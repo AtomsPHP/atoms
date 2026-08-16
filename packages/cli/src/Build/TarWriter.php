@@ -81,17 +81,16 @@ final class TarWriter
      * Split a path across ustar's `prefix` (155 bytes) and `name` (100 bytes)
      * fields, which together address a path as `prefix . "/" . name`.
      *
-     * This used to truncate when it could not split, and the truncated entry
-     * went into the archive under a name the manifest did not agree with — a
-     * bundle that is invalid by construction, produced by a build that
-     * reported success. Nothing downstream could recover the real path, so
-     * the only honest options are to encode it or to refuse it, and refusing
-     * is the one that does not invent a tar extension the reader does not
-     * implement.
+     * A path that cannot be split is **refused**, never truncated. A truncated
+     * entry goes into the archive under a name the manifest does not agree
+     * with — a bundle invalid by construction, from a build that reported
+     * success — and nothing downstream can recover the real path. The only
+     * honest options are to encode it or refuse it, and refusing is the one
+     * that does not invent a tar extension the reader will not implement.
      *
-     * The old code also split at the last `/` within the first 155 bytes
-     * without checking what remained: a path with a long tail split "cleanly"
-     * and then lost bytes in the 100-byte name field anyway.
+     * Splitting at the last `/` within the first 155 bytes is not sufficient
+     * on its own: a path with a long tail splits "cleanly" there and still
+     * loses bytes in the 100-byte name field, so what remains is checked too.
      *
      * @return array{0: string, 1: string} [prefix, name]
      * @throws AtomsError E078 when the path cannot be represented

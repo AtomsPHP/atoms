@@ -9,6 +9,7 @@ use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
 use Atoms\Cli\Cloudflare\DevVars;
 use Atoms\Cli\Cloudflare\Wrangler;
+use Atoms\Cli\Config\EnvFile;
 use Atoms\Cli\Process\ProcessRunner;
 use Atoms\Cli\Process\SymfonyProcessRunner;
 use Atoms\Errors\AtomsError;
@@ -29,22 +30,27 @@ use Symfony\Component\Console\Output\OutputInterface;
  * ## The dev secret
  *
  * Every route the Worker serves, local or deployed, needs `ATOMS_SHARED_SECRET`
- * (docs/shared-secret.md). This command guarantees one is present in the
- * Worker project's `.dev.vars` before starting `wrangler dev`: an existing
- * `ATOMS_SHARED_SECRET` line is left untouched; otherwise a fresh
- * `base64_encode(random_bytes(32))` value is generated and appended, creating
- * the file with mode 0600 when it does not yet exist. `wrangler dev` loads
- * `.dev.vars` on its own, so the value never appears on this command's argv or
- * in a `--var` flag — a secret there would sit in the process table and in
- * shell history, which the CLI-never-holds-a-credential rule exists to
- * prevent. This command prints the `.dev.vars` path and reminds the operator
- * that the app side's own `.env` needs the identical value — never the value
- * itself.
+ * (docs/shared-secret.md), and the app needs the identical value under the
+ * identical name. This command guarantees both before starting `wrangler dev`.
  *
- * A `.dev.vars` inside a git work tree must be gitignored before a secret is
- * generated into it: a committed dev secret would be a known master key.
- * Outside a git work tree, or once `.dev.vars` is gitignored, generation
- * proceeds.
+ * The app's dotenv file is the source of truth — the one file a human edits,
+ * and where a fresh `base64_encode(random_bytes(32))` is generated when the
+ * key is absent, as `php artisan key:generate` does. The Worker's `.dev.vars`
+ * is a generated projection of it, rewritten whenever the two differ: it
+ * exists only because `wrangler dev` reads that file and nothing else, and
+ * carries exactly the one var the Worker needs rather than the app's whole
+ * environment. Treat it as a build artifact.
+ *
+ * The value reaches Wrangler through that file rather than argv or a `--var`
+ * flag, which would put a secret in the process table and shell history — the
+ * CLI-never-holds-a-credential rule. It is never printed either: terminal
+ * scrollback is the surface a developer shares most casually.
+ *
+ * Any file about to hold the secret must be gitignored if it sits in a git
+ * work tree; a committed dev secret would be a known master key. That check
+ * also picks the app's file: Laravel gitignores `.env`, Symfony commits `.env`
+ * and gitignores `.env.local`, so asking git lands on the right one without
+ * naming either framework.
  *
  * ## The callback channel
  *
@@ -97,12 +103,7 @@ final class DevCommand extends AbstractCommand
             );
 
             $target->assertWorkerDir();
-            $devSecret = $this->ensureDevSecret($target->workerDir);
-            $output->writeln(
-                ($devSecret['generated'] ? 'Generated a per-machine dev secret at ' : 'Using the dev secret at ')
-                . $devSecret['path'] . '.'
-            );
-            $output->writeln('  Set the identical ATOMS_SHARED_SECRET in the app\'s .env.');
+            $this->ensureDevSecret($config->rootDir, $target->workerDir, $output);
 
             if ($input->getOption('no-build') !== true) {
                 $output->writeln('Building bundle…');
@@ -148,26 +149,89 @@ final class DevCommand extends AbstractCommand
     }
 
     /**
-     * Guarantee $workerDir/.dev.vars carries an ATOMS_SHARED_SECRET line,
-     * generating and appending one when absent.
+     * Leave both halves holding the same dev secret.
      *
-     * @return array{path: string, generated: bool}
+     * The app's dotenv file is the source of truth — one is generated there if
+     * absent — and `.dev.vars` is a projection of it, rewritten whenever the
+     * two differ. A project with no dotenv file keeps the secret in
+     * `.dev.vars` alone. Prints paths only, never the value.
      *
-     * @throws AtomsError E105 when the directory is a git work tree and
-     *                    .dev.vars is not gitignored
+     * @throws AtomsError E105 when a file that must hold the secret is not
+     *                    gitignored
      */
-    private function ensureDevSecret(string $workerDir): array
+    private function ensureDevSecret(string $rootDir, string $workerDir, OutputInterface $output): void
+    {
+        $appPath = $this->resolveAppEnvFile($rootDir);
+
+        if ($appPath === null) {
+            $this->ensureWorkerOnlySecret($workerDir, $output);
+
+            return;
+        }
+
+        $secret = EnvFile::read($appPath, DevVars::SECRET_KEY);
+        if ($secret === null) {
+            $secret = DevVars::generate();
+            EnvFile::write($appPath, DevVars::SECRET_KEY, $secret, 'Per-machine dev secret, generated by atoms dev.');
+            $output->writeln('Generated a per-machine dev secret in ' . $appPath . '.');
+        } else {
+            $output->writeln('Using the dev secret in ' . $appPath . '.');
+        }
+
+        if (DevVars::readSecret($workerDir) !== $secret) {
+            $this->assertDevVarsIsGitSafe($workerDir);
+            DevVars::writeSecret($workerDir, $secret);
+            $output->writeln('  Projected into ' . DevVars::path($workerDir) . '.');
+        }
+    }
+
+    /**
+     * A project with no dotenv file is not using dotenv, so `.dev.vars` is
+     * both source and sink: generate into it once, then leave it alone.
+     *
+     * @throws AtomsError E105
+     */
+    private function ensureWorkerOnlySecret(string $workerDir, OutputInterface $output): void
     {
         $path = DevVars::path($workerDir);
 
         if (DevVars::readSecret($workerDir) !== null) {
-            return ['path' => $path, 'generated' => false];
+            $output->writeln('Using the dev secret at ' . $path . '.');
+
+            return;
         }
 
         $this->assertDevVarsIsGitSafe($workerDir);
-        DevVars::appendGeneratedSecret($workerDir);
+        DevVars::writeSecret($workerDir, DevVars::generate());
+        $output->writeln('Generated a per-machine dev secret at ' . $path . '.');
+    }
 
-        return ['path' => $path, 'generated' => true];
+    /**
+     * The dotenv file that holds the secret, or null when the project has none
+     * and so is not using dotenv.
+     *
+     * `.env.local` wins when it already exists, or when `.env` is committed
+     * and so cannot hold a secret — Symfony's layout. Laravel gitignores
+     * `.env` and ships no `.env.local`, so it lands on `.env`.
+     *
+     * @throws AtomsError E105 when the chosen file is not gitignored
+     */
+    private function resolveAppEnvFile(string $rootDir): ?string
+    {
+        $root = rtrim($rootDir, '/');
+
+        if (!is_file($root . '/.env') && !is_file($root . '/.env.local')) {
+            return null;
+        }
+
+        $name = '.env';
+        if (is_file($root . '/.env.local') || !$this->isGitSafe($root, '.env')) {
+            $name = '.env.local';
+        }
+
+        $this->assertGitSafe($root, $name, 'a shared secret committed to git would be a known master key');
+
+        return $root . '/' . $name;
     }
 
     /**
@@ -182,22 +246,43 @@ final class DevCommand extends AbstractCommand
      */
     private function assertDevVarsIsGitSafe(string $workerDir): void
     {
-        $inWorkTree = $this->processRunner->run(['git', '-C', $workerDir, 'rev-parse', '--is-inside-work-tree']);
+        $this->assertGitSafe(
+            $workerDir,
+            DevVars::FILE,
+            'a per-machine dev secret committed to git would be a known master key',
+        );
+    }
+
+    /**
+     * True when git cannot expose a secret written to $dir/$file: either $dir
+     * is not a work tree, or $file is gitignored. `check-ignore` matches
+     * patterns, so this also answers for a $file that does not exist yet.
+     */
+    private function isGitSafe(string $dir, string $file): bool
+    {
+        $inWorkTree = $this->processRunner->run(['git', '-C', $dir, 'rev-parse', '--is-inside-work-tree']);
         if (!$inWorkTree->ok() || trim($inWorkTree->stdout) !== 'true') {
-            return;
+            return true;
         }
 
         // `git check-ignore -q PATH` exits 0 when PATH is ignored.
-        $ignored = $this->processRunner->run(['git', '-C', $workerDir, 'check-ignore', '-q', DevVars::FILE]);
-        if ($ignored->ok()) {
+        return $this->processRunner->run(['git', '-C', $dir, 'check-ignore', '-q', $file])->ok();
+    }
+
+    /**
+     * @throws AtomsError E105
+     */
+    private function assertGitSafe(string $dir, string $file, string $because): void
+    {
+        if ($this->isGitSafe($dir, $file)) {
             return;
         }
 
         throw new AtomsError(
             ErrorCode::SharedSecretMissing,
-            ErrorCode::SharedSecretMissing->value . ': ' . $workerDir . ' is a git work tree, and its .dev.vars '
-                . 'is not listed in .gitignore. Add "' . DevVars::FILE . '" to ' . $workerDir . '/.gitignore, '
-                . 'then rerun `atoms dev` — a per-machine dev secret committed to git would be a known master key.',
+            ErrorCode::SharedSecretMissing->value . ': ' . $dir . ' is a git work tree, and its ' . $file
+                . ' is not listed in .gitignore. Add "' . $file . '" to ' . $dir . '/.gitignore, '
+                . 'then rerun `atoms dev` — ' . $because . '.',
         );
     }
 }

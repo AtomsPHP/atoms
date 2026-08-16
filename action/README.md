@@ -64,12 +64,59 @@ the same way as the token, through the step environment.
 | `working-directory` | No | `.` | Working directory containing `atoms.json` |
 | `worker-directory` | No | `.atoms/worker` | Existing custom Worker directory, relative to `working-directory`. The default is scaffolded automatically when missing or empty. |
 | `bundle` | No | — | Path to a prebuilt bundle. If omitted, builds locally. |
+| `shared-secret` | No | — | `ATOMS_SHARED_SECRET` for the Worker (32 random bytes, base64). Stored after the deploy, and only when the Worker does not already have one. |
+| `shared-secret-previous` | No | — | `ATOMS_SHARED_SECRET_PREVIOUS`, the rotation overlap value. |
+| `rotate-shared-secret` | No | `false` | Overwrite the Worker's existing values with the two above. Only the literal `true` enables it. |
+| `retire-shared-secret-previous` | No | `false` | Remove `ATOMS_SHARED_SECRET_PREVIOUS`, closing a rotation window. Only the literal `true` enables it. |
 | `php-version` | No | `8.3` | PHP version used to run the Atoms CLI |
 | `node-version` | No | `22` | Node version used to run Wrangler |
 
+## The shared secret
+
+The Worker cannot serve anything without `ATOMS_SHARED_SECRET`, and a deploy
+that ships code without it produces a Worker answering `misconfigured` on every
+route **except `GET /healthz`** — a green health check over a broken Worker. Pass
+`shared-secret` and the action configures it in the same run:
+
+```yaml
+- uses: AtomsPHP/atoms/action@v0
+  with:
+    environment: production
+    cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    shared-secret: ${{ secrets.ATOMS_SHARED_SECRET }}
+```
+
+Generate the value once with `openssl rand -base64 32`. It goes in three
+places: your CI secret store, the Worker (this input), and your **app**
+platform's environment under the same name — the last is outside this action's
+reach and belongs in your own runbook. The app and Worker values must be
+identical; the secret itself never travels over the wire.
+
+Handling, same as the API token: masked with `::add-mask::` before any other
+step runs, and piped to the CLI on **stdin**, never an argv a process listing or
+log could show. The write happens *after* the deploy step because
+`wrangler secret put` needs the Worker to exist, so a first deploy serves
+`misconfigured` for the seconds between the two, then heals.
+
+It is idempotent — the write is skipped when the Worker already has the secret,
+so running it on every deploy does not mint a Worker version each time. That
+also means it will not apply a **changed** value: set `rotate-shared-secret:
+true` for that, alongside `shared-secret-previous` for a zero-downtime overlap.
+
+Closing the window is `retire-shared-secret-previous: true` on one later
+deploy, in place of `shared-secret-previous`. It removes the overlap key and
+succeeds when the key is already gone, so it cannot fail a pipeline that runs
+it twice. The overlap key is the only one it removes — `ATOMS_SHARED_SECRET`
+has no retire input, because a Worker without it answers `misconfigured` on
+every route but `GET /healthz`. Drop the same value from the application side
+yourself; nothing here can reach it. See `docs/shared-secret.md` for the full
+rotation runbook.
+
 ## How it works
 
-1. **Masks** the Cloudflare API token so it cannot leak into the log.
+1. **Masks** the Cloudflare API token and any shared-secret inputs so they
+   cannot leak into the log.
 2. **Sets up PHP** (default 8.3) with `pdo_sqlite` and `curl`.
 3. **Sets up Node** (default 22) — Wrangler is a Node program.
 4. **Installs the matching Atoms CLI version** via Composer.
@@ -77,6 +124,11 @@ the same way as the token, through the step environment.
 6. **Runs `npm ci`** from the runtime's shipped lockfile.
 7. **Runs `atoms deploy --env <environment>`** in `working-directory`, with the
    Cloudflare credentials in the environment.
+8. **Configures the shared secret**, when `shared-secret` or
+   `shared-secret-previous` is set — after the deploy, because
+   `wrangler secret put` needs the Worker to exist.
+9. **Retires the previous shared secret**, when
+   `retire-shared-secret-previous` is `true`.
 
 ## The Worker directory
 
@@ -175,4 +227,5 @@ jobs:
 | `ATOMS-E073` | Wrangler not found | Restore the default runtime scaffold, or ensure a custom Worker contains its locked Wrangler install. |
 | `ATOMS-E074` | Wrangler command failed | Read Wrangler's own output; it reports Cloudflare's rejection verbatim. Usually a token missing **Workers Scripts:Edit** on that account. |
 | `ATOMS-E075` | Cloudflare account not configured | Supply `cloudflare-account-id`, or set `account_id` for the environment in `atoms.json`. |
+| `ATOMS-E105` | Shared secret missing or malformed | The `shared-secret` input is not 32 bytes of base64. Regenerate with `openssl rand -base64 32`. |
 | `ATOMS-E076` | Worker directory missing or incomplete | Remove an incomplete default scaffold so the action can recreate it, or repair the caller-managed Worker directory. |

@@ -12,18 +12,11 @@ This document records three decisions that M3 had to make and that everything
 downstream inherits. Each is written with its rejected alternatives, because
 the alternatives are all reasonable and will otherwise be re-proposed.
 
-## 1. Runtime auth: the client moved, and the bearer is derived
+## 1. Runtime auth: prefixless routes, and the bearer is derived
 
-### The disagreement
+### The route shape
 
-`atoms/client` used to build
-
-```
-POST {baseUrl}/v1/{customer}/invoke/{type}/{id}/{method}
-Authorization: Bearer {apiKey}
-```
-
-The Worker serves
+`atoms/client` and the Worker meet at
 
 ```
 POST {baseUrl}/invoke/{type}/{id}/{method}
@@ -32,30 +25,21 @@ Authorization: Bearer $(atoms token)
 
 `atoms token` prints the bearer derived from `ATOMS_SHARED_SECRET` — see
 "Bearer auth is mandatory" below and `docs/shared-secret.md`, the decision
-record for the whole boundary.
+record for the whole boundary. `/invoke` is the only route the client calls;
+WebSocket tickets are issued locally, without an HTTP hop.
 
-### The decision
+### Why no `/v1/{customer}` prefix
 
-**The client moved.** The `/v1/{customer}` prefix is gone from
-`AtomsClient` and `AtomsClient::destroy()`, and `AtomsConfig::$customer` is
-deleted. (`TicketClient` was a sketch when this decision was recorded; the
-Worker briefly implemented `POST /tickets/{type}/{id}` as of M4, but that
-route, `TicketClient`, and its `TicketAcquisitionFailed` exception are all
-now deleted outright — tickets are issued locally by
-`Atoms\Client\Tickets\TicketIssuer` instead. See "The bearer is the
-server-to-server credential; browsers use tickets" below and
-`docs/ws-ticket-protocol.md`.)
+**Rejected: a customer-prefixed route.** A prefix routes a multi-tenant edge
+to one tenant's compute. The Worker is single-tenant by construction: it *is*
+the customer's deployment, running in the customer's account, and there is no
+second tenant for a prefix to disambiguate. Carrying one would mean a route
+segment whose only possible value is a constant, and `AtomsConfig` holding a
+`customer` it never varies.
 
-The prefix existed to route a multi-tenant edge to one customer's Machines. The
-Worker is single-tenant by construction: it *is* the customer's deployment,
-running in the customer's account, and there is no second tenant for a prefix
-to disambiguate. Keeping the prefix would have meant the Worker growing a route
-segment whose only possible value is a constant.
-
-Moving the client is also the cheaper edit in the sense that matters:
-`atoms/client` is **not** the frozen ABI. Only `atoms/core` is. Changing the
-client's URL shape breaks no wire contract, because the wire contract it was
-implementing no longer has an implementation.
+The client is the right side to carry that shape, because `atoms/client` is
+**not** the frozen ABI — only `atoms/core` is — so its URL shape is free to
+match whatever the Worker actually serves.
 
 ### Bearer auth is mandatory; `ATOMS_BEARER_AUTH` is the explicit posture switch
 
@@ -218,16 +202,22 @@ travel to the Worker by two different, deliberately asymmetric paths
   other Worker secret. Locally, `atoms dev` provisions a fresh per-machine dev
   secret into the Worker project's gitignored `.dev.vars` — creating the file
   if needed, never overwriting a value already there, and warning if the file
-  is not gitignored — so a developer never types the secret in by hand.
+  is not gitignored — so a developer never types the secret in by hand. The
+  app's `.env` (or `.env.local` where `.env` is committed) is the source of
+  truth; `.dev.vars` is a generated projection of it, rewritten when the two
+  differ, and exists only because `wrangler dev` reads that file and nothing
+  else. See `docs/shared-secret.md`.
 
 **Why the CLI never carries the secret on its own argv.** Putting it on
 `atoms dev`'s argv or behind a `--var` flag would place it in the process
 table and in shell history — precisely what the CLI-never-holds-a-credential
 rule (root `AGENTS.md`) exists to prevent. `.dev.vars` and
 `wrangler secret put` are Wrangler's own delivery vehicles for a secret;
-`atoms dev` writes straight to the `.dev.vars` file it provisions rather than
-passing the value as an argument anywhere, and otherwise only ever reaches for
-the one variable (`ATOMS_CALLBACK_URL`) that is not a secret at all.
+`atoms dev` writes the dev secret to the app's dotenv file and projects it
+into `.dev.vars` rather than passing the value as an argument anywhere, and
+`atoms shared-secret:set` pipes it to `wrangler secret put` on stdin. The CLI
+otherwise only ever reaches for the one variable (`ATOMS_CALLBACK_URL`) that
+is not a secret at all.
 
 **`ATOMS_SHARED_SECRET` is not settable via `atoms secrets:set`, and that is
 deliberate.** `SecretsSetCommand` always maps a name through
@@ -238,12 +228,19 @@ bearer/ticket/callback paths reads — and one guest code *could* read. So the
 command refuses the raw name before prefixing (`ATOMS-E077`):
 `WorkerConfig::CREDENTIAL_KEYS` names `ATOMS_SHARED_SECRET` and
 `ATOMS_SHARED_SECRET_PREVIOUS`, and `keyRefusalReason()` checks the input
-against it ahead of any transform. `wrangler secret put
-ATOMS_SHARED_SECRET` and `atoms dev`'s `.dev.vars` provisioning are the only
-paths, exactly as this section describes — there is no CLI shortcut for this
-secret, and there is not meant to be one: a root this central does not belong
-behind a command whose whole contract is prefixing keys for guest code to
-read.
+against it ahead of any transform. A root this central does not belong behind
+a command whose whole contract is prefixing keys for guest code to read.
+
+**`atoms shared-secret:set --env X` is the CLI path instead**, in its own
+namespace so that the two can never be confused: it writes the exact,
+unprefixed name and nothing else, takes the value on stdin only, and
+validates it as 32 bytes of base64 before sending. It is idempotent, leaving
+an existing value alone unless `--force`, so a pipeline can run it on every
+deploy without minting a Worker version each time; `--previous` writes
+`ATOMS_SHARED_SECRET_PREVIOUS` for a rotation window. The deploy Action wraps
+it (`action/README.md` §The shared secret), and `docs/shared-secret.md`
+§"Setting it" is the runbook. `wrangler secret put ATOMS_SHARED_SECRET` by
+hand and `atoms dev`'s dev-secret provisioning remain the other two ways in.
 
 ### Debug endpoints: off by default, enabled in atoms.json
 
@@ -470,9 +467,8 @@ the Worker conformance suite was untouched by the CLI integration (see
 `cloudflare/docs/mvp-spec.md` §Conformance suite), and the vendored
 `atoms/core` copy needed no re-vendor on this account.
 
-`build-bundle.mjs` stays, with its scope corrected: it is the conformance
-fixture builder, not — as its header used to say — a stand-in for the real
-`atoms build`.
+`build-bundle.mjs` is the conformance fixture builder. It is not a stand-in
+for the real `atoms build`.
 
 ### Two additive manifest fields
 

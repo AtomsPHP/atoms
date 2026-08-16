@@ -33,13 +33,7 @@ new Uint8Array(0), info}, ikm, 256)` are byte-identical over the same IKM
 (verified; the conformance suite and the client test suite both pin the
 vector below).
 
-This replaces two secrets and two fossil names. `ATOMS_APP_KEY` (Worker),
-`ATOMS_API_KEY` (client and adapters — the hosted-platform-era name for the
-same value), `ATOMS_CALLBACK_SIGNING_KEY` (Worker, Ed25519 seed) and
-`ATOMS_PLATFORM_PUBLIC_KEY` (monolith, its public half) are all **deleted**,
-not aliased. Pre-release: no compatibility shim reads the old names, and
-nothing warns-then-continues — a deployment still setting only the old
-variables fails loudly.
+`ATOMS_SHARED_SECRET` is the only name either side reads. A deployment that does not set it fails loudly, per "Bearer auth" below.
 
 ### Reference vector
 
@@ -77,8 +71,7 @@ Two obligations follow, and they are requirements, not suggestions:
 - **Every place the variable is documented says it is not a bearer token
   and must never be sent.** The name says "symmetric, match on both sides"
   — correct, and why it was chosen — but it does not say "never transmit
-  this", so the docs must. Every troubleshooting example that used to show
-  `-H "Authorization: Bearer $ATOMS_APP_KEY"` now shows
+  this", so the docs must. Every troubleshooting example shows
   `-H "Authorization: Bearer $(atoms token)"`.
 
 ## Bearer auth: mandatory secret, explicit opt-out
@@ -102,78 +95,83 @@ production is a loud configuration error, never an open Worker:
   front of the Worker. It disables **only** the bearer comparison; the
   secret stays mandatory, tickets stay signed, callbacks stay signed.
 
-Local development rebuilds its keyless convenience on the explicit flag,
-not on a committed secret: `atoms dev` generates a fresh per-machine dev
-secret into the Worker project's gitignored `.dev.vars` (creating the file
-if needed, never overwriting an existing value, warning if the file is not
-gitignored). A committed or fixed dev secret would be a known master key
-and is not acceptable. Local and production run the same code path —
-including ticket signing, which is why the unsigned `v1u.` dev ticket form
-no longer exists (below).
+Local development gets its convenience from the explicit flag, not from a
+committed secret: `atoms dev` provisions a per-machine dev secret, and
+refuses to write one into a file git would track. A committed or fixed dev
+secret would be a known master key and is not acceptable. Local and
+production run the same code path, including ticket signing (below).
 
-## Tickets: always signed, `v1u.` deleted, now issued locally
+The app's dotenv file is the source of truth, and `.dev.vars` is a
+generated projection of it. `atoms dev` generates a secret into the app's
+file when the key is absent — as `php artisan key:generate` does, and
+likewise without printing it — then rewrites `.dev.vars` whenever the two
+differ. An existing app value is adopted, never overwritten, so a secret
+managed by Doppler or 1Password is left alone.
 
-The unsigned dev ticket existed only because the auth-off posture had no
-key to sign with. There is now always a key, so ticket issuance always
-produces the signed `v1.` form — under `ATOMS_BEARER_AUTH=disabled` too — and
-`/ws` always verifies the signature. The `v1u.` form is deleted outright:
-minting it, accepting it, and the special-case rejection text all go. A dev
-machine's tickets are signed by that machine's dev secret and are
-worthless anywhere else.
+`.dev.vars` exists only because `wrangler dev` reads that file and nothing
+else. Wrangler's `--env-file` could point it straight at the app's `.env`
+instead, but that loads the file's *entire* contents into the Worker as
+secrets; the projection carries exactly the one var the Worker needs. Treat
+it as a build artifact — gitignored, never edited, rewritten each run.
 
-Tickets are no longer minted by the Worker. `Atoms\Client\Tickets\TicketIssuer`
-mints them locally, in the application process, from the same derived key —
-pure computation, no HTTP round trip. The wire format, its limits, and the
-expiry rule are normative in `docs/ws-ticket-protocol.md`; this document
-stays authoritative for the key derivation alone.
+The target file is whichever dotenv file git says can hold a secret:
+Laravel's gitignored `.env`, Symfony's `.env.local` (its `.env` is
+committed). A project with neither is not using dotenv, and keeps the
+secret in `.dev.vars` alone.
 
-The ticket HKDF `info` stays `atoms/ws-ticket/v1`; only the IKM changes
-(decoded shared-secret bytes instead of the old app-key string). Rotating
-the secret still invalidates every outstanding ticket that was signed under
-the fully-retired secret — but, per below, tickets now join the rotation
-overlap, so a ticket signed under `ATOMS_SHARED_SECRET_PREVIOUS` is accepted
-for the length of the overlap window, not refused outright.
+## Tickets: always signed, issued locally
 
-## Callbacks: same envelope, HMAC instead of Ed25519
+A signing key is always configured, so ticket issuance always produces the
+signed `v1.` form — under `ATOMS_BEARER_AUTH=disabled` too — and `/ws` always
+verifies the signature. There is no unsigned ticket form. A dev machine's
+tickets are signed by that machine's dev secret and are worthless anywhere
+else.
 
-Callbacks become symmetric HMAC-SHA256 over the **existing envelope,
-unchanged**: the signed message is `"v1\n{unix_ts}\n{nonce}\n" + body`, the
-headers are the same `x-atoms-signature` / `x-atoms-timestamp` /
-`x-atoms-nonce` / `x-atoms-kind`, the timestamp window and the single-use
-nonce store are untouched. Only the algorithm and the key source change:
-`x-atoms-signature` is now the standard base64 of the **32-byte**
-HMAC-SHA256 tag, and the verifier rejects any signature that does not
-decode to exactly 32 bytes before comparing. Comparison is
-`hash_equals()`; PHP has `hash_hkdf()`, `hash_hmac()` and `hash_equals()`
-built in, so `atoms/client` drops its `ext-sodium` dependency entirely —
-`Ed25519Verifier` was its only consumer, and it is deleted.
+`Atoms\Client\Tickets\TicketIssuer` mints tickets in the application process
+from the same derived key — pure computation, no HTTP round trip. The wire
+format, its limits, and the expiry rule are normative in
+`docs/ws-ticket-protocol.md`; this document is authoritative for the key
+derivation alone.
 
-### The "key never enters wasm" property survives verbatim
+The ticket HKDF `info` is `atoms/ws-ticket/v1`, over the decoded
+shared-secret bytes. Tickets join the rotation overlap below: a ticket signed
+under `ATOMS_SHARED_SECRET_PREVIOUS` is accepted for the length of the
+overlap window.
 
-The spec's statement that the callback signing key is imported
-`extractable: false` and never enters wasm is about *where signing
-happens*, not about symmetric versus asymmetric, and it holds identically
-afterwards: host JS derives all three keys from the secret, imports the
-ticket and callback keys as non-extractable WebCrypto HMAC keys, and signs
-guest-built bodies. The guest never sees the secret or any derived key.
+## Callbacks: HMAC-SHA256 over the signed envelope
+
+Callbacks are symmetric HMAC-SHA256. The signed message is
+`"v1\n{unix_ts}\n{nonce}\n" + body`; the headers are `x-atoms-signature` /
+`x-atoms-timestamp` / `x-atoms-nonce` / `x-atoms-kind`; a timestamp window
+and a single-use nonce store bound replay. `x-atoms-signature` is the
+standard base64 of the **32-byte** HMAC-SHA256 tag, and the verifier
+rejects any signature that does not decode to exactly 32 bytes before
+comparing. Comparison is `hash_equals()`. PHP has `hash_hkdf()`,
+`hash_hmac()` and `hash_equals()` built in, so `atoms/client` needs no
+`ext-sodium`.
+
+### The signing key never enters wasm
+
+Host JS derives all three keys from the secret, imports the ticket and
+callback keys as non-extractable (`extractable: false`) WebCrypto HMAC
+keys, and signs guest-built bodies itself. The guest never sees the secret
+or any derived key.
 Customer PHP builds callback bodies; host JS signs them; an Atom that
 reads arbitrary guest memory still cannot exfiltrate a key.
 
 ### The deny lists are load-bearing
 
 `config.js`'s built-in `config.get()` deny list holds
-`ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS`, replacing the
-retired names. The operator's deny list remains additive to the built-in
-one, never a replacement. `packages/cli`'s
+`ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS`. The operator's
+deny list is additive to the built-in one, never a replacement. `packages/cli`'s
 `WorkerConfig::DEFAULT_DENY_KEYS` mirrors the same set, so
 `atoms deploy`/`atoms secrets` never bless writing either as a plaintext
 `var`. Both lists carry an assertion (conformance on the Worker side, a
 unit test on the CLI side) that a guest cannot resolve either name.
 
 A customer Atom that could read the shared secret through `config.get()`
-would hold the root of everything — strictly worse than the two-key design
-this replaces. That is why the deny list is part of the contract, not
-hygiene.
+would hold the root of every key on the boundary. That is why the deny list
+is part of the contract, not hygiene.
 
 ## Rotation: `ATOMS_SHARED_SECRET_PREVIOUS`, three sites, try-both
 
@@ -226,6 +224,63 @@ Runbook (zero downtime for bearer, tickets and callbacks):
    `ATOMS_SHARED_SECRET_PREVIOUS` from both and redeploy. This step still
    invalidates every outstanding old-secret ticket at once, along with the
    old bearer and old callback key.
+
+All three steps run from a pipeline. Step 1 is the deploy Action's
+`shared-secret` and `shared-secret-previous` inputs with
+`rotate-shared-secret: true` — the flag exists because a routine deploy must
+never silently replace the root every caller derives its bearer from. Step 3
+is `retire-shared-secret-previous: true` on one later deploy, in place of
+`shared-secret-previous`; it runs `atoms shared-secret:unset`, which removes
+the key and succeeds when it is already gone, so leaving the input on costs
+nothing but is worth dropping once the window is closed.
+
+`shared-secret:unset` removes the overlap key only. `ATOMS_SHARED_SECRET`
+itself has no unset path: removing it makes every route except `GET /healthz`
+answer `misconfigured`, which is not an operation to keep one typo away from
+the one that closes a rotation.
+
+Step 2, and the app side of step 3, are your own platform's secret
+management; nothing here can reach it.
+
+## Setting it: CI is the common case
+
+The Worker needs the secret before it can serve anything, and a deploy that
+ships code without it produces a Worker answering `misconfigured` on every
+route **except `GET /healthz`** — so a pipeline health check goes green
+while every invoke fails. Configure it in the same run that deploys.
+
+`atoms shared-secret:set --env <env>` reads the value on **stdin** and stores it
+under the exact, unprefixed name. It is the only CLI path to this key:
+`atoms secrets:set` refuses it (`ATOMS-E077`) because that command prefixes
+every name with `ATOMS_CONFIG_`, the namespace Atom code can read, and the
+boundary root must never live there. The value is validated as 32 bytes of
+base64 before it is sent, so a pipeline secret holding a passphrase fails
+in the step that names it rather than becoming a Worker that 500s.
+
+The deploy Action wraps this. Generate once with `openssl rand -base64 32`,
+then put that one value in three places:
+
+```yaml
+- uses: AtomsPHP/atoms/action@v0
+  with:
+    environment: production
+    cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    shared-secret: ${{ secrets.ATOMS_SHARED_SECRET }}
+```
+
+1. Your CI secret store, as above.
+2. The Worker — the Action does this, after the deploy step because
+   `wrangler secret put` needs the Worker to exist. A first deploy therefore
+   serves `misconfigured` for the seconds between the two steps, then heals.
+3. Your app platform's environment (Fly, Heroku, ECS, …), under the same
+   name. Nothing in this repository can reach that one; it is the step to
+   put in your own runbook.
+
+The Action is idempotent: it skips the write when the Worker already has
+the secret, so running it on every deploy does not mint a Worker version
+each time. That also means it will not apply a *changed* value — see the
+rotation runbook above for that.
 
 ## What this trades away — recorded, not to be re-litigated
 

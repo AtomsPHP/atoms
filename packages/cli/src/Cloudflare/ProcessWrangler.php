@@ -73,6 +73,11 @@ final class ProcessWrangler implements Wrangler
         return $this->run($target, ['secret', 'list', '--name', $target->workerName, '--format', 'json']);
     }
 
+    public function deleteSecret(CloudflareTarget $target, string $key): WranglerResult
+    {
+        return $this->run($target, ['secret', 'delete', $key, '--name', $target->workerName]);
+    }
+
     public function dev(CloudflareTarget $target, string $port, array $vars): WranglerResult
     {
         $argv = ['dev', '--port', $port];
