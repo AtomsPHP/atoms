@@ -7,7 +7,7 @@ namespace Atoms\Client;
 use Atoms\Client\Crypto\KeyDerivation;
 
 /**
- * Immutable configuration for {@see AtomsClient}, {@see Tickets\TicketClient}
+ * Immutable configuration for {@see AtomsClient}, {@see Tickets\TicketIssuer}
  * and the callback stack. Construct directly or via {@see self::fromArray()}.
  *
  * The settings are readonly; the keys derived from the shared secret are
@@ -17,6 +17,9 @@ final class AtomsConfig
 {
     /** Memoized {@see self::bearerToken()}. */
     private ?string $bearer = null;
+
+    /** Memoized {@see self::ticketKey()}. */
+    private ?string $ticketKeyCache = null;
 
     /**
      * Memoized {@see self::callbackKeys()}.
@@ -36,6 +39,7 @@ final class AtomsConfig
      * @param int         $callbackTimestampWindow Allowed |now - timestamp| skew for callbacks, seconds.
      * @param string|null $manifestPath           Path to a local manifest.json, or null when none is bundled.
      * @param string      $environment            Environment name (e.g. production, staging) for logging/telemetry.
+     * @param int         $wsTicketTtlMs          Lifetime stamped into a WebSocket ticket's `exp`, milliseconds — see below.
      *
      * $sharedSecret is the single root of the app ↔ Worker boundary
      * (docs/shared-secret.md). It is required, and validated here: trimmed of
@@ -54,7 +58,14 @@ final class AtomsConfig
      * under either verifies. It never affects what this app sends — the
      * bearer is always derived from $sharedSecret. Same format rules when set.
      *
-     * @throws \InvalidArgumentException when either secret is absent or malformed (ATOMS-E105).
+     * $wsTicketTtlMs is how long a ticket {@see Tickets\TicketIssuer} issues
+     * stays valid. The application owns this now, because the application
+     * computes `exp`; the Worker only compares it against its own clock. Keep
+     * it short — a ticket is reusable until it expires, and that brevity is
+     * the whole defence against a leaked connection URL.
+     *
+     * @throws \InvalidArgumentException when either secret is absent or malformed (ATOMS-E105),
+     *                                   or when $wsTicketTtlMs is not positive.
      */
     public function __construct(
         public readonly string $endpoint,
@@ -67,11 +78,20 @@ final class AtomsConfig
         public readonly int $callbackTimestampWindow = 300,
         public readonly ?string $manifestPath = null,
         public readonly string $environment = 'production',
+        public readonly int $wsTicketTtlMs = 60000,
     ) {
         KeyDerivation::decodeSecret($sharedSecret);
 
         if ($sharedSecretPrevious !== null) {
             KeyDerivation::decodeSecret($sharedSecretPrevious, 'ATOMS_SHARED_SECRET_PREVIOUS');
+        }
+
+        if ($wsTicketTtlMs <= 0) {
+            throw new \InvalidArgumentException(sprintf(
+                'wsTicketTtlMs must be a positive number of milliseconds, got %d. A ticket expires when the '
+                . 'Worker\'s clock reaches its "exp", so a non-positive lifetime could never be presented in time.',
+                $wsTicketTtlMs,
+            ));
         }
     }
 
@@ -94,6 +114,7 @@ final class AtomsConfig
             callbackTimestampWindow: (int) ($data['callbackTimestampWindow'] ?? $data['callback_timestamp_window'] ?? 300),
             manifestPath: self::nullableString($data['manifestPath'] ?? $data['manifest_path'] ?? null),
             environment: (string) ($data['environment'] ?? 'production'),
+            wsTicketTtlMs: (int) ($data['wsTicketTtlMs'] ?? $data['ws_ticket_ttl_ms'] ?? 60000),
         );
     }
 
@@ -129,6 +150,16 @@ final class AtomsConfig
             $this->sharedSecret,
             $this->sharedSecretPrevious,
         );
+    }
+
+    /**
+     * The raw 32-byte HMAC-SHA256 key WebSocket tickets are signed with:
+     * HKDF(secret, "atoms/ws-ticket/v1"). Derived from $sharedSecret only — a
+     * sender emits under the current secret, even mid-rotation.
+     */
+    public function ticketKey(): string
+    {
+        return $this->ticketKeyCache ??= KeyDerivation::ticketKey($this->sharedSecret);
     }
 
     private static function nullableString(mixed $value): ?string

@@ -24,7 +24,7 @@ final class DerivationVectorTest extends TestCase
 
     private const CALLBACK_KEY = 'o5hmDR6tAEEoECTVtZm/BT1yzFkGWZYcDXXI/V1cYSM=';
 
-    /** Derived by the Worker for ticket signing; the app never uses it. */
+    /** Signs WebSocket connection tickets — derived and used by this app, and re-derived by the Worker to verify. */
     private const TICKET_KEY = 'oAhR1o7PQdNULciqv8FZkgnlJ89a48C5wpdSEMXHBoA=';
 
     public function testBearerMatchesTheReferenceVector(): void
@@ -38,18 +38,17 @@ final class DerivationVectorTest extends TestCase
     }
 
     /**
-     * The ticket key is derived Worker-side, but the same IKM and the same
-     * HKDF parameters must reproduce it here — that equality is what proves
-     * the two languages agree.
+     * Both production paths to the ticket key — {@see KeyDerivation::ticketKey()}
+     * directly, and {@see AtomsConfig::ticketKey()}'s memoized call to it —
+     * must reproduce the vector the Worker derives independently: that
+     * equality is what proves the two languages agree.
      */
     public function testTicketKeyMatchesTheReferenceVector(): void
     {
-        $ikm = KeyDerivation::decodeSecret(self::SECRET);
+        self::assertSame(self::TICKET_KEY, base64_encode(KeyDerivation::ticketKey(self::SECRET)));
 
-        self::assertSame(
-            self::TICKET_KEY,
-            base64_encode(hash_hkdf('sha256', $ikm, 32, 'atoms/ws-ticket/v1', '')),
-        );
+        $config = new AtomsConfig('https://atoms.example.workers.dev', self::SECRET);
+        self::assertSame(self::TICKET_KEY, base64_encode($config->ticketKey()));
     }
 
     public function testConfigEmitsTheReferenceBearer(): void
@@ -63,8 +62,8 @@ final class DerivationVectorTest extends TestCase
     public function testEachPurposeGetsADistinctKey(): void
     {
         self::assertNotSame(self::BEARER, self::CALLBACK_KEY);
-        self::assertNotSame(self::BEARER, self::TICKET_KEY);
-        self::assertNotSame(self::CALLBACK_KEY, self::TICKET_KEY);
+        self::assertNotSame(self::BEARER, base64_encode(KeyDerivation::ticketKey(self::SECRET)));
+        self::assertNotSame(self::CALLBACK_KEY, base64_encode(KeyDerivation::ticketKey(self::SECRET)));
     }
 
     public function testDecodedSecretIsTheKeyMaterial(): void
