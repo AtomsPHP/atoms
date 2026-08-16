@@ -36,17 +36,17 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 28. **pdo differential matrix** — ~160 cases, the SAME closure run against `AtomsPDO` and the check-27 comparator, classified and checked against the committed pin file `pdo-expected.json` in both directions (every observed difference must be pinned with exactly that class; every pin must be observed with exactly that class — the direction that catches a comparator that quietly became `AtomsPDO` itself), plus anti-vacuous floors and a hard zero on harness-breakage cases
 29. **sql result caps** — with `ATOMS_SQL_MAX_ROWS`/`ATOMS_SQL_MAX_RESULT_BYTES` set on both the Worker and the runner (matching, never defaulted, same pattern as check 15's turn deadline): one row under the row cap succeeds exactly, **exactly at the row cap also succeeds** (verified against `bridge.js`'s actual code: the cap check runs before push, at the top of each loop iteration, so the loop simply ends once `sqlMaxRows` rows have been pushed and is never re-entered to trip the check; the at-cap row is not rejected, only the first row past it is), one row over fails `sql_result_too_large` with `cap:'rows'` (asserted primarily from `BridgeSqlException::getDetail()['cap']`, with the message-text check kept as a secondary assertion), a result well under the row cap but over the byte cap fails with `cap:'bytes'` (same primary/secondary assertion, proving the caps are independent), **run mode (`PDO::exec()`, which discards rows) is exercised directly and must succeed even for a statement that would generate far more than the row cap in rows mode** (`bridge.js`'s `mode !== 'rows'` branch drains and discards without any cap check at all, verified directly rather than only documented), and the residency survives both failures
 30. **pdo compatibility doc is current** — re-uses check 28's report, byte-compares a fresh render (`scripts/gen-pdo-matrix.mjs`, a pure function) against the committed `cloudflare/docs/pdo-compatibility.md`; a mismatch fails naming the first differing line and the regeneration command. If check 28 produced no report, this FAILS rather than skips
-31. **connection tickets: mint + headerless connect** — `POST /tickets/Room/:id` returns the envelope (a 3-segment signed `v1.` ticket, sane `expires_at`, atom echo); a completely headerless upgrade carrying the ticket connects the way a browser would, the ticket's `client_id` claim overrides the spoofed query param (server wins), the reserved `ticket` key is never delivered to `onConnect`, and a URL at exactly the documented default `ATOMS_WS_MAX_PARAMS` plus the ticket still opens (the ticket is outside the param budgets)
-32. **mint validation** — non-string claim values, claims over the cap, and the reserved `ticket`/`channels` claim keys are `invalid_request`; minting for a `websocket: false` type is `not_supported` and for an unknown type `unknown_atom_type`; wrong method/arity are 405/400
-33. **edge refusals** — garbage and wrong-atom-scoped tickets are 401 `ticket_invalid`; a correctly signed ticket whose `exp` is already in the past is `ticket_expired` (forging it with the run's own secret is what makes expiry testable with no TTL wait); a `v1u.`-form string is `ticket_invalid` — all before any DO is addressed
-34. **reusable within TTL** — the same ticket opens a second connection both while the first socket is still open and after it has closed: the contract assertion that no single-use burn exists (the short TTL is the ticket's entire replay defense, and the DO holds no ticket state)
-35. **minting is bearer-gated** — a headerless mint is 401 `unauthenticated` (a ticket cannot mint a ticket, and neither can nothing); the authed mint's signed ticket then admits a headerless browser-style upgrade with its claims merged
-36. **bearer-required refusals** — a tampered signature and a `v1u.`-form string are both `ticket_invalid`; no credential at all is `unauthenticated`; and a genuinely expired ticket, waited out for real, is `ticket_expired` (this leg needs `ATOMS_WS_TICKET_SKEW_MS` in the runner env and a Worker started with a short `ATOMS_WS_TICKET_TTL_MS`)
-37. **credential precedence** — a *tampered* ticket is 401 `ticket_invalid` headerless (the non-vacuity guard), then the same upgrade with a valid bearer connects: the bearer path strips the ticket unverified, never running the verifier at all
+31. **tickets: locally issued ticket, headerless connect, claims win, ticket stripped** (M5: no more mint route) — offline, the pinned `docs/ws-ticket-protocol.md` vectors reproduce byte-exactly and the reference secret derives the pinned ticket key; a completely headerless upgrade carrying a **locally issued** ticket connects the way a browser would, the ticket's `client_id` claim overrides the spoofed query param (server wins), the reserved `ticket` key is never delivered to `onConnect`, and a URL at exactly the documented default `ATOMS_WS_MAX_PARAMS` plus the ticket still opens (the ticket is outside the param budgets). Needs `ATOMS_SHARED_SECRET` to issue with, else skips
+32. **tickets: the mint route is removed; /ws owns eligibility** (M5 rewrite — this check used to validate mint-time claims; that validation moved to the PHP unit suite, where `TicketIssuer` now lives) — `POST /tickets/Room/:id` **with** a credential is 404 `not_found`; a valid, correctly signed, locally issued ticket for a `websocket: false` type is 501 `not_supported` and for an unknown type is 404 `unknown_atom_type` — eligibility refused at the upgrade, on tickets that are otherwise perfectly good. Needs `ATOMS_SHARED_SECRET` to issue with, else skips
+33. **edge refusals** — garbage and wrong-atom-scoped tickets are 401 `ticket_invalid`; a correctly signed ticket whose `exp` is already in the past is `ticket_expired`; a ticket **1ms past** its `exp` is `ticket_expired` (M5: the sharpest statement of the changed expiry rule — under the old default skew this connected) and a ticket **5s from expiry** still connects (the boundary leg's non-vacuity guard); a `v1u.`-form string is `ticket_invalid` — all before any DO is addressed. The forged legs need `ATOMS_SHARED_SECRET`, else they skip
+34. **reusable within TTL** — the same locally issued ticket opens a second connection both while the first socket is still open and after it has closed: the contract assertion that no single-use burn exists (the short TTL is the ticket's entire replay defense, and the DO holds no ticket state). Issues its own ticket, so it no longer needs a short server TTL
+35. **mint route removed, issued ticket admits headerless upgrade** (M5 rename) — a headerless `POST /tickets` is 401 `unauthenticated` (the credential gate precedes routing, so the route's absence is not observable without one); the same call with the bearer is 404 `not_found`; then the flagship leg, unchanged — a locally issued ticket admits a headerless browser-style upgrade with its claims merged
+36. **bearer-required refusals** — a tampered signature and a `v1u.`-form string are both `ticket_invalid`; no credential at all is `unauthenticated`; and (M5: no environment needed anymore) a ticket issued with a 1.5s lifetime connects while valid, is waited out for real, and reconnecting gives `ticket_expired` — previously this leg needed `ATOMS_WS_TICKET_SKEW_MS` in the runner env and a Worker started with a short `ATOMS_WS_TICKET_TTL_MS`, both gone
+37. **credential precedence** — a *tampered* ticket is 401 `ticket_invalid` headerless (the non-vacuity guard), then the same upgrade with a valid bearer connects: the bearer path strips the ticket unverified, never running the verifier at all. Issues its own ticket
 38. **routing regression guard** — with bearer auth required, a headerless `POST /invoke` and `GET /debug` are still 401: the `/ws` ticket carve-out leaked into no other route
-39. **bearer derivation** — (a) this runner reproduces the reference vector for all three purposes (`atoms/bearer/v1`, `atoms/ws-ticket/v1`, `atoms/callback/v1`) and the bearer is 44 characters of standard base64; (b) a live `php -r` doing `hash_hkdf('sha256', $ikm, 32, 'atoms/bearer/v1', '')` over the run's own secret produces exactly what the runner derives — the cross-language pin, because the monolith derives in PHP and the Worker in WebCrypto; (c) with bearer auth required, the Worker accepts the derived bearer and refuses a 44-character bearer derived from an unrelated secret
-40. **rotation** — with `ATOMS_SHARED_SECRET_PREVIOUS` configured on the Worker and the runner: both `bearer(current)` and `bearer(previous)` are accepted on `/invoke` while a bearer from an unrelated secret is 401; a ticket signed under the previous secret's ticket key is `ticket_invalid` while one signed under the current key connects (tickets get no overlap); and the callback the listener receives verifies under the current callback key and not under the previous one (a verifier accepts both, a sender emits only the current value)
-41. **misconfigured Worker** — booted with no shared secret, `GET /healthz` still answers 200 `{ok:true}` and `/invoke`, `/tickets`, `/debug` and `/ws` all answer HTTP 500 with the wire code `misconfigured`
+39. **bearer derivation** — (a) this runner reproduces the reference vector for all three purposes (`atoms/bearer/v1`, `atoms/ws-ticket/v1`, `atoms/callback/v1`) and the bearer is 44 characters of standard base64; (b) a live `php -r` doing `hash_hkdf('sha256', $ikm, 32, 'atoms/bearer/v1', '')` over the run's own secret produces exactly what the runner derives — the cross-language pin, because the monolith derives in PHP and the Worker in WebCrypto; (b2, M5) a second cross-language leg: an inline `php -r` (no autoloader — the CI job has no composer install) runs the issuer's exact algorithm over the pinned ticket vector inputs and must produce the pinned ticket string, matching both the pinned vector and the runner's own implementation; (c) with bearer auth required, the Worker accepts the derived bearer and refuses a 44-character bearer derived from an unrelated secret
+40. **rotation: bearers and tickets accepted under either secret, callbacks signed with the current key** (M5 rename; ticket legs flipped) — with `ATOMS_SHARED_SECRET_PREVIOUS` configured on the Worker and the runner: both `bearer(current)` and `bearer(previous)` are accepted on `/invoke` while a bearer from an unrelated secret is 401; a ticket signed under the **previous** secret now **connects** (it used to be refused — local issuance is what made the old refusal wrong), one signed under the **current** key connects too, and one signed under an **unrelated** secret is still `ticket_invalid`, so neither acceptance is vacuous; and the callback the listener receives verifies under the current callback key and not under the previous one (a verifier accepts both, a sender emits only the current value)
+41. **misconfigured Worker** — booted with no shared secret, `GET /healthz` still answers 200 `{ok:true}` and `/invoke`, `/tickets`, `/debug` and `/ws` all answer HTTP 500 with the wire code `misconfigured` — including `/tickets`, which pins that the configuration gate precedes routing even for a route that no longer exists
 42. **config deny list** — with the Worker's `ATOMS_CONFIG_ENV_KEYS` naming `ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS`, a guest `$this->config()` of either name resolves `null`; an allowlisted control key on the same list resolves, which is what makes the two nulls meaningful rather than vacuous
 
 ### Postures
@@ -61,7 +61,9 @@ told which one through `ATOMS_BEARER_AUTH`:
 | misconfigured | no `ATOMS_SHARED_SECRET` | check 41 only (`ATOMS_ONLY=41 ATOMS_EXPECT_MISCONFIGURED=1`) |
 
 Checks 31–34 run in either configured posture. 35–38 need bearer auth
-required and otherwise skip.
+required and otherwise skip. Checks 31, 32, 34, 35, 36 and 37 also need
+`ATOMS_SHARED_SECRET` in the runner's own environment, since they issue
+tickets locally now instead of minting them through the Worker.
 
 ### Skips and the `ATOMS_REQUIRE_*` flags
 
@@ -75,14 +77,17 @@ the posture can satisfy.
 |---|---|---|
 | 13–17 | no callback listener (needs `ATOMS_SHARED_SECRET` and a port); 15 additionally needs `ATOMS_TURN_DEADLINE_MS` | `ATOMS_REQUIRE_CALLBACK_CHECKS=1` |
 | 29 | `ATOMS_SQL_MAX_ROWS`/`ATOMS_SQL_MAX_RESULT_BYTES` not in the runner env | `ATOMS_REQUIRE_SQL_CAP_CHECKS=1` |
-| 33 (expiry/unsigned-form legs), 35–38, 36's expiry leg | no `ATOMS_SHARED_SECRET`; bearer auth not required; no `ATOMS_WS_TICKET_SKEW_MS` | `ATOMS_REQUIRE_TICKET_CHECKS=1` |
-| 39 (cross-language leg) | no `php` on PATH | `ATOMS_REQUIRE_BEARER_VECTOR=1` |
+| 31, 32, 34 | no `ATOMS_SHARED_SECRET` (issuing a ticket needs the root) | `ATOMS_REQUIRE_TICKET_CHECKS=1` |
+| 33 (scope/expiry/unsigned-form legs) | no `ATOMS_SHARED_SECRET` | `ATOMS_REQUIRE_TICKET_CHECKS=1` |
+| 35–37 | no `ATOMS_SHARED_SECRET`; bearer auth not required | `ATOMS_REQUIRE_TICKET_CHECKS=1` |
+| 38 | bearer auth not required | `ATOMS_REQUIRE_TICKET_CHECKS=1` |
+| 39 (cross-language legs) | no `php` on PATH | `ATOMS_REQUIRE_BEARER_VECTOR=1` |
 | 40 | no `ATOMS_SHARED_SECRET_PREVIOUS` | `ATOMS_REQUIRE_ROTATION_CHECKS=1` |
 | 41 | `ATOMS_EXPECT_MISCONFIGURED` unset (the flag is the gate) | — |
 | 42 | the Worker's `ATOMS_CONFIG_ENV_KEYS` does not make the control key readable | `ATOMS_REQUIRE_DENY_CHECKS=1` |
 
-Checks 18–28 and 30–32 have no gate; they always run. Check 30 never skips —
-a stale doc is not excused by a missing run.
+Checks 18–28 and 30 have no gate; they always run. Check 30 never skips — a
+stale doc is not excused by a missing run.
 
 ## Credentials
 
@@ -234,9 +239,11 @@ node test/conformance.mjs
 ```
 
 `ATOMS_BEARER_TOKEN` carries invoke capability and nothing else, which is why
-it is the right thing to hand a remote run: checks 13–17, 33's forged legs, 40
-and 42 skip, and everything else runs. Pass `ATOMS_SHARED_SECRET` instead when
-the run is meant to cover them too.
+it is the right thing to hand a remote run: checks 13–17, 31, 32, 33's forged
+legs, 34, 35, 36, 37, 40 and 42 skip (they all need the root to issue a
+ticket, forge a callback signature, or read the rotation overlap), and
+everything else runs. Pass `ATOMS_SHARED_SECRET` instead when the run is
+meant to cover them too.
 
 Deployed eviction is slower to arrive than local eviction; checks 12/21/24
 want `ATOMS_EVICTION_WAIT_MS=16000` remotely (the spec's "≥15s deployed").
@@ -256,7 +263,7 @@ rather than asserting a wrong cap fired.
 Environment variables:
 
 - `ATOMS_BASE_URL` (required) — URL of the running worker, e.g. `http://localhost:8787`
-- `ATOMS_SHARED_SECRET` (optional) — the root, base64, exactly 32 bytes once decoded. The full-capability form: the runner derives its bearer, forges test tickets, and verifies callbacks. Defaults to the value in `test/.dev-secret.json`
+- `ATOMS_SHARED_SECRET` (optional) — the root, base64, exactly 32 bytes once decoded. The full-capability form: the runner derives its bearer, issues tickets locally (M5: the Worker no longer mints them), and verifies callbacks. Defaults to the value in `test/.dev-secret.json`
 - `ATOMS_BEARER_TOKEN` (optional) — the derived bearer (what `atoms token` prints), for a run that must not carry the root. Used verbatim
 - `ATOMS_BEARER_AUTH` (optional, `required` — the default — or `disabled`) — the posture the Worker under test runs. `required` is what makes the suite present a bearer; anything unrecognized is treated as `required`
 - `ATOMS_SHARED_SECRET_PREVIOUS` (optional) — the rotation overlap secret the Worker was started with; required for check 40, which otherwise skips
@@ -267,8 +274,7 @@ Environment variables:
 - `ATOMS_TEST_JOB_DELAY_MS` (default 400) — how long the suite's own listener holds a `kind=job` response open. A **test-harness** value, not a Worker setting: checks 16/17 compare when that response was sent against when the invoke response arrived, which is how an *awaited* delivery is told apart from a merely *started* one
 - `ATOMS_SQL_MAX_ROWS` / `ATOMS_SQL_MAX_RESULT_BYTES` (optional) — must match the values the Worker was started with (`npm run dev:callback`'s own env vars of the same name, forwarded to `wrangler --var`); required for check 29, which otherwise skips
 - `ATOMS_REQUIRE_SQL_CAP_CHECKS` (optional, `1`) — turn check 29's skip into a failure, same device as `ATOMS_REQUIRE_CALLBACK_CHECKS`, a separate flag
-- `ATOMS_WS_TICKET_SKEW_MS` (optional) — must match the value the Worker was started with; required for check 36's expiry leg
-- `ATOMS_REQUIRE_TICKET_CHECKS` (optional, `1`) — turn any connection-ticket skip into a failure; set it on the bearer-required run
+- `ATOMS_REQUIRE_TICKET_CHECKS` (optional, `1`) — turn any connection-ticket skip into a failure; set it on the bearer-required run. `ATOMS_WS_TICKET_SKEW_MS` is gone from the runner entirely (M5: expiry is absolute, `now >= exp`, no skew), and the ticket TTL is issuer-side configuration now (`docs/ws-ticket-protocol.md`) — the Worker no longer reads either `ATOMS_WS_TICKET_SKEW_MS` or `ATOMS_WS_TICKET_TTL_MS`
 - `ATOMS_REQUIRE_BEARER_VECTOR` (optional, `1`) — turn check 39's cross-language skip (no `php` on PATH) into a failure; CI sets it
 - `ATOMS_REQUIRE_ROTATION_CHECKS` (optional, `1`) — turn check 40's skip into a failure; set it on the run whose Worker carries `ATOMS_SHARED_SECRET_PREVIOUS`
 - `ATOMS_REQUIRE_DENY_CHECKS` (optional, `1`) — turn check 42's skip into a failure; set it on the run whose Worker lists the secret names in `ATOMS_CONFIG_ENV_KEYS`

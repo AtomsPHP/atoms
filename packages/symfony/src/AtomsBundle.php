@@ -14,6 +14,7 @@ use Atoms\Client\Callback\NonceStore;
 use Atoms\Client\Callback\NullQueueBridge;
 use Atoms\Client\Callback\QueueBridge;
 use Atoms\Client\Crypto\KeyDerivation;
+use Atoms\Client\Tickets\TicketIssuer;
 use Atoms\Symfony\Command\AtomsDeployCommand;
 use Atoms\Symfony\Command\AtomsListCommand;
 use Atoms\Symfony\Command\AtomsRollbackCommand;
@@ -53,6 +54,7 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
  *     shared_secret_previous: string|null,
  *     timeout: float,
  *     max_attempts: int,
+ *     ws_ticket_ttl_ms: int,
  *     callback_path: string,
  *     callback_timestamp_window: int,
  *     http_client: string|null,
@@ -102,6 +104,10 @@ final class AtomsBundle extends AbstractBundle
                 ->end()
                 ->floatNode('timeout')->defaultValue(10.0)->end()
                 ->integerNode('max_attempts')->defaultValue(3)->end()
+                ->integerNode('ws_ticket_ttl_ms')
+                    ->defaultValue(60000)
+                    ->info('How long, in milliseconds, an issued WebSocket connection ticket stays valid. A ticket is reusable until it expires, so this short lifetime is the whole defence against a leaked ticket URL; this application owns the value because it now computes the expiry locally (Atoms\Client\Tickets\TicketIssuer), with no round trip to the Worker.')
+                ->end()
                 ->scalarNode('callback_path')->defaultValue('/atoms/callback')->end()
                 ->integerNode('callback_timestamp_window')
                     ->defaultValue(300)
@@ -133,6 +139,7 @@ final class AtomsBundle extends AbstractBundle
         $this->registerConfig($container, $config);
         $this->registerHttpClient($container, $config);
         $this->registerClient($container);
+        $this->registerTicketIssuer($container);
         $this->registerCallbackStack($container, $config);
         $this->registerRouteLoader($container);
         $this->registerMessenger($container);
@@ -153,6 +160,7 @@ final class AtomsBundle extends AbstractBundle
                 'timeout' => $config['timeout'],
                 'maxAttempts' => $config['max_attempts'],
                 'environment' => $config['environment'],
+                'wsTicketTtlMs' => $config['ws_ticket_ttl_ms'],
             ]])
             ->setPublic(true);
     }
@@ -191,6 +199,17 @@ final class AtomsBundle extends AbstractBundle
         // The class-named service stays private (framework code should depend on
         // the alias/autowiring); this alias is the stable, public handle tests use.
         $container->setAlias('atoms.client', AtomsClient::class)->setPublic(true);
+    }
+
+    private function registerTicketIssuer(ContainerBuilder $container): void
+    {
+        $container->register(TicketIssuer::class, TicketIssuer::class)
+            ->setArguments([new Reference(AtomsConfig::class)])
+            ->setPublic(false);
+
+        // The class-named service stays private (framework code should depend on
+        // the alias/autowiring); this alias is the stable, public handle tests use.
+        $container->setAlias('atoms.ticket_issuer', TicketIssuer::class)->setPublic(true);
     }
 
     /**

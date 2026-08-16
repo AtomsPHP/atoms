@@ -12,6 +12,7 @@ use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Client\Callback\NullQueueBridge;
 use Atoms\Client\Callback\QueueBridge;
 use Atoms\Client\Crypto\KeyDerivation;
+use Atoms\Client\Tickets\TicketIssuer;
 use Atoms\Symfony\AtomsBundle;
 use Atoms\Symfony\Command\AtomsDeployCommand;
 use Atoms\Symfony\Controller\CallbackController;
@@ -99,6 +100,31 @@ final class AtomsBundleExtensionTest extends TestCase
         self::assertSame('staging', $config->environment);
         self::assertSame(5.5, $config->timeout);
         self::assertSame(7, $config->maxAttempts);
+        self::assertSame(60000, $config->wsTicketTtlMs);
+    }
+
+    public function testTicketIssuerResolvesFromTheContainerAndIsUsable(): void
+    {
+        $container = $this->buildContainer();
+        $container->compile();
+
+        self::assertTrue($container->has('atoms.ticket_issuer'));
+
+        $issuer = $container->get('atoms.ticket_issuer');
+        self::assertInstanceOf(TicketIssuer::class, $issuer);
+
+        $ticket = $issuer->issue('GameRoom', 'g-1');
+        self::assertStringStartsWith('v1.', $ticket->ticket);
+    }
+
+    public function testConfiguredWsTicketTtlMsLandsInAtomsConfig(): void
+    {
+        $container = $this->buildContainer(['ws_ticket_ttl_ms' => 15000]);
+        $container->compile();
+
+        $config = $container->get(AtomsConfig::class);
+        self::assertInstanceOf(AtomsConfig::class, $config);
+        self::assertSame(15000, $config->wsTicketTtlMs);
     }
 
     public function testRotationOverlapLandsInAtomsConfig(): void

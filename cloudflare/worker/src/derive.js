@@ -123,15 +123,19 @@ export function deriveBearer(secretBytes) {
 }
 
 /**
- * The connection-ticket signing key: non-extractable HMAC-SHA256, `sign` and
- * `verify` (the Worker is both minter and verifier).
+ * The connection-ticket key: non-extractable HMAC-SHA256, `verify` only — the
+ * application signs tickets and this Worker verifies them, so the Worker has
+ * no use for a signing capability on this key.
+ *
+ * Called once per live secret during a rotation window, which is what the
+ * per-secret memo slot above is for.
  *
  * @param {Uint8Array} secretBytes the decoded 32 raw bytes
  * @returns {Promise<CryptoKey>}
  */
 export function deriveTicketKey(secretBytes) {
 	return memoize(ticketKeyMemo, bytesToBase64(secretBytes), () =>
-		deriveHmacKey(secretBytes, TICKET_HKDF_INFO, ['sign', 'verify'])
+		deriveHmacKey(secretBytes, TICKET_HKDF_INFO, ['verify'])
 	);
 }
 

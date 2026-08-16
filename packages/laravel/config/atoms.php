@@ -122,6 +122,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | WebSocket ticket TTL
+    |--------------------------------------------------------------------------
+    |
+    | How long, in milliseconds, an issued WebSocket connection ticket stays
+    | valid. A ticket is reusable until it expires, so this short lifetime is
+    | the whole defence against a leaked ticket URL. This application, not
+    | the Worker, owns the value: tickets are now minted locally (see
+    | Atoms\Client\Tickets\TicketIssuer), so this application also computes
+    | the expiry stamped into them.
+    |
+    */
+
+    'ws_ticket_ttl_ms' => (int) env('ATOMS_WS_TICKET_TTL_MS', 60000),
+
+    /*
+    |--------------------------------------------------------------------------
     | HTTP client override
     |--------------------------------------------------------------------------
     |

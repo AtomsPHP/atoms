@@ -49,6 +49,7 @@ enum ErrorCode: string
     case CallbackReplayDetected = 'ATOMS-E065';
     case NoMethodsClassForCallback = 'ATOMS-E066';
     case WsTicketAcquisitionFailed = 'ATOMS-E067';
+    case WsTicketClaimsInvalid = 'ATOMS-E068';
     case AtomsJsonInvalid = 'ATOMS-E070';
     case AtomsComposerJsonInvalid = 'ATOMS-E071';
     case DeployCredentialsMissing = 'ATOMS-E072';

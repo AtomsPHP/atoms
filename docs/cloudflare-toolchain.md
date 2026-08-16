@@ -25,8 +25,8 @@ Authorization: Bearer $(atoms token)
 
 `atoms token` prints the bearer derived from `ATOMS_SHARED_SECRET` — see
 "Bearer auth is mandatory" below and `docs/shared-secret.md`, the decision
-record for the whole boundary. `TicketClient` reaches
-`POST /tickets/{type}/{id}` the same way.
+record for the whole boundary. `/invoke` is the only route the client calls;
+WebSocket tickets are issued locally, without an HTTP hop.
 
 ### Why no `/v1/{customer}` prefix
 
@@ -75,22 +75,29 @@ travel are recorded once, normatively, in `docs/shared-secret.md`.
 
 A browser's `new WebSocket(url)` cannot set an `Authorization` header, and the
 bearer check covers every other route. The application's server calls
-`Atoms\Client\Tickets\TicketClient::acquire($type, $id, $claims)` →
-`POST /tickets/{type}/{id}` (bearer-gated under `ATOMS_BEARER_AUTH=required`),
-and hands the short-TTL, atom-scoped ticket to the browser, which presents it
-as `?ticket=` on the `/ws` upgrade. Claims minted by the server merge over the
-browser's query params (server wins), so `onConnect` code reading
-`$params['client_id']` gets a host-asserted value the browser cannot forge.
+`Atoms\Client\Tickets\TicketIssuer::issue($type, $id, $claims)` and hands the
+short-TTL, atom-scoped ticket it returns to the browser, which presents it as
+`?ticket=` on the `/ws` upgrade. There is no HTTP call in `issue()` — it is
+pure local computation, because the application already holds
+`ATOMS_SHARED_SECRET` and can derive the ticket-signing key itself, so asking
+the Worker to sign on the application's behalf would have been a network hop
+to compute something already computable locally. Claims passed to `issue()`
+merge over the browser's query params on connect (server wins), so
+`onConnect` code reading `$params['client_id']` gets a host-asserted value
+the browser cannot forge.
 
-`POST /tickets` always mints the signed `v1.` form — under
-`ATOMS_BEARER_AUTH=disabled` too, since a shared secret, and therefore a
-signing key, is always configured — and `/ws` always verifies the signature,
-so browser code paths are identical in local dev and production. The
-signing key is HKDF-derived from the decoded `ATOMS_SHARED_SECRET` (info
-`atoms/ws-ticket/v1`); rotating the secret invalidates every outstanding
-ticket at once, with no overlap window. The binding details — format,
-validation order, the reusable-until-expiry contract — live in
-`cloudflare/docs/mvp-spec.md` §Routing and auth; the derivation itself is
+`issue()` always produces the signed `v1.` form — there is no unsigned form
+and nothing gated on `ATOMS_BEARER_AUTH`, since minting no longer goes
+through the Worker at all — and `/ws` always verifies the signature, so
+browser code paths are identical in local dev and production. The signing
+key is HKDF-derived from the decoded `ATOMS_SHARED_SECRET` (info
+`atoms/ws-ticket/v1`); rotating the secret now overlaps tickets along with
+the bearer and callback keys, via `ATOMS_SHARED_SECRET_PREVIOUS`, rather
+than invalidating every outstanding ticket at once. The binding details —
+wire format, limits, the expiry rule, the reusable-until-expiry contract, and
+the rotation decision — are normative in `docs/ws-ticket-protocol.md`; the
+Worker's observable verification behaviour is spec'd in
+`cloudflare/docs/mvp-spec.md` §Routing and auth; the key derivation itself is
 `docs/shared-secret.md`.
 
 ## 2. How a PHP CLI drives Wrangler: a pinned local binary, never `npx`

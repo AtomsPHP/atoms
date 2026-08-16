@@ -698,7 +698,7 @@ HKDF-SHA256 domain separation — empty salt, a fixed per-purpose `info` string,
 | purpose | `info` | form | use |
 |---|---|---|---|
 | bearer | `atoms/bearer/v1` | 32 bytes as standard base64, padded, exactly 44 characters | the `Authorization: Bearer` value |
-| WebSocket tickets | `atoms/ws-ticket/v1` | non-extractable HMAC-SHA256 key (`length: 256`) | ticket signing and verification |
+| WebSocket tickets | `atoms/ws-ticket/v1` | non-extractable HMAC-SHA256 key (`length: 256`), `['verify']` usage only | ticket verification — the application signs, the Worker only ever checks (`docs/ws-ticket-protocol.md`) |
 | callbacks | `atoms/callback/v1` | non-extractable HMAC-SHA256 key (`length: 256`) | callback signing (§The callback channel) |
 
 Reference vector, pinned by the conformance suite and the client test suite:
@@ -736,13 +736,19 @@ flag plus a per-machine dev secret in the gitignored `.dev.vars`, which
 `atoms dev` generates; local and production run the same code path.
 
 **Rotation** is `ATOMS_SHARED_SECRET_PREVIOUS`: optional, never a second live
-secret, accepted at exactly two verification sites — the Worker's bearer check
-and the monolith's callback verification. Both are try-both, never a key
-selector: verification attempts the current key, then the previous, and accepts
-on the first match; a key id is never a trusted input. A verifier accepts both,
-a sender emits only the current value, so the Worker always signs callbacks
-with the current key and the monolith always sends `bearer(current)`. Tickets
-get no overlap (below).
+secret, accepted at exactly three verification sites — the Worker's bearer
+check, the Worker's ticket signature check, and the monolith's callback
+verification. All three are try-both, never a key selector: verification
+attempts the current key, then the previous, and accepts on the first match;
+a key id is never a trusted input. A verifier accepts both, a sender emits
+only the current value, so the Worker always signs callbacks with the
+current key, the monolith always sends `bearer(current)`, and an application
+issuing tickets always signs with its own current secret. Tickets joined
+this overlap in M5 (`docs/ws-ticket-protocol.md` §Rotation) — with issuance
+local to the application, an instance that has not yet been redeployed with
+the new secret keeps signing tickets with the old one for the whole rollout
+window, and re-issuing cannot help, because the same un-redeployed instance
+signs the "fresh" ticket the same way.
 
 **The deny list.** `config.js`'s built-in `ATOMS_CONFIG_ENV_DENY_KEYS` includes
 `ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS`, so a guest
@@ -783,22 +789,23 @@ them as plaintext `vars`.
      is required here, and a ticket that IS presented is fully verified in
      step 3. (M4)
   2. `request.method === 'GET'`, else `method_not_allowed`.
-  3. Ticket verification (M4) — whenever a `ticket` key is present and step 1
-     did not accept a trusted bearer. Runs before anything else looks at the
-     request, so a caller without a valid credential cannot probe which atom
-     types are deployed. All stateless, at the edge; a forged, expired or
-     mis-scoped ticket never costs an activation. In order: overall length ≤
-     `ATOMS_WS_TICKET_MAX_BYTES` (default 8192, from `config.js`);
-     version/format (`v1.<payload>.<sig>`, three segments) and the
-     HMAC-SHA256 signature under the **current** secret — failure is
-     `ticket_invalid` (401), and that includes a ticket signed under
-     `ATOMS_SHARED_SECRET_PREVIOUS`; payload shape (`ticket_invalid`); scope
-     — payload `t`/`i` must equal the decoded path `:type`/`:id`
-     (`ticket_invalid`); expiry — refused when
-     `now > exp + ATOMS_WS_TICKET_SKEW_MS` (default 5000) →
-     `ticket_expired` (401). Every posture runs every check, signature
-     included. A repeated `ticket` key: last occurrence wins, matching the
-     param map's repeat rule.
+  3. Ticket verification (M4, expiry and rotation reworked M5) — whenever a
+     `ticket` key is present and step 1 did not accept a trusted bearer. Runs
+     before anything else looks at the request, so a caller without a valid
+     credential cannot probe which atom types are deployed. All stateless, at
+     the edge; a forged, expired or mis-scoped ticket never costs an
+     activation. In order: overall length ≤ `ATOMS_WS_TICKET_MAX_BYTES`
+     (default 8192, from `config.js`); version/format (`v1.<payload>.<sig>`,
+     three segments) and the HMAC-SHA256 signature, verified under the
+     **current** secret and, while `ATOMS_SHARED_SECRET_PREVIOUS` is
+     configured, under the **previous** secret too — the same try-both
+     pattern the bearer check uses (§The shared secret), never a key
+     selector — failure is `ticket_invalid` (401); payload shape
+     (`ticket_invalid`); scope — payload `t`/`i` must equal the decoded path
+     `:type`/`:id` (`ticket_invalid`); expiry — refused when `now >= exp`, no
+     clock skew allowance and no setting for one → `ticket_expired` (401).
+     Every posture runs every check, signature included. A repeated `ticket`
+     key: last occurrence wins, matching the param map's repeat rule.
   4. `Upgrade: websocket` header present, else `invalid_request`.
   5. `validateType(type)` / `validateId(id, config)` — the same functions
      `/invoke` uses, so the id caps and the control-character/`\n`
@@ -813,8 +820,8 @@ them as plaintext `vars`.
      total, never delivered to `onConnect`. A verified ticket's `claims` are
      then merged **over** the query params — server wins — to form the map
      `onConnect` receives; the merged map may exceed `ATOMS_WS_MAX_PARAMS`
-     by up to `ATOMS_WS_TICKET_MAX_CLAIMS`, bounded at mint, not re-checked
-     here.
+     by up to `TicketIssuer::MAX_CLAIMS` (16), an issuer-side protocol
+     constant now (`docs/ws-ticket-protocol.md`), not re-checked here.
   9. Forward to the DO: `index.js` cannot use the JSON envelope every other
      route uses (`callDurableObject()`) because an upgrade needs the real
      `Request`/`Response` pair for workerd to hand back a `webSocket`, so it
@@ -834,86 +841,38 @@ them as plaintext `vars`.
   through M3 that was a **known gap**, not worked around, with
   `Atoms\Client\Tickets\TicketClient` (`POST /tickets/{type}/{id}` → a
   short-lived ticket) sketched in `packages/client/` as the designated
-  answer. M4 closes the gap as designed: the mint route below issues a
-  short-TTL, HMAC-signed ticket scoped to exactly one atom,
-  presented as `?ticket=` on the upgrade — the one deliberate exception to
-  "no query-string credential", defensible precisely because the ticket is
-  everything the shared bearer is not: seconds-lived, bound to one
-  `{type, id}`, and revoked wholesale by rotating
-  `ATOMS_SHARED_SECRET`. A ticket is deliberately **not** single-use: it is
-  reusable until it expires, so a reconnect inside the TTL can retry the
-  same URL without a round trip through the application, and the whole
-  ticket contract stays stateless — replay protection would have been its
-  only stateful property, costing a DO-side claim per connect. Replay of a
-  leaked URL is bounded by the seconds-scale TTL, the same posture
-  short-lived query-string WebSocket credentials carry across the wider
-  ecosystem. Tickets are never *required*: a bearer keeps working on
-  `/ws` unchanged. There is one ticket form — the signed `v1.` — in every
-  posture, so browser code paths and the `/ws` verification path are
-  identical between local dev and production. A dev machine's tickets are
-  signed by that machine's dev secret and are worthless anywhere else.
-- `POST /tickets/:type/:id` body `{"claims": {...}}` (optional; flat
-  string→string map) → `200 {"ticket": "...", "expires_at": <epoch-ms>,
-  "atom": {"type": ..., "id": ...}}` or `4xx/5xx` in the standard error
-  envelope (M4). The mint half of the connection-ticket flow: the
-  application's server — which holds the shared secret and is the only party
-  that knows who the user is — mints here, hands the ticket to the browser,
-  and the browser presents it on `/ws`. Validated in this order, all in
-  `src/index.js`; **no DO is ever addressed** (minting is stateless):
-  1. `checkAuth()` — the same pre-dispatch credential gate as `/invoke`,
-     behind the same configuration gate. This route is never ticket-exempt: a
-     ticket cannot mint a ticket. Under `ATOMS_BEARER_AUTH=disabled` the mint
-     route is reachable without a bearer; that posture is for a Worker
-     fronted by an authenticating proxy, which is what gates minting there.
-  2. `request.method === 'POST'`, else `method_not_allowed`; three path
-     segments, else `invalid_request`.
-  3. `validateType` / `validateId` / `checkManifest` / the manifest
-     `websocket === false` refusal — the same four refusals `/ws` gives,
-     shared code, so a ticket is never mintable for a connection `/ws`
-     would refuse.
-  4. Body, if non-empty: a JSON object; its `claims`, if present, a flat
-     own-property string→string map with at most
-     `ATOMS_WS_TICKET_MAX_CLAIMS` (default 16) entries and
-     `ATOMS_WS_TICKET_MAX_CLAIM_BYTES` (default 2048) total UTF-8 bytes
-     over keys plus values. Claim keys `ticket` and `channels` are reserved
-     (`channels` as a claim would desync the delivered params from actual
-     channel membership, which is fixed from the query string) →
-     `invalid_request`.
-  5. Mint. Payload `{"t": type, "i": id, "exp": now + ATOMS_WS_TICKET_TTL_MS
-     (default 60000), "jti": <128-bit random hex>, "claims": {...}}`. The
-     ticket is always `v1.<base64url(payload)>.<base64url(sig)>`, sig =
-     HMAC-SHA256 over `"v1\n" + base64url(payload)` with the key derived from
-     `ATOMS_SHARED_SECRET` via HKDF-SHA256 (empty salt, info string
-     `atoms/ws-ticket/v1` — a protocol constant, the same category as
-     `WS_ATTACHMENT_VERSION`), derived non-extractable and memoized per
-     isolate. Rotating `ATOMS_SHARED_SECRET` therefore invalidates every
-     outstanding ticket — intended; tickets live seconds, are re-minted
-     through the application (which is also where rate-limiting the mint path
-     belongs), and take no previous-secret overlap.
+  answer. M4 closed the gap with that mint route on the Worker; M5 moved
+  issuance off the Worker entirely (below) without changing anything about
+  how `/ws` verifies a ticket it is handed — seconds-lived, bound to one
+  `{type, id}`, revoked wholesale by rotating `ATOMS_SHARED_SECRET`, and
+  presented as `?ticket=` on the upgrade, the one deliberate exception to
+  "no query-string credential". A ticket is deliberately **not** single-use:
+  it is reusable until it expires, so a reconnect inside the TTL can retry
+  the same URL without going back to the application, and the whole ticket
+  contract stays stateless — replay protection would have been its only
+  stateful property, costing a DO-side claim per connect. Replay of a leaked
+  URL is bounded by the seconds-scale TTL, the same posture short-lived
+  query-string WebSocket credentials carry across the wider ecosystem.
+  Tickets are never *required*: a bearer keeps working on `/ws` unchanged.
+  There is one ticket form — the signed `v1.` — in every posture, so browser
+  code paths and the `/ws` verification path are identical between local dev
+  and production. A dev machine's tickets are signed by that machine's dev
+  secret and are worthless anywhere else.
 
-  Claims are the server-asserted identity channel: values the application
-  binds at mint (a `client_id`, a role, a seat) reach `onConnect` as
-  ordinary params but cannot be forged or overridden by the browser, which
-  is what makes existing `$params['client_id']` reads trustworthy without
-  app-code changes. A worst-case ticket (2048 claim bytes) is ≈3KB in the
-  URL, excluded from the param budgets. Client contract: a ticket is
-  reusable until it expires, so a reconnect inside the TTL may simply retry
-  the same URL; on **any** connection failure, mint a fresh ticket. That
-  rule is unconditional because a
-  browser **cannot read** the HTTP status or body of a failed WebSocket
-  upgrade (`new WebSocket()` surfaces only an opaque `error` event and a
-  1006 close), so `ticket_invalid` and `ticket_expired`
-  look identical from the browser — the distinct codes exist for logs,
-  server-side probes and non-browser clients. Re-minting goes through the
-  application, which is also where
-  rate-limiting the mint path belongs. Tickets authorize connection
-  establishment only; resume/redelivery tokens are a separate future
-  contract this does not foreclose. Config, resolved in `config.js` like
-  every other cap: `ATOMS_WS_TICKET_TTL_MS` (default 60000),
-  `ATOMS_WS_TICKET_SKEW_MS` (default 5000), `ATOMS_WS_TICKET_MAX_CLAIMS`
-  (default 16), `ATOMS_WS_TICKET_MAX_CLAIM_BYTES` (default 2048),
-  `ATOMS_WS_TICKET_MAX_BYTES` (default 8192). None is a secret; the signing
-  key is derived, never stored.
+Tickets are **issued by the application**, locally, with no HTTP call to the
+Worker: `Atoms\Client\Tickets\TicketIssuer::issue()`
+(`packages/client/src/Tickets/TicketIssuer.php`), using the ticket-signing
+key it derives from its own copy of `ATOMS_SHARED_SECRET` exactly as the
+Worker does. `POST /tickets/:type/:id` — the mint route M4 added, and the
+reason this section used to specify a request body — no longer exists: it,
+`TicketClient`, and the `TicketAcquisitionFailed` exception it threw are
+deleted outright, with no deprecation period and no fallback. On a configured Worker the path now falls through to the terminal
+`404 not_found`, the same as any other unrouted path; on an unconfigured
+Worker it still answers `500 misconfigured`, because the configuration gate
+runs before routing (conformance check 41). `docs/ws-ticket-protocol.md` is
+the normative document for the wire format, the serialization rule, the
+limits, and the expiry rule — this section states only what `/ws` does with
+a ticket once it is presented.
 
 DO identity: `idFromName(type + "\n" + id)`. Atom type must exist in the
 bundle manifest before any DO is touched. Method-name validation happens
@@ -1474,6 +1433,25 @@ by M1's PDO surface honesty pass, plus 8 more (31–38) added by M4's
 connection-ticket work, plus 4 more (39–42) for the shared secret
 (`docs/shared-secret.md`).
 
+**M5's rework of 31–38 and 40.** Deleting the mint route (above) made a
+purely additive edit to the ticket checks impossible: check 31 used to spend
+its first legs minting through `POST /tickets`, and there is no such route to
+mint through anymore. The suite was **reworked**, not extended — say that
+plainly rather than claiming growth. Every verifier-side assertion the old
+suite made survives, on tickets the checks now issue locally with the same
+algorithm the PHP issuer uses: canonicality, tamper detection, scope, and
+reuse-until-expiry all still run, and the expiry boundary is *tighter* than
+before (§`/ws` step 3, above — the skew allowance is gone). Each removed
+*positive* assertion (mint succeeds, mint validates its input) was replaced
+by an explicit *negative* one proving the route is actually gone (`404
+not_found` with a credential, `401 unauthenticated` without one, and —
+uniquely revealing — `500 misconfigured` on an unconfigured Worker, because
+the configuration gate still runs before routing). Check 40's ticket legs
+flipped in the same spirit: rotation used to prove a previous-secret ticket
+was refused, and now proves the opposite, because local issuance is what
+made the old refusal the wrong answer (§The shared secret, Rotation). See
+the check-by-check list below for what each of 31–38 and 40 now asserts.
+
 The Worker under test runs one of three postures, and `ATOMS_BEARER_AUTH`
 tells the runner which:
 
@@ -1653,45 +1631,62 @@ differing line and the regeneration command. If check 28 produced no report at
 all, this **fails rather than skips** — a stale doc is never excused by a
 missing run.
 
-**31–38 — connection tickets (M4).** **31.** the happy path, both configured
-postures: mint → 200 with a sane `expires_at` and a 3-segment signed `v1.`
-ticket; a **headerless** upgrade carrying `?ticket=` plus a spoofed
-`client_id` query param opens, and the params echoed by the fixture show the
-ticket claim winning (server-asserted `client_id`, not the spoofed one) and
-**no `ticket` key at all**; a URL carrying exactly `ATOMS_WS_MAX_PARAMS`
-params *plus* the ticket still opens (the reserved key is outside the
-budgets). **32.** mint validation: non-string claim values, more than
-`ATOMS_WS_TICKET_MAX_CLAIMS` entries, and the reserved `channels`/`ticket`
-claim keys → `invalid_request`; a `websocket: false` type → `not_supported`;
-an unknown type → `unknown_atom_type`; wrong method/arity → 405/400.
-**33.** edge refusals, asserted as the JSON error envelope on the refused
-upgrade: structural garbage → `ticket_invalid`; a ticket minted for atom A
-presented on atom B → `ticket_invalid`; a correctly signed ticket whose `exp`
-is already in the past → `ticket_expired` (the runner signs it with the run's
-own ticket key, which is what makes expiry testable with no TTL wait); a
-`v1u.`-form string → `ticket_invalid`, in every posture. The two forged legs
-need `ATOMS_SHARED_SECRET` in the runner's own environment, else they skip.
-**34.** reusable within TTL: the same ticket opens a second connection both
-while the first socket is still open and after it has closed — the contract
-assertion that no single-use burn exists, so the short TTL is knowably the
-ticket's whole replay story. **35.** minting is bearer-gated: a headerless
-mint → 401 `unauthenticated` (minting is never ticket-exempt); an authed mint
-→ a 3-segment `v1.` ticket; then the flagship assertion — a **headerless**
-browser-style upgrade with that ticket opens, claims merged. **36.**
-bearer-required refusals: one flipped character in the signature segment →
+**31–38 — connection tickets (M4; 31–37 and 40 reworked M5).** **31.**
+"tickets: locally issued ticket, headerless connect, claims win, ticket
+stripped" — offline, the pinned protocol vectors from
+`docs/ws-ticket-protocol.md` reproduce byte-exactly and the reference secret
+derives the pinned ticket key; then a **headerless** upgrade carrying
+`?ticket=` for a **locally issued** ticket plus a spoofed `client_id` query
+param opens, and the params echoed by the fixture show the ticket claim
+winning (server-asserted `client_id`, not the spoofed one) and **no `ticket`
+key at all**; a URL carrying exactly `ATOMS_WS_MAX_PARAMS` params *plus* the
+ticket still opens (the reserved key is outside the budgets). Needs
+`ATOMS_SHARED_SECRET` in the runner's own environment to issue with, else it
+skips. **32.** "tickets: the mint route is removed; /ws owns eligibility" —
+`POST /tickets/Room/:id` **with** a credential is `404 not_found`; a valid,
+correctly signed, locally issued ticket for a `websocket: false` type is
+`501 not_supported` and for an unknown type is `404 unknown_atom_type` —
+eligibility is refused at the upgrade, on tickets that are otherwise
+perfectly good. Its old claim-validation legs (non-string claim values, too
+many claims, reserved claim keys) moved to the PHP unit suite, where that
+validation now lives on `TicketIssuer`. **33.** edge refusals, asserted as
+the JSON error envelope on the refused upgrade: structural garbage →
+`ticket_invalid`; a ticket issued for atom A presented on atom B →
+`ticket_invalid`; a correctly signed ticket whose `exp` is already in the
+past → `ticket_expired`; a ticket **one millisecond past** its `exp` →
+`ticket_expired` — the sharpest statement of what M5 changed, since under
+the old default skew this connected; a ticket **5 seconds from expiry**
+still connects, so the boundary leg is not vacuous; a `v1u.`-form string →
+`ticket_invalid`, in every posture. The forged legs need `ATOMS_SHARED_SECRET`
+in the runner's own environment, else they skip. **34.** reusable within
+TTL: unchanged in what it asserts — the same locally issued ticket opens a
+second connection both while the first socket is still open and after it
+has closed, the contract assertion that no single-use burn exists — but it
+now issues its own ticket, so it no longer needs a short server TTL.
+**35.** "mint route removed, issued ticket admits headerless upgrade": a
+headerless `POST /tickets` → 401 `unauthenticated` (the credential gate
+precedes routing, so the route's absence is not observable without a
+credential); the same call **with** the bearer → 404 `not_found`; then the
+flagship leg, unchanged — a locally issued ticket admits a fully headerless
+upgrade with its claim winning. **36.** tamper / `v1u.`-form / no-credential
+legs unchanged: one flipped character in the signature segment →
 `ticket_invalid`; a `v1u.`-form string → `ticket_invalid`; no bearer and no
-ticket → `unauthenticated`; and a genuinely expired ticket → `ticket_expired`,
-waited out for real — this leg needs `ATOMS_WS_TICKET_SKEW_MS` in the runner's
-own environment (matching the Worker's, never defaulted — the check-15/29
-pattern) and a Worker started with a short `ATOMS_WS_TICKET_TTL_MS`, else it
-skips. **37.** bearer precedence: a **tampered** ticket is 401
-`ticket_invalid` headerless (the non-vacuity guard), then the same upgrade
-with a valid bearer connects — the bearer path strips the ticket unverified.
-**38.** the routing regression guard: with bearer auth required, a headerless
-`POST /invoke` and `GET /debug` are still 401 — the `/ws` ticket carve-out
-leaked into no other route. **31–34 run in either configured posture**;
-35–38 need bearer auth required, and `ATOMS_REQUIRE_TICKET_CHECKS=1` turns any
-ticket-check skip into a failure.
+ticket → `unauthenticated`. The real-expiry leg no longer needs any
+environment: it issues a ticket with a 1.5-second lifetime, connects with it
+(proving it was good), waits it out, and reconnects to get `ticket_expired`
+— previously this needed `ATOMS_WS_TICKET_SKEW_MS` in the runner env and a
+Worker started with a short `ATOMS_WS_TICKET_TTL_MS`, both gone. **37.**
+bearer precedence: unchanged, issues its own ticket — a **tampered** ticket
+is 401 `ticket_invalid` headerless (the non-vacuity guard), then the same
+upgrade with a valid bearer connects — the bearer path strips the ticket
+unverified. **38.** the routing regression guard, untouched: with bearer
+auth required, a headerless `POST /invoke` and `GET /debug` are still 401 —
+the `/ws` ticket carve-out leaked into no other route. **31–34 run in either
+configured posture**; 35–38 need bearer auth required. Checks 31, 32, 34,
+35, 36 and 37 now require `ATOMS_SHARED_SECRET` in the runner's own
+environment because they issue tickets, and `ATOMS_REQUIRE_TICKET_CHECKS=1`
+turns any ticket-check skip into a failure. `ATOMS_WS_TICKET_SKEW_MS` is
+gone from the runner entirely.
 
 **39–42 — the shared secret (`docs/shared-secret.md`).** **39.** bearer
 derivation: (a) the runner reproduces the reference vector for all three
@@ -1705,23 +1700,38 @@ the run's own secret produces exactly what the runner derives, which is what
 makes "the monolith derives in PHP and the Worker in WebCrypto" a checked
 claim rather than an assumption — it skips when there is no `php` on PATH, and
 `ATOMS_REQUIRE_BEARER_VECTOR=1` turns that skip into a failure (CI installs
-PHP and sets it); (c) with bearer auth required, the derived bearer is
+PHP and sets it). M5 adds a second cross-language leg here: an inline
+`php -r` (no autoloader — the worker CI job has no composer install) runs the
+issuer's exact algorithm over the pinned `docs/ws-ticket-protocol.md` vector
+inputs and must produce the pinned ticket string, matching both the pinned
+vector and the runner's own implementation — deriving the same key only
+proves the two agree about HKDF, and the ticket adds a JSON encoder and a
+base64url encoder to the agreement, which is where two implementations
+actually drift. (c) with bearer auth required, the derived bearer is
 accepted live and a 44-character bearer derived from an unrelated secret is
-401 `unauthenticated`. **40.** rotation: with `ATOMS_SHARED_SECRET_PREVIOUS`
-configured on the Worker and the runner, `bearer(current)` and
-`bearer(previous)` are both accepted on `/invoke` while an unrelated bearer is
-401 (the non-vacuity half); a ticket signed under the previous secret's ticket
-key is `ticket_invalid` while one signed under the current key connects —
-tickets get **no** overlap; and the callback the listener receives verifies
-under the current callback key and **not** under the previous one, pinning
-that a verifier accepts both while a sender emits only the current value.
-Skips without the previous secret; `ATOMS_REQUIRE_ROTATION_CHECKS=1` turns
-that skip into a failure. **41.** the misconfigured Worker: booted with no
-secret, `GET /healthz` still answers 200 `{ok: true}` (`loadConfig()` stays
-total) and `/invoke`, `/tickets`, `/debug` and `/ws` all answer HTTP 500 with
-the wire code `misconfigured` — loudly broken, never silently open. It runs
-only under `ATOMS_EXPECT_MISCONFIGURED=1`, which is the whole of that short
-posture's run. **42.** the config deny list: with the Worker started with
+401 `unauthenticated`. **40.** "rotation: bearers and tickets accepted under
+either secret, callbacks signed with the current key" — with
+`ATOMS_SHARED_SECRET_PREVIOUS` configured on the Worker and the runner,
+`bearer(current)` and `bearer(previous)` are both accepted on `/invoke` while
+an unrelated bearer is 401 (the non-vacuity half); a ticket signed under the
+**previous** secret's ticket key now **connects** — the M5 flip, since local
+issuance made the old refusal wrong (§The shared secret, Rotation) — a ticket
+signed under the **current** key connects too, and a ticket signed under an
+**unrelated** secret is still `ticket_invalid`, so neither acceptance is
+vacuous; and the callback the listener receives verifies under the current
+callback key and **not** under the previous one, pinning that a verifier
+accepts both while a sender emits only the current value. Bearer and
+callback legs unchanged. Skips without the previous secret;
+`ATOMS_REQUIRE_ROTATION_CHECKS=1` turns that skip into a failure. **41.** the
+misconfigured Worker, unchanged: booted with no secret, `GET /healthz` still
+answers 200 `{ok: true}` (`loadConfig()` stays total) and `/invoke`,
+`/tickets`, `/debug` and `/ws` all answer HTTP 500 with the wire code
+`misconfigured` — loudly broken, never silently open — including its
+`POST /tickets` leg, which now pins that the configuration gate precedes
+routing even for a route that no longer exists: a Worker missing its secret
+must not leak which routes it has. It runs only under
+`ATOMS_EXPECT_MISCONFIGURED=1`, which is the whole of that short posture's
+run. **42.** the config deny list, untouched: with the Worker started with
 `ATOMS_CONFIG_ENV_KEYS` naming `ATOMS_SHARED_SECRET` and
 `ATOMS_SHARED_SECRET_PREVIOUS`, a guest `$this->config()` of either name
 resolves `null` (`Counter::configProbe()` reports what the guest sees), while

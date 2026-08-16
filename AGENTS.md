@@ -150,6 +150,15 @@ not direction.
   edits are ADDITIVE ones that make a check assert more. Checks 12, 21, 24 and
   25 each wait out a real eviction, so the run takes minutes — shortening
   `ATOMS_EVICTION_WAIT_MS` does not make it faster, it makes it assert nothing.
+  The one narrow exception: when the spec itself **removes** a surface (a
+  route, a header, an env var), a check that exercised that surface is
+  reworked in the same change, and every removed positive assertion is
+  replaced by an explicit negative one — the surface must now be proven
+  absent, not merely left unchecked. The rework is recorded in
+  `cloudflare/worker/test/README.md` and in the spec's own conformance
+  narrative. This is a carve-out for spec-driven removals, made in lockstep
+  with the spec change that mandates them — it is not a general licence to
+  weaken a check because an implementation fell short of it.
 - **Tests never hit the network.** HTTP is tested against an in-memory PSR-18
   fake; SQLite tests use `:memory:` or a temp dir. The Worker suite talks only
   to a worker you started locally.
