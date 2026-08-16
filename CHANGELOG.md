@@ -44,10 +44,16 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   emits under the current secret only. Tickets get no overlap — rotating the
   secret invalidates every outstanding ticket at once. See
   `docs/shared-secret.md` §Rotation for the runbook.
-- **Changed:** `atoms dev` provisions a fresh per-machine dev secret into the
-  Worker project's gitignored `.dev.vars` (creating the file if needed, never
-  overwriting a value already there) instead of running keyless. Local and
-  production run the identical auth code path, including signed tickets.
+- **Changed:** `atoms dev` provisions a per-machine dev secret instead of
+  running keyless, so local and production run the identical auth code path
+  including signed tickets. The app's `.env` (or `.env.local` where `.env` is
+  committed, as in Symfony) is the source of truth: a secret is generated
+  there when the key is absent, an existing one is adopted untouched, and the
+  Worker's gitignored `.dev.vars` is a generated one-line projection rewritten
+  whenever the two differ. No manual copy, and the value is never printed.
+  `.dev.vars` exists only because `wrangler dev` reads that file and nothing
+  else — treat it as a build artifact. A project with no dotenv file keeps the
+  secret in `.dev.vars` alone.
 
 ### UPGRADING to 0.2.0
 

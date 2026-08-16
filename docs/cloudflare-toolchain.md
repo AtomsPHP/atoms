@@ -208,7 +208,11 @@ travel to the Worker by two different, deliberately asymmetric paths
   other Worker secret. Locally, `atoms dev` provisions a fresh per-machine dev
   secret into the Worker project's gitignored `.dev.vars` — creating the file
   if needed, never overwriting a value already there, and warning if the file
-  is not gitignored — so a developer never types the secret in by hand.
+  is not gitignored — so a developer never types the secret in by hand. The
+  app's `.env` (or `.env.local` where `.env` is committed) is the source of
+  truth; `.dev.vars` is a generated projection of it, rewritten when the two
+  differ, and exists only because `wrangler dev` reads that file and nothing
+  else. See `docs/shared-secret.md`.
 
 **Why the CLI never carries the secret on its own argv.** Putting it on
 `atoms dev`'s argv or behind a `--var` flag would place it in the process

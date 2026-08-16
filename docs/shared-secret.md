@@ -109,6 +109,24 @@ and is not acceptable. Local and production run the same code path —
 including ticket signing, which is why the unsigned `v1u.` dev ticket form
 no longer exists (below).
 
+The app's dotenv file is the source of truth, and `.dev.vars` is a
+generated projection of it. `atoms dev` generates a secret into the app's
+file when the key is absent — as `php artisan key:generate` does, and
+likewise without printing it — then rewrites `.dev.vars` whenever the two
+differ. An existing app value is adopted, never overwritten, so a secret
+managed by Doppler or 1Password is left alone.
+
+`.dev.vars` exists only because `wrangler dev` reads that file and nothing
+else. Wrangler's `--env-file` could point it straight at the app's `.env`
+instead, but that loads the file's *entire* contents into the Worker as
+secrets; the projection carries exactly the one var the Worker needs. Treat
+it as a build artifact — gitignored, never edited, rewritten each run.
+
+The target file is whichever dotenv file git says can hold a secret:
+Laravel's gitignored `.env`, Symfony's `.env.local` (its `.env` is
+committed). A project with neither is not using dotenv, and keeps the
+secret in `.dev.vars` alone.
+
 ## Tickets: always signed, `v1u.` deleted
 
 The unsigned dev ticket existed only because the auth-off posture had no
