@@ -46,9 +46,6 @@
  *                           set size guard); when unset, the Worker's own
  *                           defaults apply. Never defaulted here — same rule
  *                           as ATOMS_TURN_DEADLINE_MS above.
- *   ATOMS_WS_TICKET_TTL_MS, ATOMS_WS_TICKET_SKEW_MS  forwarded verbatim when
- *                           set (the signed-expiry leg needs a short TTL and a
- *                           known skew); never defaulted here.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -79,8 +76,6 @@ const passThrough = [
     'ATOMS_TURN_DEADLINE_MS',
     'ATOMS_SQL_MAX_ROWS',
     'ATOMS_SQL_MAX_RESULT_BYTES',
-    'ATOMS_WS_TICKET_TTL_MS',
-    'ATOMS_WS_TICKET_SKEW_MS',
 ];
 
 // 32 random bytes, base64 — exactly what the Worker requires and what the app

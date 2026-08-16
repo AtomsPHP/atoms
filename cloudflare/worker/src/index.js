@@ -9,10 +9,8 @@
  *   GET  /healthz                    -> {"ok":true}, never touches a DO
  *   GET  /debug/:type/:id/info       -> residency info, ATOMS_DEBUG_ENDPOINTS=1 only
  *   GET  /ws/:type/:id               -> WebSocket upgrade; bearer OR a `?ticket=`
- *                                       from POST /tickets (browsers cannot set
- *                                       an Authorization header)
- *   POST /tickets/:type/:id          body {"claims":{...}} (optional)
- *        -> 200 {"ticket":..., "expires_at":..., "atom":{...}}, never touches a DO
+ *                                       issued by the application (browsers
+ *                                       cannot set an Authorization header)
  *
  * This is the invoke contract. `atoms/client` calls it directly; the
  * `/v1/{customer}` prefix it used to send is gone, because the Worker is
@@ -29,7 +27,7 @@ import { loadConfig } from './config.js';
 import { deriveBearer } from './derive.js';
 import { AtomsError, normalizeError, retryableFor, statusFor } from './errors.js';
 import { decodeInt64Deep } from './int64.js';
-import { mintTicket, validateClaims, verifyTicket } from './tickets.js';
+import { verifyTicket } from './tickets.js';
 import { WS_CONN_ID_PLACEHOLDER, attachmentByteLength, buildAttachment } from './websockets.js';
 
 export { AtomDurableObject } from './atom-do.js';
@@ -124,9 +122,9 @@ async function route(request, env) {
 	// (spec §Routing and auth), because a browser's `new WebSocket(url)` cannot
 	// set an Authorization header. When the bearer check failed AND a ticket
 	// key is present, the decision is deferred to wsUpgrade()'s stateless
-	// ticket verification instead of refusing here. Every other route —
-	// /tickets included, since a ticket cannot mint a ticket — is refused at
-	// this pre-dispatch gate.
+	// ticket verification instead of refusing here. Every other route is
+	// refused at this pre-dispatch gate, and a ticket buys nothing on any of
+	// them: it is a credential for one atom's upgrade, nothing else.
 	const wsTicketCandidate = parts[0] === 'ws' && url.searchParams.has('ticket');
 	if (authFailure && !wsTicketCandidate) return authFailure;
 
@@ -151,16 +149,6 @@ async function route(request, env) {
 			return errorResponse('invalid_request', 'expected /debug/:type/:id/info');
 		}
 		return debugInfo(env, config, decodeSeg(parts[1]), decodeSeg(parts[2]));
-	}
-
-	if (parts[0] === 'tickets') {
-		if (request.method !== 'POST') {
-			return errorResponse('method_not_allowed', 'POST /tickets/:type/:id');
-		}
-		if (parts.length !== 3) {
-			return errorResponse('invalid_request', 'expected /tickets/:type/:id');
-		}
-		return mintTicketRoute(request, config, decodeSeg(parts[1]), decodeSeg(parts[2]));
 	}
 
 	if (parts[0] === 'ws') {
@@ -423,9 +411,10 @@ async function wsUpgrade(request, env, config, url, type, id, bearerOk) {
 }
 
 /**
- * The two manifest refusals `/ws` and `/tickets` share: an unknown type, and
- * a type that declares no WebSocket handler. One implementation, so a ticket
- * can never be minted for a connection the upgrade would refuse.
+ * The two manifest refusals the `/ws` upgrade makes: an unknown type, and a
+ * type that declares no WebSocket handler. The upgrade is the authority on
+ * both — an issuer works from whatever manifest it has locally, which can lag
+ * this deployment, so it never pre-judges either question.
  *
  * @param {string} type
  * @returns {Response|null}
@@ -444,61 +433,6 @@ function checkWsEligibility(type) {
 		);
 	}
 	return null;
-}
-
-/**
- * `POST /tickets/:type/:id` — mint a connection ticket (spec §Routing and
- * auth). Behind the same pre-dispatch credential gate as `/invoke`, and always
- * mints the signed `v1.` form, so local dev and production run one code path.
- *
- * Under `ATOMS_BEARER_AUTH=disabled` this route is reachable without a bearer;
- * that posture is for a Worker fronted by an authenticating proxy such as
- * Cloudflare Access, which is what gates the mint path there.
- *
- * Minting is stateless: no DO is ever addressed.
- *
- * @param {Request} request
- * @param {import('./config.js').AtomsConfig} config
- * @param {string} type
- * @param {string} id
- * @returns {Promise<Response>}
- */
-async function mintTicketRoute(request, config, type, id) {
-	validateType(type);
-	validateId(id, config);
-
-	const eligibilityFailure = checkWsEligibility(type);
-	if (eligibilityFailure) return eligibilityFailure;
-
-	const declared = Number(request.headers.get('content-length') ?? '0');
-	if (Number.isFinite(declared) && declared > config.maxRequestBytes) {
-		return errorResponse('payload_too_large', `body exceeds ATOMS_MAX_REQUEST_BYTES (${config.maxRequestBytes})`);
-	}
-
-	const raw = await request.text();
-	if (raw.length > config.maxRequestBytes) {
-		return errorResponse('payload_too_large', `body exceeds ATOMS_MAX_REQUEST_BYTES (${config.maxRequestBytes})`);
-	}
-
-	/** @type {unknown} */
-	let claimsRaw;
-	if (raw.trim() !== '') {
-		/** @type {any} */
-		let body;
-		try {
-			body = JSON.parse(raw);
-		} catch (e) {
-			return errorResponse('invalid_request', `request body is not valid JSON: ${String(e)}`);
-		}
-		if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-			return errorResponse('invalid_request', 'request body must be a JSON object');
-		}
-		claimsRaw = body.claims;
-	}
-
-	const claims = validateClaims(claimsRaw, config);
-	const minted = await mintTicket(config, type, id, claims, Date.now());
-	return json({ ticket: minted.ticket, expires_at: minted.expiresAt, atom: { type, id } });
 }
 
 /** Channel name format: `^[A-Za-z0-9][A-Za-z0-9._:@-]*$`. */
