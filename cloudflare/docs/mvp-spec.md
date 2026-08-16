@@ -996,7 +996,7 @@ awaited event: the DO is never evicted mid-event, only between them.
   rethrow.
 - `pdo()` returns `Atoms\Cf\AtomsPDO extends \PDO` (spike shim, hardened, then
   measured and filled by M1's "make the userland PDO surface honest" pass).
-  The surface is no longer defined by a hand-audited member list: a
+  The surface is machine-verified rather than hand-audited: a
   reflection tripwire (conformance check 26) asserts every public member of
   the runtime's own `\PDO`/`\PDOStatement` is genuinely declared on the
   subclass, and a differential harness (checks 27-28) runs a ~160-case matrix
@@ -1058,11 +1058,11 @@ awaited event: the DO is never evicted mid-event, only between them.
   `job` as a label alongside `body` purely for the host's delivery-failure logs
   — never used to build the request (the opaque-body invariant).
 
-  `dispatch()` took an `AtomJob` instance until 2026-08-14. That signature
-  could not work: it needed the job class loaded in the guest, which a bundle
-  never carries, so every call failed with `Class "..." not found` — silently,
-  when the dispatch sat inside a `catch (\Throwable)`. It now takes the class
-  name, and `atoms build` reports `ATOMS-E104` on the old shape.
+  `dispatch()` takes the job's **class name**, never a constructed
+  `AtomJob`. An instance would need the job class loaded in the guest, which a
+  bundle never carries, so the call could only fail with
+  `Class "..." not found` — silently, whenever the dispatch sits inside a
+  `catch (\Throwable)`. `atoms build` reports `ATOMS-E104` on that shape.
 - **`CallbackChannel::exceptionFor()`** (`worker/php/runtime/
   CallbackChannel.php`) is the one place both doors map a host door failure
   onto a typed exception, so `app()` (park door) and `dispatch()` (sync door)
@@ -1344,10 +1344,9 @@ unchanged and remains what the host loads — it is the *deploy* artifact.
 `atoms build`'s `bundle-{sha256}.tar.gz` + schema-1 `manifest.json` is the
 *portable* artifact, and `scripts/bundle-from-cli.mjs` translates the second
 into the first; `atoms deploy` runs it before `wrangler deploy`. Neither format
-moved, so nothing under `src/` or `php/` changed and this section still
-describes what the Worker loads. `build-bundle.mjs` is no longer a stand-in for
-`atoms build`: it builds the conformance fixture, which is all it now claims.
-See `docs/cloudflare-toolchain.md` §3.
+moved, so nothing under `src/` or `php/` changed and this section describes
+what the Worker loads. `build-bundle.mjs` builds the conformance fixture, and
+claims nothing beyond it. See `docs/cloudflare-toolchain.md` §3.
 
 ## Fixture app (conformance subject)
 

@@ -19,6 +19,8 @@ atoms dev [--port P]           # build + `wrangler dev` locally. No Cloudflare a
 atoms status --env X           # Worker versions (`wrangler versions list`).
 atoms rollback --env X [version-id]  # `wrangler rollback` (previous version by default).
 atoms secrets:set KEY --env X  # Worker secret, read in the Atom via $this->config().
+atoms shared-secret:set --env X  # ATOMS_SHARED_SECRET, read from stdin. The auth root; not readable by Atom code.
+atoms shared-secret:unset --env X  # Remove ATOMS_SHARED_SECRET_PREVIOUS, closing a rotation window.
 ```
 
 Credentials: `CLOUDFLARE_API_TOKEN` and
@@ -47,6 +49,27 @@ allowlist resolves `$this->config('PAYMENTS_API_KEY')` to. The prefix is read
 from the Worker project's wrangler config (`ATOMS_CONFIG_ENV_PREFIX`), so an
 overridden one is honoured; a key that could never be read back is refused with
 ATOMS-E077 rather than stored.
+
+`ATOMS_SHARED_SECRET` is the one key `secrets:set` will not store (ATOMS-E077):
+it is the auth root the bearer, WebSocket ticket and callback keys all derive
+from, and prefixing it would put it in the namespace Atom code can read. Use
+`atoms shared-secret:set --env X`, which takes the value on stdin only (never
+argv), validates it as 32 bytes of base64, and skips the write when the Worker
+already has one unless `--force`. `--previous` writes the rotation overlap key.
+The Worker needs it before it can serve anything — without it every route
+except `GET /healthz` answers `misconfigured`, so a pipeline health check goes
+green while every invoke fails. In CI, pass it to the deploy action as
+`shared-secret` rather than calling this yourself. The same value must also be
+set on the application side, under the same name; nothing in Atoms can reach
+that. See docs/shared-secret.md.
+
+Rotating: set the new value with `--force` and the old one with `--previous`
+during the overlap window, then run `atoms shared-secret:unset --env X` once
+every caller holds the new secret. That command removes the overlap key only
+and succeeds when it is already gone. `ATOMS_SHARED_SECRET` itself cannot be
+unset — a Worker without it answers `misconfigured` on every route but
+`GET /healthz`. In CI the deploy action's `rotate-shared-secret` and
+`retire-shared-secret-previous` inputs drive both ends.
 
 ## Deploy ordering (expand/contract)
 
