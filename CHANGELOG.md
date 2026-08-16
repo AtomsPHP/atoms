@@ -3,20 +3,10 @@
 All notable changes to Atoms are documented here. The seven Composer packages,
 the Cloudflare runtime, and deploy Action use one coordinated version.
 
-## [0.2.0] - Unreleased
+## [Unreleased]
 
-- **Security:** One operator-facing secret, `ATOMS_SHARED_SECRET` (32 random
-  bytes, base64, identical on the app and the Worker, never transmitted),
-  replaces `ATOMS_APP_KEY`, `ATOMS_API_KEY`, `ATOMS_CALLBACK_SIGNING_KEY` and
-  `ATOMS_PLATFORM_PUBLIC_KEY`. Every key on the app ↔ Worker boundary — the
-  bearer, WebSocket ticket signing, callback signing — is HKDF-SHA256 derived
-  from it with per-purpose domain separation (`atoms/bearer/v1`,
-  `atoms/ws-ticket/v1`, `atoms/callback/v1`). The four old variables are
-  deleted, not aliased: a deployment still setting only the old names fails
-  loudly. `ATOMS-E105` covers a missing or malformed secret. See
-  `docs/shared-secret.md`, the decision record.
-- **Added:** `atoms secrets:root --env X` stores `ATOMS_SHARED_SECRET` (or,
-  with `--previous`, the rotation overlap value) on the Worker, read from
+- **Added:** `atoms shared-secret:set --env X` stores `ATOMS_SHARED_SECRET`
+  (or, with `--previous`, the rotation overlap value) on the Worker, read from
   stdin and validated as 32 bytes of base64 before it is sent. It is the only
   CLI path to this key — `atoms secrets:set` still refuses it (`ATOMS-E077`),
   since that command writes the guest-readable `ATOMS_CONFIG_` namespace.
@@ -29,6 +19,28 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   route but `GET /healthz` — a green health check over a broken Worker — until
   someone ran `wrangler secret put` by hand. See `docs/shared-secret.md`
   §Setting it.
+- **Changed:** `atoms dev` takes the dev shared secret from the app's `.env`
+  (or `.env.local` where `.env` is committed, as in Symfony) rather than
+  `.dev.vars`: a secret is generated there when the key is absent, an existing
+  one is adopted untouched, and the Worker's gitignored `.dev.vars` becomes a
+  generated one-line projection rewritten whenever the two differ. No manual
+  copy, and the value is never printed. `.dev.vars` exists only because
+  `wrangler dev` reads that file and nothing else — treat it as a build
+  artifact. A project with no dotenv file keeps the secret in `.dev.vars`
+  alone.
+
+## [0.2.0] - 2026-08-16
+
+- **Security:** One operator-facing secret, `ATOMS_SHARED_SECRET` (32 random
+  bytes, base64, identical on the app and the Worker, never transmitted),
+  replaces `ATOMS_APP_KEY`, `ATOMS_API_KEY`, `ATOMS_CALLBACK_SIGNING_KEY` and
+  `ATOMS_PLATFORM_PUBLIC_KEY`. Every key on the app ↔ Worker boundary — the
+  bearer, WebSocket ticket signing, callback signing — is HKDF-SHA256 derived
+  from it with per-purpose domain separation (`atoms/bearer/v1`,
+  `atoms/ws-ticket/v1`, `atoms/callback/v1`). The four old variables are
+  deleted, not aliased: a deployment still setting only the old names fails
+  loudly. `ATOMS-E105` covers a missing or malformed secret. See
+  `docs/shared-secret.md`, the decision record.
 - **Added:** `atoms token` prints the bearer derived from
   `ATOMS_SHARED_SECRET`, so an operator can curl the Worker without ever
   putting the secret itself in an `Authorization` header.
@@ -42,8 +54,8 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   (`"v1\n{ts}\n{nonce}\n" + body`, the same headers), the key HKDF-derived
   from `ATOMS_SHARED_SECRET`, verified with `hash_equals()` against a 32-byte
   tag. `atoms/client` declares no `ext-sodium` dependency.
-- **Removed:** The unsigned `v1u.` WebSocket ticket form. Ticket issuance
-  always produces a signed `v1.` ticket, including under
+- **Removed:** The unsigned `v1u.` WebSocket ticket form. `POST /tickets`
+  always mints a signed `v1.` ticket, including under
   `ATOMS_BEARER_AUTH=disabled`, since a shared secret — and therefore a
   signing key — is always configured.
 - **Fixed:** A ticket signature's base64url decoding discarded a trailing
@@ -57,16 +69,10 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   ticket signature check, the monolith's callback verification), try-both,
   never a key selector; a sender always emits under the current secret only.
   See `docs/shared-secret.md` §Rotation for the runbook.
-- **Changed:** `atoms dev` provisions a per-machine dev secret instead of
-  running keyless, so local and production run the identical auth code path
-  including signed tickets. The app's `.env` (or `.env.local` where `.env` is
-  committed, as in Symfony) is the source of truth: a secret is generated
-  there when the key is absent, an existing one is adopted untouched, and the
-  Worker's gitignored `.dev.vars` is a generated one-line projection rewritten
-  whenever the two differ. No manual copy, and the value is never printed.
-  `.dev.vars` exists only because `wrangler dev` reads that file and nothing
-  else — treat it as a build artifact. A project with no dotenv file keeps the
-  secret in `.dev.vars` alone.
+- **Changed:** `atoms dev` provisions a fresh per-machine dev secret into the
+  Worker project's gitignored `.dev.vars` (creating the file if needed, never
+  overwriting a value already there) instead of running keyless. Local and
+  production run the identical auth code path, including signed tickets.
 
 ### UPGRADING to 0.2.0
 
@@ -186,6 +192,8 @@ secret. See `docs/shared-secret.md` §Rotation for the full runbook.
 Initial open-source release of the Atoms programming model, Laravel and
 Symfony adapters, testing and PHPStan tooling, deterministic CLI build and
 deploy workflow, and the Cloudflare Durable Object PHP runtime.
+
+[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.2.0...main
 
 [0.1.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.0
 

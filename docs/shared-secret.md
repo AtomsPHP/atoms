@@ -239,7 +239,7 @@ ships code without it produces a Worker answering `misconfigured` on every
 route **except `GET /healthz`** — so a pipeline health check goes green
 while every invoke fails. Configure it in the same run that deploys.
 
-`atoms secrets:root --env <env>` reads the value on **stdin** and stores it
+`atoms shared-secret:set --env <env>` reads the value on **stdin** and stores it
 under the exact, unprefixed name. It is the only CLI path to this key:
 `atoms secrets:set` refuses it (`ATOMS-E077`) because that command prefixes
 every name with `ATOMS_CONFIG_`, the namespace Atom code can read, and the

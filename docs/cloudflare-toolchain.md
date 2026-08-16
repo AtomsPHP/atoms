@@ -213,9 +213,11 @@ travel to the Worker by two different, deliberately asymmetric paths
 table and in shell history — precisely what the CLI-never-holds-a-credential
 rule (root `AGENTS.md`) exists to prevent. `.dev.vars` and
 `wrangler secret put` are Wrangler's own delivery vehicles for a secret;
-`atoms dev` writes straight to the `.dev.vars` file it provisions rather than
-passing the value as an argument anywhere, and otherwise only ever reaches for
-the one variable (`ATOMS_CALLBACK_URL`) that is not a secret at all.
+`atoms dev` writes the dev secret to the app's dotenv file and projects it
+into `.dev.vars` rather than passing the value as an argument anywhere, and
+`atoms shared-secret:set` pipes it to `wrangler secret put` on stdin. The CLI
+otherwise only ever reaches for the one variable (`ATOMS_CALLBACK_URL`) that
+is not a secret at all.
 
 **`ATOMS_SHARED_SECRET` is not settable via `atoms secrets:set`, and that is
 deliberate.** `SecretsSetCommand` always maps a name through
@@ -226,12 +228,19 @@ bearer/ticket/callback paths reads — and one guest code *could* read. So the
 command refuses the raw name before prefixing (`ATOMS-E077`):
 `WorkerConfig::CREDENTIAL_KEYS` names `ATOMS_SHARED_SECRET` and
 `ATOMS_SHARED_SECRET_PREVIOUS`, and `keyRefusalReason()` checks the input
-against it ahead of any transform. `wrangler secret put
-ATOMS_SHARED_SECRET` and `atoms dev`'s `.dev.vars` provisioning are the only
-paths, exactly as this section describes — there is no CLI shortcut for this
-secret, and there is not meant to be one: a root this central does not belong
-behind a command whose whole contract is prefixing keys for guest code to
-read.
+against it ahead of any transform. A root this central does not belong behind
+a command whose whole contract is prefixing keys for guest code to read.
+
+**`atoms shared-secret:set --env X` is the CLI path instead**, in its own
+namespace so that the two can never be confused: it writes the exact,
+unprefixed name and nothing else, takes the value on stdin only, and
+validates it as 32 bytes of base64 before sending. It is idempotent, leaving
+an existing value alone unless `--force`, so a pipeline can run it on every
+deploy without minting a Worker version each time; `--previous` writes
+`ATOMS_SHARED_SECRET_PREVIOUS` for a rotation window. The deploy Action wraps
+it (`action/README.md` §The shared secret), and `docs/shared-secret.md`
+§"Setting it" is the runbook. `wrangler secret put ATOMS_SHARED_SECRET` by
+hand and `atoms dev`'s dev-secret provisioning remain the other two ways in.
 
 ### Debug endpoints: off by default, enabled in atoms.json
 
