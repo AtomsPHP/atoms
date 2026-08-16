@@ -66,7 +66,8 @@ the same way as the token, through the step environment.
 | `bundle` | No | — | Path to a prebuilt bundle. If omitted, builds locally. |
 | `shared-secret` | No | — | `ATOMS_SHARED_SECRET` for the Worker (32 random bytes, base64). Stored after the deploy, and only when the Worker does not already have one. |
 | `shared-secret-previous` | No | — | `ATOMS_SHARED_SECRET_PREVIOUS`, the rotation overlap value. |
-| `rotate-shared-secret` | No | `false` | Overwrite the Worker's existing values with the two above. |
+| `rotate-shared-secret` | No | `false` | Overwrite the Worker's existing values with the two above. Only the literal `true` enables it. |
+| `retire-shared-secret-previous` | No | `false` | Remove `ATOMS_SHARED_SECRET_PREVIOUS`, closing a rotation window. Only the literal `true` enables it. |
 | `php-version` | No | `8.3` | PHP version used to run the Atoms CLI |
 | `node-version` | No | `22` | Node version used to run Wrangler |
 
@@ -102,11 +103,20 @@ It is idempotent — the write is skipped when the Worker already has the secret
 so running it on every deploy does not mint a Worker version each time. That
 also means it will not apply a **changed** value: set `rotate-shared-secret:
 true` for that, alongside `shared-secret-previous` for a zero-downtime overlap.
-See `docs/shared-secret.md` for the rotation runbook.
+
+Closing the window is `retire-shared-secret-previous: true` on one later
+deploy, in place of `shared-secret-previous`. It removes the overlap key and
+succeeds when the key is already gone, so it cannot fail a pipeline that runs
+it twice. The overlap key is the only one it removes — `ATOMS_SHARED_SECRET`
+has no retire input, because a Worker without it answers `misconfigured` on
+every route but `GET /healthz`. Drop the same value from the application side
+yourself; nothing here can reach it. See `docs/shared-secret.md` for the full
+rotation runbook.
 
 ## How it works
 
-1. **Masks** the Cloudflare API token so it cannot leak into the log.
+1. **Masks** the Cloudflare API token and any shared-secret inputs so they
+   cannot leak into the log.
 2. **Sets up PHP** (default 8.3) with `pdo_sqlite` and `curl`.
 3. **Sets up Node** (default 22) — Wrangler is a Node program.
 4. **Installs the matching Atoms CLI version** via Composer.
@@ -114,6 +124,11 @@ See `docs/shared-secret.md` for the rotation runbook.
 6. **Runs `npm ci`** from the runtime's shipped lockfile.
 7. **Runs `atoms deploy --env <environment>`** in `working-directory`, with the
    Cloudflare credentials in the environment.
+8. **Configures the shared secret**, when `shared-secret` or
+   `shared-secret-previous` is set — after the deploy, because
+   `wrangler secret put` needs the Worker to exist.
+9. **Retires the previous shared secret**, when
+   `retire-shared-secret-previous` is `true`.
 
 ## The Worker directory
 

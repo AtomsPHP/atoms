@@ -48,6 +48,13 @@ interface Wrangler
     public function listSecrets(CloudflareTarget $target): WranglerResult;
 
     /**
+     * `wrangler secret delete {key} --name {worker}`. Wrangler asks for
+     * confirmation and answers itself with `yes` when it is not attached to a
+     * TTY, which is every way this seam runs it.
+     */
+    public function deleteSecret(CloudflareTarget $target, string $key): WranglerResult;
+
+    /**
      * `wrangler dev --port {port}`, with `--var` pairs injected. Runs in the
      * foreground until interrupted.
      *

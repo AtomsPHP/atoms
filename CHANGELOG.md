@@ -12,9 +12,15 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   since that command writes the guest-readable `ATOMS_CONFIG_` namespace.
   Idempotent unless `--force`, so a pipeline can run it every deploy without
   minting a Worker version each time.
-- **Added:** the deploy Action takes `shared-secret`, `shared-secret-previous`
-  and `rotate-shared-secret`, masking them and piping them to the CLI on
-  stdin. Previously the Action could deploy a Worker but not configure one, so
+- **Added:** `atoms shared-secret:unset --env X` removes
+  `ATOMS_SHARED_SECRET_PREVIOUS`, closing a rotation window. It succeeds when
+  the key is already gone, so a pipeline can run it twice. The overlap key is
+  the only one it removes: `ATOMS_SHARED_SECRET` has no unset path, since a
+  Worker without it answers `misconfigured` on every route but `GET /healthz`.
+  Previously a rotation could be started from CI but only finished by hand.
+- **Added:** the deploy Action takes `shared-secret`, `shared-secret-previous`,
+  `rotate-shared-secret` and `retire-shared-secret-previous`, masking the
+  secret values and piping them to the CLI on stdin. Previously the Action could deploy a Worker but not configure one, so
   a first CI deploy shipped something that answered `misconfigured` on every
   route but `GET /healthz` — a green health check over a broken Worker — until
   someone ran `wrangler secret put` by hand. See `docs/shared-secret.md`

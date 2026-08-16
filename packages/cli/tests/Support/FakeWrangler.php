@@ -22,6 +22,7 @@ final class FakeWrangler implements Wrangler
     public ?WranglerResult $rollbackResult = null;
     public ?WranglerResult $putSecretResult = null;
     public ?WranglerResult $listSecretsResult = null;
+    public ?WranglerResult $deleteSecretResult = null;
     public ?WranglerResult $devResult = null;
 
     public function deploy(CloudflareTarget $target, array $vars = []): WranglerResult
@@ -57,6 +58,13 @@ final class FakeWrangler implements Wrangler
         $this->record('listSecrets', $target, []);
 
         return $this->listSecretsResult ?? self::ok(['secret', 'list'], '[]');
+    }
+
+    public function deleteSecret(CloudflareTarget $target, string $key): WranglerResult
+    {
+        $this->record('deleteSecret', $target, ['key' => $key]);
+
+        return $this->deleteSecretResult ?? self::ok(['secret', 'delete'], '');
     }
 
     public function dev(CloudflareTarget $target, string $port, array $vars): WranglerResult

@@ -225,11 +225,21 @@ Runbook (zero downtime for bearer, tickets and callbacks):
    invalidates every outstanding old-secret ticket at once, along with the
    old bearer and old callback key.
 
-From a pipeline, step 1 is the deploy Action's `shared-secret` and
-`shared-secret-previous` inputs with `rotate-shared-secret: true` — the
-flag exists because a routine deploy must never silently replace the root
-every caller derives its bearer from. Drop the flag and the previous input
-once the window closes. Step 2 is your app platform's own secret
+All three steps run from a pipeline. Step 1 is the deploy Action's
+`shared-secret` and `shared-secret-previous` inputs with
+`rotate-shared-secret: true` — the flag exists because a routine deploy must
+never silently replace the root every caller derives its bearer from. Step 3
+is `retire-shared-secret-previous: true` on one later deploy, in place of
+`shared-secret-previous`; it runs `atoms shared-secret:unset`, which removes
+the key and succeeds when it is already gone, so leaving the input on costs
+nothing but is worth dropping once the window is closed.
+
+`shared-secret:unset` removes the overlap key only. `ATOMS_SHARED_SECRET`
+itself has no unset path: removing it makes every route except `GET /healthz`
+answer `misconfigured`, which is not an operation to keep one typo away from
+the one that closes a rotation.
+
+Step 2, and the app side of step 3, are your own platform's secret
 management; nothing here can reach it.
 
 ## Setting it: CI is the common case

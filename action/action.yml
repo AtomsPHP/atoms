@@ -52,6 +52,16 @@ inputs:
       '1' included, leaves it off.
     required: false
     default: 'false'
+  retire-shared-secret-previous:
+    description: >-
+      Remove ATOMS_SHARED_SECRET_PREVIOUS from the Worker, closing a rotation
+      window, after every caller holds the new secret. Set it on one deploy
+      instead of shared-secret-previous, then drop it again; running it when
+      the key is already gone succeeds and does nothing. Only the literal
+      string 'true' enables it. The application side must drop its own copy
+      too — nothing here can reach that.
+    required: false
+    default: 'false'
   php-version:
     description: PHP version used to run the Atoms CLI
     required: false
@@ -192,3 +202,20 @@ runs:
         if [ -n "$ATOMS_SHARED_SECRET_PREVIOUS" ]; then
           printf '%s' "$ATOMS_SHARED_SECRET_PREVIOUS" | atoms "${args[@]}" --previous
         fi
+
+    # Closing a rotation window. Separate from the step above because it runs
+    # on the deploy *after* the overlap ends: shared-secret-previous is gone
+    # from the workflow by then, so there is no input left to hang it off.
+    - name: Retire the previous shared secret
+      if: inputs.retire-shared-secret-previous == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+        DEPLOY_WORKER_DIR: ${{ steps.worker.outputs.directory }}
+      run: |
+        set -euo pipefail
+        atoms shared-secret:unset --env "$DEPLOY_ENVIRONMENT" \
+          --worker-dir "$DEPLOY_WORKER_DIR"
