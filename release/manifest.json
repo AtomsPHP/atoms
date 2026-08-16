@@ -2,7 +2,7 @@
     "$schema": "./manifest.schema.json",
     "schema": 1,
     "version": "0.2.0",
-    "status": "candidate",
+    "status": "ready",
     "runtime": {
         "package": "@atomsphp/runtime-cloudflare",
         "version": "0.2.0",
