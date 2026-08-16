@@ -7,6 +7,7 @@ namespace Atoms\Laravel\Tests;
 use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
 use Atoms\Client\Callback\MethodsResolver;
+use Atoms\Client\Tickets\TicketIssuer;
 use Atoms\Laravel\AtomsManager;
 use Atoms\Laravel\Facades\Atoms;
 use Atoms\Laravel\Tests\Fixtures\GameRoom;
@@ -41,6 +42,27 @@ final class AtomsServiceProviderTest extends TestCase
         self::assertInstanceOf(GuzzleClient::class, $this->app->make(ClientInterface::class));
     }
 
+    public function testTicketIssuerResolvesFromTheContainerAndIsUsable(): void
+    {
+        $issuer = $this->app->make(TicketIssuer::class);
+
+        self::assertInstanceOf(TicketIssuer::class, $issuer);
+
+        $ticket = $issuer->issue('GameRoom', 'g-1');
+
+        self::assertStringStartsWith('v1.', $ticket->ticket);
+    }
+
+    public function testConfiguredWsTicketTtlMsReachesAtomsConfig(): void
+    {
+        config(['atoms.ws_ticket_ttl_ms' => 15000]);
+        $this->app->forgetInstance(AtomsConfig::class);
+
+        $atomsConfig = $this->app->make(AtomsConfig::class);
+
+        self::assertSame(15000, $atomsConfig->wsTicketTtlMs);
+    }
+
     /**
      * Atoms is self-hosted in the user's own Cloudflare account, so there is no
      * plausible default endpoint — an empty one the user must fill in is
@@ -53,6 +75,7 @@ final class AtomsServiceProviderTest extends TestCase
         self::assertSame('/atoms/callback', config('atoms.callback.path'));
         self::assertSame([], config('atoms.callback.middleware'));
         self::assertSame('.atoms/build/manifest.json', config('atoms.manifest_path'));
+        self::assertSame(60000, config('atoms.ws_ticket_ttl_ms'));
     }
 
     public function testConfigChangesFlowIntoAtomsConfig(): void
