@@ -10,8 +10,8 @@ return [
     |--------------------------------------------------------------------------
     |
     | Environment name (e.g. production, staging) selecting which Worker
-    | endpoint/credentials apply. Purely descriptive here; endpoint/api_key
-    | below are the values actually used for this app instance.
+    | endpoint/credentials apply. Purely descriptive here; endpoint and
+    | shared_secret below are the values actually used for this app instance.
     |
     */
 
@@ -34,18 +34,36 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | API key
+    | Shared secret
     |--------------------------------------------------------------------------
     |
-    | Must match the Worker's ATOMS_APP_KEY. Leave ATOMS_API_KEY unset (null)
-    | when the Worker runs with ATOMS_APP_KEY unset — its bearer check is off
-    | entirely then, and the client sends no Authorization header. Setting it to
-    | an EMPTY string is not that posture: it is a misconfiguration, and
-    | AtomsConfig throws rather than shipping "Authorization: Bearer ".
+    | The root of the app <-> Worker boundary: base64 of 32 random bytes
+    | (`openssl rand -base64 32`), configured identically here and on the
+    | Worker (`wrangler secret put ATOMS_SHARED_SECRET`). Required.
+    |
+    | NEVER send this value anywhere. Requests carry a bearer derived from it
+    | by HKDF-SHA256, and inbound callbacks are verified with a second key
+    | derived the same way. `atoms token` prints the derived bearer for
+    | hand-issued requests (e.g. curl).
     |
     */
 
-    'api_key' => env('ATOMS_API_KEY'),
+    'shared_secret' => env('ATOMS_SHARED_SECRET'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Shared secret (previous)
+    |--------------------------------------------------------------------------
+    |
+    | Rotation overlap. While set, a callback signed under the previous secret
+    | still verifies, so both sides can adopt a new secret without downtime.
+    | Same format as ATOMS_SHARED_SECRET. Outbound requests always use the
+    | bearer derived from the current secret. Unset it once every instance on
+    | both sides holds the new value.
+    |
+    */
+
+    'shared_secret_previous' => env('ATOMS_SHARED_SECRET_PREVIOUS'),
 
     /*
     |--------------------------------------------------------------------------
@@ -59,26 +77,14 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Platform public key
-    |--------------------------------------------------------------------------
-    |
-    | Ed25519 public key (base64, or raw 32 bytes) used to verify inbound
-    | callback signatures. Required for the callback route to function.
-    |
-    */
-
-    'platform_public_key' => env('ATOMS_PLATFORM_PUBLIC_KEY'),
-
-    /*
-    |--------------------------------------------------------------------------
     | Callback route
     |--------------------------------------------------------------------------
     |
     | The inbound callback route is auto-registered by AtomsServiceProvider.
     | It is intentionally NOT part of the "web" middleware group by default
-    | (no session, no CSRF) — it is authenticated by Ed25519 signature instead
-    | (see docs/conventions.md "Callback signing"). Add middleware here only if
-    | your deployment needs it (e.g. rate limiting).
+    | (no session, no CSRF) — it is authenticated by an HMAC-SHA256 signature
+    | instead (see docs/conventions.md "Callback signing"). Add middleware here
+    | only if your deployment needs it (e.g. rate limiting).
     |
     */
 

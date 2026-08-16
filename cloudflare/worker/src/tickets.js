@@ -3,29 +3,28 @@
  *
  * A ticket is the browser's credential for `GET /ws/:type/:id`: browsers
  * cannot set an `Authorization` header on `new WebSocket(url)`, so the
- * application's server mints one at `POST /tickets/:type/:id` (bearer-gated)
- * and the browser presents it as `?ticket=`. Short-TTL, scoped to exactly one
- * atom, and a carrier for server-asserted claims that merge over the
- * browser's own query params.
+ * application's server mints one at `POST /tickets/:type/:id` (behind the same
+ * credential gate as every other route) and the browser presents it as
+ * `?ticket=`. Short-TTL, scoped to exactly one atom, and a carrier for
+ * server-asserted claims that merge over the browser's own query params.
  *
- * Wire forms:
+ * Wire form — one form, always signed, in every auth posture:
  *
- *   v1.<base64url(payload)>.<base64url(HMAC-SHA256 sig)>   signed (auth on)
- *   v1u.<base64url(payload)>                               unsigned dev form
+ *   v1.<base64url(payload)>.<base64url(HMAC-SHA256 sig)>
  *
  * Payload: {"t": type, "i": id, "exp": epoch-ms, "jti": <32 hex>, "claims": {...}}.
  * The signature covers `"v1\n" + <payload base64url segment>` — the same
  * versioned, newline-delimited signing-string idiom as the callback channel's
- * `signRequest()`. The key is derived from `ATOMS_APP_KEY` via HKDF-SHA256
- * (empty salt, info `atoms/ws-ticket/v1` — a protocol constant, the same
- * category as `WS_ATTACHMENT_VERSION`), so there is no second secret and
- * rotating the app key invalidates every outstanding ticket at once.
+ * `signRequest()`. The key is derived from `ATOMS_SHARED_SECRET` (HKDF-SHA256,
+ * empty salt, info `atoms/ws-ticket/v1` — a protocol constant, the same
+ * category as `WS_ATTACHMENT_VERSION`; see `derive.js`), so there is no second
+ * secret and rotating the shared secret invalidates every outstanding ticket
+ * at once.
  *
- * The distinct `v1u.` version tag — rather than an empty signature segment —
- * is load-bearing: verification switches on the tag, so the unsigned branch
- * is structurally unreachable from the signature comparator, a truncated
- * signed ticket can never alias as a "valid" unsigned one, and an auth-on
- * deployment rejects `v1u.` outright before looking at anything else.
+ * Tickets take **no** rotation overlap: verification uses the current secret
+ * only, never `ATOMS_SHARED_SECRET_PREVIOUS`. They carry a seconds-scale TTL
+ * and are re-minted through the application, so a flip costs at most one
+ * re-mint per connection.
  *
  * Everything here is stateless, and so is the whole ticket contract: a
  * ticket is deliberately reusable until it expires, and the seconds-scale
@@ -34,14 +33,8 @@
  * contract; nothing consumes it.
  */
 
+import { deriveTicketKey } from './derive.js';
 import { AtomsError } from './errors.js';
-
-/**
- * Domain-separation label for the HKDF derivation AND the prefix of the
- * signed message. Protocol constant, never env-tunable: two deployments that
- * disagree on it simply cannot exchange tickets, which is the point.
- */
-const TICKET_HKDF_INFO = 'atoms/ws-ticket/v1';
 
 /** Signed-message prefix (`"v1\n" + payloadB64`). */
 const TICKET_SIGNING_PREFIX = 'v1\n';
@@ -86,33 +79,18 @@ function toHex(bytes) {
 }
 
 /**
- * Memoized HKDF(appKey) -> HMAC-SHA256 CryptoKey. Keyed on the appKey string
- * itself, not on a config object: isolates outlive configs, and local test
- * runs feed different `--var ATOMS_APP_KEY` values to the same isolate.
+ * The ticket key for the CURRENT shared secret. `derive.js` memoizes the
+ * derivation per secret for the life of the isolate.
  *
- * @type {{appKey: string, promise: Promise<CryptoKey>}|null}
- */
-let keyMemo = null;
-
-/**
- * @param {string} appKey non-empty
+ * @param {import('./config.js').AtomsConfig} config with `sharedSecretState === 'configured'`
  * @returns {Promise<CryptoKey>} non-extractable HMAC-SHA256 key
  */
-function ticketKey(appKey) {
-	if (keyMemo && keyMemo.appKey === appKey) return keyMemo.promise;
-	const promise = crypto.subtle
-		.importKey('raw', encoder.encode(appKey), 'HKDF', false, ['deriveKey'])
-		.then((material) =>
-			crypto.subtle.deriveKey(
-				{ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: encoder.encode(TICKET_HKDF_INFO) },
-				material,
-				{ name: 'HMAC', hash: 'SHA-256' },
-				false,
-				['sign', 'verify']
-			)
-		);
-	keyMemo = { appKey, promise };
-	return promise;
+function ticketKey(config) {
+	const secret = config.sharedSecretBytes;
+	if (secret === null) {
+		throw new AtomsError('internal', 'ATOMS_SHARED_SECRET is not configured');
+	}
+	return deriveTicketKey(secret);
 }
 
 /**
@@ -170,9 +148,8 @@ export function validateClaims(raw, config) {
 }
 
 /**
- * Mint a ticket for one atom. Signed `v1.` when the Worker has an app key,
- * the unsigned dev form `v1u.` when auth is off — same payload either way, so
- * every keyless check behaves identically in both postures.
+ * Mint a ticket for one atom. Always signed: the Worker always holds a shared
+ * secret, so local dev and production run the same code path.
  *
  * @param {import('./config.js').AtomsConfig} config
  * @param {string} type
@@ -188,11 +165,7 @@ export async function mintTicket(config, type, id, claims, nowMs) {
 		encoder.encode(JSON.stringify({ t: type, i: id, exp: expiresAt, jti, claims }))
 	);
 
-	if (!config.appKey) {
-		return { ticket: `v1u.${payloadB64}`, expiresAt, jti };
-	}
-
-	const key = await ticketKey(config.appKey);
+	const key = await ticketKey(config);
 	const sig = new Uint8Array(
 		await crypto.subtle.sign('HMAC', key, encoder.encode(TICKET_SIGNING_PREFIX + payloadB64))
 	);
@@ -204,11 +177,11 @@ export async function mintTicket(config, type, id, claims, nowMs) {
  * everything here runs at the edge, before any DO is addressed, so a forged,
  * expired or mis-scoped ticket never costs an activation.
  *
- * Order: length cap; version/format; signature (only when the Worker has an
- * app key — with auth off both `v1` and `v1u` parse and only the keyless
- * checks run); payload shape; scope; expiry. A `v1u.` ticket presented to an
- * auth-on deployment is `ticket_invalid` before anything else — unsigned
- * tickets are not credentials.
+ * Order: length cap; version/format; signature; payload shape; scope; expiry.
+ * The signature is checked under the CURRENT shared secret only — a ticket
+ * signed under `ATOMS_SHARED_SECRET_PREVIOUS` is `ticket_invalid` — so a
+ * rotation costs at most one re-mint per connection and the previous secret
+ * widens nothing here.
  *
  * @param {import('./config.js').AtomsConfig} config
  * @param {string} raw the `?ticket=` value
@@ -227,32 +200,18 @@ export async function verifyTicket(config, raw, type, id, nowMs) {
 	}
 
 	const segments = raw.split('.');
-	/** @type {string} */
-	let payloadB64;
-	if (segments[0] === 'v1' && segments.length === 3) {
-		payloadB64 = segments[1];
-		if (config.appKey) {
-			const sig = base64UrlDecode(segments[2]);
-			const key = await ticketKey(config.appKey);
-			const ok =
-				sig !== null &&
-				(await crypto.subtle.verify('HMAC', key, sig, encoder.encode(TICKET_SIGNING_PREFIX + payloadB64)));
-			if (!ok) {
-				throw new AtomsError('ticket_invalid', 'the ticket signature does not verify');
-			}
-		}
-		// Auth off: a signed ticket still parses — only the keyless checks run.
-	} else if (segments[0] === 'v1u' && segments.length === 2) {
-		if (config.appKey) {
-			throw new AtomsError(
-				'ticket_invalid',
-				'an unsigned dev ticket (v1u) was presented to a deployment with ATOMS_APP_KEY set; ' +
-					'mint a signed ticket from this deployment instead'
-			);
-		}
-		payloadB64 = segments[1];
-	} else {
+	if (segments[0] !== 'v1' || segments.length !== 3) {
 		throw new AtomsError('ticket_invalid', 'the ticket is not a v1 connection ticket');
+	}
+	const payloadB64 = segments[1];
+
+	const sig = base64UrlDecode(segments[2]);
+	const key = await ticketKey(config);
+	const ok =
+		sig !== null &&
+		(await crypto.subtle.verify('HMAC', key, sig, encoder.encode(TICKET_SIGNING_PREFIX + payloadB64)));
+	if (!ok) {
+		throw new AtomsError('ticket_invalid', 'the ticket signature does not verify');
 	}
 
 	const payloadBytes = base64UrlDecode(payloadB64);

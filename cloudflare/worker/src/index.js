@@ -26,6 +26,7 @@
  */
 import bundle from './bundle.generated.js';
 import { loadConfig } from './config.js';
+import { deriveBearer } from './derive.js';
 import { AtomsError, normalizeError, retryableFor, statusFor } from './errors.js';
 import { decodeInt64Deep } from './int64.js';
 import { mintTicket, validateClaims, verifyTicket } from './tickets.js';
@@ -107,14 +108,25 @@ async function route(request, env) {
 		return json({ ok: true });
 	}
 
-	const authFailure = checkAuth(request, config);
+	// The configuration gate, ahead of every credential check and every route
+	// but /healthz. `ATOMS_SHARED_SECRET` is the root every key on this
+	// boundary is derived from — the bearer, ticket signatures, callback
+	// signatures — so without a usable one the Worker refuses everything and
+	// says which variable and which rule (ATOMS-E105). `loadConfig()` stays
+	// total, so /healthz still answers and the deployment is observably up and
+	// observably broken.
+	if (config.sharedSecretState !== 'configured') {
+		return errorResponse('misconfigured', config.sharedSecretError ?? 'ATOMS_SHARED_SECRET is not usable');
+	}
+
+	const authFailure = await checkAuth(request, config);
 	// /ws accepts a second credential: a connection ticket in the query string
 	// (spec §Routing and auth), because a browser's `new WebSocket(url)` cannot
 	// set an Authorization header. When the bearer check failed AND a ticket
 	// key is present, the decision is deferred to wsUpgrade()'s stateless
 	// ticket verification instead of refusing here. Every other route —
-	// /tickets included, a ticket cannot mint a ticket — keeps the
-	// pre-dispatch gate exactly as before.
+	// /tickets included, since a ticket cannot mint a ticket — is refused at
+	// this pre-dispatch gate.
 	const wsTicketCandidate = parts[0] === 'ws' && url.searchParams.has('ticket');
 	if (authFailure && !wsTicketCandidate) return authFailure;
 
@@ -165,25 +177,44 @@ async function route(request, env) {
 }
 
 /**
- * Bearer auth, enabled only when the `ATOMS_APP_KEY` secret is set.
+ * Bearer auth. The expected token is `HKDF(ATOMS_SHARED_SECRET,
+ * "atoms/bearer/v1")` as standard base64 — the secret itself is never a bearer
+ * and never travels, so a leaked `Authorization` header compromises invocation
+ * only. `atoms token` prints the same value for operators curling the Worker.
+ *
+ * `ATOMS_BEARER_AUTH=disabled` skips the comparison entirely, for a deployment
+ * behind an authenticating proxy such as Cloudflare Access.
+ *
+ * During a rotation window the token is compared against `bearer(current)` and
+ * then, when `ATOMS_SHARED_SECRET_PREVIOUS` is set, `bearer(previous)`,
+ * accepting on the first match. Try-both, never a key selector: the previous
+ * secret is an operator-provisioned fallback tried unconditionally, never
+ * chosen by an attacker-controlled header.
  *
  * @param {Request} request
- * @param {import('./config.js').AtomsConfig} config
- * @returns {Response|null}
+ * @param {import('./config.js').AtomsConfig} config with `sharedSecretState === 'configured'`
+ * @returns {Promise<Response|null>}
  */
-function checkAuth(request, config) {
-	if (!config.appKey) return null;
+async function checkAuth(request, config) {
+	if (config.bearerAuth === 'disabled') return null;
+
 	const header = request.headers.get('authorization') ?? '';
 	const m = /^Bearer\s+(.+)$/i.exec(header.trim());
-	if (!m || !timingSafeEqual(m[1], config.appKey)) {
-		return errorResponse('unauthenticated', 'missing or invalid bearer token');
-	}
-	return null;
+	if (!m) return errorResponse('unauthenticated', 'missing or invalid bearer token');
+	const presented = m[1];
+
+	const secret = /** @type {Uint8Array} */ (config.sharedSecretBytes);
+	if (timingSafeEqual(presented, await deriveBearer(secret))) return null;
+
+	const previous = config.sharedSecretPreviousBytes;
+	if (previous !== null && timingSafeEqual(presented, await deriveBearer(previous))) return null;
+
+	return errorResponse('unauthenticated', 'missing or invalid bearer token');
 }
 
 /**
  * Length-independent comparison. Not constant-time across lengths, which is
- * acceptable for a shared deployment key.
+ * acceptable for a derived deployment-wide bearer.
  *
  * @param {string} a
  * @param {string} b
@@ -336,16 +367,17 @@ async function wsUpgrade(request, env, config, url, type, id, bearerOk) {
 	// (spec §Routing and auth step 3): a caller without a valid credential
 	// must not be able to probe which atom types are deployed, so the
 	// unknown_atom_type refusal below is reachable only with a verified
-	// ticket, a valid bearer, or auth off. Three postures:
-	//   - valid bearer under auth-on: any ticket is stripped unverified
-	//     (a bearer holder is fully trusted and needs no claims);
-	//   - auth on, bearer absent/invalid: route() only let this through
+	// ticket or a valid bearer. Three postures:
+	//   - ATOMS_BEARER_AUTH=required + a valid bearer: any ticket is stripped
+	//     unverified (a bearer holder is fully trusted and needs no claims);
+	//   - required + bearer absent/invalid: route() only let this through
 	//     because a ticket key is present — verify it, signature included;
-	//   - auth off: a present ticket still gets every keyless check, so dev
-	//     behaves like production minus the signature.
+	//   - ATOMS_BEARER_AUTH=disabled: no credential is required, and a ticket
+	//     that IS presented is fully verified, signature included.
+	const trustedBearer = config.bearerAuth === 'required' && bearerOk;
 	/** @type {{claims: Record<string, string>, jti: string, exp: number}|null} */
 	let verified = null;
-	if (!(config.appKey && bearerOk)) {
+	if (!trustedBearer) {
 		const tickets = url.searchParams.getAll('ticket');
 		if (tickets.length > 0) {
 			// Last occurrence wins, matching parseWsParams's repeat-key rule.
@@ -416,9 +448,14 @@ function checkWsEligibility(type) {
 
 /**
  * `POST /tickets/:type/:id` — mint a connection ticket (spec §Routing and
- * auth). Behind the same pre-dispatch bearer gate as `/invoke`; with auth off
- * it mints the unsigned dev form so browser code paths are identical in local
- * dev. Minting is stateless: no DO is ever addressed.
+ * auth). Behind the same pre-dispatch credential gate as `/invoke`, and always
+ * mints the signed `v1.` form, so local dev and production run one code path.
+ *
+ * Under `ATOMS_BEARER_AUTH=disabled` this route is reachable without a bearer;
+ * that posture is for a Worker fronted by an authenticating proxy such as
+ * Cloudflare Access, which is what gates the mint path there.
+ *
+ * Minting is stateless: no DO is ever addressed.
  *
  * @param {Request} request
  * @param {import('./config.js').AtomsConfig} config

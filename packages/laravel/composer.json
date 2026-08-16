@@ -16,7 +16,6 @@
     ],
     "require": {
         "php": "^8.3",
-        "ext-sodium": "*",
         "atoms/client": "^0.1",
         "guzzlehttp/psr7": "^2.7",
         "illuminate/bus": "^11.0 || ^12.0",

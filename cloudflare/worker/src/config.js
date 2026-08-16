@@ -16,7 +16,11 @@ import { AtomsError } from './errors.js';
 
 /**
  * @typedef {object} AtomsConfig
- * @property {string}   appKey                Bearer key; empty string = auth disabled.
+ * @property {'configured'|'missing'|'invalid'} sharedSecretState  `ATOMS_SHARED_SECRET` (and, when set, `ATOMS_SHARED_SECRET_PREVIOUS`). Anything but `'configured'` makes every route except `GET /healthz` answer `misconfigured`.
+ * @property {string|null} sharedSecretError  Human-readable reason when sharedSecretState is not 'configured'; names the variable and the rule.
+ * @property {Uint8Array|null} sharedSecretBytes          The decoded 32 raw bytes of `ATOMS_SHARED_SECRET` — the IKM every derived key comes from. Null unless sharedSecretState is 'configured'.
+ * @property {Uint8Array|null} sharedSecretPreviousBytes  The decoded 32 raw bytes of `ATOMS_SHARED_SECRET_PREVIOUS`, the optional rotation overlap. Null when no overlap is configured.
+ * @property {'required'|'disabled'} bearerAuth  `ATOMS_BEARER_AUTH`. `'disabled'` turns off the bearer comparison ONLY (for an authenticating proxy such as Cloudflare Access); the secret stays mandatory, tickets stay signed, callbacks stay signed.
  * @property {boolean}  debugEndpoints        Enable `GET /debug/:type/:id/info`.
  * @property {number}   maxRequestBytes       Reject invoke bodies larger than this.
  * @property {number}   maxAtomIdBytes        Reject atom ids longer than this.
@@ -43,13 +47,12 @@ import { AtomsError } from './errors.js';
  * @property {string[]} guestDirs             Directories created in MEMFS before files are written.
  * @property {number}   bundleFormat          Bundle format version this host understands.
  * @property {string}   callbackUrl           The monolith's callback endpoint. '' = unconfigured.
- * @property {string}   callbackSigningKey    Base64 of the 32-byte Ed25519 seed used to sign callbacks.
  * @property {number}   turnDeadlineMs        Aggregate budget for one turn's time spent awaiting the callback channel.
  * @property {number}   callbackTimeoutMs     Per-POST abort bound for one callback.
  * @property {number}   callbackMaxRequestBytes  Reject an app()/dispatch() request body larger than this.
  * @property {number}   callbackMaxResponseBytes Reject an app() response body larger than this (it is copied into guest memory).
  * @property {number}   maxDispatchesPerTurn  dispatch() calls allowed in one turn before `dispatch_limit`.
- * @property {'configured'|'unconfigured'|'misconfigured'} callbackState  Derived from callbackUrl/callbackSigningKey.
+ * @property {'configured'|'unconfigured'|'misconfigured'} callbackState  Derived from callbackUrl and sharedSecretState.
  * @property {string|null} callbackConfigError Human-readable reason when callbackState is 'misconfigured'.
  * @property {number}   wsMaxTagsPerConnection  Platform hard limit on tags per hibernatable socket (measured: 10).
  * @property {number}   wsMaxTagBytes           Platform hard limit on one tag's byte length (measured: 256).
@@ -169,6 +172,37 @@ function bool(env, name, dflt) {
 }
 
 /**
+ * `ATOMS_BEARER_AUTH`, the explicit auth posture: `required` (the default) or
+ * `disabled`. Exactly those two spellings are answers; anything else logs a
+ * warning and behaves as `required`, so a typo fails closed.
+ *
+ * `disabled` is for one posture — an authenticating proxy such as Cloudflare
+ * Access in front of the Worker. It turns off the bearer comparison and
+ * nothing else: the secret stays mandatory, tickets stay signed, callbacks
+ * stay signed.
+ *
+ * @param {Env} env
+ * @returns {'required'|'disabled'}
+ */
+function bearerAuthPosture(env) {
+	const raw = str(env, 'ATOMS_BEARER_AUTH', 'required');
+	const v = raw.trim().toLowerCase();
+	if (v === 'required' || v === 'disabled') return v;
+	console.log(
+		JSON.stringify({
+			ts: new Date().toISOString(),
+			level: 'warning',
+			source: 'host',
+			msg: 'atoms.config.unknown_value',
+			var: 'ATOMS_BEARER_AUTH',
+			value: raw,
+			using: 'required',
+		})
+	);
+	return 'required';
+}
+
+/**
  * @param {Env} env
  * @param {string} name
  * @param {string[]} dflt
@@ -214,10 +248,71 @@ export function base64ToBytes(b64) {
 	}
 }
 
+/** Leading/trailing ASCII whitespace, the only thing trimmed off a secret. */
+const ASCII_WS_RE = /^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g;
+
+/**
+ * Standard base64 (RFC 4648): padded, no embedded whitespace, `=` only at the
+ * end. Checked before `atob()`, whose HTML "forgiving-base64" decode accepts
+ * missing padding and interior whitespace — a secret decodes strictly, so both
+ * sides of the boundary agree on exactly which strings are the same secret.
+ */
+const STRICT_BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * @param {string} s already trimmed
+ * @returns {Uint8Array|null}
+ */
+function strictBase64ToBytes(s) {
+	if (s.length === 0 || s.length % 4 !== 0 || !STRICT_BASE64_RE.test(s)) return null;
+	return base64ToBytes(s);
+}
+
+/**
+ * Resolve one shared-secret variable: trim ASCII whitespace, strict-decode the
+ * base64, require **exactly 32 bytes**. Anything else is a hard configuration
+ * error — never a warning, never a fallback (`docs/shared-secret.md`).
+ *
+ * Never throws, for the same reason `classifyCallbackChannel()` does not:
+ * `loadConfig()` stays total so `/healthz` answers on a broken Worker.
+ *
+ * @param {string} raw the env value, untrimmed
+ * @param {string} name the variable name, for the message
+ * @param {boolean} required
+ * @returns {{state: 'configured'|'missing'|'invalid', bytes: Uint8Array|null, error: string|null}}
+ */
+function loadSecret(raw, name, required) {
+	const value = raw.replace(ASCII_WS_RE, '');
+	if (value === '') {
+		if (!required) return { state: 'missing', bytes: null, error: null };
+		return {
+			state: 'missing',
+			bytes: null,
+			error:
+				`${name} is not set. It is the base64 of 32 random bytes (\`openssl rand -base64 32\`), ` +
+				'configured identically on the app and the Worker, and it is never transmitted: clients ' +
+				'authenticate with the bearer derived from it (`atoms token` prints it).',
+		};
+	}
+
+	const bytes = strictBase64ToBytes(value);
+	if (bytes === null || bytes.length !== 32) {
+		return {
+			state: 'invalid',
+			bytes: null,
+			error:
+				`${name} does not decode to exactly 32 bytes of standard base64. ` +
+				'Generate one with `openssl rand -base64 32` and configure the identical value on the app and the Worker.',
+		};
+	}
+
+	return { state: 'configured', bytes, error: null };
+}
+
 /**
  * `ATOMS_CALLBACK_URL` validation: absolute, `https:`, or
  * `http:` only when the host is a loopback address. Plain `http` to a public
- * host would send customer arguments in the clear — the Ed25519 signature
+ * host would send customer arguments in the clear — the callback signature
  * protects integrity and authenticity, never confidentiality. The loopback
  * exemption is what keeps the conformance harness and `atoms dev` legal.
  *
@@ -242,17 +337,17 @@ function validateCallbackUrl(raw) {
 }
 
 /**
- * Classify the callback channel from the two raw env values into one of
- * three states: configured, unconfigured, or misconfigured. Never throws:
- * `loadConfig()` stays total so `/healthz` answers on a misconfigured
- * Worker; the typed failure is raised only when `app()`/`dispatch()` is
- * actually used.
+ * Classify the callback channel — the endpoint plus the secret its signing key
+ * is derived from — into one of three states: configured, unconfigured, or
+ * misconfigured. Never throws: `loadConfig()` stays total so `/healthz`
+ * answers on a misconfigured Worker; the typed failure is raised only when
+ * `app()`/`dispatch()` is actually used.
  *
  * @param {string} callbackUrl
- * @param {string} callbackSigningKey
+ * @param {'configured'|'missing'|'invalid'} sharedSecretState
  * @returns {{state: 'configured'|'unconfigured'|'misconfigured', error: string|null}}
  */
-function classifyCallbackChannel(callbackUrl, callbackSigningKey) {
+function classifyCallbackChannel(callbackUrl, sharedSecretState) {
 	if (callbackUrl === '') {
 		return { state: 'unconfigured', error: null };
 	}
@@ -262,14 +357,12 @@ function classifyCallbackChannel(callbackUrl, callbackSigningKey) {
 		return { state: 'misconfigured', error: urlError };
 	}
 
-	if (callbackSigningKey === '') {
-		return { state: 'misconfigured', error: 'ATOMS_CALLBACK_SIGNING_KEY is not set' };
-	}
-	const seed = base64ToBytes(callbackSigningKey);
-	if (!seed || seed.length !== 32) {
+	if (sharedSecretState !== 'configured') {
 		return {
 			state: 'misconfigured',
-			error: 'ATOMS_CALLBACK_SIGNING_KEY does not decode to exactly 32 bytes of base64',
+			error:
+				'the callback signing key is derived from ATOMS_SHARED_SECRET (HKDF-SHA256, info ' +
+				'"atoms/callback/v1"), which is missing or does not decode to exactly 32 bytes of base64',
 		};
 	}
 
@@ -284,12 +377,24 @@ function classifyCallbackChannel(callbackUrl, callbackSigningKey) {
  */
 export function loadConfig(env) {
 	const level = str(env, 'ATOMS_LOG_LEVEL', 'info').toLowerCase();
+
+	// The one root every key on the boundary is derived from, plus the optional
+	// rotation overlap. A malformed overlap is as much a configuration error as
+	// a malformed current secret: it is the value the bearer check falls back
+	// to, so it has to be a secret or absent, never a half-set string.
+	const current = loadSecret(str(env, 'ATOMS_SHARED_SECRET', ''), 'ATOMS_SHARED_SECRET', true);
+	const previous = loadSecret(str(env, 'ATOMS_SHARED_SECRET_PREVIOUS', ''), 'ATOMS_SHARED_SECRET_PREVIOUS', false);
+	const secretBroken = current.state !== 'configured' ? current : previous.state === 'invalid' ? previous : null;
+
 	const callbackUrl = str(env, 'ATOMS_CALLBACK_URL', '');
-	const callbackSigningKey = str(env, 'ATOMS_CALLBACK_SIGNING_KEY', '');
-	const callback = classifyCallbackChannel(callbackUrl, callbackSigningKey);
+	const callback = classifyCallbackChannel(callbackUrl, current.state);
 
 	const config = {
-		appKey: str(env, 'ATOMS_APP_KEY', ''),
+		sharedSecretState: secretBroken ? secretBroken.state : 'configured',
+		sharedSecretError: secretBroken ? secretBroken.error : null,
+		sharedSecretBytes: current.bytes,
+		sharedSecretPreviousBytes: previous.bytes,
+		bearerAuth: bearerAuthPosture(env),
 		debugEndpoints: bool(env, 'ATOMS_DEBUG_ENDPOINTS', false),
 
 		maxRequestBytes: int(env, 'ATOMS_MAX_REQUEST_BYTES', 1024 * 1024),
@@ -318,12 +423,11 @@ export function loadConfig(env) {
 
 		configEnvPrefix: str(env, 'ATOMS_CONFIG_ENV_PREFIX', 'ATOMS_CONFIG_'),
 		configEnvKeys: list(env, 'ATOMS_CONFIG_ENV_KEYS', []),
-		// MERGED, never replaced: the built-in entries below are the two
-		// credentials the Worker holds (the bearer key and the callback signing
-		// seed) plus the two lists that decide the allowlist itself. An operator
-		// who sets ATOMS_CONFIG_ENV_DENY_KEYS is adding names, not choosing a
-		// new set — a replacement would let a single well-meant "deny my own
-		// secret" setting hand the signing seed to `config.get()`.
+		// MERGED, never replaced: the built-in entries below are the secrets the
+		// Worker holds plus the two lists that decide the allowlist itself. An
+		// operator who sets ATOMS_CONFIG_ENV_DENY_KEYS is adding names, not
+		// choosing a new set — a replacement would let a single well-meant "deny
+		// my own secret" setting hand the shared secret to `config.get()`.
 		configEnvDenyKeys: mergeDenyKeys(list(env, 'ATOMS_CONFIG_ENV_DENY_KEYS', [])),
 
 		bootstrapPath: str(env, 'ATOMS_BOOTSTRAP_PATH', '/atoms/runtime/bootstrap.php'),
@@ -342,7 +446,6 @@ export function loadConfig(env) {
 		bundleFormat: int(env, 'ATOMS_BUNDLE_FORMAT', 0),
 
 		callbackUrl,
-		callbackSigningKey,
 		turnDeadlineMs: posInt(env, 'ATOMS_TURN_DEADLINE_MS', 30000),
 		callbackTimeoutMs: posInt(env, 'ATOMS_CALLBACK_TIMEOUT_MS', 10000),
 		callbackMaxRequestBytes: posInt(env, 'ATOMS_CALLBACK_MAX_REQUEST_BYTES', 1024 * 1024),
@@ -386,10 +489,15 @@ export function loadConfig(env) {
  * Names `config.get()` must never resolve, whatever the environment says.
  * Kept beside `loadConfig()` rather than inline so the guarantee has a name:
  * the operator list is additive to this one, never a replacement for it.
+ *
+ * A customer Atom that could read `ATOMS_SHARED_SECRET` would hold the root of
+ * every key on the boundary, so the list is part of the contract rather than
+ * hygiene — the conformance suite asserts a guest resolves null for both
+ * names whatever the allowlist says.
  */
 const BUILT_IN_CONFIG_DENY_KEYS = [
-	'ATOMS_APP_KEY',
-	'ATOMS_CALLBACK_SIGNING_KEY',
+	'ATOMS_SHARED_SECRET',
+	'ATOMS_SHARED_SECRET_PREVIOUS',
 	'ATOMS_CONFIG_ENV_KEYS',
 	'ATOMS_CONFIG_ENV_DENY_KEYS',
 ];

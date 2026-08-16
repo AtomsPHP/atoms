@@ -4,8 +4,11 @@ dist/
 .runtime-package/
 
 # Written by the CI worker job (and by anyone reproducing it locally) when it
-# backgrounds `wrangler dev` and polls /healthz.
+# backgrounds `wrangler dev` and polls /healthz. The -auth and -misconfigured
+# variants are the second and third posture's logs.
 wrangler.log
+wrangler-auth.log
+wrangler-misconfigured.log
 wrangler.pid
 
 # The php-wasm runtime is fetched from npm and staged here by
@@ -14,10 +17,15 @@ wrangler.pid
 # GPL-licensed PHP binary.
 .php-wasm/
 
-# Written by scripts/dev-with-callback.mjs: a fresh Ed25519 keypair generated
-# for that one dev/CI session (public half + listener port only — the private
-# seed never touches disk). Never commit a callback signing key.
-test/.callback-key.json
+# Written by scripts/dev-with-callback.mjs: the shared secret generated for
+# that one dev/CI session, plus the listener port. This is the per-run ROOT —
+# bearer, ticket and callback keys all derive from it. Never commit it: a
+# committed dev secret is a known master key.
+test/.dev-secret.json
+
+# The local-dev vehicle for ATOMS_SHARED_SECRET (and any other secret a
+# developer wires into `wrangler dev`). Per-machine, generated, never committed.
+.dev.vars
 
 # Written by conformance check 28 each run: evidence for a human reading a
 # failure, never a contract — cloudflare/docs/pdo-compatibility.md (committed,

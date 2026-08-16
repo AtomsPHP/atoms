@@ -18,7 +18,7 @@ use Psr\Http\Message\StreamFactoryInterface;
  * `POST /tickets/{type}/{id}` route (mvp-spec §Routing and auth).
  *
  * Browsers cannot set an `Authorization` header on `new WebSocket(url)`, so
- * the application's server — which holds the bearer key and knows who the
+ * the application's server — which holds the shared secret and knows who the
  * user is — mints a ticket here and hands it to the browser, which presents
  * it as the `?ticket=` query parameter on the `GET /ws/{type}/{id}` upgrade.
  *
@@ -33,11 +33,12 @@ use Psr\Http\Message\StreamFactoryInterface;
  * retry the same URL. On ANY connection failure, mint a fresh one: a browser
  * cannot read the HTTP status or body of a failed WebSocket upgrade, so every
  * ticket refusal (invalid, expired) surfaces identically as an opaque
- * connection failure and there is
- * nothing to branch on browser-side. When the Worker
- * runs with `ATOMS_APP_KEY` unset (auth off), minting still works and
- * returns an unsigned dev ticket, so browser code paths are identical
- * between local dev and production; an unsigned ticket is not a credential.
+ * connection failure and there is nothing to branch on browser-side.
+ *
+ * The mint request carries the same derived bearer as an invocation
+ * ({@see AtomsConfig::bearerToken()}). Every ticket the Worker mints is
+ * signed with a key derived from the same shared secret, so local dev and
+ * production run identical code paths.
  */
 final class TicketClient
 {
@@ -85,14 +86,8 @@ final class TicketClient
 
         $request = $this->requestFactory->createRequest('POST', $uri)
             ->withHeader('Accept', 'application/json')
-            ->withHeader('traceparent', $this->generateTraceparent());
-
-        // Null apiKey is an explicit "this Worker runs with auth off" posture:
-        // send no Authorization header rather than an empty bearer credential.
-        // AtomsConfig rejects the empty string outright, so a key here is real.
-        if ($this->config->apiKey !== null) {
-            $request = $request->withHeader('Authorization', 'Bearer ' . $this->config->apiKey);
-        }
+            ->withHeader('traceparent', $this->generateTraceparent())
+            ->withHeader('Authorization', 'Bearer ' . $this->config->bearerToken());
 
         if ($claims !== []) {
             $body = json_encode(['claims' => $claims], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);

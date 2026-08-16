@@ -38,9 +38,16 @@ final class WorkerConfig
     /** Defaults, mirroring `loadConfig()` in worker/src/config.js. */
     public const DEFAULT_PREFIX = 'ATOMS_CONFIG_';
 
-    /** @var list<string> */
+    /**
+     * `ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS` are the root of
+     * the app <-> Worker boundary (docs/shared-secret.md) and must never be
+     * readable from Atom code.
+     *
+     * @var list<string>
+     */
     public const DEFAULT_DENY_KEYS = [
-        'ATOMS_APP_KEY',
+        'ATOMS_SHARED_SECRET',
+        'ATOMS_SHARED_SECRET_PREVIOUS',
         'ATOMS_CONFIG_ENV_KEYS',
         'ATOMS_CONFIG_ENV_DENY_KEYS',
     ];
@@ -56,6 +63,21 @@ final class WorkerConfig
         'ATOMS_CONFIG_ENV_PREFIX',
         'ATOMS_CONFIG_ENV_KEYS',
         'ATOMS_CONFIG_ENV_DENY_KEYS',
+    ];
+
+    /**
+     * The Worker's own credential names. `keyRefusalReason()` checks the raw
+     * input key against this list before prefixing: `SecretName::toWorker()`
+     * would otherwise turn the literal key "ATOMS_SHARED_SECRET" into
+     * "ATOMS_CONFIG_ATOMS_SHARED_SECRET" — a name outside {@see DEFAULT_DENY_KEYS}
+     * and therefore guest-readable — handing the root of everything to Atom
+     * code via a single misunderstood `secrets:set`.
+     *
+     * @var list<string>
+     */
+    public const CREDENTIAL_KEYS = [
+        'ATOMS_SHARED_SECRET',
+        'ATOMS_SHARED_SECRET_PREVIOUS',
     ];
 
     /**
@@ -170,6 +192,14 @@ final class WorkerConfig
                 . 'differently (ß becomes SS there and _ here), so the name stored would not be the name read';
         }
 
+        // Checked on the raw key, before prefixing: SecretName::toWorker()
+        // would otherwise turn "ATOMS_SHARED_SECRET" into the ordinary-looking,
+        // guest-readable ATOMS_CONFIG_ATOMS_SHARED_SECRET (see CREDENTIAL_KEYS).
+        if (\in_array(strtoupper(trim($key)), self::CREDENTIAL_KEYS, true)) {
+            return 'this name is the Worker\'s own credential, never guest-readable config; set it with '
+                . '`wrangler secret put ATOMS_SHARED_SECRET` (or locally via `atoms dev`\'s .dev.vars provisioning)';
+        }
+
         return $this->unreadableReason($this->workerNameFor($key));
     }
 
@@ -200,8 +230,8 @@ final class WorkerConfig
         // `list()` falls back when it is absent OR blank after trimming. An
         // explicitly-empty ATOMS_CONFIG_ENV_DENY_KEYS therefore leaves the
         // Worker on its DEFAULTS, not on an empty deny list — and modelling
-        // that as empty would let the CLI bless writes to ATOMS_APP_KEY, the
-        // Worker's own bearer secret.
+        // that as empty would let the CLI bless writes to ATOMS_SHARED_SECRET,
+        // the root of the app <-> Worker boundary.
         $prefix = $vars['ATOMS_CONFIG_ENV_PREFIX'] ?? '';
         $deny = $vars['ATOMS_CONFIG_ENV_DENY_KEYS'] ?? '';
 

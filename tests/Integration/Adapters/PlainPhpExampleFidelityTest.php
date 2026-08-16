@@ -69,8 +69,7 @@ final class PlainPhpExampleFidelityTest extends TestCase
 
         $this->app = AtomsBootstrap::create(
             endpoint: 'http://worker.test',
-            apiKey: 'k',
-            platformPublicKey: $this->signer->publicKeyBase64(),
+            sharedSecret: $this->signer->sharedSecretBase64(),
             callbackPath: self::CALLBACK_PATH,
             http: new FakePsr18Client(),
             requestFactory: $factory,

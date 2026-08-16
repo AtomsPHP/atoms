@@ -22,22 +22,9 @@ final class LaravelQueueBridgeTest extends TestCase
     {
         Queue::fake();
 
-        $keypair = sodium_crypto_sign_keypair();
-        $secretKey = sodium_crypto_sign_secretkey($keypair);
-        config(['atoms.platform_public_key' => base64_encode(sodium_crypto_sign_publickey($keypair))]);
-
-        $payload = ['job' => RecordScoreJob::class, 'args' => ['playerId' => 'p-1', 'score' => 42]];
-        $body = (string) json_encode($payload, JSON_UNESCAPED_SLASHES);
-        $ts = (string) time();
-        $nonce = bin2hex(random_bytes(16));
-        $signature = base64_encode(sodium_crypto_sign_detached("v1\n{$ts}\n{$nonce}\n{$body}", $secretKey));
-
-        $server = $this->transformHeadersToServerVars([
-            'X-Atoms-Kind' => 'job',
-            'X-Atoms-Timestamp' => $ts,
-            'X-Atoms-Nonce' => $nonce,
-            'X-Atoms-Signature' => $signature,
-            'Content-Type' => 'application/json',
+        [$server, $body] = $this->signedCallback('job', [
+            'job' => RecordScoreJob::class,
+            'args' => ['playerId' => 'p-1', 'score' => 42],
         ]);
 
         $response = $this->call('POST', '/atoms/callback', [], [], [], $server, $body);

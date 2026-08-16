@@ -34,6 +34,14 @@ use Psr\Log\LoggerInterface;
  * {@see CallbackKernelFactory}, which this class is a thin, opinionated shim
  * over.
  *
+ * `$sharedSecret` is the one value both collaborators are built from: the
+ * outbound `AtomsClient` derives its bearer from it, and the inbound
+ * `CallbackKernel` derives its HMAC verification key from it — the same
+ * secret an operator configures identically on the Worker as
+ * `ATOMS_SHARED_SECRET`. `$sharedSecretPrevious` is the matching optional
+ * overlap secret: set it during a rotation window and inbound callbacks
+ * signed under either secret verify (see `docs/shared-secret.md`).
+ *
  * `$nonceStore` and `$timestampWindow` are the same replay-store and
  * timestamp-window override points {@see CallbackKernelFactory::create()}
  * exposes, forwarded straight through: leave `$nonceStore` null for the
@@ -45,8 +53,7 @@ final class AtomsBootstrap
 {
     public static function create(
         string $endpoint,
-        ?string $apiKey,
-        string $platformPublicKey,
+        string $sharedSecret,
         string $callbackPath,
         ClientInterface $http,
         RequestFactoryInterface $requestFactory,
@@ -56,22 +63,24 @@ final class AtomsBootstrap
         ?QueueBridge $queueBridge = null,
         ?MethodsResolver $resolver = null,
         ?NonceStore $nonceStore = null,
+        ?string $sharedSecretPrevious = null,
         int $timestampWindow = 300,
         ?LoggerInterface $logger = null,
         ?ContainerInterface $container = null,
     ): PlainPhpApp {
         $config = AtomsConfig::fromArray([
             'endpoint' => $endpoint,
-            'apiKey' => $apiKey,
-            'platformPublicKey' => $platformPublicKey,
+            'sharedSecret' => $sharedSecret,
+            'sharedSecretPrevious' => $sharedSecretPrevious,
         ]);
 
         $client = new AtomsClient($config, $http, $requestFactory, $streamFactory, $logger);
 
         $kernel = CallbackKernelFactory::create(
-            $platformPublicKey,
+            $sharedSecret,
             $responseFactory,
             $streamFactory,
+            $sharedSecretPrevious,
             queueBridge: $queueBridge ?? new NullQueueBridge('Pass a QueueBridge to AtomsBootstrap::create().'),
             resolver: $resolver,
             nonceStore: $nonceStore,

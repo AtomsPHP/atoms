@@ -23,8 +23,8 @@ final class SymfonyHost implements AdapterHost
 {
     private const ENV_KEYS = [
         'ATOMS_ENDPOINT',
-        'ATOMS_API_KEY',
-        'ATOMS_PLATFORM_PUBLIC_KEY',
+        'ATOMS_SHARED_SECRET',
+        'ATOMS_SHARED_SECRET_PREVIOUS',
         'ATOMS_CALLBACK_PATH',
     ];
 
@@ -66,9 +66,9 @@ final class SymfonyHost implements AdapterHost
         // $options->methodsClasses never varies across this suite's cases —
         // see CallbackCases and AdapterConformanceTestCase::defaultOptions().
         $this->setEnv('ATOMS_ENDPOINT', $options->endpoint);
-        $this->setEnv('ATOMS_PLATFORM_PUBLIC_KEY', $options->publicKey);
+        $this->setEnv('ATOMS_SHARED_SECRET', $options->sharedSecret);
         $this->setEnv('ATOMS_CALLBACK_PATH', $options->callbackPath);
-        $this->setEnv('ATOMS_API_KEY', $this->apiKeyEnvValue($options->apiKey));
+        $this->setEnv('ATOMS_SHARED_SECRET_PREVIOUS', $options->sharedSecretPrevious);
 
         // Captured so shutdown() can undo exactly what Symfony's own
         // DebugHandlersListener installs on the first handled request,
@@ -80,10 +80,10 @@ final class SymfonyHost implements AdapterHost
         $this->kernel->boot();
 
         // S2: AtomsConfig::class is a public but lazily-built service — boot()
-        // alone never constructs it. Force it now so an empty apiKey's throw
-        // surfaces here, matching every other host's "throws at construction"
-        // contract, instead of staying latent until something happens to
-        // resolve AtomsClient/AtomsConfig later.
+        // alone never constructs it. Force it now so a malformed shared
+        // secret's throw surfaces here, matching every other host's "throws
+        // at construction" contract, instead of staying latent until
+        // something happens to resolve AtomsClient/AtomsConfig later.
         $this->testContainer()->get(AtomsConfig::class);
     }
 
@@ -169,24 +169,6 @@ final class SymfonyHost implements AdapterHost
     public function supports(string $capability): bool
     {
         return in_array($capability, ['routing', 'container', 'client', 'queue', 'logging'], true);
-    }
-
-    /**
-     * A bare '' is indistinguishable from "unset" to Symfony's `default::`
-     * env processor (see config/packages/atoms.yaml's api_key line — both
-     * collapse to null, verified against EnvVarProcessor directly). A single
-     * space survives `default::`'s emptiness check unchanged and is trimmed
-     * back to '' by the outer `trim:` processor before AtomsConfig ever sees
-     * it, so S2's misconfiguration reaches AtomsConfig as '', not as a
-     * fabricated null.
-     */
-    private function apiKeyEnvValue(?string $apiKey): ?string
-    {
-        if ($apiKey === '') {
-            return ' ';
-        }
-
-        return $apiKey;
     }
 
     private function setEnv(string $key, ?string $value): void

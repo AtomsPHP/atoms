@@ -13,21 +13,11 @@ namespace Atoms\Laravel\Tests;
  */
 final class CallbackPathEnvOverrideTest extends TestCase
 {
-    private string $publicKey;
-
-    private string $secretKey;
-
     protected function setUp(): void
     {
         putenv('ATOMS_CALLBACK_PATH=/hooks/atoms');
 
         parent::setUp();
-
-        $keypair = sodium_crypto_sign_keypair();
-        $this->publicKey = sodium_crypto_sign_publickey($keypair);
-        $this->secretKey = sodium_crypto_sign_secretkey($keypair);
-
-        config(['atoms.platform_public_key' => base64_encode($this->publicKey)]);
     }
 
     protected function tearDown(): void
@@ -46,7 +36,7 @@ final class CallbackPathEnvOverrideTest extends TestCase
 
     public function testRelocatedPathReachesTheKernel(): void
     {
-        [$server, $body] = $this->signedRequest([
+        [$server, $body] = $this->signedCallback('methods', [
             'atom' => ['type' => \Atoms\Laravel\Tests\Fixtures\GameRoom::class, 'id' => 'g-1'],
             'method' => 'add',
             'args' => [2, 3],
@@ -60,7 +50,7 @@ final class CallbackPathEnvOverrideTest extends TestCase
 
     public function testDefaultPathIsNoLongerRegisteredWhenRelocated(): void
     {
-        [$server, $body] = $this->signedRequest([
+        [$server, $body] = $this->signedCallback('methods', [
             'atom' => ['type' => \Atoms\Laravel\Tests\Fixtures\GameRoom::class, 'id' => 'g-1'],
             'method' => 'add',
             'args' => [2, 3],
@@ -69,29 +59,5 @@ final class CallbackPathEnvOverrideTest extends TestCase
         $response = $this->call('POST', '/atoms/callback', [], [], [], $server, $body);
 
         $response->assertStatus(404);
-    }
-
-    /**
-     * @param array<string, mixed> $payload
-     * @return array{0: array<string, string>, 1: string}
-     */
-    private function signedRequest(array $payload): array
-    {
-        $body = (string) json_encode($payload, JSON_UNESCAPED_SLASHES);
-        $ts = (string) time();
-        $nonce = bin2hex(random_bytes(16));
-
-        $message = "v1\n" . $ts . "\n" . $nonce . "\n" . $body;
-        $signature = base64_encode(sodium_crypto_sign_detached($message, $this->secretKey));
-
-        $server = $this->transformHeadersToServerVars([
-            'X-Atoms-Kind' => 'methods',
-            'X-Atoms-Timestamp' => $ts,
-            'X-Atoms-Nonce' => $nonce,
-            'X-Atoms-Signature' => $signature,
-            'Content-Type' => 'application/json',
-        ]);
-
-        return [$server, $body];
     }
 }

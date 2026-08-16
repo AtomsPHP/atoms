@@ -1,33 +1,42 @@
 #!/usr/bin/env node
 
 /**
- * dev-with-callback.mjs — `wrangler dev`, with the callback channel wired to
- * a keypair generated for this run only.
+ * dev-with-callback.mjs — `wrangler dev`, with a shared secret generated for
+ * this run only and the callback channel pointed at the suite's own listener.
  *
- * A committed test key — even a throwaway — gets flagged by every secret
- * scanner that looks at this repository. This script generates a fresh
- * Ed25519 keypair every time it runs, passes
- * the seed to the Worker as a `--var`, and writes the PUBLIC half plus the
- * listener port to `test/.callback-key.json`, which is gitignored.
- * `test/conformance.mjs` reads that file to stand up its own in-suite monolith
- * listener and verify signatures against the matching public key.
+ * The Worker requires `ATOMS_SHARED_SECRET`: 32 random bytes, base64, the root
+ * every key on the boundary is derived from (bearer, ticket signatures,
+ * callback signatures). This script generates a fresh one every time it runs,
+ * passes it to the Worker as a `--var`, and writes it plus the listener port to
+ * `test/.dev-secret.json`, which is gitignored. `test/conformance.mjs` reads
+ * that file to derive the same three keys — so it can send the bearer, mint and
+ * forge tickets, and verify the HMAC on every callback it receives.
  *
- * Where the seed actually lives, stated plainly rather than politely: it is an
- * ARGV element of the wrangler child process (`--var
- * ATOMS_CALLBACK_SIGNING_KEY:<seed>`), so it is visible to anything on the
- * machine that can read `/proc/<pid>/cmdline` or run `ps`. Never a file, never
- * a log, never committed — but not private from a local user either. That is
- * accepted for the scope this script has: a throwaway key, generated per run,
- * for local development and CI. It is not a pattern to copy for a deployed
- * Worker, where the seed belongs in `wrangler secret put`.
+ * That file holds the per-run ROOT, not a public half: treat it as a secret.
+ * It is regenerated per run, gitignored, and never committed. A committed or
+ * fixed dev secret would be a known master key for every deployment that ever
+ * copied it, so the secret is always generated, never stored in the repository.
  *
- * Do not "harden" this into a committed key file. The generated-per-run
- * design costs one script and one CI step; a committed key costs a private
- * key in git forever.
+ * Where the secret actually lives, stated plainly rather than politely: it is
+ * an ARGV element of the wrangler child process (`--var
+ * ATOMS_SHARED_SECRET:<secret>`) and a 0600 file under `test/`, so it is
+ * visible to anything on the machine that can read `/proc/<pid>/cmdline`, run
+ * `ps`, or read the file as that user. Never a log, never committed — but not
+ * private from a local user either. That is accepted for the scope this script
+ * has: a throwaway secret, generated per run, for local development and CI. A
+ * deployed Worker puts it in `wrangler secret put ATOMS_SHARED_SECRET`.
  *
  * Usage: node scripts/dev-with-callback.mjs [--port <workerPort>]
  * Env:
  *   ATOMS_CALLBACK_PORT   port the in-suite listener will bind (default 8788)
+ *   ATOMS_SHARED_SECRET   used verbatim when set (CI mints and masks its own);
+ *                         when unset, a fresh per-run secret is generated.
+ *   ATOMS_BEARER_AUTH     forwarded verbatim when set: `required` (the Worker's
+ *                         own default) or `disabled` for the proxy-fronted
+ *                         posture. Never defaulted here.
+ *   ATOMS_SHARED_SECRET_PREVIOUS  forwarded verbatim when set: the rotation
+ *                         overlap, for the checks that assert bearer(previous)
+ *                         is accepted and a previous-secret ticket is not.
  *   ATOMS_TURN_DEADLINE_MS  forwarded to the Worker verbatim when set; when
  *                           unset, the Worker's own default applies. Never
  *                           defaulted here — that would be a capacity number
@@ -37,16 +46,12 @@
  *                           set size guard); when unset, the Worker's own
  *                           defaults apply. Never defaulted here — same rule
  *                           as ATOMS_TURN_DEADLINE_MS above.
- *   ATOMS_APP_KEY           forwarded verbatim when set: an auth-enabled dev
- *                           run for the connection-ticket checks (35-38).
- *                           Same throwaway-argv caveat as the signing seed
- *                           above; a deployed Worker uses `wrangler secret`.
  *   ATOMS_WS_TICKET_TTL_MS, ATOMS_WS_TICKET_SKEW_MS  forwarded verbatim when
- *                           set (check 36's signed-expiry leg needs a short
- *                           TTL and a known skew); never defaulted here.
+ *                           set (the signed-expiry leg needs a short TTL and a
+ *                           known skew); never defaulted here.
  */
 
-import { generateKeyPairSync } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -66,59 +71,60 @@ function parsePort(argv) {
 
 const workerPort = parsePort(process.argv.slice(2));
 const callbackPort = process.env.ATOMS_CALLBACK_PORT || DEFAULT_CALLBACK_PORT;
-const turnDeadlineMs = process.env.ATOMS_TURN_DEADLINE_MS;
-const sqlMaxRows = process.env.ATOMS_SQL_MAX_ROWS;
-const sqlMaxResultBytes = process.env.ATOMS_SQL_MAX_RESULT_BYTES;
-const appKey = process.env.ATOMS_APP_KEY;
-const wsTicketTtlMs = process.env.ATOMS_WS_TICKET_TTL_MS;
-const wsTicketSkewMs = process.env.ATOMS_WS_TICKET_SKEW_MS;
 
-// The PKCS8-prefix trick this derives from: subarray(-32) on the DER export
-// is the raw seed / raw public key.
-const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-const pkcs8 = privateKey.export({ type: 'pkcs8', format: 'der' });
-const seed = pkcs8.subarray(pkcs8.length - 32);
-const spki = publicKey.export({ type: 'spki', format: 'der' });
-const pub = spki.subarray(spki.length - 32);
+// Pass-throughs: forwarded verbatim when set, never defaulted here.
+const passThrough = [
+    'ATOMS_BEARER_AUTH',
+    'ATOMS_SHARED_SECRET_PREVIOUS',
+    'ATOMS_TURN_DEADLINE_MS',
+    'ATOMS_SQL_MAX_ROWS',
+    'ATOMS_SQL_MAX_RESULT_BYTES',
+    'ATOMS_WS_TICKET_TTL_MS',
+    'ATOMS_WS_TICKET_SKEW_MS',
+];
 
-const seedB64 = seed.toString('base64');
-const pubB64 = pub.toString('base64');
+// 32 random bytes, base64 — exactly what the Worker requires and what the app
+// side would hold. An ATOMS_SHARED_SECRET already in the environment wins (CI
+// mints and masks its own per-run secret, and the mask only covers that exact
+// value); otherwise fresh every run.
+const sharedSecret = (process.env.ATOMS_SHARED_SECRET ?? '').trim() || randomBytes(32).toString('base64');
 
-const keyFile = join(workerRoot, 'test', '.callback-key.json');
-mkdirSync(dirname(keyFile), { recursive: true });
+const secretFile = join(workerRoot, 'test', '.dev-secret.json');
+mkdirSync(dirname(secretFile), { recursive: true });
 writeFileSync(
-    keyFile,
+    secretFile,
     JSON.stringify(
         {
-            $comment: 'Generated per run by scripts/dev-with-callback.mjs. Gitignored. Public key only.',
-            publicKey: pubB64,
+            $comment:
+                'Generated per run by scripts/dev-with-callback.mjs. Gitignored, never committed. ' +
+                'This is the per-run ROOT secret: bearer, ticket and callback keys all derive from it.',
+            sharedSecret,
             port: Number(callbackPort),
         },
         null,
         2
-    ) + '\n'
+    ) + '\n',
+    { mode: 0o600 }
 );
 
 const callbackUrl = `http://127.0.0.1:${callbackPort}/atoms/callback`;
 
-const argv = ['dev', '--port', workerPort, '--ip', '127.0.0.1', '--var', `ATOMS_CALLBACK_URL:${callbackUrl}`, '--var', `ATOMS_CALLBACK_SIGNING_KEY:${seedB64}`];
-if (typeof turnDeadlineMs === 'string' && turnDeadlineMs !== '') {
-    argv.push('--var', `ATOMS_TURN_DEADLINE_MS:${turnDeadlineMs}`);
-}
-if (typeof sqlMaxRows === 'string' && sqlMaxRows !== '') {
-    argv.push('--var', `ATOMS_SQL_MAX_ROWS:${sqlMaxRows}`);
-}
-if (typeof sqlMaxResultBytes === 'string' && sqlMaxResultBytes !== '') {
-    argv.push('--var', `ATOMS_SQL_MAX_RESULT_BYTES:${sqlMaxResultBytes}`);
-}
-if (typeof appKey === 'string' && appKey !== '') {
-    argv.push('--var', `ATOMS_APP_KEY:${appKey}`);
-}
-if (typeof wsTicketTtlMs === 'string' && wsTicketTtlMs !== '') {
-    argv.push('--var', `ATOMS_WS_TICKET_TTL_MS:${wsTicketTtlMs}`);
-}
-if (typeof wsTicketSkewMs === 'string' && wsTicketSkewMs !== '') {
-    argv.push('--var', `ATOMS_WS_TICKET_SKEW_MS:${wsTicketSkewMs}`);
+const argv = [
+    'dev',
+    '--port',
+    workerPort,
+    '--ip',
+    '127.0.0.1',
+    '--var',
+    `ATOMS_CALLBACK_URL:${callbackUrl}`,
+    '--var',
+    `ATOMS_SHARED_SECRET:${sharedSecret}`,
+];
+for (const name of passThrough) {
+    const value = process.env[name];
+    if (typeof value === 'string' && value !== '') {
+        argv.push('--var', `${name}:${value}`);
+    }
 }
 
 const wranglerBin = join(workerRoot, 'node_modules', '.bin', 'wrangler');

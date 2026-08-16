@@ -36,8 +36,8 @@ final class LaravelHost implements AdapterHost
 {
     private const ENV_KEYS = [
         'ATOMS_ENDPOINT',
-        'ATOMS_API_KEY',
-        'ATOMS_PLATFORM_PUBLIC_KEY',
+        'ATOMS_SHARED_SECRET',
+        'ATOMS_SHARED_SECRET_PREVIOUS',
         'ATOMS_CALLBACK_PATH',
     ];
 
@@ -82,15 +82,16 @@ final class LaravelHost implements AdapterHost
 
         $envAssoc = [
             'ATOMS_ENDPOINT' => $options->endpoint,
-            'ATOMS_PLATFORM_PUBLIC_KEY' => $options->publicKey,
+            'ATOMS_SHARED_SECRET' => $options->sharedSecret,
             'ATOMS_CALLBACK_PATH' => $options->callbackPath,
         ];
 
-        // Omitted entirely (not set to '') when null: env('ATOMS_API_KEY')
-        // must come back null, not the empty string, for the "no auth"
-        // posture (see config/atoms.php's api_key line and AtomsConfig).
-        if (is_string($options->apiKey)) {
-            $envAssoc['ATOMS_API_KEY'] = $options->apiKey;
+        // Omitted entirely (not set to '') when null: env('ATOMS_SHARED_SECRET_PREVIOUS')
+        // must come back null, not the empty string, when no overlap secret
+        // is configured (see config/atoms.php's shared_secret_previous line
+        // and AtomsConfig).
+        if (is_string($options->sharedSecretPrevious)) {
+            $envAssoc['ATOMS_SHARED_SECRET_PREVIOUS'] = $options->sharedSecretPrevious;
         }
 
         $methodsClasses = $options->methodsClasses;
@@ -153,9 +154,9 @@ final class LaravelHost implements AdapterHost
         Bus::fake();
 
         // S2: AtomsConfig::class is a deferred singleton — booting the app
-        // alone never constructs it. Force it now so an empty apiKey's throw
-        // surfaces here, matching every other host's "throws at construction"
-        // contract.
+        // alone never constructs it. Force it now so a malformed shared
+        // secret's throw surfaces here, matching every other host's "throws
+        // at construction" contract.
         $this->app->make(AtomsConfig::class);
     }
 

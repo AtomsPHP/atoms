@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Client\Callback;
 
+use Atoms\Client\Crypto\KeyDerivation;
 use Atoms\Serialization\Serializer;
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseFactoryInterface;
@@ -21,10 +22,17 @@ use Psr\Log\LoggerInterface;
  */
 final class CallbackKernelFactory
 {
+    /**
+     * @param string      $sharedSecret         ATOMS_SHARED_SECRET: base64 of 32 random bytes, identical on the app and the Worker. The callback HMAC key is derived from it.
+     * @param string|null $sharedSecretPrevious ATOMS_SHARED_SECRET_PREVIOUS: during a rotation overlap, a callback signed under this secret verifies too.
+     *
+     * @throws \InvalidArgumentException when either secret is absent or malformed (ATOMS-E105).
+     */
     public static function create(
-        string $platformPublicKey,
+        string $sharedSecret,
         ResponseFactoryInterface $responseFactory,
         StreamFactoryInterface $streamFactory,
+        ?string $sharedSecretPrevious = null,
         ?QueueBridge $queueBridge = null,
         ?MethodsResolver $resolver = null,
         ?NonceStore $nonceStore = null,
@@ -34,7 +42,7 @@ final class CallbackKernelFactory
         ?Serializer $serializer = null,
     ): CallbackKernel {
         return new CallbackKernel(
-            new Ed25519Verifier($platformPublicKey),
+            new HmacVerifier(KeyDerivation::callbackKeys($sharedSecret, $sharedSecretPrevious)),
             $nonceStore ?? new InMemoryNonceStore(),
             $resolver ?? new MethodsResolver(),
             $queueBridge ?? new NullQueueBridge(),

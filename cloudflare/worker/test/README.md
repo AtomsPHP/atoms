@@ -4,7 +4,7 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 
 ## Tests
 
-`conformance.mjs` runs 38 checks against a live worker URL:
+`conformance.mjs` runs 42 checks against a live worker URL:
 
 1. **healthz** — `/healthz` endpoint responds
 2. **invoke + result envelope** — HTTP interface returns correct shape
@@ -18,7 +18,7 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 10. **reserved-table rejection** — `__atoms_*` tables are protected from customer code, including from SQL whose comments contain apostrophes
 11. **turn serialization** — concurrent invokes on the same Atom serialize strictly
 12. **eviction/wake** — in-memory state resets on eviction, durable state persists, `onActivation` re-runs
-13. **`app()` round trip, int64-exact** — the boundary matrix through a signed callback, one request per call, valid signature/timestamp/nonce, no nonce reuse
+13. **`app()` round trip, int64-exact** — the boundary matrix through a signed callback, one request per call, a 32-byte HMAC-SHA256 tag that verifies, valid timestamp/nonce, no nonce reuse
 14. **`app()` rejected inside a transaction** — `ATOMS-E082`, and the listener sees no request at all (the guest-side guard fires first)
 15. **deadline overrun** — 15a uncaught: 504 `turn_deadline_exceeded` inside the configured budget and not far past it, residency stays healthy, and a later `app()` on the same Atom still works (the exhausted budget did not leak out of its turn); 15b caught: an ordinary 200, and the latched budget stops a second `app()` from reaching the network — then the *next* turn's `app()` succeeds, proving the latch is per turn, not per residency
 16. **`dispatch()` awaited, signed, `kind=job`** — args keyed by promoted constructor property name, and the turn's HTTP response held until the delivery *completed*, not merely started (the listener stalls the job response by `ATOMS_TEST_JOB_DELAY_MS` and the check compares the two timestamps); then the same thing from `onActivation()`, on a fresh `Boot` atom, which is the one call site with no turn to belong to — whose `onActivation()` also calls `app()`, so the check additionally asserts the listener saw one signed `kind=methods` request (`echoBig` on `Boot`), which only succeeds if the activation budget is stamped fresh past wasm boot and migrations rather than charged for them
@@ -34,35 +34,78 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 26. **pdo surface tripwire** — a reflection-driven audit (never a hardcoded member list) asserts every public member of the RUNTIME `\PDO`/`\PDOStatement` is genuinely declared on `Atoms\Cf\AtomsPDO`/`AtomsStatement`, the pinned `FETCH_*`/`ATTR_*`/`PARAM_*`/... constants match the runtime by name-set and value, every pinned `FETCH_*` value is proven refused or shaped correctly by execution, anti-vacuous floors on how much was actually checked, and the allowlist (currently one entry) is exactly the committed id set with every entry's own runtime assertion passed
 27. **pdo comparator integrity** — a fresh native in-guest `new \PDO('sqlite::memory:')` passes five structural gates (exact class, a real `ATTR_CLIENT_VERSION`, `FETCH_NAMED` duplicate-column grouping, `getColumnMeta()`, a genuine `PDORow` from `FETCH_LAZY`) that `AtomsPDO` cannot produce even in principle — so an impostor or misconfigured comparator cannot pass. Never skips
 28. **pdo differential matrix** — ~160 cases, the SAME closure run against `AtomsPDO` and the check-27 comparator, classified and checked against the committed pin file `pdo-expected.json` in both directions (every observed difference must be pinned with exactly that class; every pin must be observed with exactly that class — the direction that catches a comparator that quietly became `AtomsPDO` itself), plus anti-vacuous floors and a hard zero on harness-breakage cases
-29. **sql result caps** — with `ATOMS_SQL_MAX_ROWS`/`ATOMS_SQL_MAX_RESULT_BYTES` set on both the Worker and the runner (matching, never defaulted, same pattern as check 15's turn deadline): one row under the row cap succeeds exactly, **exactly at the row cap also succeeds** (M1 review F-15 — verified against `bridge.js`'s actual code: the cap check runs before push, at the top of each loop iteration, so the loop simply ends once `sqlMaxRows` rows have been pushed and is never re-entered to trip the check; the at-cap row is not rejected, only the first row past it is), one row over fails `sql_result_too_large` with `cap:'rows'` (asserted primarily from `BridgeSqlException::getDetail()['cap']`, M1 review F-14 — this used to be readable only by parsing the message text, because the detail object was silently dropped in `SqlBridge::failure()` before ever reaching PHP; the message-text check is kept as a secondary assertion), a result well under the row cap but over the byte cap fails with `cap:'bytes'` (same primary/secondary assertion, proving the caps are independent), **run mode (`PDO::exec()`, which discards rows) is exercised directly and must succeed even for a statement that would generate far more than the row cap in rows mode** (M1 review F-15 — `bridge.js`'s `mode !== 'rows'` branch drains and discards without any cap check at all, verified directly rather than only documented), and the residency survives both failures
+29. **sql result caps** — with `ATOMS_SQL_MAX_ROWS`/`ATOMS_SQL_MAX_RESULT_BYTES` set on both the Worker and the runner (matching, never defaulted, same pattern as check 15's turn deadline): one row under the row cap succeeds exactly, **exactly at the row cap also succeeds** (verified against `bridge.js`'s actual code: the cap check runs before push, at the top of each loop iteration, so the loop simply ends once `sqlMaxRows` rows have been pushed and is never re-entered to trip the check; the at-cap row is not rejected, only the first row past it is), one row over fails `sql_result_too_large` with `cap:'rows'` (asserted primarily from `BridgeSqlException::getDetail()['cap']`, with the message-text check kept as a secondary assertion), a result well under the row cap but over the byte cap fails with `cap:'bytes'` (same primary/secondary assertion, proving the caps are independent), **run mode (`PDO::exec()`, which discards rows) is exercised directly and must succeed even for a statement that would generate far more than the row cap in rows mode** (`bridge.js`'s `mode !== 'rows'` branch drains and discards without any cap check at all, verified directly rather than only documented), and the residency survives both failures
 30. **pdo compatibility doc is current** — re-uses check 28's report, byte-compares a fresh render (`scripts/gen-pdo-matrix.mjs`, a pure function) against the committed `cloudflare/docs/pdo-compatibility.md`; a mismatch fails naming the first differing line and the regeneration command. If check 28 produced no report, this FAILS rather than skips
-31. **connection tickets: mint + headerless connect** — `POST /tickets/Room/:id` returns the envelope (`v1.` 3-segment signed under auth-on, `v1u.` unsigned dev form under auth-off, sane `expires_at`, atom echo); a completely headerless upgrade carrying the ticket connects the way a browser would, the ticket's `client_id` claim overrides the spoofed query param (server wins), the reserved `ticket` key is never delivered to `onConnect`, and a URL at exactly the documented default `ATOMS_WS_MAX_PARAMS` plus the ticket still opens (the ticket is outside the param budgets)
-32. **mint validation** — non-string claim values, claims over the cap, and the reserved `ticket`/`channels` claim keys are `invalid_request`; minting for a `websocket: false` type is `not_supported` and for an unknown type `unknown_atom_type` (the same refusals `/ws` gives — no ticket exists that the upgrade would then refuse); wrong method/arity are 405/400
-33. **edge refusals** — garbage and wrong-atom-scoped tickets are 401 `ticket_invalid`; a hand-forged, already-expired `v1u.` dev ticket (forgeable by design — that is what makes expiry testable with no TTL wait) is `ticket_expired` under auth-off and `ticket_invalid` under auth-on, all before any DO is addressed
-34. **reusable within TTL** — the same ticket opens a second connection both while the first socket is still open and after it has closed: the contract assertion that no single-use burn exists (the short TTL is the ticket's entire replay defense, and the DO holds no ticket state). Runs in the default auth-off posture on unsigned dev tickets; a reintroduced burn fails it
-35. **auth-on minting** — a headerless mint is 401 `unauthenticated` (a ticket cannot mint a ticket, and neither can nothing); the authed mint's signed ticket then admits a headerless browser-style upgrade with its claims merged
-36. **auth-on refusals** — a tampered signature and a forged `v1u.` dev ticket are both `ticket_invalid` (unsigned tickets are not credentials where a key is set); no credential at all is `unauthenticated`; and a genuinely expired *signed* ticket, waited out for real, is `ticket_expired` (this leg needs `ATOMS_WS_TICKET_SKEW_MS` in the runner env and a Worker started with a short `ATOMS_WS_TICKET_TTL_MS`)
+31. **connection tickets: mint + headerless connect** — `POST /tickets/Room/:id` returns the envelope (a 3-segment signed `v1.` ticket, sane `expires_at`, atom echo); a completely headerless upgrade carrying the ticket connects the way a browser would, the ticket's `client_id` claim overrides the spoofed query param (server wins), the reserved `ticket` key is never delivered to `onConnect`, and a URL at exactly the documented default `ATOMS_WS_MAX_PARAMS` plus the ticket still opens (the ticket is outside the param budgets)
+32. **mint validation** — non-string claim values, claims over the cap, and the reserved `ticket`/`channels` claim keys are `invalid_request`; minting for a `websocket: false` type is `not_supported` and for an unknown type `unknown_atom_type`; wrong method/arity are 405/400
+33. **edge refusals** — garbage and wrong-atom-scoped tickets are 401 `ticket_invalid`; a correctly signed ticket whose `exp` is already in the past is `ticket_expired` (forging it with the run's own secret is what makes expiry testable with no TTL wait); a `v1u.`-form string is `ticket_invalid` — all before any DO is addressed
+34. **reusable within TTL** — the same ticket opens a second connection both while the first socket is still open and after it has closed: the contract assertion that no single-use burn exists (the short TTL is the ticket's entire replay defense, and the DO holds no ticket state)
+35. **minting is bearer-gated** — a headerless mint is 401 `unauthenticated` (a ticket cannot mint a ticket, and neither can nothing); the authed mint's signed ticket then admits a headerless browser-style upgrade with its claims merged
+36. **bearer-required refusals** — a tampered signature and a `v1u.`-form string are both `ticket_invalid`; no credential at all is `unauthenticated`; and a genuinely expired ticket, waited out for real, is `ticket_expired` (this leg needs `ATOMS_WS_TICKET_SKEW_MS` in the runner env and a Worker started with a short `ATOMS_WS_TICKET_TTL_MS`)
 37. **credential precedence** — a *tampered* ticket is 401 `ticket_invalid` headerless (the non-vacuity guard), then the same upgrade with a valid bearer connects: the bearer path strips the ticket unverified, never running the verifier at all
-38. **routing regression guard** — with auth on, a headerless `POST /invoke` and `GET /debug` are still 401: the `/ws` ticket carve-out leaked into no other route
+38. **routing regression guard** — with bearer auth required, a headerless `POST /invoke` and `GET /debug` are still 401: the `/ws` ticket carve-out leaked into no other route
+39. **bearer derivation** — (a) this runner reproduces the reference vector for all three purposes (`atoms/bearer/v1`, `atoms/ws-ticket/v1`, `atoms/callback/v1`) and the bearer is 44 characters of standard base64; (b) a live `php -r` doing `hash_hkdf('sha256', $ikm, 32, 'atoms/bearer/v1', '')` over the run's own secret produces exactly what the runner derives — the cross-language pin, because the monolith derives in PHP and the Worker in WebCrypto; (c) with bearer auth required, the Worker accepts the derived bearer and refuses a 44-character bearer derived from an unrelated secret
+40. **rotation** — with `ATOMS_SHARED_SECRET_PREVIOUS` configured on the Worker and the runner: both `bearer(current)` and `bearer(previous)` are accepted on `/invoke` while a bearer from an unrelated secret is 401; a ticket signed under the previous secret's ticket key is `ticket_invalid` while one signed under the current key connects (tickets get no overlap); and the callback the listener receives verifies under the current callback key and not under the previous one (a verifier accepts both, a sender emits only the current value)
+41. **misconfigured Worker** — booted with no shared secret, `GET /healthz` still answers 200 `{ok:true}` and `/invoke`, `/tickets`, `/debug` and `/ws` all answer HTTP 500 with the wire code `misconfigured`
+42. **config deny list** — with the Worker's `ATOMS_CONFIG_ENV_KEYS` naming `ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS`, a guest `$this->config()` of either name resolves `null`; an allowlisted control key on the same list resolves, which is what makes the two nulls meaningful rather than vacuous
 
-Checks 13–17 need the suite's own in-process callback listener (see below) and
-**skip** (never fail) when it is not configured — for example, when running
-against `ATOMS_BASE_URL=<a deployed worker>` with no matching callback setup.
-15 additionally skips when `ATOMS_TURN_DEADLINE_MS` is not set in the runner's
-own environment. Set `ATOMS_REQUIRE_CALLBACK_CHECKS=1` to turn those skips into
-failures: a skip is the right answer for a Worker that genuinely has no
-callback channel, and the wrong answer for a run that started one — CI sets it,
-so a broken `dev:callback` cannot quietly delete five checks. Checks 18–25 have
-no such gate; they always run. Check 29 has its own, independent gate: it
-skips when `ATOMS_SQL_MAX_ROWS`/`ATOMS_SQL_MAX_RESULT_BYTES` are not set in the
-runner's own environment, and `ATOMS_REQUIRE_SQL_CAP_CHECKS=1` turns that skip
-into a failure, same device, separate flag. Check 30 never skips — a stale doc
-is not excused by a missing run. Checks 35–38 skip when `ATOMS_APP_KEY` is not
-set on both the Worker and the runner (31–34 run in either posture, thanks to
-the unsigned dev-ticket design); `ATOMS_REQUIRE_TICKET_CHECKS=1` turns any
-ticket-check skip into a failure, and CI's auth-enabled second run sets it.
-That second run uses `ATOMS_ONLY=2,35,36,37,38` — a comma-separated allowlist,
-the complement of `ATOMS_SKIP` — so it never re-pays the eviction waits.
+### Postures
+
+The suite runs against a Worker in one of three postures, and the runner is
+told which one through `ATOMS_BEARER_AUTH`:
+
+| posture | Worker env | what it exercises |
+|---|---|---|
+| bearer required (default) | `ATOMS_SHARED_SECRET` set, `ATOMS_BEARER_AUTH` unset or `required` | everything, including 35–38 and check 39's live leg |
+| bearer disabled | `ATOMS_SHARED_SECRET` set, `ATOMS_BEARER_AUTH=disabled` | everything except the bearer-gated checks; tickets are still signed and callbacks are still signed |
+| misconfigured | no `ATOMS_SHARED_SECRET` | check 41 only (`ATOMS_ONLY=41 ATOMS_EXPECT_MISCONFIGURED=1`) |
+
+Checks 31–34 run in either configured posture. 35–38 need bearer auth
+required and otherwise skip.
+
+### Skips and the `ATOMS_REQUIRE_*` flags
+
+A skip is the right answer for a Worker that genuinely lacks a prerequisite
+(no callback channel, no rotation overlap) and the wrong answer for a run that
+set one up. Each gate therefore has a matching flag that turns its skip into a
+failure, so a broken harness cannot quietly delete checks; CI sets every flag
+the posture can satisfy.
+
+| checks | skip when | flag |
+|---|---|---|
+| 13–17 | no callback listener (needs `ATOMS_SHARED_SECRET` and a port); 15 additionally needs `ATOMS_TURN_DEADLINE_MS` | `ATOMS_REQUIRE_CALLBACK_CHECKS=1` |
+| 29 | `ATOMS_SQL_MAX_ROWS`/`ATOMS_SQL_MAX_RESULT_BYTES` not in the runner env | `ATOMS_REQUIRE_SQL_CAP_CHECKS=1` |
+| 33 (expiry/unsigned-form legs), 35–38, 36's expiry leg | no `ATOMS_SHARED_SECRET`; bearer auth not required; no `ATOMS_WS_TICKET_SKEW_MS` | `ATOMS_REQUIRE_TICKET_CHECKS=1` |
+| 39 (cross-language leg) | no `php` on PATH | `ATOMS_REQUIRE_BEARER_VECTOR=1` |
+| 40 | no `ATOMS_SHARED_SECRET_PREVIOUS` | `ATOMS_REQUIRE_ROTATION_CHECKS=1` |
+| 41 | `ATOMS_EXPECT_MISCONFIGURED` unset (the flag is the gate) | — |
+| 42 | the Worker's `ATOMS_CONFIG_ENV_KEYS` does not make the control key readable | `ATOMS_REQUIRE_DENY_CHECKS=1` |
+
+Checks 18–28 and 30–32 have no gate; they always run. Check 30 never skips —
+a stale doc is not excused by a missing run.
+
+## Credentials
+
+The boundary has one operator-facing root, **`ATOMS_SHARED_SECRET`**: 32
+random bytes, base64, configured identically on the monolith and the Worker.
+Every key on the boundary is HKDF-SHA256 derived from it — the bearer
+(`atoms/bearer/v1`), the WebSocket ticket key (`atoms/ws-ticket/v1`) and the
+callback key (`atoms/callback/v1`). See `docs/shared-secret.md` for the
+normative contract and the reference vector check 39 pins.
+
+**The root never travels.** What goes on the wire is the derived bearer, not
+the secret, so a leaked request header compromises invocation only. Two
+consequences for anyone running this suite:
+
+- `atoms token` prints the derived bearer. Every curl example below uses
+  `Authorization: Bearer $(atoms token)` — never the secret.
+- A run against a deployed Worker does not need the root: set
+  `ATOMS_BEARER_TOKEN` to the derived bearer instead, and the checks that need
+  the root (forging tickets, verifying callbacks, rotation) skip.
+
+Generate a secret with `openssl rand -base64 32`. Nothing commits one: local
+runs generate a fresh secret per run into the gitignored
+`test/.dev-secret.json`, and CI generates one per job.
 
 ## Running Locally
 
@@ -73,17 +116,17 @@ cd cloudflare/worker
 npx wrangler dev
 ```
 
-This starts the worker on `http://localhost:8787` by default, with no
-callback channel configured — checks 13–17 will skip.
+This starts the worker on `http://localhost:8787` with whatever
+`.dev.vars` provides. With no `ATOMS_SHARED_SECRET` there, every route except
+`/healthz` answers `misconfigured` — the posture check 41 asserts.
 
-To also exercise the callback channel (checks 13–17), start the worker with
-`npm run dev:callback` instead. It generates a fresh Ed25519 keypair for this
-run only (never committed — see the script's own header), wires
-`ATOMS_CALLBACK_URL`/`ATOMS_CALLBACK_SIGNING_KEY` into `wrangler dev` via
-`--var`, and writes the public half plus the listener port to the gitignored
-`test/.callback-key.json`, which `conformance.mjs` reads at startup to stand
-up its own loopback listener and verify signatures against the matching
-public key:
+For an ordinary run, start it with `npm run dev:callback` instead. It
+generates a shared secret for this run only (never committed — see the
+script's own header), wires it and a loopback `ATOMS_CALLBACK_URL` into
+`wrangler dev` via `--var`, and writes the secret plus the listener port to
+the gitignored `test/.dev-secret.json`, which `conformance.mjs` reads at
+startup to derive its bearer, stand up its own loopback listener, and verify
+callback signatures:
 
 ```bash
 cd cloudflare/worker
@@ -92,6 +135,8 @@ npm run dev:callback
 ATOMS_TURN_DEADLINE_MS=2000 npm run dev:callback
 # or, also forwarding small result-set caps for check 29:
 ATOMS_TURN_DEADLINE_MS=2000 ATOMS_SQL_MAX_ROWS=500 ATOMS_SQL_MAX_RESULT_BYTES=65536 npm run dev:callback
+# the bearer-disabled posture (an authenticating proxy stands in front):
+ATOMS_BEARER_AUTH=disabled npm run dev:callback
 ```
 
 ### Run the suite
@@ -101,7 +146,8 @@ In another terminal:
 ```bash
 cd cloudflare/worker
 
-# Against local dev server
+# Against a local dev server started by `npm run dev:callback`: the secret and
+# the callback port both come from test/.dev-secret.json.
 ATOMS_BASE_URL=http://localhost:8787 node test/conformance.mjs
 
 # Skip specific checks (e.g., eviction which requires long wait)
@@ -110,7 +156,7 @@ ATOMS_BASE_URL=http://localhost:8787 ATOMS_SKIP=12,21,24,25 node test/conformanc
 # Custom eviction wait (useful for faster local testing)
 ATOMS_BASE_URL=http://localhost:8787 ATOMS_EVICTION_WAIT_MS=5000 node test/conformance.mjs
 
-# Against a worker started with `npm run dev:callback` — enables 13-17
+# Enabling the callback checks' anti-silent-deletion flag
 ATOMS_BASE_URL=http://localhost:8787 ATOMS_TURN_DEADLINE_MS=2000 \
   ATOMS_REQUIRE_CALLBACK_CHECKS=1 node test/conformance.mjs
 
@@ -118,20 +164,24 @@ ATOMS_BASE_URL=http://localhost:8787 ATOMS_TURN_DEADLINE_MS=2000 \
 ATOMS_BASE_URL=http://localhost:8787 ATOMS_TURN_DEADLINE_MS=2000 \
   ATOMS_SQL_MAX_ROWS=500 ATOMS_SQL_MAX_RESULT_BYTES=65536 \
   ATOMS_REQUIRE_CALLBACK_CHECKS=1 ATOMS_REQUIRE_SQL_CAP_CHECKS=1 node test/conformance.mjs
+
+# Against a Worker running the bearer-disabled posture
+ATOMS_BASE_URL=http://localhost:8787 ATOMS_BEARER_AUTH=disabled node test/conformance.mjs
 ```
 
 `ATOMS_CALLBACK_PORT` overrides the loopback listener's port (default: the
-port recorded in `test/.callback-key.json` by `dev-with-callback.mjs`) —
-useful when running the listener alongside something else already bound to
-that port.
+port recorded in `test/.dev-secret.json` by `dev-with-callback.mjs`) — useful
+when running the listener alongside something else already bound to that port.
+`ATOMS_SHARED_SECRET` in the runner's own environment overrides the recorded
+secret, which is how CI drives a run whose secret it minted itself.
 
 **Client tooling for the WebSocket checks: Node's built-in global `WebSocket`,
 not the `ws` package.** Node 22's
 global `WebSocket` accepts `{headers: {Authorization: '...'}}` on the upgrade
 (an undici extension, not standard `WebSocket`), which is what lets these
-checks work identically against an auth-on deployed Worker and an auth-off
-local one with zero added dependencies — but it means **Node 22 is the floor**
-for running this suite. CI pins Node 22 (`.github/workflows/ci.yml`).
+checks work identically against a deployed Worker and a local one with zero
+added dependencies — but it means **Node 22 is the floor** for running this
+suite. CI pins Node 22 (`.github/workflows/ci.yml`).
 
 ## Running Remotely (Deployed)
 
@@ -144,18 +194,26 @@ cd cloudflare/worker
 node scripts/build-bundle.mjs
 npx wrangler deploy
 
-# Set the bearer key. Generate one and keep your copy — a secret cannot be read
-# back out of Cloudflare, only overwritten.
-openssl rand -hex 32 | tee /dev/tty | npx wrangler secret put ATOMS_APP_KEY
+# Set the shared secret. Generate one and keep your copy — a secret cannot be
+# read back out of Cloudflare, only overwritten.
+openssl rand -base64 32 | tee /dev/tty | npx wrangler secret put ATOMS_SHARED_SECRET
 ```
 
 This publishes to your Cloudflare Workers account. The worker will be available at a `workers.dev` URL.
 
 `wrangler secret put` deploys a new version, and rollout is not instantaneous:
 expect a few seconds during which requests may still be served by the previous
-version (observed: an unauthenticated request already 401ing while a request
-with a wrong key still got a 200 from the pre-secret version). Give a deploy or
-a secret change a moment to settle before reading anything into an auth result.
+version. Give a deploy or a secret change a moment to settle before reading
+anything into an auth result.
+
+A smoke test uses the derived bearer, never the secret:
+
+```bash
+curl -sS -X POST "$WORKER_URL/invoke/Counter/demo/increment" \
+  -H "Authorization: Bearer $(atoms token)" \
+  -H 'Content-Type: application/json' \
+  -d '{"args":[1]}'
+```
 
 ### Debug endpoints
 
@@ -170,10 +228,15 @@ already set in `wrangler.jsonc` for this conformance deployment.
 # Deployed to https://atoms-mvp-conformance.example.workers.dev/
 
 ATOMS_BASE_URL=https://atoms-mvp-conformance.example.workers.dev \
-ATOMS_APP_KEY=your-secret-key-here \
+ATOMS_BEARER_TOKEN="$(atoms token)" \
 ATOMS_EVICTION_WAIT_MS=16000 \
 node test/conformance.mjs
 ```
+
+`ATOMS_BEARER_TOKEN` carries invoke capability and nothing else, which is why
+it is the right thing to hand a remote run: checks 13–17, 33's forged legs, 40
+and 42 skip, and everything else runs. Pass `ATOMS_SHARED_SECRET` instead when
+the run is meant to cover them too.
 
 Deployed eviction is slower to arrive than local eviction; checks 12/21/24
 want `ATOMS_EVICTION_WAIT_MS=16000` remotely (the spec's "≥15s deployed").
@@ -193,15 +256,25 @@ rather than asserting a wrong cap fired.
 Environment variables:
 
 - `ATOMS_BASE_URL` (required) — URL of the running worker, e.g. `http://localhost:8787`
-- `ATOMS_APP_KEY` (optional) — Bearer token for auth; if set, suite adds `Authorization: Bearer <key>` to all requests
+- `ATOMS_SHARED_SECRET` (optional) — the root, base64, exactly 32 bytes once decoded. The full-capability form: the runner derives its bearer, forges test tickets, and verifies callbacks. Defaults to the value in `test/.dev-secret.json`
+- `ATOMS_BEARER_TOKEN` (optional) — the derived bearer (what `atoms token` prints), for a run that must not carry the root. Used verbatim
+- `ATOMS_BEARER_AUTH` (optional, `required` — the default — or `disabled`) — the posture the Worker under test runs. `required` is what makes the suite present a bearer; anything unrecognized is treated as `required`
+- `ATOMS_SHARED_SECRET_PREVIOUS` (optional) — the rotation overlap secret the Worker was started with; required for check 40, which otherwise skips
 - `ATOMS_EVICTION_WAIT_MS` (default 12500) — milliseconds to wait for DO eviction in checks 12, 21, 24 and 25
-- `ATOMS_CALLBACK_PORT` (optional) — port for the suite's own loopback callback listener; defaults to the port recorded in `test/.callback-key.json`
+- `ATOMS_CALLBACK_PORT` (optional) — port for the suite's own loopback callback listener; defaults to the port recorded in `test/.dev-secret.json`
 - `ATOMS_TURN_DEADLINE_MS` (optional) — must match the value the Worker was started with (`npm run dev:callback`'s own env var of the same name); required for check 15, which otherwise skips
 - `ATOMS_REQUIRE_CALLBACK_CHECKS` (optional, `1`) — turn checks 13–17's skips into failures. Set it whenever the run *does* have a callback channel, so a broken harness cannot silently delete them; CI sets it
 - `ATOMS_TEST_JOB_DELAY_MS` (default 400) — how long the suite's own listener holds a `kind=job` response open. A **test-harness** value, not a Worker setting: checks 16/17 compare when that response was sent against when the invoke response arrived, which is how an *awaited* delivery is told apart from a merely *started* one
 - `ATOMS_SQL_MAX_ROWS` / `ATOMS_SQL_MAX_RESULT_BYTES` (optional) — must match the values the Worker was started with (`npm run dev:callback`'s own env vars of the same name, forwarded to `wrangler --var`); required for check 29, which otherwise skips
-- `ATOMS_REQUIRE_SQL_CAP_CHECKS` (optional, `1`) — turn check 29's skip into a failure, same device as `ATOMS_REQUIRE_CALLBACK_CHECKS`, a separate flag. Set it whenever the run *does* have both cap vars configured; CI sets it
+- `ATOMS_REQUIRE_SQL_CAP_CHECKS` (optional, `1`) — turn check 29's skip into a failure, same device as `ATOMS_REQUIRE_CALLBACK_CHECKS`, a separate flag
+- `ATOMS_WS_TICKET_SKEW_MS` (optional) — must match the value the Worker was started with; required for check 36's expiry leg
+- `ATOMS_REQUIRE_TICKET_CHECKS` (optional, `1`) — turn any connection-ticket skip into a failure; set it on the bearer-required run
+- `ATOMS_REQUIRE_BEARER_VECTOR` (optional, `1`) — turn check 39's cross-language skip (no `php` on PATH) into a failure; CI sets it
+- `ATOMS_REQUIRE_ROTATION_CHECKS` (optional, `1`) — turn check 40's skip into a failure; set it on the run whose Worker carries `ATOMS_SHARED_SECRET_PREVIOUS`
+- `ATOMS_REQUIRE_DENY_CHECKS` (optional, `1`) — turn check 42's skip into a failure; set it on the run whose Worker lists the secret names in `ATOMS_CONFIG_ENV_KEYS`
+- `ATOMS_EXPECT_MISCONFIGURED` (optional, `1`) — the Worker under test was booted with no shared secret: run check 41 and expect `misconfigured` everywhere but `/healthz`
 - `ATOMS_SKIP` (optional) — comma-separated check numbers to skip, e.g. `10,11,12`
+- `ATOMS_ONLY` (optional) — comma-separated allowlist: run only these check numbers
 
 ## Remote Results
 
@@ -211,10 +284,13 @@ activation, warm turn, and post-hibernation wake latency — into
 
 ```bash
 ATOMS_BASE_URL=https://atoms-mvp-conformance.example.workers.dev \
-ATOMS_APP_KEY=your-secret-key-here \
+ATOMS_BEARER_TOKEN="$(atoms token)" \
 ATOMS_EVICTION_WAIT_MS=16000 \
 node test/measure-remote.mjs
 ```
+
+It accepts `ATOMS_SHARED_SECRET` too and derives the bearer itself; the token
+form is preferred for the same reason it is above.
 
 All figures are client-observed end-to-end latency and include the round trip
 from wherever you run it to the Cloudflare edge — the guest clock does not
@@ -231,7 +307,7 @@ cold activation ~740ms median (593–1033ms, n=5), warm turn ~59ms median
 
 The suite tests against the `fixtures/counter/` app, which includes:
 
-- **Counter** Atom: demonstrates SQL reads/writes, in-memory state, lifecycle hooks, and array serialization. `slowIncrement()` is the deliberately slow method check 11 serializes; its delay is a bounded work budget rather than a clock wait, because the guest clock does not advance inside a turn on deployed workerd. `clockProbe()` is what measures that — it reports `hrtime` deltas across pure computation and across a host round trip, and returns zeros for both when deployed. `notify()` dispatches `App\Jobs\Notify` for checks 16-17.
+- **Counter** Atom: demonstrates SQL reads/writes, in-memory state, lifecycle hooks, and array serialization. `slowIncrement()` is the deliberately slow method check 11 serializes; its delay is a bounded work budget rather than a clock wait, because the guest clock does not advance inside a turn on deployed workerd. `clockProbe()` is what measures that — it reports `hrtime` deltas across pure computation and across a host round trip, and returns zeros for both when deployed. `notify()` dispatches `App\Jobs\Notify` for checks 16-17. `configProbe(keys)` reports what `$this->config()` resolves for each key, driving check 42's deny-list assertion.
 - **Vault** Atom: demonstrates int64 boundary cases, transactions, and PDO direct access; `echoViaApp()`/`appInsideTransaction()`/`stallViaApp()`/`stallCaught()` drive checks 13-15.
 - **Room** Atom (`"websocket": true` in the manifest): `onConnect`/`onMessage`/`onDisconnect` plus `broadcast()`, driving checks 18-22. A separate type from Counter/Vault on purpose, so it cannot perturb checks 3/11/12's exact `turnsThisResidency` assertions.
 - **Scheduler** Atom: `arm()`/`cancelTimer()`/`scheduledMs()`/`timerLog()` over `$this->timers()`, driving checks 23-24.

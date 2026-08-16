@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Symfony\Tests\Controller;
 
 use Atoms\Client\Callback\CallbackKernelFactory;
+use Atoms\Client\Crypto\KeyDerivation;
 use Atoms\Symfony\AtomsBundle;
 use Atoms\Symfony\Controller\CallbackController;
 use GuzzleHttp\Psr7\HttpFactory;
@@ -13,7 +14,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
- * End-to-end: a Symfony HttpFoundation Request carrying a real Ed25519
+ * End-to-end: a Symfony HttpFoundation Request carrying a real HMAC-SHA256
  * signature, routed through the fully DI-wired CallbackController, must come
  * back out as a Symfony Response — proving the manual Request<->PSR-7
  * conversion and the callback stack's signature verification both work
@@ -21,18 +22,16 @@ use Symfony\Component\HttpFoundation\Request;
  */
 final class CallbackControllerTest extends TestCase
 {
-    private string $publicKey;
+    /** The reference vector's secret (docs/shared-secret.md). */
+    private const SECRET = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=';
 
-    private string $secretKey;
+    /** A second valid secret: 32 bytes of 0x02. */
+    private const PREVIOUS_SECRET = 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=';
 
-    protected function setUp(): void
-    {
-        $keypair = sodium_crypto_sign_keypair();
-        $this->publicKey = sodium_crypto_sign_publickey($keypair);
-        $this->secretKey = sodium_crypto_sign_secretkey($keypair);
-    }
-
-    private function controller(): CallbackController
+    /**
+     * @param array<string, mixed> $extraConfig
+     */
+    private function controller(array $extraConfig = []): CallbackController
     {
         $container = new ContainerBuilder();
         $container->setParameter('kernel.environment', 'test');
@@ -43,11 +42,10 @@ final class CallbackControllerTest extends TestCase
         self::assertNotNull($extension);
 
         $container->registerExtension($extension);
-        $container->loadFromExtension($extension->getAlias(), [
+        $container->loadFromExtension($extension->getAlias(), array_merge([
             'endpoint' => 'https://atoms.example.workers.dev',
-            'api_key' => 'atoms_v1_test_key',
-            'platform_public_key' => base64_encode($this->publicKey),
-        ]);
+            'shared_secret' => self::SECRET,
+        ], $extraConfig));
         $container->compile();
 
         $controller = $container->get(CallbackController::class);
@@ -65,13 +63,15 @@ final class CallbackControllerTest extends TestCase
         ?int $timestamp = null,
         ?string $nonce = null,
         ?string $signatureOverride = null,
+        string $secret = self::SECRET,
     ): Request {
         $body = (string) json_encode($payload, JSON_UNESCAPED_SLASHES);
         $ts = (string) ($timestamp ?? time());
         $nonce ??= bin2hex(random_bytes(16));
 
         $message = "v1\n" . $ts . "\n" . $nonce . "\n" . $body;
-        $signature = $signatureOverride ?? base64_encode(sodium_crypto_sign_detached($message, $this->secretKey));
+        $signature = $signatureOverride
+            ?? base64_encode(hash_hmac('sha256', $message, KeyDerivation::callbackKey($secret), true));
 
         $request = Request::create('https://app.test/atoms/callback', 'POST', content: $body);
         $request->headers->set('X-Atoms-Kind', $kind);
@@ -105,7 +105,7 @@ final class CallbackControllerTest extends TestCase
                 'method' => 'add',
                 'args' => [2, 3],
             ],
-            signatureOverride: base64_encode(str_repeat("\x01", SODIUM_CRYPTO_SIGN_BYTES)),
+            signatureOverride: base64_encode(str_repeat("\x01", 32)),
         );
 
         $response = ($this->controller())($request);
@@ -113,6 +113,27 @@ final class CallbackControllerTest extends TestCase
         self::assertSame(401, $response->getStatusCode());
         $body = json_decode((string) $response->getContent(), true);
         self::assertSame('ATOMS-E064', $body['error']['code']);
+    }
+
+    /**
+     * Rotation: with the overlap configured, the DI-wired controller accepts a
+     * callback signed under either secret.
+     */
+    public function testPreviousSecretIsAcceptedWhileTheOverlapIsConfigured(): void
+    {
+        $controller = $this->controller([
+            'shared_secret' => self::PREVIOUS_SECRET,
+            'shared_secret_previous' => self::SECRET,
+        ]);
+
+        $payload = [
+            'atom' => ['type' => \Atoms\Symfony\Tests\Fixtures\GameRoom::class, 'id' => 'g-1'],
+            'method' => 'add',
+            'args' => [2, 3],
+        ];
+
+        self::assertSame(200, $controller($this->signedRequest('methods', $payload, secret: self::PREVIOUS_SECRET))->getStatusCode());
+        self::assertSame(200, $controller($this->signedRequest('methods', $payload, secret: self::SECRET))->getStatusCode());
     }
 
     /**
@@ -124,7 +145,7 @@ final class CallbackControllerTest extends TestCase
     public function testControllerConstructsDirectlyFromAnyPsr17Implementation(): void
     {
         $factory = new HttpFactory();
-        $kernel = CallbackKernelFactory::create(base64_encode($this->publicKey), $factory, $factory);
+        $kernel = CallbackKernelFactory::create(self::SECRET, $factory, $factory);
         $controller = new CallbackController($kernel, $factory, $factory);
 
         $request = $this->signedRequest('methods', [

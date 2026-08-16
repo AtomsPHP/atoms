@@ -23,8 +23,8 @@ use Psr\Log\LoggerInterface;
  * server side of `$this->app()` (reverse RPC into a Methods class) and
  * `$this->dispatch()` (an AtomJob handed to the app's queue).
  *
- * Every request is authenticated before any customer code runs: detached
- * Ed25519 signature over `"v1\n{ts}\n{nonce}\n{body}"`, a timestamp-skew window,
+ * Every request is authenticated before any customer code runs: an
+ * HMAC-SHA256 tag over `"v1\n{ts}\n{nonce}\n{body}"`, a timestamp-skew window,
  * and single-use nonce replay protection. Failures return the platform error
  * envelope `{"error":{"code":"...","message":"..."}}`. `code` is usually a
  * catalog code (`ATOMS-E0##`/`ATOMS-E1##`); an unexpected failure with no
@@ -41,7 +41,7 @@ final class CallbackKernel implements RequestHandlerInterface
     private readonly Serializer $serializer;
 
     public function __construct(
-        private readonly Ed25519Verifier $verifier,
+        private readonly HmacVerifier $verifier,
         private readonly NonceStore $nonceStore,
         private readonly MethodsResolver $resolver,
         private readonly QueueBridge $queueBridge,

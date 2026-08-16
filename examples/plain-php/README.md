@@ -45,8 +45,7 @@ $factory = new HttpFactory();
 
 $app = AtomsBootstrap::create(
     endpoint: 'https://atoms.your-subdomain.workers.dev',
-    apiKey: getenv('ATOMS_API_KEY') ?: null,          // null = Worker's ATOMS_APP_KEY is unset
-    platformPublicKey: getenv('ATOMS_PLATFORM_PUBLIC_KEY'),
+    sharedSecret: getenv('ATOMS_SHARED_SECRET'),
     callbackPath: '/atoms/callback',
     http: $yourPsr18Client,
     requestFactory: $factory,
@@ -54,6 +53,7 @@ $app = AtomsBootstrap::create(
     responseFactory: $factory,
     streamFactory: $factory,
     queueBridge: new ArrayQueueBridge(),               // see "Supply a real queue bridge" below
+    sharedSecretPrevious: getenv('ATOMS_SHARED_SECRET_PREVIOUS') ?: null, // see "The shared secret" below
 );
 ```
 
@@ -61,6 +61,29 @@ Every argument is a parameter, not a discovery — there is no container for
 `AtomsBootstrap` to reach into. That is deliberate: it is the one thing a
 plain-PHP host cannot get for free from a framework adapter, so the example
 makes the wiring explicit instead of hiding it behind autodetection.
+
+## The shared secret
+
+`ATOMS_SHARED_SECRET` is one value, configured identically here and on the
+Worker: 32 random bytes, base64-encoded (`openssl rand -base64 32`). It is
+never sent over the wire in either direction. `AtomsClient` derives its
+outbound bearer from it (HKDF-SHA256), and `CallbackKernel` derives its
+inbound HMAC verification key from it the same way — both sides compute,
+never transmit, the values that actually cross the network.
+
+To `curl` the Worker directly for testing, don't paste the secret into an
+`Authorization` header — run `atoms token` (from `atoms/cli`) to print the
+derived bearer instead:
+
+```sh
+curl -H "Authorization: Bearer $(atoms token)" https://atoms.your-subdomain.workers.dev/invoke/...
+```
+
+`ATOMS_SHARED_SECRET_PREVIOUS` supports zero-downtime rotation: set it to the
+outgoing secret while `ATOMS_SHARED_SECRET` holds the new one, deploy both
+sides, and this host verifies inbound callbacks signed under either secret
+until every instance on both sides holds the new one — see
+`docs/shared-secret.md` for the full runbook.
 
 ## Mount
 
@@ -91,9 +114,9 @@ echo $response->getBody();
 
 `handle()` rejects anything that is not a `POST` to the configured
 `callbackPath` (405 / 404) before the request ever reaches the kernel; the
-kernel then does the real work — Ed25519 signature check, replay check,
-Methods dispatch or job enqueue — described in `docs/conventions.md`
-§Callback signing.
+kernel then does the real work — HMAC signature check, replay check, Methods
+dispatch or job enqueue — described in `docs/conventions.md` §Callback
+signing.
 
 ## Register your Methods classes
 

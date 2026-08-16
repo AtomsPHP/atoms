@@ -102,8 +102,13 @@ ATOMS_BASE_URL=http://127.0.0.1:8787 node test/conformance.mjs
 
 `wrangler.jsonc` pins dev to `127.0.0.1:8787` and already sets
 `ATOMS_DEBUG_ENDPOINTS=1`, which the suite's `debugInfo()` helper needs.
-Bearer auth is off when `ATOMS_APP_KEY` is unset, which is the local-dev
-posture.
+`ATOMS_SHARED_SECRET` is mandatory — `npm run dev:callback`
+(`scripts/dev-with-callback.mjs`) generates a fresh per-run secret and passes
+it to `wrangler dev`, so local development never runs keyless. Set
+`ATOMS_BEARER_AUTH=disabled` to run the local-dev posture with no bearer
+check (secret still required, tickets and callbacks still signed) — for
+example, to reproduce how a Worker behind an authenticating proxy such as
+Cloudflare Access runs in production.
 
 The full suite must pass. Several checks deliberately wait out real Durable
 Object eviction, so a full run takes a few minutes. While iterating on
