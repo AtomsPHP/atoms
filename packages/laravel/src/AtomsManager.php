@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Atoms\Laravel;
 
 use Atoms\Client\AtomsClient;
+use Atoms\Client\CallOptions;
+use Atoms\Client\Tickets\Ticket;
+use Atoms\Client\Tickets\TicketIssuer;
 use Atoms\Laravel\Testing\AtomsFake;
 
 /**
@@ -17,19 +20,89 @@ final class AtomsManager
 {
     private ?AtomsFake $fake = null;
 
-    public function __construct(private readonly AtomsClient $client)
-    {
+    /**
+     * $tickets is optional so that constructing a manager directly — which
+     * tests and third-party code do — keeps working. The service provider
+     * always supplies it; {@see self::ticket()} explains what to bind if it
+     * somehow did not.
+     */
+    public function __construct(
+        private readonly AtomsClient $client,
+        private readonly ?TicketIssuer $tickets = null,
+    ) {
     }
 
     /**
-     * Return a proxy bound to an Atom instance. $class may be the Atom's FQCN
-     * or its wire type (basename); the fake honours either.
+     * Return a proxy bound to an Atom instance.
      *
-     * @param class-string|string $class
+     * Annotated with the Atom's own class so static analysis sees its methods:
+     * `Atoms::get(GameRoom::class, $id)->join($player)` is checked, and a typo
+     * is an error rather than a runtime 404.
+     *
+     * At runtime a bare wire type (the basename) still works, and the fake
+     * honours either — but the analysed contract is the FQCN, because that is
+     * the form that can be checked.
+     *
+     * $options apply to every call made through the returned proxy.
+     *
+     * @template T of object
+     *
+     * @param class-string<T> $class
+     *
+     * @return T
      */
-    public function get(string $class, string $id): object
+    public function get(string $class, string $id, ?CallOptions $options = null): object
     {
-        return $this->fake?->get($class, $id) ?? $this->client->get($class, $id);
+        /** @var T $proxy */
+        $proxy = $this->fake?->get($class, $id) ?? $this->client->get($class, $id, $options);
+
+        return $proxy;
+    }
+
+    /**
+     * Issue a WebSocket connection ticket for one Atom.
+     *
+     * Sugar over {@see TicketIssuer::issue()} that takes the Atom's FQCN, so a
+     * call site names the class once instead of repeating its basename as a
+     * string next to `GameRoom::class`. Issuance is local computation — no HTTP
+     * call, nothing to be unavailable.
+     *
+     * @param class-string|string   $class  the Atom's FQCN, or its wire type
+     * @param array<string, string> $claims merged over the browser's query params on connect, server wins
+     *
+     * @throws \Atoms\Client\Exception\InvalidTicketClaims when the scope or claims do not fit the protocol (ATOMS-E068)
+     */
+    public function ticket(string $class, string $id, array $claims = [], ?int $ttlMs = null): Ticket
+    {
+        $type = AtomsClient::wireType($class);
+
+        if ($this->fake !== null) {
+            return $this->fake->ticket($type, $id, $claims);
+        }
+
+        if ($this->tickets === null) {
+            throw new \LogicException(
+                'Atoms: no ' . TicketIssuer::class . ' is bound, so a ticket cannot be issued. '
+                . 'AtomsServiceProvider registers one; bind it yourself if you constructed AtomsManager by hand.',
+            );
+        }
+
+        return $this->tickets->issue($type, $id, $claims, $ttlMs);
+    }
+
+    /**
+     * The WebSocket URL for one Atom. Pass a ticket in `$query['ticket']`.
+     *
+     * Always built from the real client, even under {@see self::fake()}: this is
+     * string assembly over configuration, with no request to intercept, and a
+     * test asserting the URL a view renders wants the real one.
+     *
+     * @param class-string                                      $class
+     * @param array<string, string|int|float|bool|list<string>> $query
+     */
+    public function wsUrl(string $class, string $id, array $query = []): string
+    {
+        return $this->client->wsUrl($class, $id, $query);
     }
 
     /**
@@ -42,12 +115,13 @@ final class AtomsManager
         array $args = [],
         ?string $atomClass = null,
         bool $retryTurnDeadline = false,
+        ?CallOptions $options = null,
     ): mixed {
         if ($this->fake !== null) {
             return $this->fake->get($atomClass ?? $type, $id)->{$method}(...$args);
         }
 
-        return $this->client->call($type, $id, $method, $args, $atomClass, $retryTurnDeadline);
+        return $this->client->call($type, $id, $method, $args, $atomClass, $retryTurnDeadline, $options);
     }
 
     public function destroy(string $type, string $id): bool

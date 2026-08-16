@@ -4,7 +4,7 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 
 ## Tests
 
-`conformance.mjs` runs 42 checks against a live worker URL:
+`conformance.mjs` runs 43 checks against a live worker URL:
 
 1. **healthz** — `/healthz` endpoint responds
 2. **invoke + result envelope** — HTTP interface returns correct shape
@@ -48,6 +48,7 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 40. **rotation: bearers and tickets accepted under either secret, callbacks signed with the current key** (M5 rename; ticket legs flipped) — with `ATOMS_SHARED_SECRET_PREVIOUS` configured on the Worker and the runner: both `bearer(current)` and `bearer(previous)` are accepted on `/invoke` while a bearer from an unrelated secret is 401; a ticket signed under the **previous** secret now **connects** (it used to be refused — local issuance is what made the old refusal wrong), one signed under the **current** key connects too, and one signed under an **unrelated** secret is still `ticket_invalid`, so neither acceptance is vacuous; and the callback the listener receives verifies under the current callback key and not under the previous one (a verifier accepts both, a sender emits only the current value)
 41. **misconfigured Worker** — booted with no shared secret, `GET /healthz` still answers 200 `{ok:true}` and `/invoke`, `/tickets`, `/debug` and `/ws` all answer HTTP 500 with the wire code `misconfigured` — including `/tickets`, which pins that the configuration gate precedes routing even for a route that no longer exists
 42. **config deny list** — with the Worker's `ATOMS_CONFIG_ENV_KEYS` naming `ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS`, a guest `$this->config()` of either name resolves `null`; an allowlisted control key on the same list resolves, which is what makes the two nulls meaningful rather than vacuous
+43. **structured WebSocket frames** — `Connection::sendJson()` puts a payload on the wire **bare**, with no `kind:"broadcast"` envelope, slashes unescaped and an integer past 2^53-1 intact; `Message::json()` round-trips an object and preserves a nested list; a nested empty map still encodes as `[]` (only the top level is forced to an object, deliberately); and a top-level list and malformed JSON both reach the Atom as one `\JsonException`. Every frame is compared as a raw string — `JSON.parse` would round the int64 and hide the envelope
 
 ### Postures
 

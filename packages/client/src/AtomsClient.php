@@ -109,11 +109,87 @@ final class AtomsClient
      * Return a proxy bound to $atomClass and $id whose method calls become RPC
      * invocations. The wire {type} is the class basename.
      *
+     * The declared return type is `object` so the `@return T` below can stand:
+     * static analysis then sees the Atom's own methods, and a typo in a method
+     * name is an error rather than a runtime 404. The value really is an
+     * {@see AtomProxy} — the annotation describes what you may call on it, not
+     * what it is.
+     *
+     * $options apply to every call made through the returned proxy. They live
+     * here rather than as fluent methods on the proxy because any method
+     * declared on the proxy would shadow an Atom method of the same name.
+     *
+     * @template T of object
+     *
+     * @param class-string<T> $atomClass
+     *
+     * @return T
+     */
+    public function get(string $atomClass, string $id, ?CallOptions $options = null): object
+    {
+        /** @var T $proxy narrowing the proxy to the Atom you asked for — the one bridge this pattern needs */
+        $proxy = $this->newProxy($atomClass, $id, $options);
+
+        return $proxy;
+    }
+
+    /**
+     * Declared `object` rather than `AtomProxy` on purpose: it is what lets
+     * {@see self::get()} narrow the result to `T` without claiming that
+     * `AtomProxy` itself is a subtype of every Atom class.
+     *
      * @param class-string $atomClass
      */
-    public function get(string $atomClass, string $id): AtomProxy
+    private function newProxy(string $atomClass, string $id, ?CallOptions $options): object
     {
-        return new AtomProxy($this, $atomClass, self::basename($atomClass), $id);
+        return new AtomProxy($this, $atomClass, self::wireType($atomClass), $id, $options);
+    }
+
+    /**
+     * The WebSocket URL for one Atom, derived from the configured endpoint.
+     *
+     * Server-side because the derivation is the package's to own: the scheme
+     * swap, the `/ws/{type}/{id}` shape and the encoding rules are all things a
+     * browser was previously left to reconstruct by hand from a bare endpoint
+     * string.
+     *
+     * A ticket is not minted here — pass one in. Keeping issuance at the call
+     * site is what keeps its failure visible, and a URL builder that could
+     * throw `InvalidTicketClaims` would be a surprising place to handle it:
+     *
+     *     $ticket = $issuer->issue(AtomsClient::wireType(GameRoom::class), $id, $claims);
+     *     $url = $client->wsUrl(GameRoom::class, $id, [
+     *         'channels' => ['lobby', 'chat'],
+     *         'ticket' => (string) $ticket,
+     *     ]);
+     *
+     * A `channels` value given as a list is joined with commas, the form the
+     * Worker parses. Every other key is passed through as a connection param
+     * and arrives in `onConnect()`'s `$params` — subject to the Worker's own
+     * per-connection param budgets, which this method does not police.
+     *
+     * @param class-string                        $atomClass
+     * @param array<string, string|int|float|bool|list<string>> $query
+     */
+    public function wsUrl(string $atomClass, string $id, array $query = []): string
+    {
+        $url = sprintf(
+            '%s/ws/%s/%s',
+            $this->config->wsBaseUrl(),
+            rawurlencode(self::wireType($atomClass)),
+            rawurlencode($id),
+        );
+
+        if ($query === []) {
+            return $url;
+        }
+
+        $flat = [];
+        foreach ($query as $key => $value) {
+            $flat[$key] = is_array($value) ? implode(',', $value) : $value;
+        }
+
+        return $url . '?' . http_build_query($flat, '', '&', PHP_QUERY_RFC3986);
     }
 
     /**
@@ -123,6 +199,11 @@ final class AtomsClient
      * @param class-string|null $atomClass When given and the method has a usable
      *                                     declared return type, the result is
      *                                     denormalized to that type.
+     * @param bool              $retryTurnDeadline Kept as its own parameter rather than folded into
+     *                                             $options: renaming or retyping it would break every
+     *                                             existing named-argument caller, and this is exactly
+     *                                             the position named arguments get used in.
+     * @param CallOptions|null  $options  When given, wins for every field it carries.
      */
     public function call(
         string $type,
@@ -131,7 +212,9 @@ final class AtomsClient
         array $args = [],
         ?string $atomClass = null,
         bool $retryTurnDeadline = false,
+        ?CallOptions $options = null,
     ): mixed {
+        $retryTurnDeadline = $options->retryTurnDeadline ?? $retryTurnDeadline;
         $normalized = [];
         foreach (array_values($args) as $arg) {
             $normalized[] = $this->serializer->normalize($arg);
@@ -149,8 +232,12 @@ final class AtomsClient
 
         $request = $this->baseRequest('POST', $uri)
             ->withHeader('Content-Type', 'application/json')
-            ->withHeader('Idempotency-Key', bin2hex(($this->idGenerator)(16)))
+            ->withHeader('Idempotency-Key', $options->idempotencyKey ?? bin2hex(($this->idGenerator)(16)))
             ->withBody($this->streamFactory->createStream($body));
+
+        if ($options !== null && $options->traceparent !== null) {
+            $request = $request->withHeader('traceparent', $options->traceparent);
+        }
 
         $decoded = $this->execute($request, $retryTurnDeadline, [
             'type' => $type,
@@ -435,10 +522,17 @@ final class AtomsClient
         return sprintf('00-%s-%s-01', $traceId, $parentId);
     }
 
-    private static function basename(string $class): string
+    /**
+     * The wire `{type}` for an Atom class: its basename.
+     *
+     * Public because callers that never go through {@see self::get()} need the
+     * same rule — {@see self::wsUrl()}, the Laravel manager's ticket helper, and
+     * the testing fake all derived it independently before this existed.
+     */
+    public static function wireType(string $atomClass): string
     {
-        $pos = strrpos($class, '\\');
+        $pos = strrpos($atomClass, '\\');
 
-        return $pos === false ? $class : substr($class, $pos + 1);
+        return $pos === false ? $atomClass : substr($atomClass, $pos + 1);
     }
 }

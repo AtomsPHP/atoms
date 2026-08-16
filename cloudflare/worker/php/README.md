@@ -196,8 +196,8 @@ Load order matters and is encoded in `bootstrap.php`; this is what each file is.
 | `CallbackChannel.php` | The one place that maps a host door failure onto the typed exception above, shared by `app()` and `dispatch()` |
 | `CallbackAppProxy.php` | `app()`'s `__call()` proxy: the transaction guard, body encoding, the `app.call` park, result decoding |
 | `ConnectionClosed.php` | Thrown by `CfConnection::send()` on `ws_conn_gone` — not a catalog code (see below) |
-| `CfConnection.php` | `Atoms\Websocket\Connection`: a connection id string and nothing else, `send()`/`close()` over `ws.send`/`ws.close` |
-| `CfMessage.php` | `Atoms\Websocket\Message`: the decoded bytes + `isBinary()` of one inbound frame |
+| `CfConnection.php` | `Atoms\Websocket\Connection`: a connection id string and nothing else, `send()`/`close()` over `ws.send`/`ws.close`; `sendJson()` encodes through `Atoms\Websocket\JsonFrame` and delegates to `send()`, inheriting its UTF-8 rule, size cap and `ConnectionClosed` |
+| `CfMessage.php` | `Atoms\Websocket\Message`: the decoded bytes + `isBinary()` of one inbound frame; `json()` decodes them through `JsonFrame`, throwing `\JsonException` for malformed input and for a top-level non-object |
 | `InvalidTimerName.php` / `TimerLimitExceeded.php` | ATOMS-E085 / ATOMS-E086 |
 | `CfTimers.php` | `Atoms\Timers\Timers`: `schedule()`/`cancel()`/`scheduledAt()` over `timer.schedule`/`timer.cancel`/`timer.get` |
 | `CfAtomContext.php` | `Atoms\Runtime\AtomContext`: `db()`, `config()`, `app()`, `dispatch()`, `broadcast()`, `timers()` — all real as of M2 |

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Laravel\Tests\Testing;
 
+use Atoms\Client\Tickets\Ticket;
 use Atoms\Laravel\Facades\Atoms;
 use Atoms\Laravel\Tests\Fixtures\GameRoom;
 use Atoms\Laravel\Tests\TestCase;
@@ -88,5 +89,45 @@ final class AtomsFakeTest extends TestCase
 
         self::assertSame(15, $result);
         $fake->assertInvoked(GameRoom::class, 'add');
+    }
+
+    public function testTicketsAreRecordedAndAssertableWithoutAPsr18Fake(): void
+    {
+        $fake = Atoms::fake();
+
+        $ticket = Atoms::ticket(GameRoom::class, 'g-1', ['client_id' => 'u-7']);
+
+        self::assertInstanceOf(Ticket::class, $ticket);
+        $fake->assertTicketIssued(GameRoom::class, 'g-1');
+        $fake->assertTicketIssued(
+            GameRoom::class,
+            'g-1',
+            static fn (array $claims): bool => $claims === ['client_id' => 'u-7'],
+        );
+        self::assertSame(
+            [['type' => 'GameRoom', 'id' => 'g-1', 'claims' => ['client_id' => 'u-7']]],
+            $fake->issuedTickets(),
+        );
+    }
+
+    public function testAStubbedTicketIsReturnedVerbatim(): void
+    {
+        $fake = Atoms::fake();
+        $fake->stubTicket(GameRoom::class, new Ticket('v1.pinned.sig', 1893456000000));
+
+        $ticket = Atoms::ticket(GameRoom::class, 'g-1');
+
+        self::assertSame('v1.pinned.sig', $ticket->ticket);
+        self::assertSame(1893456000000, $ticket->expiresAtMs);
+    }
+
+    public function testAssertTicketIssuedFailsWhenTheScopeDiffers(): void
+    {
+        $fake = Atoms::fake();
+        Atoms::ticket(GameRoom::class, 'g-1');
+
+        $this->expectException(ExpectationFailedException::class);
+
+        $fake->assertTicketIssued(GameRoom::class, 'g-2');
     }
 }

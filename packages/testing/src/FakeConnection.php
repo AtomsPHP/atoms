@@ -5,12 +5,18 @@ declare(strict_types=1);
 namespace Atoms\Testing;
 
 use Atoms\Websocket\Connection;
+use Atoms\Websocket\JsonFrame;
 
 /**
  * A recording {@see Connection} fake for exercising `onConnect`/`onMessage`/
  * `onDisconnect` in-process, with no real socket. Every `send()` call is
  * captured in order; `close()` records the code/reason and flips
  * {@see isClosed()}.
+ *
+ * `sendJson()` really encodes, so a payload outside the serialization algebra
+ * fails in a test exactly as it would in the runtime. It records into both
+ * {@see sent()} (as the encoded string, interleaved with raw sends in call
+ * order) and {@see sentJson()} (decoded, for assertions).
  */
 final class FakeConnection implements Connection
 {
@@ -18,6 +24,9 @@ final class FakeConnection implements Connection
 
     /** @var list<string> */
     private array $sent = [];
+
+    /** @var list<array<array-key, mixed>> */
+    private array $sentJson = [];
 
     private bool $closed = false;
 
@@ -40,6 +49,14 @@ final class FakeConnection implements Connection
         $this->sent[] = $payload;
     }
 
+    public function sendJson(array $payload): void
+    {
+        $encoded = JsonFrame::encode($payload);
+
+        $this->sent[] = $encoded;
+        $this->sentJson[] = JsonFrame::decode($encoded);
+    }
+
     public function close(int $code = 1000, string $reason = ''): void
     {
         $this->closed = true;
@@ -53,6 +70,19 @@ final class FakeConnection implements Connection
     public function sent(): array
     {
         return $this->sent;
+    }
+
+    /**
+     * Every payload passed to sendJson(), decoded, in order. Values are
+     * post-normalization — a \DateTimeImmutable is already its RFC 3339 string —
+     * which is what an assertion should compare against, since that is what the
+     * client will receive.
+     *
+     * @return list<array<array-key, mixed>>
+     */
+    public function sentJson(): array
+    {
+        return $this->sentJson;
     }
 
     public function isClosed(): bool

@@ -63,12 +63,13 @@ final class AtomsServiceProvider extends ServiceProvider
             );
         });
 
-        $this->app->singleton(AtomsManager::class, static fn (Application $app): AtomsManager => new AtomsManager(
-            $app->make(AtomsClient::class),
-        ));
-
         $this->app->singleton(TicketIssuer::class, static fn (Application $app): TicketIssuer => new TicketIssuer(
             $app->make(AtomsConfig::class),
+        ));
+
+        $this->app->singleton(AtomsManager::class, static fn (Application $app): AtomsManager => new AtomsManager(
+            $app->make(AtomsClient::class),
+            $app->make(TicketIssuer::class),
         ));
     }
 

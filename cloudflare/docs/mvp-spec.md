@@ -1143,7 +1143,9 @@ Channels are **fixed at connect time** from one query parameter,
 built, excluded from both param budgets, and never delivered to PHP; a
 verified ticket's claims are merged over the map, server wins (§Routing and
 auth step 8). There is no join/leave API: the frozen `Connection` interface has
-exactly `id()`, `send()`, `close()`, and none of them gained a method. Each
+exactly `id()`, `send()`, `sendJson()` and `close()`, and none of them carries a
+channel — `sendJson()` is a framing convenience over `send()` (§The three
+client-facing frame formats), not a membership operation. Each
 channel becomes a tag `ATOMS_WS_CHANNEL_TAG_PREFIX + name` (default `"ch:"`);
 the connection itself gets one more tag, `ATOMS_WS_CONN_TAG_PREFIX + connId`
 (default `"c:"`). `loadConfig()` asserts the two prefixes are disjoint (one is
@@ -1167,11 +1169,12 @@ membership is fixed at accept because tags are immutable after
 `acceptWebSocket()` (there is no `setTags`), and "membership = tags" is what
 makes `broadcast()` need no separate durable subscriber table.
 
-### The two client-facing frame formats, and their asymmetry
+### The three client-facing frame formats, and their asymmetry
 
 | | Input | On the wire |
 |---|---|---|
 | `Connection::send(string $payload)` | a string | **verbatim** — no wrapper. The customer owns the framing. |
+| `Connection::sendJson(array $payload)` | an array | **bare JSON object** — `Serializer`-normalized and encoded, no wrapper. |
 | `broadcast(string $channel, array $payload)` | an array | **wrapped**: `{"kind":"broadcast","channel":...,"payload":Serializer-normalized}` |
 
 This is deliberate, not an inconsistency: `send()` hands the runtime bytes the
@@ -1188,6 +1191,21 @@ parses or re-encodes it — the same int64 rule as the callback channel (§PHP�
 protocol → Int64 tagging): a `JSON.stringify()` of a structured payload would
 silently round any integer past 2^53−1.
 
+`sendJson()` sits between the two and is **not** a one-connection `broadcast()`:
+it shares broadcast's *encoding* — one `Atoms\Websocket\JsonFrame::encode()`,
+`Serializer::normalize()` then `json_encode()` with `JSON_UNESCAPED_SLASHES`
+and default depth — but emits no envelope, because there is no channel to name.
+A client therefore reads a `sendJson()` frame exactly as it reads whatever the
+Atom sent through `send()`, and reads `payload` out of a broadcast. The shared
+encoder is what keeps a structured frame's normalization identical whichever
+call produced it; it is vendored into the guest with the rest of `atoms/core`,
+so the rule cannot drift between the two call sites.
+
+Because `json_encode()` output is always valid UTF-8, a `sendJson()` frame
+always arrives as a **text** frame under the outbound rule below. `sendJson()`
+otherwise inherits everything `send()` does: the `ATOMS_WS_MAX_SEND_BYTES` cap,
+and `Atoms\Cf\ConnectionClosed` on a dead connection.
+
 ### Binary policy
 
 **Inbound:** supported. `webSocketMessage` receives an `ArrayBuffer` for a
@@ -1195,7 +1213,14 @@ binary frame; the host base64-encodes it into the turn envelope
 (`{"payload":"<b64>","binary":true,"encoding":"base64"}`); `CfMessage::
 payload()` returns the `base64_decode()`d bytes and `isBinary()` returns
 `true` — PHP strings are byte-safe, so this honours `payload(): string`
-exactly.
+exactly. `Message::json()` decodes those same bytes, so it works on a binary
+frame whose contents happen to be a JSON object; it is a decoder, not a
+content-type check. It throws `\JsonException` on malformed input **and** when
+the top level is anything but a JSON object, and it decodes integers with
+`json_decode()`'s ordinary rules — so an inbound integer past 2^53−1 arrives as
+a float. That asymmetry with the outbound direction is real: the guest builds
+outbound frames itself and keeps int64 exact, but an inbound frame was built by
+a client this runtime does not control. Carry such a value as a string.
 
 **Outbound:** text if the payload is valid UTF-8, binary otherwise — the rule
 in `CfConnection::send()` (`preg_match('//u', $payload)`). `host_call()`

@@ -77,6 +77,16 @@ final class ChatRoom extends Atom
 
     public function onMessage(Connection $conn, Message $msg): void
     {
+        if (str_starts_with($msg->payload(), '{') || str_starts_with($msg->payload(), '[')) {
+            try {
+                $conn->sendJson(['kind' => 'echo', 'frame' => $msg->json()]);
+            } catch (\JsonException $e) {
+                $conn->sendJson(['kind' => 'error', 'reason' => $e->getMessage()]);
+            }
+
+            return;
+        }
+
         $conn->send('echo:' . $msg->payload());
     }
 

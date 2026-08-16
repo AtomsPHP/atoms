@@ -16,6 +16,7 @@ use Atoms\Database;
 use Atoms\Runtime\AtomContext;
 use Atoms\Serialization\Serializer;
 use Atoms\Timers\Timers;
+use Atoms\Websocket\JsonFrame;
 
 final class CfAtomContext implements AtomContext
 {
@@ -165,24 +166,35 @@ final class CfAtomContext implements AtomContext
      * also say which channel it came from: a socket on more than one channel
      * has no other way to tell two broadcasts apart.
      *
+     * Encoded through `Atoms\Websocket\JsonFrame`, the same encoder
+     * `Connection::sendJson()` uses, so the two cannot drift in how they
+     * normalize a structure — only in the envelope, which is this method's to
+     * add. `normalize()` is idempotent over its own output, so normalizing the
+     * payload here and letting the encoder normalize the assembled envelope
+     * produces the identical bytes.
+     *
      * @param array<string, mixed> $payload
      */
     public function broadcast(string $channel, array $payload): void
     {
-        $frame = json_encode(
-            [
-                'kind' => 'broadcast',
-                'channel' => $channel,
-                'payload' => $this->serializer->normalize($payload),
-            ],
-            JSON_UNESCAPED_SLASHES
-        );
-
-        if ($frame === false) {
+        try {
+            $frame = JsonFrame::encode(
+                [
+                    'kind' => 'broadcast',
+                    'channel' => $channel,
+                    'payload' => $this->serializer->normalize($payload),
+                ],
+                $this->serializer
+            );
+        } catch (\JsonException $e) {
+            // Re-wrapped deliberately: the encoder throws \JsonException, which
+            // is not a \RuntimeException, and this method's failure type is
+            // part of its contract. json_last_error_msg() is also unusable
+            // after a throwing encode, so the message comes off the exception.
             throw new \RuntimeException(sprintf(
                 'Atoms: could not encode the broadcast payload for channel %s: %s.',
                 $channel,
-                json_last_error_msg()
+                $e->getMessage()
             ));
         }
 

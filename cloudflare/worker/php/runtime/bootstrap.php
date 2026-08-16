@@ -56,6 +56,7 @@ function core_files()
         'Database.php',
         'AtomJob.php',
         'AtomMethods.php',
+        'Websocket/JsonFrame.php',
         'Websocket/Connection.php',
         'Websocket/Message.php',
         'Timers/Timers.php',

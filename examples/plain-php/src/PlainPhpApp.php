@@ -6,6 +6,7 @@ namespace Atoms\Examples\PlainPhp;
 
 use Atoms\Client\AtomsClient;
 use Atoms\Client\Callback\CallbackKernel;
+use Atoms\Client\Tickets\TicketIssuer;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestFactoryInterface;
@@ -18,11 +19,17 @@ use Psr\Http\Message\StreamFactoryInterface;
  * {@see CallbackKernel}, and an {@see AtomsClient} for the rest of the app.
  * Everything a router (Slim, Mezzio) or a front controller (vanilla PHP)
  * would otherwise hand-roll for this one endpoint.
+ *
+ * The {@see TicketIssuer} is here for the same reason the client is: a host
+ * with WebSocket Atoms needs one to let a browser open a socket, and issuing
+ * is local computation, so there is nothing for a plain-PHP host to configure
+ * beyond the shared secret it already has.
  */
 final class PlainPhpApp
 {
     public function __construct(
         private readonly AtomsClient $client,
+        private readonly TicketIssuer $tickets,
         private readonly CallbackKernel $kernel,
         private readonly string $callbackPath,
         private readonly ServerRequestFactoryInterface $serverRequestFactory,
@@ -34,6 +41,11 @@ final class PlainPhpApp
     public function client(): AtomsClient
     {
         return $this->client;
+    }
+
+    public function tickets(): TicketIssuer
+    {
+        return $this->tickets;
     }
 
     public function kernel(): CallbackKernel
