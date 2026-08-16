@@ -31,13 +31,7 @@ new Uint8Array(0), info}, ikm, 256)` are byte-identical over the same IKM
 (verified; the conformance suite and the client test suite both pin the
 vector below).
 
-This replaces two secrets and two fossil names. `ATOMS_APP_KEY` (Worker),
-`ATOMS_API_KEY` (client and adapters — the hosted-platform-era name for the
-same value), `ATOMS_CALLBACK_SIGNING_KEY` (Worker, Ed25519 seed) and
-`ATOMS_PLATFORM_PUBLIC_KEY` (monolith, its public half) are all **deleted**,
-not aliased. Pre-release: no compatibility shim reads the old names, and
-nothing warns-then-continues — a deployment still setting only the old
-variables fails loudly.
+`ATOMS_SHARED_SECRET` is the only name either side reads. A deployment that does not set it fails loudly, per "Bearer auth" below.
 
 ### Reference vector
 
@@ -75,8 +69,7 @@ Two obligations follow, and they are requirements, not suggestions:
 - **Every place the variable is documented says it is not a bearer token
   and must never be sent.** The name says "symmetric, match on both sides"
   — correct, and why it was chosen — but it does not say "never transmit
-  this", so the docs must. Every troubleshooting example that used to show
-  `-H "Authorization: Bearer $ATOMS_APP_KEY"` now shows
+  this", so the docs must. Every troubleshooting example shows
   `-H "Authorization: Bearer $(atoms token)"`.
 
 ## Bearer auth: mandatory secret, explicit opt-out
@@ -100,14 +93,11 @@ production is a loud configuration error, never an open Worker:
   front of the Worker. It disables **only** the bearer comparison; the
   secret stays mandatory, tickets stay signed, callbacks stay signed.
 
-Local development rebuilds its keyless convenience on the explicit flag,
-not on a committed secret: `atoms dev` generates a fresh per-machine dev
-secret into the Worker project's gitignored `.dev.vars` (creating the file
-if needed, never overwriting an existing value, warning if the file is not
-gitignored). A committed or fixed dev secret would be a known master key
-and is not acceptable. Local and production run the same code path —
-including ticket signing, which is why the unsigned `v1u.` dev ticket form
-no longer exists (below).
+Local development gets its convenience from the explicit flag, not from a
+committed secret: `atoms dev` provisions a fresh per-machine dev secret,
+warning if the file holding it is not gitignored. A committed or fixed dev
+secret would be a known master key and is not acceptable. Local and
+production run the same code path, including ticket signing (below).
 
 The app's dotenv file is the source of truth, and `.dev.vars` is a
 generated projection of it. `atoms dev` generates a secret into the app's
@@ -127,65 +117,57 @@ Laravel's gitignored `.env`, Symfony's `.env.local` (its `.env` is
 committed). A project with neither is not using dotenv, and keeps the
 secret in `.dev.vars` alone.
 
-## Tickets: always signed, `v1u.` deleted
+## Tickets: always signed
 
-The unsigned dev ticket existed only because the auth-off posture had no
-key to sign with. There is now always a key, so `POST /tickets` always
-mints the signed `v1.` form — under `ATOMS_BEARER_AUTH=disabled` too — and
-`/ws` always verifies the signature. The `v1u.` form is deleted outright:
-minting it, accepting it, and the special-case rejection text all go. A dev
+A signing key is always configured, so `POST /tickets` always mints the
+signed `v1.` form — under `ATOMS_BEARER_AUTH=disabled` too — and `/ws`
+always verifies the signature. There is no unsigned ticket form. A dev
 machine's tickets are signed by that machine's dev secret and are
 worthless anywhere else.
 
-The ticket HKDF `info` stays `atoms/ws-ticket/v1`; only the IKM changes
-(decoded shared-secret bytes instead of the old app-key string). Rotating
-the secret still invalidates every outstanding ticket at once — deliberate,
-unchanged, and tickets get **no** previous-secret overlap: they carry a
+The ticket HKDF `info` is `atoms/ws-ticket/v1`, over the decoded
+shared-secret bytes. Rotating the secret invalidates every outstanding
+ticket at once — deliberate, and tickets get **no** previous-secret
+overlap: they carry a
 seconds-scale TTL and are re-minted through the application, which is also
 where rate-limiting the mint path belongs. A ticket signed under
 `ATOMS_SHARED_SECRET_PREVIOUS` is `ticket_invalid`, and the conformance
 suite asserts that.
 
-## Callbacks: same envelope, HMAC instead of Ed25519
+## Callbacks: HMAC-SHA256 over the signed envelope
 
-Callbacks become symmetric HMAC-SHA256 over the **existing envelope,
-unchanged**: the signed message is `"v1\n{unix_ts}\n{nonce}\n" + body`, the
-headers are the same `x-atoms-signature` / `x-atoms-timestamp` /
-`x-atoms-nonce` / `x-atoms-kind`, the timestamp window and the single-use
-nonce store are untouched. Only the algorithm and the key source change:
-`x-atoms-signature` is now the standard base64 of the **32-byte**
-HMAC-SHA256 tag, and the verifier rejects any signature that does not
-decode to exactly 32 bytes before comparing. Comparison is
-`hash_equals()`; PHP has `hash_hkdf()`, `hash_hmac()` and `hash_equals()`
-built in, so `atoms/client` drops its `ext-sodium` dependency entirely —
-`Ed25519Verifier` was its only consumer, and it is deleted.
+Callbacks are symmetric HMAC-SHA256. The signed message is
+`"v1\n{unix_ts}\n{nonce}\n" + body`; the headers are `x-atoms-signature` /
+`x-atoms-timestamp` / `x-atoms-nonce` / `x-atoms-kind`; a timestamp window
+and a single-use nonce store bound replay. `x-atoms-signature` is the
+standard base64 of the **32-byte** HMAC-SHA256 tag, and the verifier
+rejects any signature that does not decode to exactly 32 bytes before
+comparing. Comparison is `hash_equals()`. PHP has `hash_hkdf()`,
+`hash_hmac()` and `hash_equals()` built in, so `atoms/client` needs no
+`ext-sodium`.
 
-### The "key never enters wasm" property survives verbatim
+### The signing key never enters wasm
 
-The spec's statement that the callback signing key is imported
-`extractable: false` and never enters wasm is about *where signing
-happens*, not about symmetric versus asymmetric, and it holds identically
-afterwards: host JS derives all three keys from the secret, imports the
-ticket and callback keys as non-extractable WebCrypto HMAC keys, and signs
-guest-built bodies. The guest never sees the secret or any derived key.
+Host JS derives all three keys from the secret, imports the ticket and
+callback keys as non-extractable (`extractable: false`) WebCrypto HMAC
+keys, and signs guest-built bodies itself. The guest never sees the secret
+or any derived key.
 Customer PHP builds callback bodies; host JS signs them; an Atom that
 reads arbitrary guest memory still cannot exfiltrate a key.
 
 ### The deny lists are load-bearing
 
 `config.js`'s built-in `config.get()` deny list holds
-`ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS`, replacing the
-retired names. The operator's deny list remains additive to the built-in
-one, never a replacement. `packages/cli`'s
+`ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS`. The operator's
+deny list is additive to the built-in one, never a replacement. `packages/cli`'s
 `WorkerConfig::DEFAULT_DENY_KEYS` mirrors the same set, so
 `atoms deploy`/`atoms secrets` never bless writing either as a plaintext
 `var`. Both lists carry an assertion (conformance on the Worker side, a
 unit test on the CLI side) that a guest cannot resolve either name.
 
 A customer Atom that could read the shared secret through `config.get()`
-would hold the root of everything — strictly worse than the two-key design
-this replaces. That is why the deny list is part of the contract, not
-hygiene.
+would hold the root of every key on the boundary. That is why the deny list
+is part of the contract, not hygiene.
 
 ## Rotation: `ATOMS_SHARED_SECRET_PREVIOUS`, two sites, try-both
 

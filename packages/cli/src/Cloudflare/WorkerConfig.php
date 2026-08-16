@@ -15,12 +15,12 @@ namespace Atoms\Cli\Cloudflare;
  *   ATOMS_CONFIG_ENV_KEYS       extra exact names, comma separated
  *   ATOMS_CONFIG_ENV_DENY_KEYS  names never readable, whatever else says
  *
- * `Atoms\Cli\Cloudflare\SecretName` used to hardcode the default prefix. That
- * is correct only until someone overrides it, and then `atoms secrets:set K`
- * writes a name the Worker never looks up — silently, because `config.get`
- * answers null for an unknown key rather than erroring. Reading the config the
- * project will be deployed with is a large improvement on assuming, and the
- * CLI already knows where that project is.
+ * The prefix is read from the project rather than hardcoded, because
+ * hardcoding it is correct only until someone overrides it — after which
+ * `atoms secrets:set K` writes a name the Worker never looks up, silently,
+ * since `config.get` answers null for an unknown key rather than erroring.
+ * The CLI already knows where the project is, so it reads the config that
+ * project will be deployed with.
  *
  * It is not authoritative, and the commands say which file they read so a
  * mismatch is visible. The Worker's real `env` is whatever the LAST deploy of

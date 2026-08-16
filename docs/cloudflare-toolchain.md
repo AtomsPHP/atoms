@@ -12,18 +12,11 @@ This document records three decisions that M3 had to make and that everything
 downstream inherits. Each is written with its rejected alternatives, because
 the alternatives are all reasonable and will otherwise be re-proposed.
 
-## 1. Runtime auth: the client moved, and the bearer is derived
+## 1. Runtime auth: prefixless routes, and the bearer is derived
 
-### The disagreement
+### The route shape
 
-`atoms/client` used to build
-
-```
-POST {baseUrl}/v1/{customer}/invoke/{type}/{id}/{method}
-Authorization: Bearer {apiKey}
-```
-
-The Worker serves
+`atoms/client` and the Worker meet at
 
 ```
 POST {baseUrl}/invoke/{type}/{id}/{method}
@@ -32,27 +25,21 @@ Authorization: Bearer $(atoms token)
 
 `atoms token` prints the bearer derived from `ATOMS_SHARED_SECRET` — see
 "Bearer auth is mandatory" below and `docs/shared-secret.md`, the decision
-record for the whole boundary.
+record for the whole boundary. `TicketClient` reaches
+`POST /tickets/{type}/{id}` the same way.
 
-### The decision
+### Why no `/v1/{customer}` prefix
 
-**The client moved.** The `/v1/{customer}` prefix is gone from
-`AtomsClient`, `AtomsClient::destroy()` and `TicketClient`, and
-`AtomsConfig::$customer` is deleted. (`TicketClient` was a sketch when this
-decision was recorded; as of M4 the Worker implements
-`POST /tickets/{type}/{id}` and the client is real — see "The bearer is
-the server-to-server credential" below.)
+**Rejected: a customer-prefixed route.** A prefix routes a multi-tenant edge
+to one tenant's compute. The Worker is single-tenant by construction: it *is*
+the customer's deployment, running in the customer's account, and there is no
+second tenant for a prefix to disambiguate. Carrying one would mean a route
+segment whose only possible value is a constant, and `AtomsConfig` holding a
+`customer` it never varies.
 
-The prefix existed to route a multi-tenant edge to one customer's Machines. The
-Worker is single-tenant by construction: it *is* the customer's deployment,
-running in the customer's account, and there is no second tenant for a prefix
-to disambiguate. Keeping the prefix would have meant the Worker growing a route
-segment whose only possible value is a constant.
-
-Moving the client is also the cheaper edit in the sense that matters:
-`atoms/client` is **not** the frozen ABI. Only `atoms/core` is. Changing the
-client's URL shape breaks no wire contract, because the wire contract it was
-implementing no longer has an implementation.
+The client is the right side to carry that shape, because `atoms/client` is
+**not** the frozen ABI — only `atoms/core` is — so its URL shape is free to
+match whatever the Worker actually serves.
 
 ### Bearer auth is mandatory; `ATOMS_BEARER_AUTH` is the explicit posture switch
 
@@ -464,9 +451,8 @@ the Worker conformance suite was untouched by the CLI integration (see
 `cloudflare/docs/mvp-spec.md` §Conformance suite), and the vendored
 `atoms/core` copy needed no re-vendor on this account.
 
-`build-bundle.mjs` stays, with its scope corrected: it is the conformance
-fixture builder, not — as its header used to say — a stand-in for the real
-`atoms build`.
+`build-bundle.mjs` is the conformance fixture builder. It is not a stand-in
+for the real `atoms build`.
 
 ### Two additive manifest fields
 
