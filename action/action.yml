@@ -47,7 +47,9 @@ inputs:
     description: >-
       Overwrite the Worker's existing ATOMS_SHARED_SECRET / _PREVIOUS with the
       values above. Off by default, because a deploy should not silently
-      replace the root every other caller derives its bearer from.
+      replace the root every other caller derives its bearer from. The literal
+      string 'true' is the only value that enables it; anything else, 'yes' and
+      '1' included, leaves it off.
     required: false
     default: 'false'
   php-version:
@@ -180,7 +182,7 @@ runs:
         ROTATE: ${{ inputs.rotate-shared-secret }}
       run: |
         set -euo pipefail
-        args=(secrets:root --env "$DEPLOY_ENVIRONMENT" --worker-dir "$DEPLOY_WORKER_DIR")
+        args=(shared-secret:set --env "$DEPLOY_ENVIRONMENT" --worker-dir "$DEPLOY_WORKER_DIR")
         if [ "$ROTATE" = 'true' ]; then
           args+=(--force)
         fi

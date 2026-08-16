@@ -15,7 +15,7 @@ use Atoms\Cli\Command\InitCommand;
 use Atoms\Cli\Command\MakeAtomCommand;
 use Atoms\Cli\Command\RollbackCommand;
 use Atoms\Cli\Command\SecretsListCommand;
-use Atoms\Cli\Command\SecretsRootCommand;
+use Atoms\Cli\Command\SharedSecretSetCommand;
 use Atoms\Cli\Command\SecretsSetCommand;
 use Atoms\Cli\Command\StatusCommand;
 use Atoms\Cli\Command\TokenCommand;
@@ -50,7 +50,7 @@ final class Application extends ConsoleApplication
             new StatusCommand($wrangler),
             new SecretsSetCommand($wrangler),
             new SecretsListCommand($wrangler),
-            new SecretsRootCommand($wrangler),
+            new SharedSecretSetCommand($wrangler),
             new DevCommand($wrangler),
             new TokenCommand(),
             new AiInstallCommand(),

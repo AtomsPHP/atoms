@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Tests\Command;
 
-use Atoms\Cli\Command\SecretsRootCommand;
+use Atoms\Cli\Command\SharedSecretSetCommand;
 use Atoms\Cli\Tests\Support\FakeWrangler;
 use Atoms\Cli\Tests\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
 
 /**
- * `atoms secrets:root` is the only CLI path to ATOMS_SHARED_SECRET, and the
- * one that lets a pipeline configure the Worker it just deployed.
+ * `atoms shared-secret:set` is the only CLI path to ATOMS_SHARED_SECRET, and
+ * the one that lets a pipeline configure the Worker it just deployed.
  */
-final class SecretsRootCommandTest extends TestCase
+final class SharedSecretSetCommandTest extends TestCase
 {
     protected function setUp(): void
     {
@@ -44,7 +44,7 @@ final class SecretsRootCommandTest extends TestCase
         fwrite($stream, $stdin);
         rewind($stream);
 
-        $tester = new CommandTester(new SecretsRootCommand($wrangler, $stream));
+        $tester = new CommandTester(new SharedSecretSetCommand($wrangler, $stream));
         $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',

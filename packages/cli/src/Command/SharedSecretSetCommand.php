@@ -15,8 +15,8 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
- * `atoms secrets:root --env X` — store `ATOMS_SHARED_SECRET` on the Worker,
- * reading it from STDIN.
+ * `atoms shared-secret:set --env X` — store `ATOMS_SHARED_SECRET` on the
+ * Worker, reading it from STDIN.
  *
  * The companion to {@see SecretsSetCommand}, which deliberately refuses this
  * key (`ATOMS-E077`): that command prefixes every name with
@@ -39,8 +39,8 @@ use Symfony\Component\Console\Output\OutputInterface;
  * `--force` overwrites, which is how a rotation is applied
  * (docs/shared-secret.md §Rotation).
  */
-#[AsCommand(name: 'secrets:root', description: 'Set ATOMS_SHARED_SECRET on the Worker, read from STDIN')]
-final class SecretsRootCommand extends AbstractCommand
+#[AsCommand(name: 'shared-secret:set', description: 'Set ATOMS_SHARED_SECRET on the Worker, read from STDIN')]
+final class SharedSecretSetCommand extends AbstractCommand
 {
     public const KEY = 'ATOMS_SHARED_SECRET';
 
