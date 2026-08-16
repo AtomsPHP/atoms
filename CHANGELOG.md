@@ -20,8 +20,9 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   Previously a rotation could be started from CI but only finished by hand.
 - **Added:** the deploy Action takes `shared-secret`, `shared-secret-previous`,
   `rotate-shared-secret` and `retire-shared-secret-previous`, masking the
-  secret values and piping them to the CLI on stdin. Previously the Action could deploy a Worker but not configure one, so
-  a first CI deploy shipped something that answered `misconfigured` on every
+  secret values and piping them to the CLI on stdin. Previously the Action
+  could deploy a Worker but not configure one, so a first CI deploy shipped
+  something that answered `misconfigured` on every
   route but `GET /healthz` — a green health check over a broken Worker — until
   someone ran `wrangler secret put` by hand. See `docs/shared-secret.md`
   §Setting it.
@@ -34,6 +35,53 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   `wrangler dev` reads that file and nothing else — treat it as a build
   artifact. A project with no dotenv file keeps the secret in `.dev.vars`
   alone.
+- **Added:** `Atoms\Client\Tickets\TicketIssuer`, which mints WebSocket
+  connection tickets locally — pure computation, no HTTP call — from the
+  same HKDF-derived key the Worker verifies against. `AtomsConfig::$wsTicketTtlMs`
+  (`ws_ticket_ttl_ms`, Laravel env `ATOMS_WS_TICKET_TTL_MS`, default 60000)
+  sets the default ticket lifetime, overridable per call via `issue()`'s
+  `$ttlMs` argument. Invalid claims or scope throw
+  `Atoms\Client\Exception\InvalidTicketClaims` (`ATOMS-E068`). See
+  `docs/ws-ticket-protocol.md`, the new normative wire-format document.
+- **Changed:** WebSocket tickets are issued locally instead of minted by the
+  Worker: there is no HTTP round trip, and `docs/ws-ticket-protocol.md`
+  documents why asking the Worker to sign on the application's behalf was
+  never necessary — the application already holds `ATOMS_SHARED_SECRET`. The
+  ticket expiry rule is now exactly `verifierNow >= exp`, with no clock skew
+  allowance; the skew setting is deleted, not just defaulted to zero.
+- **Changed:** Ticket signature verification joins the rotation overlap
+  alongside the bearer and callback checks, so `ATOMS_SHARED_SECRET_PREVIOUS`
+  is now accepted at three verification sites rather than two. A ticket signed
+  under the previous secret is accepted for the length of the overlap window.
+  This reverses 0.2.0's no-overlap decision for tickets, whose stated reason —
+  that a ticket is cheap to re-mint through the Worker — no longer holds now
+  that minting is local. See `docs/shared-secret.md` §Rotation.
+- **Removed:** `POST /tickets/{type}/{id}`, `Atoms\Client\Tickets\TicketClient`,
+  and `Atoms\Client\Exception\TicketAcquisitionFailed` — deleted outright, no
+  deprecation period. Also removed from the Worker:
+  `ATOMS_WS_TICKET_TTL_MS`, `ATOMS_WS_TICKET_SKEW_MS`,
+  `ATOMS_WS_TICKET_MAX_CLAIMS`, `ATOMS_WS_TICKET_MAX_CLAIM_BYTES` — all
+  mint-side settings with no minting left on the Worker to configure, or the
+  now-deleted skew allowance. `ATOMS_WS_TICKET_MAX_BYTES` is kept, since the
+  Worker still bounds how large a ticket string it will look at.
+
+### UPGRADING from 0.2.0
+
+1. Any code calling `Atoms\Client\Tickets\TicketClient::acquire()` must
+   switch to `Atoms\Client\Tickets\TicketIssuer::issue()` — the class, and
+   the `POST /tickets/{type}/{id}` route it called, are both deleted with no
+   fallback. Issuance is now a local, synchronous call with no exceptions to
+   catch for a network failure; only `InvalidTicketClaims` (ATOMS-E068) can
+   be thrown, and only for a malformed scope or claims map. See
+   `docs/ws-ticket-protocol.md`.
+2. Remove `ATOMS_WS_TICKET_SKEW_MS`, `ATOMS_WS_TICKET_TTL_MS`,
+   `ATOMS_WS_TICKET_MAX_CLAIMS` and `ATOMS_WS_TICKET_MAX_CLAIM_BYTES` from the
+   Worker's configuration; the ticket lifetime is now `ws_ticket_ttl_ms` on
+   the application side.
+3. A rotation window now also covers WebSocket tickets, so outstanding
+   tickets survive a flip while `ATOMS_SHARED_SECRET_PREVIOUS` is set on the
+   Worker. Closing the window with `atoms shared-secret:unset` invalidates
+   them, and a reconnecting browser is issued a fresh one automatically.
 
 ## [0.2.0] - 2026-08-16
 
@@ -71,10 +119,11 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   decoder now rejects any non-canonical encoding (round-trip re-encoding must
   reproduce the exact input) for both the signature and payload segments.
 - **Added:** Rotation overlap via `ATOMS_SHARED_SECRET_PREVIOUS`, accepted at
-  exactly three verification sites (the Worker's bearer check, the Worker's
-  ticket signature check, the monolith's callback verification), try-both,
-  never a key selector; a sender always emits under the current secret only.
-  See `docs/shared-secret.md` §Rotation for the runbook.
+  exactly two verification sites (the Worker's bearer check, the monolith's
+  callback verification), try-both, never a key selector; a sender always
+  emits under the current secret only. Tickets get no overlap — rotating the
+  secret invalidates every outstanding ticket at once. See
+  `docs/shared-secret.md` §Rotation for the runbook.
 - **Changed:** `atoms dev` provisions a fresh per-machine dev secret into the
   Worker project's gitignored `.dev.vars` (creating the file if needed, never
   overwriting a value already there) instead of running keyless. Local and
@@ -100,23 +149,14 @@ fails loudly: the Worker answers `misconfigured` on every route but
 4. Set `ATOMS_BEARER_AUTH` if the deployment is not using the `required`
    default: `disabled` only when an authenticating proxy such as Cloudflare
    Access already sits in front of the Worker.
-5. Every WebSocket ticket outstanding at cutover is invalidated unless the
-   overlap below is configured: the ticket key is derived from the signing
-   root, so a flip without `ATOMS_SHARED_SECRET_PREVIOUS` refuses every
-   ticket signed under the old one. A reconnecting browser is issued a fresh
-   one automatically.
+5. Every WebSocket ticket outstanding at cutover is invalidated — rotating
+   the signing root always invalidates tickets, with no overlap. A
+   reconnecting browser mints a fresh one automatically.
 6. Update curl/troubleshooting examples: `-H "Authorization: Bearer
    $ATOMS_APP_KEY"` becomes `-H "Authorization: Bearer $(atoms token)"`.
-7. Any code calling `Atoms\Client\Tickets\TicketClient::acquire()` must
-   switch to `Atoms\Client\Tickets\TicketIssuer::issue()` — the class, and
-   the `POST /tickets/{type}/{id}` route it called, are both deleted with no
-   fallback. Issuance is now a local, synchronous call with no exceptions to
-   catch for a network failure; only `InvalidTicketClaims` (ATOMS-E068) can
-   be thrown, and only for a malformed scope or claims map. See
-   `docs/ws-ticket-protocol.md`.
 
-Rolling this out with zero downtime for bearer auth, tickets and callbacks:
-set `ATOMS_SHARED_SECRET_PREVIOUS` to the old secret alongside the new
+Rolling this out with zero downtime for bearer auth and callbacks: set
+`ATOMS_SHARED_SECRET_PREVIOUS` to the old secret alongside the new
 `ATOMS_SHARED_SECRET` on both sides during the overlap window, then remove
 `ATOMS_SHARED_SECRET_PREVIOUS` from both once every instance holds the new
 secret. See `docs/shared-secret.md` §Rotation for the full runbook.
@@ -141,36 +181,6 @@ secret. See `docs/shared-secret.md` §Rotation for the full runbook.
   `ATOMS_BEARER_AUTH=disabled` (an authenticating proxy in front of the
   Worker), where it is the only one — see `docs/cloudflare-toolchain.md`
   §Debug endpoints.
-- **Added:** `Atoms\Client\Tickets\TicketIssuer`, which mints WebSocket
-  connection tickets locally — pure computation, no HTTP call — from the
-  same HKDF-derived key the Worker verifies against. `AtomsConfig::$wsTicketTtlMs`
-  (`ws_ticket_ttl_ms`, Laravel env `ATOMS_WS_TICKET_TTL_MS`, default 60000)
-  sets the default ticket lifetime, overridable per call via `issue()`'s
-  `$ttlMs` argument. Invalid claims or scope throw
-  `Atoms\Client\Exception\InvalidTicketClaims` (`ATOMS-E068`). See
-  `docs/ws-ticket-protocol.md`, the new normative wire-format document.
-- **Changed:** WebSocket tickets are issued locally instead of minted by the
-  Worker: there is no HTTP round trip, and `docs/ws-ticket-protocol.md`
-  documents why asking the Worker to sign on the application's behalf was
-  never necessary — the application already holds `ATOMS_SHARED_SECRET`. The
-  ticket expiry rule is now exactly `verifierNow >= exp`, with no clock skew
-  allowance; the skew setting is deleted, not just defaulted to zero.
-  Ticket signature verification joins the rotation overlap alongside the
-  bearer and callback checks — a ticket signed under
-  `ATOMS_SHARED_SECRET_PREVIOUS` is accepted for the length of the overlap
-  window, reversing the earlier no-overlap decision now that re-minting
-  through the Worker is no longer possible. See `docs/shared-secret.md`
-  §Rotation.
-- **Removed:** `POST /tickets/{type}/{id}`, `Atoms\Client\Tickets\TicketClient`,
-  and `Atoms\Client\Exception\TicketAcquisitionFailed` — deleted outright, no
-  deprecation period. Also removed from the Worker:
-  `ATOMS_WS_TICKET_TTL_MS`, `ATOMS_WS_TICKET_SKEW_MS`,
-  `ATOMS_WS_TICKET_MAX_CLAIMS`, `ATOMS_WS_TICKET_MAX_CLAIM_BYTES` — all
-  mint-side settings with no minting left on the Worker to configure, or the
-  now-deleted skew allowance. `ATOMS_WS_TICKET_MAX_BYTES` is kept, since the
-  Worker still bounds how large a ticket string it will look at. Any code
-  calling `TicketClient::acquire()` must switch to `TicketIssuer::issue()` —
-  see UPGRADING below.
 
 ## [0.1.1] - 2026-08-15
 
