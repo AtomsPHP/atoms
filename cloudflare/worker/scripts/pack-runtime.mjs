@@ -42,7 +42,10 @@ const PRODUCTION_FILES = [
 	'src/php-host.js',
 	'src/timers.js',
 	'src/websockets.js',
-	'wrangler.jsonc',
+	// Ships as the template's wrangler.jsonc. The repository's own
+	// wrangler.jsonc is the conformance-harness config (debug endpoints on,
+	// name atoms-mvp-conformance) and deliberately never enters the tarball.
+	'wrangler.scaffold.jsonc',
 ];
 
 const ROOT_PACKAGE_FILES = [
@@ -105,8 +108,12 @@ export function stageRuntimePackage(stageRoot) {
 		join(stageRoot, 'bin', 'atoms-runtime-cloudflare.mjs'),
 	);
 
+	const RENAMES = {
+		'.gitignore': 'gitignore',
+		'wrangler.scaffold.jsonc': 'wrangler.jsonc',
+	};
 	for (const relative of PRODUCTION_FILES) {
-		const destination = relative === '.gitignore' ? 'gitignore' : relative;
+		const destination = RENAMES[relative] ?? relative;
 		copy(join(workerRoot, relative), join(stageRoot, 'template', destination));
 	}
 	for (const [source, destination] of ROOT_PACKAGE_FILES) {

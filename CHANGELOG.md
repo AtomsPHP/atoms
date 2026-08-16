@@ -75,6 +75,27 @@ Rolling this out with zero downtime for bearer auth and callbacks: set
 `ATOMS_SHARED_SECRET_PREVIOUS` from both once every instance holds the new
 secret. See `docs/shared-secret.md` §Rotation for the full runbook.
 
+- **Changed:** the scaffolded Worker project (`@atomsphp/runtime-cloudflare`)
+  now ships with the Worker's `/debug` routes **off**, matching the Worker's
+  own default. The template's `wrangler.jsonc` is built from a new
+  `wrangler.scaffold.jsonc` (worker name `atoms-worker`) instead of the
+  conformance harness's config, which had leaked its `ATOMS_DEBUG_ENDPOINTS=1`
+  var and `atoms-mvp-conformance` name into customer deployments. The
+  conformance suite still runs with the flag on via the harness's own
+  `wrangler.jsonc`, which no longer ships.
+- **Added:** a supported, re-scaffold-proof way to enable debug endpoints:
+  `"debug_endpoints": true` on an environment in `atoms.json`. Both
+  `atoms dev` and `atoms deploy` forward it to Wrangler as
+  `--var ATOMS_DEBUG_ENDPOINTS:1`, and both print a line when it is in
+  force. Editing the Worker directory's `wrangler.jsonc` was never durable —
+  `.atoms/worker` is gitignored and the deploy Action regenerates it on a
+  fresh checkout. The value must be a JSON boolean; a string such as
+  `"false"` is refused (ATOMS-E070) rather than coerced. `/debug` stays
+  behind the Worker's auth check; the flag is a second gate, except under
+  `ATOMS_BEARER_AUTH=disabled` (an authenticating proxy in front of the
+  Worker), where it is the only one — see `docs/cloudflare-toolchain.md`
+  §Debug endpoints.
+
 ## [0.1.1] - 2026-08-15
 
 - **Fixed:** `dispatch()` took an `AtomJob` instance, which could never work —

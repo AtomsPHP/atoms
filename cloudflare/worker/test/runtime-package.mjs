@@ -41,6 +41,21 @@ try {
 	assert.ok(existsSync(join(stage, 'template', 'package-lock.json')));
 	assert.ok(!existsSync(join(stage, 'template', 'src', 'bundle.generated.js')));
 
+	// What customers scaffold is the scaffold config, not the conformance
+	// harness's: debug endpoints must default off (the flag is absent, so the
+	// worker's own `bool(env, 'ATOMS_DEBUG_ENDPOINTS', false)` default rules),
+	// and the harness's worker name must not leak into customer projects.
+	const templateWrangler = readFileSync(join(stage, 'template', 'wrangler.jsonc'), 'utf8');
+	assert.ok(!existsSync(join(stage, 'template', 'wrangler.scaffold.jsonc')));
+	assert.ok(
+		!/"ATOMS_DEBUG_ENDPOINTS"\s*:/.test(templateWrangler),
+		'the scaffolded wrangler.jsonc must not set ATOMS_DEBUG_ENDPOINTS; it is enabled via atoms.json debug_endpoints',
+	);
+	assert.ok(
+		!templateWrangler.includes('"name": "atoms-mvp-conformance"'),
+		'the scaffolded wrangler.jsonc must not carry the conformance harness worker name',
+	);
+
 	const pack = run('npm', ['pack', stage, '--pack-destination', packed, '--json'], { env: npmEnvironment });
 	const packResult = JSON.parse(pack.stdout);
 	assert.equal(packResult.length, 1);
@@ -65,6 +80,7 @@ try {
 		'package/template/scripts/prepare-runtime.mjs',
 		'package/template/scripts/bundle-from-cli.mjs',
 		'package/template/src/index.js',
+		'package/template/wrangler.jsonc',
 		'package/LICENSE',
 		'package/THIRD_PARTY_NOTICES.md',
 		'package/corresponding-source/README.md',

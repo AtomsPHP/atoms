@@ -14,6 +14,10 @@ use Symfony\Component\Console\Tester\CommandTester;
 /**
  * `atoms dev` guarantees a per-machine ATOMS_SHARED_SECRET in the Worker
  * project's .dev.vars before starting wrangler dev (docs/shared-secret.md).
+ *
+ * It must also agree with `atoms deploy` on what atoms.json's
+ * `debug_endpoints` means: one declaration, forwarded to Wrangler as a
+ * `--var` on both paths. The deploy half lives in {@see DeployCommandTest}.
  */
 final class DevCommandTest extends TestCase
 {
@@ -168,5 +172,53 @@ final class DevCommandTest extends TestCase
         $display = $tester->getDisplay();
         self::assertStringContainsString('ATOMS-E105', $display);
         self::assertStringContainsString('.gitignore', $display);
+    }
+
+    public function testDebugEndpointsDefaultOffInDevToo(): void
+    {
+        $wrangler = new FakeWrangler();
+        $tester = $this->execute($this->workerDir(), $wrangler);
+
+        self::assertSame(0, $tester->getStatusCode(), $tester->getDisplay());
+        $dev = $wrangler->lastCall('dev');
+        self::assertNotNull($dev);
+        self::assertArrayNotHasKey('ATOMS_DEBUG_ENDPOINTS', $dev['args']['vars']);
+    }
+
+    /**
+     * The one supported, re-scaffold-proof way to turn the Worker's /debug
+     * routes on — atoms.json's per-environment `debug_endpoints` — must reach
+     * `wrangler dev` as a --var, without displacing the callback var.
+     */
+    public function testDebugEndpointsInAtomsJsonReachWranglerDevAlongsideTheCallbackVar(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        $config['environments']['staging']['debug_endpoints'] = true;
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DevCommand($wrangler, processRunner: new FakeProcessRunner()));
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'staging',
+            '--worker-dir' => $this->workerDir(),
+            '--no-build' => true,
+        ]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        $dev = $wrangler->lastCall('dev');
+        self::assertNotNull($dev);
+        self::assertSame(
+            [
+                'ATOMS_DEBUG_ENDPOINTS' => '1',
+                // The fixture's atoms.json declares a staging callback_url, and
+                // enabling debug endpoints must not displace it.
+                DevCommand::CALLBACK_VAR => 'https://staging.acme.example.com',
+            ],
+            $dev['args']['vars'],
+        );
+        // Enabling a debug surface must be visible at startup.
+        self::assertStringContainsString('ATOMS_DEBUG_ENDPOINTS=1', $tester->getDisplay());
     }
 }

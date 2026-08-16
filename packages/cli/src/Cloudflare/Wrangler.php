@@ -16,10 +16,14 @@ namespace Atoms\Cli\Cloudflare;
 interface Wrangler
 {
     /**
-     * `wrangler deploy --name {worker}`. The Worker project directory is the
-     * working directory, so its wrangler config and `src/` are what ships.
+     * `wrangler deploy --name {worker}`, with `--var` pairs injected — the
+     * same override channel `dev()` uses, so a setting declared once in
+     * atoms.json reaches both. The Worker project directory is the working
+     * directory, so its wrangler config and `src/` are what ships.
+     *
+     * @param array<string, string> $vars
      */
-    public function deploy(CloudflareTarget $target): WranglerResult;
+    public function deploy(CloudflareTarget $target, array $vars = []): WranglerResult;
 
     /**
      * `wrangler versions list --name {worker} --json`.

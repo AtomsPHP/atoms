@@ -26,9 +26,15 @@ final class ProcessWrangler implements Wrangler
         $this->runner = $runner ?? new SymfonyProcessRunner();
     }
 
-    public function deploy(CloudflareTarget $target): WranglerResult
+    public function deploy(CloudflareTarget $target, array $vars = []): WranglerResult
     {
-        return $this->run($target, ['deploy', '--name', $target->workerName]);
+        $argv = ['deploy', '--name', $target->workerName];
+        foreach ($vars as $name => $value) {
+            $argv[] = '--var';
+            $argv[] = $name . ':' . $value;
+        }
+
+        return $this->run($target, $argv);
     }
 
     public function versions(CloudflareTarget $target): WranglerResult

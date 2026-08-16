@@ -24,9 +24,9 @@ final class FakeWrangler implements Wrangler
     public ?WranglerResult $listSecretsResult = null;
     public ?WranglerResult $devResult = null;
 
-    public function deploy(CloudflareTarget $target): WranglerResult
+    public function deploy(CloudflareTarget $target, array $vars = []): WranglerResult
     {
-        $this->record('deploy', $target, []);
+        $this->record('deploy', $target, ['vars' => $vars]);
 
         return $this->deployResult ?? self::ok(['deploy'], "Deployed {$target->workerName}\n");
     }
