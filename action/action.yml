@@ -25,6 +25,31 @@ inputs:
     description: Path to a prebuilt bundle (optional; if omitted, builds locally)
     required: false
     default: ''
+  shared-secret:
+    description: >-
+      ATOMS_SHARED_SECRET for the target Worker (32 random bytes, base64).
+      Pass it from secrets.* . When set, the action stores it on the Worker
+      after deploying, but only if the Worker does not already have one — so
+      it configures a first deploy without minting a Worker version on every
+      later run. Omit it if you set the secret out of band. Use
+      rotate-shared-secret to replace an existing value.
+    required: false
+    default: ''
+  shared-secret-previous:
+    description: >-
+      ATOMS_SHARED_SECRET_PREVIOUS, the rotation overlap value. Set it during
+      a rotation window so the Worker still accepts bearers signed with the
+      old secret; remove it once every caller holds the new one. See
+      docs/shared-secret.md for the runbook.
+    required: false
+    default: ''
+  rotate-shared-secret:
+    description: >-
+      Overwrite the Worker's existing ATOMS_SHARED_SECRET / _PREVIOUS with the
+      values above. Off by default, because a deploy should not silently
+      replace the root every other caller derives its bearer from.
+    required: false
+    default: 'false'
   php-version:
     description: PHP version used to run the Atoms CLI
     required: false
@@ -46,11 +71,17 @@ runs:
     # variable, an output, or a literal. Masking it here means a later step that
     # accidentally prints it — a `set -x` trace, a Wrangler error quoting its
     # own environment — gets `***` in the log instead of the credential.
-    - name: Mask Cloudflare API token
+    - name: Mask secrets
       shell: bash
       env:
         CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
-      run: echo "::add-mask::$CLOUDFLARE_API_TOKEN"
+        ATOMS_SHARED_SECRET: ${{ inputs.shared-secret }}
+        ATOMS_SHARED_SECRET_PREVIOUS: ${{ inputs.shared-secret-previous }}
+      run: |
+        echo "::add-mask::$CLOUDFLARE_API_TOKEN"
+        [ -n "$ATOMS_SHARED_SECRET" ] && echo "::add-mask::$ATOMS_SHARED_SECRET"
+        [ -n "$ATOMS_SHARED_SECRET_PREVIOUS" ] && echo "::add-mask::$ATOMS_SHARED_SECRET_PREVIOUS"
+        exit 0
 
     - name: Set up PHP
       uses: shivammathur/setup-php@v2
@@ -129,3 +160,33 @@ runs:
           args+=(--bundle "$DEPLOY_BUNDLE")
         fi
         atoms "${args[@]}"
+
+    # After the deploy, because `wrangler secret put` needs the Worker to
+    # exist. A first deploy therefore serves `misconfigured` for the seconds
+    # between the two steps, then self-heals; every later run is a no-op
+    # unless rotate-shared-secret is on. The values reach Wrangler on the
+    # CLI's stdin, never an argv a process listing or a log could show.
+    - name: Configure shared secret
+      if: inputs.shared-secret != '' || inputs.shared-secret-previous != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+        DEPLOY_WORKER_DIR: ${{ steps.worker.outputs.directory }}
+        ATOMS_SHARED_SECRET: ${{ inputs.shared-secret }}
+        ATOMS_SHARED_SECRET_PREVIOUS: ${{ inputs.shared-secret-previous }}
+        ROTATE: ${{ inputs.rotate-shared-secret }}
+      run: |
+        set -euo pipefail
+        args=(secrets:root --env "$DEPLOY_ENVIRONMENT" --worker-dir "$DEPLOY_WORKER_DIR")
+        if [ "$ROTATE" = 'true' ]; then
+          args+=(--force)
+        fi
+        if [ -n "$ATOMS_SHARED_SECRET" ]; then
+          printf '%s' "$ATOMS_SHARED_SECRET" | atoms "${args[@]}"
+        fi
+        if [ -n "$ATOMS_SHARED_SECRET_PREVIOUS" ]; then
+          printf '%s' "$ATOMS_SHARED_SECRET_PREVIOUS" | atoms "${args[@]}" --previous
+        fi

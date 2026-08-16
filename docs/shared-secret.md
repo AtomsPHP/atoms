@@ -226,6 +226,53 @@ Runbook (zero downtime for bearer and callbacks):
 3. Once every instance on both sides holds the new secret, delete
    `ATOMS_SHARED_SECRET_PREVIOUS` from both and redeploy.
 
+From a pipeline, step 1 is the deploy Action's `shared-secret` and
+`shared-secret-previous` inputs with `rotate-shared-secret: true` — the
+flag exists because a routine deploy must never silently replace the root
+every caller derives its bearer from. Drop the flag and the previous input
+once the window closes. Step 2 is your app platform's own secret
+management; nothing here can reach it.
+
+## Setting it: CI is the common case
+
+The Worker needs the secret before it can serve anything, and a deploy that
+ships code without it produces a Worker answering `misconfigured` on every
+route **except `GET /healthz`** — so a pipeline health check goes green
+while every invoke fails. Configure it in the same run that deploys.
+
+`atoms secrets:root --env <env>` reads the value on **stdin** and stores it
+under the exact, unprefixed name. It is the only CLI path to this key:
+`atoms secrets:set` refuses it (`ATOMS-E077`) because that command prefixes
+every name with `ATOMS_CONFIG_`, the namespace Atom code can read, and the
+boundary root must never live there. The value is validated as 32 bytes of
+base64 before it is sent, so a pipeline secret holding a passphrase fails
+in the step that names it rather than becoming a Worker that 500s.
+
+The deploy Action wraps this. Generate once with `openssl rand -base64 32`,
+then put that one value in three places:
+
+```yaml
+- uses: AtomsPHP/atoms/action@v0
+  with:
+    environment: production
+    cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    shared-secret: ${{ secrets.ATOMS_SHARED_SECRET }}
+```
+
+1. Your CI secret store, as above.
+2. The Worker — the Action does this, after the deploy step because
+   `wrangler secret put` needs the Worker to exist. A first deploy therefore
+   serves `misconfigured` for the seconds between the two steps, then heals.
+3. Your app platform's environment (Fly, Heroku, ECS, …), under the same
+   name. Nothing in this repository can reach that one; it is the step to
+   put in your own runbook.
+
+The Action is idempotent: it skips the write when the Worker already has
+the secret, so running it on every deploy does not mint a Worker version
+each time. That also means it will not apply a *changed* value — see the
+rotation runbook above for that.
+
 ## What this trades away — recorded, not to be re-litigated
 
 The Ed25519 asymmetry denied exactly one attacker capability: someone with

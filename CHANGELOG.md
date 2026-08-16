@@ -15,6 +15,20 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   deleted, not aliased: a deployment still setting only the old names fails
   loudly. `ATOMS-E105` covers a missing or malformed secret. See
   `docs/shared-secret.md`, the decision record.
+- **Added:** `atoms secrets:root --env X` stores `ATOMS_SHARED_SECRET` (or,
+  with `--previous`, the rotation overlap value) on the Worker, read from
+  stdin and validated as 32 bytes of base64 before it is sent. It is the only
+  CLI path to this key — `atoms secrets:set` still refuses it (`ATOMS-E077`),
+  since that command writes the guest-readable `ATOMS_CONFIG_` namespace.
+  Idempotent unless `--force`, so a pipeline can run it every deploy without
+  minting a Worker version each time.
+- **Added:** the deploy Action takes `shared-secret`, `shared-secret-previous`
+  and `rotate-shared-secret`, masking them and piping them to the CLI on
+  stdin. Previously the Action could deploy a Worker but not configure one, so
+  a first CI deploy shipped something that answered `misconfigured` on every
+  route but `GET /healthz` — a green health check over a broken Worker — until
+  someone ran `wrangler secret put` by hand. See `docs/shared-secret.md`
+  §Setting it.
 - **Added:** `atoms token` prints the bearer derived from
   `ATOMS_SHARED_SECRET`, so an operator can curl the Worker without ever
   putting the secret itself in an `Authorization` header.
