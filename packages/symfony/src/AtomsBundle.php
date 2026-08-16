@@ -7,16 +7,18 @@ namespace Atoms\Symfony;
 use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
 use Atoms\Client\Callback\CallbackKernel;
-use Atoms\Client\Callback\Ed25519Verifier;
+use Atoms\Client\Callback\HmacVerifier;
 use Atoms\Client\Callback\InMemoryNonceStore;
 use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Client\Callback\NonceStore;
 use Atoms\Client\Callback\NullQueueBridge;
 use Atoms\Client\Callback\QueueBridge;
+use Atoms\Client\Crypto\KeyDerivation;
 use Atoms\Symfony\Command\AtomsDeployCommand;
 use Atoms\Symfony\Command\AtomsListCommand;
 use Atoms\Symfony\Command\AtomsRollbackCommand;
 use Atoms\Symfony\Controller\CallbackController;
+use Atoms\Symfony\DependencyInjection\CallbackVerifierFactory;
 use Atoms\Symfony\DependencyInjection\GuzzleFactory;
 use Atoms\Symfony\DependencyInjection\HttpClientPass;
 use Atoms\Symfony\DependencyInjection\MessengerBridgePass;
@@ -37,7 +39,7 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
  * Skeleton Symfony bundle for Atoms (integration-plan §5.3): a deliberately
  * small proof that `atoms/client` is sufficient monolith-side glue and that
  * `atoms/symfony` never needs `atoms/laravel` or Illuminate. Wires
- * AtomsClient, the callback stack (Ed25519 verification, Methods dispatch,
+ * AtomsClient, the callback stack (HMAC verification, Methods dispatch,
  * AtomJob reconstruction), an optional Messenger queue bridge, and thin
  * console wrappers around the `atoms` binary.
  *
@@ -47,10 +49,10 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
  * @phpstan-type AtomsBundleConfig array{
  *     environment: string,
  *     endpoint: string,
- *     api_key: string|null,
+ *     shared_secret: string,
+ *     shared_secret_previous: string|null,
  *     timeout: float,
  *     max_attempts: int,
- *     platform_public_key: string|null,
  *     callback_path: string,
  *     callback_timestamp_window: int,
  *     http_client: string|null,
@@ -89,16 +91,17 @@ final class AtomsBundle extends AbstractBundle
                     ->cannotBeEmpty()
                     ->info('Base URL of your deployed Atoms Worker, e.g. https://atoms.<your-subdomain>.workers.dev (or http://127.0.0.1:8787 under `wrangler dev`).')
                 ->end()
-                ->scalarNode('api_key')
+                ->scalarNode('shared_secret')
+                    ->isRequired()
+                    ->cannotBeEmpty()
+                    ->info('Base64 of 32 random bytes (`openssl rand -base64 32`), the same value the Worker holds as ATOMS_SHARED_SECRET. Never transmitted: requests carry a bearer derived from it (`atoms token` prints that bearer), and inbound callbacks are verified with a second derived key.')
+                ->end()
+                ->scalarNode('shared_secret_previous')
                     ->defaultNull()
-                    ->info('Bearer key matching the Worker\'s ATOMS_APP_KEY. Leave null when the Worker runs with ATOMS_APP_KEY unset (its auth check is off entirely); an empty string is rejected as a misconfiguration.')
+                    ->info('Rotation overlap: while set, a callback signed under the previous secret still verifies. Same format as shared_secret; outbound requests always use the current secret\'s bearer.')
                 ->end()
                 ->floatNode('timeout')->defaultValue(10.0)->end()
                 ->integerNode('max_attempts')->defaultValue(3)->end()
-                ->scalarNode('platform_public_key')
-                    ->defaultNull()
-                    ->info('Ed25519 public key (base64) used to verify inbound callbacks.')
-                ->end()
                 ->scalarNode('callback_path')->defaultValue('/atoms/callback')->end()
                 ->integerNode('callback_timestamp_window')
                     ->defaultValue(300)
@@ -145,12 +148,10 @@ final class AtomsBundle extends AbstractBundle
             ->setFactory([AtomsConfig::class, 'fromArray'])
             ->setArguments([[
                 'endpoint' => $config['endpoint'],
-                // Uncoerced: null means the Worker runs with auth off, while an
-                // empty string is a misconfiguration AtomsConfig throws on.
-                'apiKey' => $config['api_key'],
+                'sharedSecret' => $config['shared_secret'],
+                'sharedSecretPrevious' => $config['shared_secret_previous'],
                 'timeout' => $config['timeout'],
                 'maxAttempts' => $config['max_attempts'],
-                'platformPublicKey' => $config['platform_public_key'],
                 'environment' => $config['environment'],
             ]])
             ->setPublic(true);
@@ -216,13 +217,14 @@ final class AtomsBundle extends AbstractBundle
         $container->register(InMemoryNonceStore::class, InMemoryNonceStore::class)->setPublic(false);
         $container->setAlias(NonceStore::class, InMemoryNonceStore::class)->setPublic(false);
 
-        $container->register(Ed25519Verifier::class, Ed25519Verifier::class)
-            ->setArguments([(string) $config['platform_public_key']])
+        $container->register(HmacVerifier::class, HmacVerifier::class)
+            ->setFactory([CallbackVerifierFactory::class, 'create'])
+            ->setArguments([new Reference(AtomsConfig::class)])
             ->setPublic(false);
 
         $container->register(CallbackKernel::class, CallbackKernel::class)
             ->setArguments([
-                new Reference(Ed25519Verifier::class),
+                new Reference(HmacVerifier::class),
                 new Reference(NonceStore::class),
                 new Reference(MethodsResolver::class),
                 new Reference(QueueBridge::class),

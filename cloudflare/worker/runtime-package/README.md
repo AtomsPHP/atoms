@@ -21,10 +21,10 @@ deploy Action re-creates it on a fresh checkout, so local edits to its
 default**; to enable them for an environment, set
 `"debug_endpoints": true` on that environment in `atoms.json`, and
 `atoms dev`/`atoms deploy` forward it to Wrangler as a `--var`. The routes
-also sit behind the Worker's auth check when that is enabled — the flag is a
-second gate — but with auth off (local dev, or access control terminated in
-front of the Worker) the flag is the only gate, which is why it defaults
-off.
+also sit behind the Worker's bearer check under the default
+`ATOMS_BEARER_AUTH=required` posture — the flag is a second gate — but under
+`ATOMS_BEARER_AUTH=disabled` (an authenticating proxy in front of the
+Worker) the flag is the only gate, which is why it defaults off.
 
 Atoms-authored source in this package is MIT. The upstream component inventory
 is in [`THIRD_PARTY_NOTICES.md`][notices]. This package does not contain the

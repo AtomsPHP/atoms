@@ -44,16 +44,19 @@ each host's own config-mapping method — and would change no runtime behavior:
 shape, and every host already funnels its native config into it. Interposing
 an interface between a host's config system and that one call site adds a
 type to implement without removing any of the actual risk. The risk lives in
-the *mapping*, above all the `apiKey` tri-state: a non-empty string sends
-`Authorization: Bearer <key>`, `null` is explicitly-unauthenticated and sends
-no header, and `''` is a misconfiguration that `AtomsConfig`'s constructor
-throws on. A host's config layer can silently collapse `null` and `''`
-together (an unset Laravel config key vs. an empty env var both stringifying
-the same way, for instance) in a way no interface signature would catch. The
-conformance suite proves this the only way that means anything: it drives
-each host's own native config path — `config/atoms.php`, the Symfony bundle
-extension, `AtomsBootstrap::create()`'s named parameters — end to end (see
-S1/S2 in `AdapterConformanceTestCase`), rather than asserting against a
+the *mapping*, above all `sharedSecret`: `AtomsConfig`'s constructor requires
+it and validates it immediately — trimmed of ASCII whitespace, strict base64,
+exactly 32 decoded bytes — throwing otherwise (`ATOMS-E105`;
+`docs/shared-secret.md`). A host's config layer can produce an empty string
+in ways an interface signature would not catch (an unset Laravel config key
+and an empty env var both stringify the same way, for instance), so the
+value has to be validated where it lands, not merely typed. Keeping
+`AtomsConfig::fromArray()` as an array-shaped contract, rather than a typed
+interface, is what lets every host's own native config path feed it directly.
+The conformance suite proves this the only way that means anything: it
+drives each host's own native config path — `config/atoms.php`, the Symfony
+bundle extension, `AtomsBootstrap::create()`'s named parameters — end to end
+(see S1/S2 in `AdapterConformanceTestCase`), rather than asserting against a
 hypothetical interface no production code would ever call through.
 
 ## Why route mounting is not a PHP interface

@@ -250,6 +250,28 @@ final class Counter extends Atom
         }
     }
 
+    /**
+     * Report exactly what `$this->config()` resolves for a set of keys.
+     *
+     * Conformance check 42 uses it for the deny list: the shared-secret names
+     * come back null even where the Worker's `ATOMS_CONFIG_ENV_KEYS` lists
+     * them, while an allowlisted control key resolves — which is what makes
+     * the null answer meaningful.
+     *
+     * @param list<string> $keys
+     * @return array<string, mixed>
+     */
+    public function configProbe(array $keys): array
+    {
+        $seen = [];
+
+        foreach ($keys as $key) {
+            $seen[(string) $key] = $this->config((string) $key);
+        }
+
+        return $seen;
+    }
+
     /** Read the durable counter without counting a turn. */
     private function readValue(): int
     {

@@ -13,7 +13,7 @@
  * `TransactionMachine` holds one for the commit/rollback hooks; `atom-do.js`
  * drives `beginTurn`/`serviceAppCall`/`settleTurn`.
  */
-import { base64ToBytes } from './config.js';
+import { deriveCallbackKey } from './derive.js';
 import { AtomsError } from './errors.js';
 
 /** @param {Record<string, unknown>} extra */
@@ -31,12 +31,6 @@ function fail(code, message, extra = {}) {
 }
 
 const encoder = new TextEncoder();
-
-// The fixed 16-byte PKCS8 DER prefix for a raw 32-byte Ed25519 seed. Verified
-// against workerd's WebCrypto and node:crypto.
-const PKCS8_PREFIX = new Uint8Array([
-	0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
-]);
 
 // A JS string can hold a lone UTF-16 surrogate, which TextEncoder silently
 // replaces with U+FFFD — signed would still equal sent, but sent would no
@@ -106,7 +100,7 @@ export class CallbackChannel {
 		this.log = log;
 		this.phpGenerationRef = phpGenerationRef ?? (() => 0);
 
-		/** @type {Promise<CryptoKey>|null} memoized signing key import */
+		/** @type {Promise<CryptoKey>|null} memoized signing key derivation */
 		this.keyPromise = null;
 
 		/** @type {{body: string, job: string}[]} dispatch() bodies buffered while a transaction is open */
@@ -263,11 +257,11 @@ export class CallbackChannel {
 			return;
 		}
 
-		// Recomputed HERE, after the (awaited) key import and signature, not
+		// Recomputed HERE, after the (awaited) key derivation and signature, not
 		// before: arming the abort with a `remaining` measured earlier would
-		// hand the fetch a bound the turn no longer has. `importSigningKey()`
-		// is memoized, so this only ever matters on the first callback of a
-		// residency — which is exactly the one where the import cost is paid.
+		// hand the fetch a bound the turn no longer has. `signingKey()` is
+		// memoized, so this only ever matters on the first callback of a
+		// residency — which is exactly the one where the derivation cost is paid.
 		const remainingAtFetch = budget.deadlineMs - (Date.now() - budget.startedAt);
 		if (remainingAtFetch <= 0) {
 			const elapsed = Date.now() - budget.startedAt;
@@ -601,24 +595,26 @@ export class CallbackChannel {
 	}
 
 	/**
-	 * Import (and memoize) the Ed25519 signing key. `extractable: false`: the
-	 * Worker never needs to export it, and a customer Atom that reads
-	 * arbitrary guest memory still cannot obtain it — the key never enters
-	 * wasm at all.
+	 * The callback signing key, derived from the CURRENT `ATOMS_SHARED_SECRET`
+	 * (HKDF-SHA256, info `atoms/callback/v1`) and memoized for the life of the
+	 * residency. Senders emit under the current secret only; the monolith is
+	 * the side that also accepts `ATOMS_SHARED_SECRET_PREVIOUS` during a
+	 * rotation window.
+	 *
+	 * `extractable: false`: the Worker never needs to export it, and a customer
+	 * Atom that reads arbitrary guest memory still cannot obtain it — the key
+	 * never enters wasm at all.
 	 *
 	 * @returns {Promise<CryptoKey>}
 	 */
-	importSigningKey() {
+	signingKey() {
 		if (!this.keyPromise) {
 			this.keyPromise = (async () => {
-				const seed = base64ToBytes(this.config.callbackSigningKey);
-				if (!seed || seed.length !== 32) {
-					throw new AtomsError('internal', 'ATOMS_CALLBACK_SIGNING_KEY must decode to exactly 32 bytes');
+				const secret = this.config.sharedSecretBytes;
+				if (secret === null) {
+					throw new AtomsError('internal', 'ATOMS_SHARED_SECRET is not configured');
 				}
-				const pkcs8 = new Uint8Array(48);
-				pkcs8.set(PKCS8_PREFIX, 0);
-				pkcs8.set(seed, 16);
-				return crypto.subtle.importKey('pkcs8', pkcs8, 'Ed25519', false, ['sign']);
+				return deriveCallbackKey(secret);
 			})();
 		}
 		return this.keyPromise;
@@ -628,6 +624,11 @@ export class CallbackChannel {
 	 * Build the signed request for one callback body. `bodyBytes` is computed
 	 * once and used for both signing and sending — "signed ≡ sent" is true by
 	 * construction.
+	 *
+	 * The signed message is `"v1\n{unix_ts}\n{nonce}\n" + body` and
+	 * `x-atoms-signature` is the standard base64 of the 32-byte HMAC-SHA256
+	 * tag. `Atoms\Client\Callback\CallbackKernel` verifies the same envelope
+	 * with `hash_hmac()` + `hash_equals()`.
 	 *
 	 * @param {string} bodyString
 	 * @param {'methods'|'job'} kind
@@ -640,8 +641,8 @@ export class CallbackChannel {
 		const prefixBytes = encoder.encode(`v1\n${ts}\n${nonce}\n`);
 		const message = concatBytes(prefixBytes, bodyBytes);
 
-		const key = await this.importSigningKey();
-		const sig = new Uint8Array(await crypto.subtle.sign('Ed25519', key, message));
+		const key = await this.signingKey();
+		const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, message));
 
 		return {
 			bodyBytes,

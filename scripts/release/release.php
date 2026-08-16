@@ -82,6 +82,18 @@ function checkRelease(string $root): void
         $errors[] = 'composer.packages must list the seven packages once, in release order';
     }
 
+    // Same rule as the per-package cross-requires below: the root
+    // composer.json resolves the path repositories fresh in CI, so a stale
+    // atoms/* constraint there makes the whole tree uninstallable.
+    $rootComposer = readJson("{$root}/composer.json");
+    foreach (['require', 'require-dev'] as $section) {
+        foreach (($rootComposer[$section] ?? []) as $dependency => $rootConstraint) {
+            if (in_array($dependency, PACKAGE_NAMES, true) && $rootConstraint !== $internalConstraint) {
+                $errors[] = "the root composer.json requires {$dependency} at {$rootConstraint}; expected {$internalConstraint}";
+            }
+        }
+    }
+
     foreach (PACKAGE_NAMES as $packageName) {
         $slug = packageSlug($packageName);
         $packageDir = "{$root}/packages/{$slug}";
@@ -273,6 +285,21 @@ function setReleaseVersion(string $root, string $version, string $status): void
         }
         $jsonUpdates[$path] = $package;
     }
+
+    // The root composer.json wires the packages via path repositories, and CI
+    // resolves it fresh (no committed lock): its atoms/* constraints must
+    // follow the coordinated version or the canonical path repo becomes
+    // unsatisfiable.
+    $rootComposerPath = "{$root}/composer.json";
+    $rootComposer = readJson($rootComposerPath);
+    foreach (['require', 'require-dev'] as $section) {
+        foreach (($rootComposer[$section] ?? []) as $dependency => $_) {
+            if (in_array($dependency, PACKAGE_NAMES, true)) {
+                $rootComposer[$section][$dependency] = $constraint;
+            }
+        }
+    }
+    $jsonUpdates[$rootComposerPath] = $rootComposer;
 
     foreach ($jsonUpdates as $path => $data) {
         writeJsonAtomically($path, $data);

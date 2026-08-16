@@ -49,7 +49,7 @@ final class AtomsServiceProviderTest extends TestCase
     public function testConfigDefaultsAreMerged(): void
     {
         self::assertSame('', config('atoms.endpoint'));
-        self::assertNull(config('atoms.api_key'));
+        self::assertNull(config('atoms.shared_secret_previous'));
         self::assertSame('/atoms/callback', config('atoms.callback.path'));
         self::assertSame([], config('atoms.callback.middleware'));
         self::assertSame('.atoms/build/manifest.json', config('atoms.manifest_path'));
@@ -59,7 +59,7 @@ final class AtomsServiceProviderTest extends TestCase
     {
         config([
             'atoms.endpoint' => 'https://atoms.staging.workers.dev',
-            'atoms.api_key' => 'secret-key',
+            'atoms.shared_secret' => self::SHARED_SECRET,
             'atoms.timeout' => 5.5,
             'atoms.max_attempts' => 7,
         ]);
@@ -68,39 +68,56 @@ final class AtomsServiceProviderTest extends TestCase
         $atomsConfig = $this->app->make(AtomsConfig::class);
 
         self::assertSame('https://atoms.staging.workers.dev', $atomsConfig->endpoint);
-        self::assertSame('secret-key', $atomsConfig->apiKey);
-        self::assertTrue($atomsConfig->isAuthenticated());
+        self::assertSame(self::SHARED_SECRET, $atomsConfig->sharedSecret);
+        self::assertSame('Dx6RY9LS43pOQhM4PMdaUWx3lk9mfyiiJZFfJtvl9E0=', $atomsConfig->bearerToken());
         self::assertSame(5.5, $atomsConfig->timeout);
         self::assertSame(7, $atomsConfig->maxAttempts);
     }
 
-    /**
-     * An unset ATOMS_API_KEY is the shape that matches a Worker deployed with
-     * ATOMS_APP_KEY unset: unauthenticated on purpose, not accidentally empty.
-     */
-    public function testUnsetApiKeyBecomesAnExplicitlyUnauthenticatedConfig(): void
+    public function testRotationOverlapFlowsIntoAtomsConfig(): void
     {
         config([
             'atoms.endpoint' => 'http://127.0.0.1:8787',
-            'atoms.api_key' => null,
+            'atoms.shared_secret' => self::SHARED_SECRET,
+            'atoms.shared_secret_previous' => base64_encode(str_repeat("\x02", 32)),
         ]);
         $this->app->forgetInstance(AtomsConfig::class);
 
         $atomsConfig = $this->app->make(AtomsConfig::class);
 
-        self::assertNull($atomsConfig->apiKey);
-        self::assertFalse($atomsConfig->isAuthenticated());
+        self::assertCount(2, $atomsConfig->callbackKeys());
+        self::assertSame('Dx6RY9LS43pOQhM4PMdaUWx3lk9mfyiiJZFfJtvl9E0=', $atomsConfig->bearerToken());
     }
 
-    public function testEmptyApiKeyIsRejectedRatherThanTreatedAsUnauthenticated(): void
+    /**
+     * The secret is required, and the failure lands where the service is
+     * resolved (ATOMS-E105) — SharedSecretLazinessTest covers the other half
+     * of that contract.
+     */
+    public function testMissingSecretThrowsWhenTheConfigServiceIsResolved(): void
     {
         config([
             'atoms.endpoint' => 'http://127.0.0.1:8787',
-            'atoms.api_key' => '',
+            'atoms.shared_secret' => null,
         ]);
         $this->app->forgetInstance(AtomsConfig::class);
 
         $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E105/');
+
+        $this->app->make(AtomsConfig::class);
+    }
+
+    public function testMalformedSecretThrowsWhenTheConfigServiceIsResolved(): void
+    {
+        config([
+            'atoms.endpoint' => 'http://127.0.0.1:8787',
+            'atoms.shared_secret' => 'not-base64-32-bytes',
+        ]);
+        $this->app->forgetInstance(AtomsConfig::class);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E105/');
 
         $this->app->make(AtomsConfig::class);
     }

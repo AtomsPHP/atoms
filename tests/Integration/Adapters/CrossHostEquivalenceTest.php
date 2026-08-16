@@ -105,8 +105,7 @@ final class CrossHostEquivalenceTest extends TestCase
         $signer = new CallbackSigner();
         $options = new HostOptions(
             endpoint: 'http://worker.test',
-            apiKey: 'k',
-            publicKey: $signer->publicKeyBase64(),
+            sharedSecret: $signer->sharedSecretBase64(),
             callbackPath: '/atoms/callback',
             methodsClasses: [GameRoomMethods::class],
         );

@@ -77,9 +77,10 @@ final class DeployCommand extends AbstractCommand
             $output->writeln('Deploying Worker ' . $target->workerName . ' with wrangler…');
             if ($target->debugEndpoints) {
                 // Debug endpoints are a second gate behind the Worker's auth
-                // check — but with auth off (or terminated in front of the
-                // Worker), the flag is the only thing in front of /debug, so
-                // enabling it deserves a visible line in the deploy log.
+                // check — but under ATOMS_BEARER_AUTH=disabled (an
+                // authenticating proxy in front of the Worker), the flag is
+                // the only thing in front of /debug, so enabling it deserves
+                // a visible line in the deploy log.
                 $output->writeln(
                     '  ' . $target::DEBUG_ENDPOINTS_VAR . '=1 (debug endpoints enabled by atoms.json '
                     . '"debug_endpoints" for ' . $env . ')'

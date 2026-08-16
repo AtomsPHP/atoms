@@ -7,7 +7,7 @@ namespace Atoms\Laravel;
 use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
 use Atoms\Client\Callback\CallbackKernel;
-use Atoms\Client\Callback\Ed25519Verifier;
+use Atoms\Client\Callback\HmacVerifier;
 use Atoms\Client\Callback\InMemoryNonceStore;
 use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Client\Callback\NonceStore;
@@ -137,16 +137,16 @@ final class AtomsServiceProvider extends ServiceProvider
 
             $manifestPath = $config['manifest_path'] ?? null;
 
+            $previous = $config['shared_secret_previous'] ?? null;
+
             return AtomsConfig::fromArray([
                 'endpoint' => $config['endpoint'] ?? '',
-                // Passed through uncoerced on purpose: null (key absent/unset)
-                // means "the Worker runs with ATOMS_APP_KEY unset", while a
-                // present-but-empty string is a misconfiguration AtomsConfig
-                // rejects loudly. Defaulting to '' here would erase both.
-                'apiKey' => $config['api_key'] ?? null,
+                'sharedSecret' => (string) ($config['shared_secret'] ?? ''),
+                // Null means "no rotation in progress". AtomsConfig validates
+                // it exactly like the current secret when it is set.
+                'sharedSecretPrevious' => is_string($previous) && $previous !== '' ? $previous : null,
                 'timeout' => $config['timeout'] ?? 10.0,
                 'maxAttempts' => $config['max_attempts'] ?? 3,
-                'platformPublicKey' => $config['platform_public_key'] ?? null,
                 'manifestPath' => is_string($manifestPath) ? $this->resolvePath($manifestPath) : null,
                 'environment' => $config['environment'] ?? 'production',
             ]);
@@ -190,10 +190,13 @@ final class AtomsServiceProvider extends ServiceProvider
         ));
 
         $this->app->singleton(CallbackKernel::class, static function (Application $app): CallbackKernel {
-            $publicKey = (string) $app['config']->get('atoms.platform_public_key', '');
+            // The kernel verifies with keys derived from the shared secret, and
+            // accepts the previous secret's key too while a rotation overlap is
+            // configured.
+            $config = $app->make(AtomsConfig::class);
 
             return new CallbackKernel(
-                new Ed25519Verifier($publicKey),
+                new HmacVerifier($config->callbackKeys()),
                 $app->make(NonceStore::class),
                 $app->make(MethodsResolver::class),
                 $app->make(QueueBridge::class),

@@ -278,58 +278,76 @@ exactly as PHP wrote it.
 
 ## The callback channel
 
-`app()` and `dispatch()` (M2) both cross to the monolith over one Ed25519-
-signed HTTP channel, implemented in `src/callbacks.js`'s `CallbackChannel` —
-one instance per DO, alongside `Bridge` and `TransactionMachine`.
+`app()` and `dispatch()` (M2) both cross to the monolith over one HMAC-signed
+HTTP channel, implemented in `src/callbacks.js`'s `CallbackChannel` — one
+instance per DO, alongside `Bridge` and `TransactionMachine`.
 
 ### Configuration and the three states
 
-Two env vars, resolved in `config.js`, neither defaulted to a usable value:
+The endpoint is one env var, resolved in `config.js` and not defaulted to a
+usable value; the signing key is derived from the Worker's shared secret
+(`ATOMS_SHARED_SECRET`, §Routing and auth), so there is no second secret to
+configure:
 
 | variable | default | meaning |
 |---|---|---|
 | `ATOMS_CALLBACK_URL` | `''` (unconfigured) | the monolith's callback endpoint |
-| `ATOMS_CALLBACK_SIGNING_KEY` | `''` | base64 of the 32-byte Ed25519 seed |
 
-`loadConfig()` classifies the pair into `callbackState`, and stays **total** —
-it never throws, because `/healthz` must answer on a misconfigured Worker:
+The key is `HKDF-SHA256(ATOMS_SHARED_SECRET, info "atoms/callback/v1")`, 32
+bytes, derived in `src/derive.js` and shared with `packages/client`'s verifier,
+which derives the same 32 bytes with PHP's `hash_hkdf()`. The decision record
+is `docs/shared-secret.md`.
 
-| `ATOMS_CALLBACK_URL` | `ATOMS_CALLBACK_SIGNING_KEY` | `callbackState` | `app()`/`dispatch()` |
+`loadConfig()` classifies the endpoint and the secret into `callbackState`, and
+stays **total** — it never throws, because `/healthz` must answer on a
+misconfigured Worker:
+
+| `ATOMS_CALLBACK_URL` | `ATOMS_SHARED_SECRET` | `callbackState` | `app()`/`dispatch()` |
 |---|---|---|---|
 | unset | anything | `unconfigured` | fail `callback_not_configured` → **ATOMS-E080** |
 | set, invalid or non-loopback `http:` | anything | `misconfigured` | fail `callback_unsigned` → **ATOMS-E081** |
 | set, valid | unset, or not 32 bytes of base64 | `misconfigured` | fail `callback_unsigned` → **ATOMS-E081** |
 | set, valid | 32 bytes of base64 | `configured` | proceed |
 
+The third row is reached from a timer alarm rather than from an HTTP request:
+without a usable secret every route but `/healthz` already answers
+`misconfigured` (§Routing and auth), so `callback_unsigned` is what a
+*scheduled* `app()` sees on such a deployment.
+
 `ATOMS_CALLBACK_URL` must be an absolute URL with scheme `https:`, or `https:`
 scheme's exception `http:` only when the host is `127.0.0.1`, `localhost` or
 `[::1]` — plain `http` to a public host would send customer arguments in the
 clear (the signature protects integrity and authenticity, never
 confidentiality); the loopback exemption is what keeps the conformance harness
-and `atoms dev` legal. `ATOMS_CALLBACK_SIGNING_KEY` is in the built-in
-`ATOMS_CONFIG_ENV_DENY_KEYS`, alongside `ATOMS_APP_KEY`, so a misconfigured
-`ATOMS_CONFIG_ENV_KEYS` can never expose it through `$this->config()`. The
-operator's `ATOMS_CONFIG_ENV_DENY_KEYS` is **merged with** the built-in list,
-never a replacement for it: an operator adding one name of their own must not
-be able to un-deny the Worker's own credentials as a side effect.
+and `atoms dev` legal. `ATOMS_SHARED_SECRET` is in the built-in
+`ATOMS_CONFIG_ENV_DENY_KEYS`, so a misconfigured `ATOMS_CONFIG_ENV_KEYS` can
+never expose it through `$this->config()` — see §Routing and auth for the full
+list. The operator's `ATOMS_CONFIG_ENV_DENY_KEYS` is **merged with** the
+built-in list, never a replacement for it: an operator adding one name of their
+own must not be able to un-deny the Worker's own credentials as a side effect.
 
 **Never send unsigned.** There is no "development mode" that skips the
 signature — a monolith with `CallbackKernel` mounted would reject an unsigned
 request anyway (`ATOMS-E064`), so sending one would only make a security
 control look optional.
 
-### Ed25519 signing
+### HMAC-SHA256 signing
 
-The Worker is the signer, using platform WebCrypto — no `@noble/ed25519`, no
-fallback path. `ATOMS_CALLBACK_SIGNING_KEY` is the base64 of the raw 32-byte
-Ed25519 **seed**; `callbacks.js` prepends the fixed 16-byte PKCS8 DER prefix
-`302e020100300506032b657004220420` and imports with
-`crypto.subtle.importKey('pkcs8', …, 'Ed25519', /* extractable */ false,
-['sign'])`, memoized as a promise for the life of the residency. `extractable:
-false` and the fact that the guest never sees the key material are a security
-property worth stating plainly: **the key never enters wasm.** The guest
-builds callback bodies; the host signs them. A customer Atom that reads
-arbitrary guest memory still cannot obtain the signing key.
+The Worker is the signer, using platform WebCrypto. `callbacks.js` derives the
+callback key from `ATOMS_SHARED_SECRET` through `derive.js` —
+`crypto.subtle.importKey('raw', secretBytes, 'HKDF', false, [...])` then
+`deriveKey({name:'HKDF', hash:'SHA-256', salt: new Uint8Array(0), info:
+"atoms/callback/v1"}, …, {name:'HMAC', hash:'SHA-256', length: 256},
+/* extractable */ false, ['sign'])` — memoized as a promise for the life of the
+residency. `length: 256` is part of the contract: WebCrypto otherwise defaults
+an HMAC key to the hash's block size, and the monolith keys `hash_hmac()` with
+exactly the 32 bytes `hash_hkdf()` produced.
+
+`extractable: false` and the fact that the guest never sees the key material
+are a security property worth stating plainly: **the key never enters wasm.**
+The guest builds callback bodies; the host signs them. A customer Atom that
+reads arbitrary guest memory still cannot obtain the signing key — nor the
+shared secret it derives from.
 
 One request's signature (`signRequest()`):
 
@@ -337,14 +355,25 @@ One request's signature (`signRequest()`):
 const ts    = String(Math.floor(Date.now() / 1000));
 const nonce = toHex(crypto.getRandomValues(new Uint8Array(16)));   // 32 lowercase hex
 const msg   = encode(`v1\n${ts}\n${nonce}\n`) + bodyBytes;
-const sig   = await crypto.subtle.sign('Ed25519', key, msg);
+const sig   = await crypto.subtle.sign('HMAC', key, msg);          // 32-byte tag
 ```
 
 Headers sent with every callback POST: `content-type: application/json`,
-`x-atoms-signature` (base64), `x-atoms-timestamp` (unix seconds),
-`x-atoms-nonce` (32 lowercase hex), `x-atoms-kind` (`methods` for `app()`,
-`job` for `dispatch()`). This is exactly the shape `docs/conventions.md`
-§Callback signing and `Atoms\Client\Callback\CallbackKernel` verify.
+`x-atoms-signature` (standard base64 of the 32-byte tag), `x-atoms-timestamp`
+(unix seconds), `x-atoms-nonce` (32 lowercase hex), `x-atoms-kind` (`methods`
+for `app()`, `job` for `dispatch()`). This is exactly the shape
+`docs/conventions.md` §Callback signing and
+`Atoms\Client\Callback\CallbackKernel` verify; the verifier rejects any
+signature that does not decode to exactly 32 bytes before comparing, with
+`hash_equals()`.
+
+The Worker always signs with the **current** secret. During a rotation window
+the monolith's verifier is the side that also accepts a callback signed under
+`ATOMS_SHARED_SECRET_PREVIOUS`: a verifier accepts both, a sender emits only
+the current value.
+
+The `"v1\n"` version prefix is what keeps a future asymmetric envelope
+available if callbacks ever fan out to verifiers beyond the single monolith.
 
 ### Size caps
 
@@ -620,8 +649,10 @@ cloudflare/worker/
     php-host.js     # boot + tagged-door dispatcher (ported from spike)
     bridge.js       # sql.exec/config.get/meta/log/dispatch.enqueue handlers,
                     #   tx state machine, delegates ws.*/timer.* to their modules
-    callbacks.js     # CallbackChannel: app.call + dispatch.enqueue, Ed25519
+    callbacks.js     # CallbackChannel: app.call + dispatch.enqueue, HMAC
                     #   signing, turn-deadline budget (M2)
+    derive.js       # HKDF-SHA256 key derivation from ATOMS_SHARED_SECRET:
+                    #   bearer, ticket key, callback key
     websockets.js    # WebSocketHost: ws.send/ws.close/ws.broadcast, the
                     #   {v,id,ch} attachment, connId -> socket memo (M2)
     timers.js        # TimersHost: timer.schedule/cancel/get, __atoms_timers,
@@ -647,14 +678,83 @@ cloudflare/worker/
   .php-wasm/        # php_8_3.asyncify.{js,wasm}  (pinned; staged by
                     #   scripts/prepare-runtime.mjs, gitignored, never committed)
   scripts/          # build-bundle.mjs (assemble fixtures into bundle.json),
-                    #   dev-with-callback.mjs (wrangler dev + a per-run
-                    #   callback keypair, for the conformance callback checks)
+                    #   dev-with-callback.mjs (wrangler dev + a per-run shared
+                    #   secret, for the conformance callback checks)
   test/             # conformance suite (node, hits a running worker URL)
   wrangler.jsonc
   package.json
 ```
 
 ### Routing and auth
+
+#### The shared secret
+
+One operator-facing secret, **`ATOMS_SHARED_SECRET`**: 32 random bytes,
+base64-encoded, configured identically on the monolith and the Worker, and
+never transmitted. Every credential on this boundary is derived from it with
+HKDF-SHA256 domain separation — empty salt, a fixed per-purpose `info` string,
+32-byte output, IKM the **decoded 32 raw bytes** (`src/derive.js`):
+
+| purpose | `info` | form | use |
+|---|---|---|---|
+| bearer | `atoms/bearer/v1` | 32 bytes as standard base64, padded, exactly 44 characters | the `Authorization: Bearer` value |
+| WebSocket tickets | `atoms/ws-ticket/v1` | non-extractable HMAC-SHA256 key (`length: 256`) | ticket signing and verification |
+| callbacks | `atoms/callback/v1` | non-extractable HMAC-SHA256 key (`length: 256`) | callback signing (§The callback channel) |
+
+Reference vector, pinned by the conformance suite and the client test suite:
+the secret `AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=` derives the bearer
+`Dx6RY9LS43pOQhM4PMdaUWx3lk9mfyiiJZFfJtvl9E0=`, so
+`Authorization: Bearer Dx6RY9LS43pOQhM4PMdaUWx3lk9mfyiiJZFfJtvl9E0=` is exactly
+what a client configured with that secret sends. The bearer's length and
+encoding are part of the contract: a Worker may refuse a presented token that
+is not 44 characters before comparing, and the comparison is constant-time.
+
+The wire-exposed bearer is `HKDF(secret, "atoms/bearer/v1")`, never the secret
+itself, so a channel that leaks a request header — proxy logs, APM header
+capture, an exception reporter that dumps requests, a HAR file — leaks
+invocation capability only; HKDF's one-wayness means it cannot be walked back
+to the secret or sideways to the ticket or callback keys. `atoms token` prints
+the derived bearer for operators curling the Worker. The decision record, and
+the normative contract where this section and it disagree, is
+`docs/shared-secret.md`.
+
+**The secret is mandatory.** `ATOMS_SHARED_SECRET` absent, not exactly 32 bytes
+of base64, or `ATOMS_SHARED_SECRET_PREVIOUS` set but malformed → every route
+except `GET /healthz` answers the wire code `misconfigured` (HTTP 500,
+`retryable: false`), with a message naming the variable and the rule
+(**ATOMS-E105**). `loadConfig()` stays total, so `/healthz` still answers: a
+misconfigured Worker is observably up and observably broken, never silently
+open.
+
+**`ATOMS_BEARER_AUTH`** is the auth posture: `required` (the default) or
+`disabled`. Anything else logs a structured warning and behaves as `required`,
+so a typo fails closed. `disabled` is for one posture — an authenticating proxy
+such as Cloudflare Access in front of the Worker — and turns off the bearer
+comparison only: the secret stays mandatory, tickets stay signed, callbacks
+stay signed. Local development gets its keyless convenience from the explicit
+flag plus a per-machine dev secret in the gitignored `.dev.vars`, which
+`atoms dev` generates; local and production run the same code path.
+
+**Rotation** is `ATOMS_SHARED_SECRET_PREVIOUS`: optional, never a second live
+secret, accepted at exactly two verification sites — the Worker's bearer check
+and the monolith's callback verification. Both are try-both, never a key
+selector: verification attempts the current key, then the previous, and accepts
+on the first match; a key id is never a trusted input. A verifier accepts both,
+a sender emits only the current value, so the Worker always signs callbacks
+with the current key and the monolith always sends `bearer(current)`. Tickets
+get no overlap (below).
+
+**The deny list.** `config.js`'s built-in `ATOMS_CONFIG_ENV_DENY_KEYS` includes
+`ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS`, so a guest
+`config.get()` of either resolves null whatever `ATOMS_CONFIG_ENV_KEYS` says —
+an Atom that could read the secret would hold the root of everything, which is
+why this is part of the contract rather than hygiene, and why the conformance
+suite asserts it. The operator's list is additive to the built-in one,
+never a replacement. `packages/cli`'s `WorkerConfig::DEFAULT_DENY_KEYS` mirrors
+the same set, so `atoms deploy`/`atoms secrets` never bless writing either of
+them as plaintext `vars`.
+
+#### Routes
 
 - `POST /invoke/:type/:id/:method` body `{"args":[...]}` →
   `200 {"result":..., "atom":{"type":...,"id":...}}` or
@@ -670,29 +770,35 @@ cloudflare/worker/
   `/invoke` (M2). Validated in this order, all of it in `src/index.js` before
   any DO is addressed (steps renumbered in M4 when the ticket steps landed;
   the M2 steps themselves are unchanged):
-  1. Credential gate. A valid bearer passes exactly as on every other route,
-     and any `?ticket=` key is then stripped **unverified and unconsumed**
-     (the jti is not claimed) — a bearer holder is fully trusted and needs
-     no claims. Otherwise, when `ATOMS_APP_KEY` is set, a `ticket` query key
-     must be present (verification is step 3, once the decoded segments are
-     in hand); neither credential → `unauthenticated` (401). (M4)
+  0. Configuration gate. Without a usable `ATOMS_SHARED_SECRET` the route
+     answers `misconfigured` (500) before any credential is examined — the
+     same gate every route but `/healthz` sits behind.
+  1. Credential gate. Under `ATOMS_BEARER_AUTH=required`, a valid bearer
+     passes exactly as on every other route, and any `?ticket=` key is then
+     stripped **unverified and unconsumed** (the jti is not claimed) — a
+     bearer holder is fully trusted and needs no claims. With the bearer
+     absent or invalid, a `ticket` query key must be present (verification is
+     step 3, once the decoded segments are in hand); neither credential →
+     `unauthenticated` (401). Under `ATOMS_BEARER_AUTH=disabled` no credential
+     is required here, and a ticket that IS presented is fully verified in
+     step 3. (M4)
   2. `request.method === 'GET'`, else `method_not_allowed`.
-  3. Ticket verification (M4) — when step 1 engaged the ticket path, and,
-     with auth off, whenever a `ticket` key is present at all. Runs before
-     anything else looks at the request, so a caller without a valid
-     credential cannot probe which atom types are deployed. All stateless,
-     at the edge; a forged, expired or mis-scoped ticket never costs an
-     activation. In order: overall length ≤ `ATOMS_WS_TICKET_MAX_BYTES`
-     (default 8192, from `config.js`); version/format and, when
-     `ATOMS_APP_KEY` is set, the HMAC-SHA256 signature — failure, or a
-     `v1u.` unsigned dev ticket presented to an auth-on deployment, is
-     `ticket_invalid` (401); payload shape (`ticket_invalid`); scope —
-     payload `t`/`i` must equal the decoded path `:type`/`:id`
+  3. Ticket verification (M4) — whenever a `ticket` key is present and step 1
+     did not accept a trusted bearer. Runs before anything else looks at the
+     request, so a caller without a valid credential cannot probe which atom
+     types are deployed. All stateless, at the edge; a forged, expired or
+     mis-scoped ticket never costs an activation. In order: overall length ≤
+     `ATOMS_WS_TICKET_MAX_BYTES` (default 8192, from `config.js`);
+     version/format (`v1.<payload>.<sig>`, three segments) and the
+     HMAC-SHA256 signature under the **current** secret — failure is
+     `ticket_invalid` (401), and that includes a ticket signed under
+     `ATOMS_SHARED_SECRET_PREVIOUS`; payload shape (`ticket_invalid`); scope
+     — payload `t`/`i` must equal the decoded path `:type`/`:id`
      (`ticket_invalid`); expiry — refused when
      `now > exp + ATOMS_WS_TICKET_SKEW_MS` (default 5000) →
-     `ticket_expired` (401). With auth off the same checks run minus the
-     signature (`v1` and `v1u` both parse). A repeated `ticket` key: last
-     occurrence wins, matching the param map's repeat rule.
+     `ticket_expired` (401). Every posture runs every check, signature
+     included. A repeated `ticket` key: last occurrence wins, matching the
+     param map's repeat rule.
   4. `Upgrade: websocket` header present, else `invalid_request`.
   5. `validateType(type)` / `validateId(id, config)` — the same functions
      `/invoke` uses, so the id caps and the control-character/`\n`
@@ -721,7 +827,7 @@ cloudflare/worker/
      ticket check is stateless and already happened at the edge in step 3,
      so a refused ticket never costs an activation.
   **Auth posture:** the bearer header works exactly like every other route
-  when `ATOMS_APP_KEY` is set, and remains the only credential for
+  under `ATOMS_BEARER_AUTH=required`, and remains the only credential for
   server-to-server clients — no `Sec-WebSocket-Protocol` smuggling, and on
   every route except `/ws` still no query-parameter credential of any kind.
   A browser's `new WebSocket(url)` cannot set an `Authorization` header;
@@ -732,9 +838,9 @@ cloudflare/worker/
   short-TTL, HMAC-signed ticket scoped to exactly one atom,
   presented as `?ticket=` on the upgrade — the one deliberate exception to
   "no query-string credential", defensible precisely because the ticket is
-  everything the shared bearer key is not: seconds-lived, bound to one
+  everything the shared bearer is not: seconds-lived, bound to one
   `{type, id}`, and revoked wholesale by rotating
-  `ATOMS_APP_KEY`. A ticket is deliberately **not** single-use: it is
+  `ATOMS_SHARED_SECRET`. A ticket is deliberately **not** single-use: it is
   reusable until it expires, so a reconnect inside the TTL can retry the
   same URL without a round trip through the application, and the whole
   ticket contract stays stateless — replay protection would have been its
@@ -742,20 +848,23 @@ cloudflare/worker/
   leaked URL is bounded by the seconds-scale TTL, the same posture
   short-lived query-string WebSocket credentials carry across the wider
   ecosystem. Tickets are never *required*: a bearer keeps working on
-  `/ws` unchanged. With auth off the mint route still answers, returning
-  **unsigned dev tickets** (`v1u.`) so browser code paths are identical
-  between local dev and production — an unsigned ticket is not a credential
-  and confers no protection; an auth-off deployment is open by design.
+  `/ws` unchanged. There is one ticket form — the signed `v1.` — in every
+  posture, so browser code paths and the `/ws` verification path are
+  identical between local dev and production. A dev machine's tickets are
+  signed by that machine's dev secret and are worthless anywhere else.
 - `POST /tickets/:type/:id` body `{"claims": {...}}` (optional; flat
   string→string map) → `200 {"ticket": "...", "expires_at": <epoch-ms>,
   "atom": {"type": ..., "id": ...}}` or `4xx/5xx` in the standard error
   envelope (M4). The mint half of the connection-ticket flow: the
-  application's server — which holds the bearer key and is the only party
+  application's server — which holds the shared secret and is the only party
   that knows who the user is — mints here, hands the ticket to the browser,
   and the browser presents it on `/ws`. Validated in this order, all in
   `src/index.js`; **no DO is ever addressed** (minting is stateless):
-  1. `checkAuth()` — the same pre-dispatch bearer gate as `/invoke`. This
-     route is never ticket-exempt: a ticket cannot mint a ticket.
+  1. `checkAuth()` — the same pre-dispatch credential gate as `/invoke`,
+     behind the same configuration gate. This route is never ticket-exempt: a
+     ticket cannot mint a ticket. Under `ATOMS_BEARER_AUTH=disabled` the mint
+     route is reachable without a bearer; that posture is for a Worker
+     fronted by an authenticating proxy, which is what gates minting there.
   2. `request.method === 'POST'`, else `method_not_allowed`; three path
      segments, else `invalid_request`.
   3. `validateType` / `validateId` / `checkManifest` / the manifest
@@ -771,18 +880,16 @@ cloudflare/worker/
      channel membership, which is fixed from the query string) →
      `invalid_request`.
   5. Mint. Payload `{"t": type, "i": id, "exp": now + ATOMS_WS_TICKET_TTL_MS
-     (default 60000), "jti": <128-bit random hex>, "claims": {...}}`. With
-     `ATOMS_APP_KEY` set the ticket is
-     `v1.<base64url(payload)>.<base64url(sig)>`, sig = HMAC-SHA256 over
-     `"v1\n" + base64url(payload)` with a key derived from `ATOMS_APP_KEY`
-     via HKDF-SHA256 (empty salt, info string `atoms/ws-ticket/v1` — a
-     protocol constant, the same category as `WS_ATTACHMENT_VERSION`),
-     imported non-extractable and memoized per isolate. Rotating
-     `ATOMS_APP_KEY` therefore invalidates every outstanding ticket —
-     intended; tickets live seconds. With auth off: the unsigned dev form
-     `v1u.<base64url(payload)>`, same payload, and `/ws` runs the same
-     keyless checks on it — expiry, scope, claims merge — so
-     dev and production behave identically except for the signature.
+     (default 60000), "jti": <128-bit random hex>, "claims": {...}}`. The
+     ticket is always `v1.<base64url(payload)>.<base64url(sig)>`, sig =
+     HMAC-SHA256 over `"v1\n" + base64url(payload)` with the key derived from
+     `ATOMS_SHARED_SECRET` via HKDF-SHA256 (empty salt, info string
+     `atoms/ws-ticket/v1` — a protocol constant, the same category as
+     `WS_ATTACHMENT_VERSION`), derived non-extractable and memoized per
+     isolate. Rotating `ATOMS_SHARED_SECRET` therefore invalidates every
+     outstanding ticket — intended; tickets live seconds, are re-minted
+     through the application (which is also where rate-limiting the mint path
+     belongs), and take no previous-secret overlap.
 
   Claims are the server-asserted identity channel: values the application
   binds at mint (a `client_id`, a role, a seat) reach `onConnect` as
@@ -1293,7 +1400,9 @@ See `docs/cloudflare-toolchain.md` §3.
   `onActivation()` writes an activation row (proves lifecycle),
   migration `001_init.sql` creating `counter_state`, migration
   `002_add_stats.sql` (proves ordered multi-migration); `notify(string $note)`
-  dispatches `App\Jobs\Notify` (checks 16–17).
+  dispatches `App\Jobs\Notify` (checks 16–17); `configProbe(array $keys)`
+  reports what `$this->config()` resolves for each key (check 42's deny-list
+  assertion).
 - `Vault` — `putBig(string $key, int $value): void`, `getBig(string $key): int`
   (int64 boundary cases through args, SQL, and results),
   `transfer(...)` using `db()->transaction()` with a forced-failure path
@@ -1359,16 +1468,32 @@ See `docs/cloudflare-toolchain.md` §3.
 ## Conformance suite
 
 `test/conformance.mjs` runs against any base URL (`ATOMS_BASE_URL`), so the
-same suite runs against `wrangler dev` and the deployed Worker. It is 38
+same suite runs against `wrangler dev` and the deployed Worker. It is 42
 checks: the original 12 (1–12, untouched, not renumbered, not weakened) plus
 13 more added across M2's three waves and its review round, plus 5 more added
 by M1's PDO surface honesty pass, plus 8 more (31–38) added by M4's
-connection-ticket work — 31–34 run in either posture (the unsigned
-dev-ticket design makes mint, claims-merge, scope/expiry refusals and
-within-TTL reuse observable with no key at all), 35–38 need `ATOMS_APP_KEY` set on
-both the Worker and the runner and otherwise skip
-(`ATOMS_REQUIRE_TICKET_CHECKS=1` turns those skips into failures, the same
-anti-silent-deletion device as the callback checks).
+connection-ticket work, plus 4 more (39–42) for the shared secret
+(`docs/shared-secret.md`).
+
+The Worker under test runs one of three postures, and `ATOMS_BEARER_AUTH`
+tells the runner which:
+
+- **bearer required** (the default) — `ATOMS_SHARED_SECRET` set,
+  `ATOMS_BEARER_AUTH` unset or `required`. Everything runs, including 35–38
+  and check 39's live-acceptance leg.
+- **bearer disabled** — `ATOMS_SHARED_SECRET` set,
+  `ATOMS_BEARER_AUTH=disabled` (an authenticating proxy in front). The secret
+  is still mandatory, tickets are still signed and callbacks are still signed,
+  so only the bearer-gated checks skip.
+- **misconfigured** — no `ATOMS_SHARED_SECRET`. Check 41 is the whole run
+  (`ATOMS_ONLY=41 ATOMS_EXPECT_MISCONFIGURED=1`).
+
+Credentials reach the runner one of two ways. `ATOMS_SHARED_SECRET` is the
+full-capability form: it derives the bearer it presents, forges test tickets,
+and verifies every callback it receives. `ATOMS_BEARER_TOKEN` — the derived
+bearer, which `atoms token` prints — carries invoke capability only, so a run
+against a deployed Worker never has to hold the root; the checks that need the
+root skip.
 
 1. healthz; 2. invoke + result envelope; 3. warm-residency (in-memory counter
 increments across turns); 4. isolation between two IDs; 5. migrations applied
@@ -1383,10 +1508,12 @@ durable state intact, in-memory state reset, `onActivation` re-ran.
 
 **13–17 — the callback channel (`app()`/`dispatch()`).** The suite itself
 plays the monolith: a `node:http` listener bound to `127.0.0.1`, verifying
-Ed25519 signatures with `node:crypto`, started from a per-run generated
-keypair (`scripts/dev-with-callback.mjs`, `npm run dev:callback` — never a
-committed key). **13.** `app()` round trip, int64-exact across the boundary
-matrix, every request signed with a fresh nonce and a fresh timestamp.
+HMAC-SHA256 signatures with `node:crypto` under
+`HKDF(ATOMS_SHARED_SECRET, "atoms/callback/v1")`, against a secret generated
+per run (`scripts/dev-with-callback.mjs`, `npm run dev:callback` — never a
+committed secret). **13.** `app()` round trip, int64-exact across the boundary
+matrix, every request signed with a fresh nonce and a fresh timestamp, and
+every signature asserted to decode to exactly 32 bytes before it is verified.
 **14.** `app()` rejected inside a transaction: `ATOMS-E082`, and the listener
 saw **no request at all** (the guest-side guard fires before crossing).
 **15.** deadline overrun: 15a uncaught → 504 `turn_deadline_exceeded` within
@@ -1406,8 +1533,9 @@ delivery. The same check then does it from `onActivation()`, on a fresh
 commit, and delivered — with the same awaited-before-the-response
 assertion — even when dispatched outside a transaction followed by an uncaught
 throw (the documented asymmetry). **13–17 skip (not fail) when no callback
-listener is configured** — `test/.callback-key.json` absent — so a run against
-a Worker with no callback channel configured is still honest; 15 additionally
+listener is configured** — the listener needs the shared secret and a port, so
+a run against a Worker with no callback channel configured is still honest;
+15 additionally
 skips when `ATOMS_TURN_DEADLINE_MS` is not set in the runner's own
 environment. **`ATOMS_REQUIRE_CALLBACK_CHECKS=1` turns those skips into
 failures**, and CI sets it: a skip is the right answer for a Worker with no
@@ -1526,11 +1654,9 @@ differing line and the regeneration command. If check 28 produced no report at
 all, this **fails rather than skips** — a stale doc is never excused by a
 missing run.
 
-**31–38 — connection tickets (M4).** **31.** the happy path, both postures:
-mint (with the bearer when the runner has a key, without when not) → 200 with
-a sane `expires_at` and a ticket whose prefix matches the posture (`v1.`
-3-segment signed under auth-on, `v1u.` unsigned dev under auth-off); a
-**headerless** upgrade carrying `?ticket=` plus a spoofed
+**31–38 — connection tickets (M4).** **31.** the happy path, both configured
+postures: mint → 200 with a sane `expires_at` and a 3-segment signed `v1.`
+ticket; a **headerless** upgrade carrying `?ticket=` plus a spoofed
 `client_id` query param opens, and the params echoed by the fixture show the
 ticket claim winning (server-asserted `client_id`, not the spoofed one) and
 **no `ticket` key at all**; a URL carrying exactly `ATOMS_WS_MAX_PARAMS`
@@ -1541,33 +1667,70 @@ claim keys → `invalid_request`; a `websocket: false` type → `not_supported`;
 an unknown type → `unknown_atom_type`; wrong method/arity → 405/400.
 **33.** edge refusals, asserted as the JSON error envelope on the refused
 upgrade: structural garbage → `ticket_invalid`; a ticket minted for atom A
-presented on atom B → `ticket_invalid`; a hand-forged, already-expired `v1u.`
-dev ticket — forgeable by design, which is what makes expiry testable with no
-TTL wait — → `ticket_expired` under auth-off, and `ticket_invalid` under
-auth-on (the forgery is refused before its `exp` is even read).
+presented on atom B → `ticket_invalid`; a correctly signed ticket whose `exp`
+is already in the past → `ticket_expired` (the runner signs it with the run's
+own ticket key, which is what makes expiry testable with no TTL wait); a
+`v1u.`-form string → `ticket_invalid`, in every posture. The two forged legs
+need `ATOMS_SHARED_SECRET` in the runner's own environment, else they skip.
 **34.** reusable within TTL: the same ticket opens a second connection both
 while the first socket is still open and after it has closed — the contract
 assertion that no single-use burn exists, so the short TTL is knowably the
-ticket's whole replay story. **35.** auth-on minting: a headerless mint → 401
-`unauthenticated` (minting is never ticket-exempt); an authed mint → a
-3-segment `v1.` ticket; then the flagship assertion — a **headerless**
-browser-style upgrade with that ticket opens, claims merged. **36.** auth-on
-refusals: one flipped character in the signature segment → `ticket_invalid`; a
-forged `v1u.` dev ticket → `ticket_invalid` (unsigned tickets are not
-credentials); no bearer and no ticket → `unauthenticated`; and a genuinely
-expired **signed** ticket → `ticket_expired`, waited out for real — this leg
-needs `ATOMS_WS_TICKET_SKEW_MS` in the runner's own environment (matching the
-Worker's, never defaulted — the check-15/29 pattern) and a Worker started
-with a short `ATOMS_WS_TICKET_TTL_MS`, else it skips. **37.** bearer
-precedence: a **tampered** ticket is 401 `ticket_invalid` headerless (the
-non-vacuity guard), then the same upgrade with a valid bearer connects — the
-bearer path strips the ticket unverified. **38.** the routing
-regression guard: with auth on, a headerless `POST /invoke` and `GET /debug`
-are still 401 — the `/ws` ticket carve-out leaked into no other route.
-**31–34 run whether or not `ATOMS_APP_KEY` is set** (they exercise signed
-tickets under auth-on and unsigned dev tickets under auth-off — same checks,
-both postures); 35–38 skip without a key, and
-`ATOMS_REQUIRE_TICKET_CHECKS=1` turns any ticket-check skip into a failure.
+ticket's whole replay story. **35.** minting is bearer-gated: a headerless
+mint → 401 `unauthenticated` (minting is never ticket-exempt); an authed mint
+→ a 3-segment `v1.` ticket; then the flagship assertion — a **headerless**
+browser-style upgrade with that ticket opens, claims merged. **36.**
+bearer-required refusals: one flipped character in the signature segment →
+`ticket_invalid`; a `v1u.`-form string → `ticket_invalid`; no bearer and no
+ticket → `unauthenticated`; and a genuinely expired ticket → `ticket_expired`,
+waited out for real — this leg needs `ATOMS_WS_TICKET_SKEW_MS` in the runner's
+own environment (matching the Worker's, never defaulted — the check-15/29
+pattern) and a Worker started with a short `ATOMS_WS_TICKET_TTL_MS`, else it
+skips. **37.** bearer precedence: a **tampered** ticket is 401
+`ticket_invalid` headerless (the non-vacuity guard), then the same upgrade
+with a valid bearer connects — the bearer path strips the ticket unverified.
+**38.** the routing regression guard: with bearer auth required, a headerless
+`POST /invoke` and `GET /debug` are still 401 — the `/ws` ticket carve-out
+leaked into no other route. **31–34 run in either configured posture**;
+35–38 need bearer auth required, and `ATOMS_REQUIRE_TICKET_CHECKS=1` turns any
+ticket-check skip into a failure.
+
+**39–42 — the shared secret (`docs/shared-secret.md`).** **39.** bearer
+derivation: (a) the runner reproduces the reference vector for all three
+purposes — `atoms/bearer/v1` → `Dx6RY9LS43pOQhM4PMdaUWx3lk9mfyiiJZFfJtvl9E0=`,
+`atoms/ws-ticket/v1` → `oAhR1o7PQdNULciqv8FZkgnlJ89a48C5wpdSEMXHBoA=`,
+`atoms/callback/v1` → `o5hmDR6tAEEoECTVtZm/BT1yzFkGWZYcDXXI/V1cYSM=` from the
+test secret `AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=` — and the bearer is
+44 characters of standard base64; (b) the **cross-language** pin: a live
+`php -r` running `hash_hkdf('sha256', $ikm, 32, 'atoms/bearer/v1', '')` over
+the run's own secret produces exactly what the runner derives, which is what
+makes "the monolith derives in PHP and the Worker in WebCrypto" a checked
+claim rather than an assumption — it skips when there is no `php` on PATH, and
+`ATOMS_REQUIRE_BEARER_VECTOR=1` turns that skip into a failure (CI installs
+PHP and sets it); (c) with bearer auth required, the derived bearer is
+accepted live and a 44-character bearer derived from an unrelated secret is
+401 `unauthenticated`. **40.** rotation: with `ATOMS_SHARED_SECRET_PREVIOUS`
+configured on the Worker and the runner, `bearer(current)` and
+`bearer(previous)` are both accepted on `/invoke` while an unrelated bearer is
+401 (the non-vacuity half); a ticket signed under the previous secret's ticket
+key is `ticket_invalid` while one signed under the current key connects —
+tickets get **no** overlap; and the callback the listener receives verifies
+under the current callback key and **not** under the previous one, pinning
+that a verifier accepts both while a sender emits only the current value.
+Skips without the previous secret; `ATOMS_REQUIRE_ROTATION_CHECKS=1` turns
+that skip into a failure. **41.** the misconfigured Worker: booted with no
+secret, `GET /healthz` still answers 200 `{ok: true}` (`loadConfig()` stays
+total) and `/invoke`, `/tickets`, `/debug` and `/ws` all answer HTTP 500 with
+the wire code `misconfigured` — loudly broken, never silently open. It runs
+only under `ATOMS_EXPECT_MISCONFIGURED=1`, which is the whole of that short
+posture's run. **42.** the config deny list: with the Worker started with
+`ATOMS_CONFIG_ENV_KEYS` naming `ATOMS_SHARED_SECRET` and
+`ATOMS_SHARED_SECRET_PREVIOUS`, a guest `$this->config()` of either name
+resolves `null` (`Counter::configProbe()` reports what the guest sees), while
+an allowlisted control key on the same list resolves — the control is what
+makes the two nulls meaningful rather than vacuous, and its absence is what
+the check skips on, with `ATOMS_REQUIRE_DENY_CHECKS=1` turning that skip into
+a failure. The built-in deny list wins over the operator's allowlist, because
+a guest that could read the secret would hold the root of everything.
 
 Remote-only additions: measure cold activation, warm turn, and
 post-hibernation wake latencies; record them in `test/results/remote.json`.
@@ -1671,9 +1834,18 @@ otherwise unchanged and still binding.
      the derived public key is byte-identical to `node:crypto`'s, and a
      signature workerd produces over the real signed-message shape verifies
      under `node:crypto.verify(null, …)` — the same primitive
-     `sodium_crypto_sign_verify_detached` uses. Consequence: no
-     `@noble/ed25519` fallback was needed, and none was added — the callback
-     channel signs with platform crypto only (§The callback channel).
+     `sodium_crypto_sign_verify_detached` uses. Recorded because it settles
+     the platform question for any future asymmetric envelope; the callback
+     channel signs with HMAC-SHA256 (§The callback channel).
+   - **HKDF and HMAC are present in workerd's WebCrypto, and agree with
+     PHP.** `importKey('raw', …, 'HKDF', …)` + `deriveBits`/`deriveKey` with
+     an empty salt reproduces `hash_hkdf('sha256', $ikm, 32, $info, '')`
+     byte for byte, and an HMAC-SHA256 tag over the callback envelope matches
+     `hash_hmac()` on the same 32 derived bytes. `deriveKey` to an HMAC key
+     needs an explicit `length: 256` — the default is the hash's block size
+     (512 bits), which would key the MAC with 64 bytes and disagree with the
+     PHP side. Both halves of §The shared secret depend on this, and the
+     conformance suite and the client test suite pin the reference vector.
    - **A loopback `fetch()` from `wrangler dev`'s workerd to `127.0.0.1`
      works with no flag**, including with `HTTPS_PROXY` set in the
      environment (wrangler logs that it detected the proxy and used it for
@@ -1868,8 +2040,9 @@ otherwise unchanged and still binding.
 `wrangler.jsonc` name `atoms-mvp-conformance`, `compatibility_date` current,
 SQLite-backed DO class export + migration tag `v1`. Deploy with
 `npx wrangler deploy`; the remote suite runs against the `workers.dev` URL
-with `ATOMS_DEBUG_ENDPOINTS=1` and an `ATOMS_APP_KEY` secret set via
-`wrangler secret`. Nothing here touches the legacy Fly path.
+with `ATOMS_DEBUG_ENDPOINTS=1` and an `ATOMS_SHARED_SECRET` secret set via
+`wrangler secret put ATOMS_SHARED_SECRET`. Nothing here touches the legacy Fly
+path.
 
 That `wrangler.jsonc` is the conformance harness's config only. What
 customers scaffold (via `@atomsphp/runtime-cloudflare`) is built from
@@ -1879,5 +2052,6 @@ deploy` selects the real Worker with `--name`), and no
 supported enable path is atoms.json's per-environment
 `"debug_endpoints": true`, which the CLI forwards to Wrangler as a `--var`
 on both `atoms dev` and `atoms deploy` (see `docs/cloudflare-toolchain.md`
-§Debug endpoints). The flag is defense in depth behind the bearer check
-(§Routing and auth); with auth off it is the only gate in front of `/debug`.
+§Debug endpoints). The flag is defense in depth behind the Worker's auth
+check (§Routing and auth); under `ATOMS_BEARER_AUTH=disabled` — the
+authenticating-proxy posture — it is the only gate in front of `/debug`.

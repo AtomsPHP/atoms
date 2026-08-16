@@ -5,15 +5,32 @@
  *
  * Runs the conformance contract against a live Worker URL. For callback
  * checks, this suite plays the monolith with a `node:http` listener bound to
- * loopback that verifies Ed25519 signatures using `node:crypto`. WebSocket
- * checks use Node's built-in global `WebSocket`, so the suite needs no extra
- * client dependency.
+ * loopback that verifies HMAC-SHA256 signatures using `node:crypto`.
+ * WebSocket checks use Node's built-in global `WebSocket`, so the suite needs
+ * no extra client dependency.
+ *
+ * Credentials: the boundary has one operator-facing root,
+ * `ATOMS_SHARED_SECRET` (32 random bytes, base64), and every key on it is
+ * HKDF-SHA256 derived from that root — bearer (`atoms/bearer/v1`), WebSocket
+ * tickets (`atoms/ws-ticket/v1`), callbacks (`atoms/callback/v1`). Handed the
+ * secret, this suite has full capability: it derives the bearer it presents,
+ * forges test tickets, and verifies every callback it receives. Handed only
+ * `ATOMS_BEARER_TOKEN` (the derived bearer, which is what `atoms token`
+ * prints), it can invoke — and the checks that need the root skip, so a run
+ * against a deployed Worker never has to carry the root to the runner.
  *
  * Config via env:
  *   ATOMS_BASE_URL (required)
- *   ATOMS_APP_KEY (optional bearer token)
+ *   ATOMS_SHARED_SECRET (base64, exactly 32 bytes once decoded; defaults to
+ *     the value recorded in test/.dev-secret.json by `npm run dev:callback`)
+ *   ATOMS_BEARER_TOKEN (the derived bearer, for runs that hold no root)
+ *   ATOMS_BEARER_AUTH (`required` — the default — or `disabled`: the posture
+ *     the Worker under test runs; `required` is what makes the suite present
+ *     a bearer)
+ *   ATOMS_SHARED_SECRET_PREVIOUS (the rotation overlap secret; required for
+ *     check 40, which otherwise skips)
  *   ATOMS_EVICTION_WAIT_MS (default 12500)
- *   ATOMS_CALLBACK_PORT (default: the port recorded in test/.callback-key.json)
+ *   ATOMS_CALLBACK_PORT (default: the port recorded in test/.dev-secret.json)
  *   ATOMS_TURN_DEADLINE_MS (required for checks 15a/15b; must match the value
  *     the Worker was started with — never defaulted here, so no capacity
  *     number is written into the suite)
@@ -26,28 +43,36 @@
  *     sent against when the invoke response arrived)
  *   ATOMS_SKIP=n,m (comma-separated check numbers to skip)
  *   ATOMS_ONLY=n,m (comma-separated allowlist: run ONLY these check numbers.
- *     Complements ATOMS_SKIP; exists so an auth-enabled second run can
- *     exercise just the ticket checks without re-paying the eviction waits.
- *     An allowlist is self-maintaining where a 30-entry skip list is not.)
+ *     Complements ATOMS_SKIP; exists so a scoped second run can exercise just
+ *     the auth/ticket checks without re-paying the eviction waits. An
+ *     allowlist is self-maintaining where a 30-entry skip list is not.)
  *   ATOMS_WS_TICKET_SKEW_MS (required for check 36's signed-expiry leg and,
  *     when positive, enables check 34's within-skew replay leg; must match
  *     the value the Worker was started with — never defaulted here)
  *   ATOMS_REQUIRE_TICKET_CHECKS=1 (turn the connection-ticket skips — checks
  *     35-38 and check 36's conditional expiry leg — into failures. Set it on
- *     the auth-enabled run; the anti-silent-deletion device from
+ *     the bearer-required run; the anti-silent-deletion device from
  *     ATOMS_REQUIRE_CALLBACK_CHECKS)
+ *   ATOMS_REQUIRE_BEARER_VECTOR=1 (turn check 39's cross-language leg's skip —
+ *     no `php` on PATH — into a failure; CI sets it)
+ *   ATOMS_REQUIRE_ROTATION_CHECKS=1 (turn check 40's skip into a failure; set
+ *     it on the run whose Worker carries ATOMS_SHARED_SECRET_PREVIOUS)
+ *   ATOMS_REQUIRE_DENY_CHECKS=1 (turn check 42's skip into a failure; set it
+ *     on the run whose Worker lists the secret names in ATOMS_CONFIG_ENV_KEYS)
+ *   ATOMS_EXPECT_MISCONFIGURED=1 (the Worker under test was booted with no
+ *     shared secret: run check 41, which asserts the `misconfigured` posture)
  */
 
-import { createPublicKey, randomBytes, verify as verifyEd25519 } from 'node:crypto';
+import { createHmac, hkdfSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { renderMatrixDoc } from '../scripts/gen-pdo-matrix.mjs';
 
 const BASE_URL = process.env.ATOMS_BASE_URL;
-const APP_KEY = process.env.ATOMS_APP_KEY;
 const EVICTION_WAIT_MS = parseInt(process.env.ATOMS_EVICTION_WAIT_MS || '12500');
 const TURN_DEADLINE_MS = process.env.ATOMS_TURN_DEADLINE_MS ? parseInt(process.env.ATOMS_TURN_DEADLINE_MS, 10) : null;
 // A skip is the right answer for a Worker that legitimately has no callback
@@ -88,6 +113,18 @@ const WS_TICKET_SKEW_MS = process.env.ATOMS_WS_TICKET_SKEW_MS
 // connection-ticket checks: set on the auth-enabled run, where 35-38 must
 // run rather than skip.
 const REQUIRE_TICKET_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_TICKET_CHECKS || '');
+// Check 39's cross-language leg shells out to `php`; check 40 needs the
+// rotation overlap secret; check 42 needs a Worker whose ATOMS_CONFIG_ENV_KEYS
+// names the secrets. Each skips when its prerequisite is absent, and each has
+// its own REQUIRE_ flag — the same anti-silent-deletion device as
+// ATOMS_REQUIRE_CALLBACK_CHECKS, one flag per prerequisite.
+const REQUIRE_BEARER_VECTOR = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_BEARER_VECTOR || '');
+const REQUIRE_ROTATION_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_ROTATION_CHECKS || '');
+const REQUIRE_DENY_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_DENY_CHECKS || '');
+// The Worker under test was booted with no shared secret, so every route
+// except /healthz answers `misconfigured`. Check 41 is the whole run in that
+// posture (ATOMS_ONLY=41); everything else expects a configured Worker.
+const EXPECT_MISCONFIGURED = /^(1|true|yes|on)$/i.test(process.env.ATOMS_EXPECT_MISCONFIGURED || '');
 
 if (!BASE_URL) {
     console.error('Error: ATOMS_BASE_URL env var is required');
@@ -96,6 +133,127 @@ if (!BASE_URL) {
 
 const baseUrl = BASE_URL.replace(/\/$/, '');
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// -------------------------------------------------------------- credentials
+
+/**
+ * HKDF-SHA256 domain separation labels, one per purpose on the app <-> Worker
+ * boundary (docs/shared-secret.md). Protocol constants: two deployments that
+ * disagree on them cannot exchange anything, which is the point.
+ */
+const HKDF_INFO = {
+    bearer: 'atoms/bearer/v1',
+    ticket: 'atoms/ws-ticket/v1',
+    callback: 'atoms/callback/v1',
+};
+
+/** The reference vector both languages reproduce — check 39a pins it. */
+const REFERENCE_SECRET = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=';
+const REFERENCE_DERIVED = {
+    bearer: 'Dx6RY9LS43pOQhM4PMdaUWx3lk9mfyiiJZFfJtvl9E0=',
+    ticket: 'oAhR1o7PQdNULciqv8FZkgnlJ89a48C5wpdSEMXHBoA=',
+    callback: 'o5hmDR6tAEEoECTVtZm/BT1yzFkGWZYcDXXI/V1cYSM=',
+};
+
+/**
+ * Strict-decode a base64 shared secret to its 32 raw bytes — the IKM every
+ * derivation starts from, on both sides of the boundary.
+ *
+ * @param {string} b64
+ * @param {string} label the variable this value came from, for the message
+ * @returns {Buffer}
+ */
+function secretBytes(b64, label) {
+    const trimmed = b64.trim();
+    const bytes = Buffer.from(trimmed, 'base64');
+    if (bytes.length !== 32 || bytes.toString('base64').replace(/=+$/, '') !== trimmed.replace(/=+$/, '')) {
+        console.error(
+            `Error: ${label} must be exactly 32 bytes of base64 (got ${bytes.length} byte(s) from ` +
+                `${trimmed.length} characters). Generate one with \`openssl rand -base64 32\`.`
+        );
+        process.exit(1);
+    }
+    return bytes;
+}
+
+/**
+ * HKDF-SHA256 with an empty salt and a 32-byte output, over the decoded
+ * secret. Byte-identical to PHP's `hash_hkdf('sha256', $ikm, 32, $info, '')`
+ * — check 39 proves it against a live `php` rather than asserting it here.
+ *
+ * @param {string} secretB64
+ * @param {'bearer'|'ticket'|'callback'} purpose
+ * @returns {Buffer}
+ */
+function derive(secretB64, purpose) {
+    const ikm = secretBytes(secretB64, 'the shared secret');
+    return Buffer.from(hkdfSync('sha256', ikm, Buffer.alloc(0), Buffer.from(HKDF_INFO[purpose], 'utf8'), 32));
+}
+
+/** The wire value of `Authorization: Bearer …` for a secret: 44 characters. */
+function deriveBearer(secretB64) {
+    return derive(secretB64, 'bearer').toString('base64');
+}
+
+/**
+ * The per-run secret `scripts/dev-with-callback.mjs` wrote, plus the port its
+ * callback URL points at. Absent means the run was configured from the
+ * environment instead (CI, or a deployed Worker).
+ *
+ * @returns {{sharedSecret?: string, port?: number}|null}
+ */
+function loadDevSecretFile() {
+    const path = join(__dirname, '.dev-secret.json');
+    if (!existsSync(path)) return null;
+    try {
+        return JSON.parse(readFileSync(path, 'utf-8'));
+    } catch (e) {
+        console.error(`Warning: could not read ${path}: ${e.message}`);
+        return null;
+    }
+}
+
+const devSecretFile = loadDevSecretFile();
+
+/** The root, when this run holds it. Environment wins over the dev file. */
+const SHARED_SECRET =
+    (process.env.ATOMS_SHARED_SECRET || '').trim() || (devSecretFile?.sharedSecret || '').trim() || null;
+/** The rotation overlap secret, when the Worker under test carries one. */
+const SHARED_SECRET_PREVIOUS = (process.env.ATOMS_SHARED_SECRET_PREVIOUS || '').trim() || null;
+
+// Both are validated here, at startup, so a malformed value is one clear
+// message before the first request rather than an exit from inside a check.
+if (SHARED_SECRET) secretBytes(SHARED_SECRET, 'ATOMS_SHARED_SECRET');
+if (SHARED_SECRET_PREVIOUS) secretBytes(SHARED_SECRET_PREVIOUS, 'ATOMS_SHARED_SECRET_PREVIOUS');
+
+// `disabled` is the authenticating-proxy posture; anything else is `required`,
+// so a typo fails closed — the same rule the Worker applies to its own copy of
+// this variable.
+const BEARER_AUTH_RAW = (process.env.ATOMS_BEARER_AUTH || 'required').trim().toLowerCase();
+const AUTH_REQUIRED = BEARER_AUTH_RAW !== 'disabled';
+if (BEARER_AUTH_RAW !== 'required' && BEARER_AUTH_RAW !== 'disabled') {
+    console.error(`Warning: ATOMS_BEARER_AUTH=${JSON.stringify(BEARER_AUTH_RAW)} is not recognized; assuming "required".`);
+}
+
+/**
+ * The bearer this run can present: derived from the root when it has one,
+ * otherwise the pre-derived token an operator passed in. Held whatever the
+ * posture — check 39 uses it to prove a bearer-required Worker accepts it.
+ */
+const BEARER_TOKEN =
+    (process.env.ATOMS_BEARER_TOKEN || '').trim() || (SHARED_SECRET ? deriveBearer(SHARED_SECRET) : null);
+/** What `request()` actually sends: a credential only where one is expected. */
+const AUTH_HEADER_VALUE = AUTH_REQUIRED ? BEARER_TOKEN : null;
+
+if (AUTH_REQUIRED && !BEARER_TOKEN && !EXPECT_MISCONFIGURED) {
+    console.error(
+        'Error: this run needs a credential. Set ATOMS_SHARED_SECRET (base64, 32 bytes — the full-capability ' +
+            'form: derives the bearer, forges test tickets, verifies callbacks) or ATOMS_BEARER_TOKEN (the ' +
+            'derived bearer, which `atoms token` prints, for a run that must not carry the root). Set ' +
+            'ATOMS_BEARER_AUTH=disabled if the Worker under test runs behind an authenticating proxy.'
+    );
+    process.exit(1);
+}
 
 // ---------------------------------------------------------------- utilities
 
@@ -130,8 +288,7 @@ function fail(checkNum, name, msg = '') {
  * whose absence caused the skip, so a reader of the failure/skip line (or of
  * `results`) is told exactly what to set, rather than a generic "unavailable"
  * that leaves them re-reading this file's setup docs to find it. Optional:
- * some skips (e.g. a missing `test/.callback-key.json`, not itself an env
- * var) have no single variable to name and pass none.
+ * some skips have no single variable to name and pass none.
  */
 function skip(checkNum, name, msg = '', require_ = REQUIRE_CALLBACK_CHECKS, envVar = null) {
     const full = envVar ? `${msg} (env var: ${envVar})` : msg;
@@ -143,13 +300,25 @@ function skip(checkNum, name, msg = '', require_ = REQUIRE_CALLBACK_CHECKS, envV
     console.log(`⊘ CHECK ${checkNum}: ${name} — skipped${full ? ` (${full})` : ''}`);
 }
 
-/** Make an HTTP request. */
-async function request(method, path, body = null) {
+/**
+ * Make an HTTP request, carrying this posture's bearer.
+ *
+ * `opts.bearer` presents a specific credential instead: a string for that
+ * exact token (checks 39/40 present a wrong bearer and a previous-secret
+ * bearer), `null` for a headerless request.
+ *
+ * @param {string} method
+ * @param {string} path
+ * @param {unknown} [body]
+ * @param {{bearer?: string|null}} [opts_]
+ */
+async function request(method, path, body = null, opts_ = {}) {
     const url = new URL(path, baseUrl).toString();
     const opts = { method };
+    const bearer = 'bearer' in opts_ ? opts_.bearer : AUTH_HEADER_VALUE;
 
-    if (APP_KEY) {
-        opts.headers = { Authorization: `Bearer ${APP_KEY}` };
+    if (bearer) {
+        opts.headers = { Authorization: `Bearer ${bearer}` };
     }
 
     if (body) {
@@ -187,9 +356,12 @@ function parseInt64(val) {
     return BigInt(val);
 }
 
-/** Helper to invoke an Atom method. */
-async function invoke(type, id, method, args = []) {
-    return request('POST', `/invoke/${type}/${id}/${method}`, { args });
+/**
+ * Helper to invoke an Atom method. `opts` reaches `request()` unchanged, so a
+ * check can invoke under a specific credential.
+ */
+async function invoke(type, id, method, args = [], opts = {}) {
+    return request('POST', `/invoke/${type}/${id}/${method}`, { args }, opts);
 }
 
 /** Residency info from GET /debug/:type/:id/info (ATOMS_DEBUG_ENDPOINTS=1). */
@@ -236,8 +408,8 @@ const atomId = (name) => `${name}-${RUN}`;
  * from the base URL's scheme so a deployed `https://` base URL works instead of
  * dying with Node's `Protocol "https:" not supported`.
  *
- * `opts.auth === false` omits the Authorization header even when a key is
- * configured — a browser cannot set one, so the ticket-path refusals must be
+ * `opts.auth === false` omits the Authorization header even when this posture
+ * has a bearer — a browser cannot set one, so the ticket-path refusals must be
  * probed the way a browser would arrive, or the bearer would quietly satisfy
  * the auth gate and the assertion would test the wrong credential.
  *
@@ -254,7 +426,7 @@ function wsHandshakeAttempt(path, opts = {}) {
             'Sec-WebSocket-Key': randomBytes(16).toString('base64'),
             'Sec-WebSocket-Version': '13',
         };
-        if (APP_KEY && opts.auth !== false) headers.Authorization = `Bearer ${APP_KEY}`;
+        if (AUTH_HEADER_VALUE && opts.auth !== false) headers.Authorization = `Bearer ${AUTH_HEADER_VALUE}`;
         const requestFn = url.protocol === 'https:' ? httpsRequest : httpRequest;
 
         // The probe must SETTLE on every path, or a regression turns a failed
@@ -310,10 +482,10 @@ function wsHandshakeAttempt(path, opts = {}) {
 /**
  * Open a WebSocket to the worker's `/ws` route and wait for it to connect.
  * Node 22's global `WebSocket` accepts `{headers: {Authorization: ...}}`
- * (an undici extension), so by default this sends the bearer whether
- * `ATOMS_APP_KEY` is set or not. Pass `{auth: false}` to connect the way a
- * browser does — no headers at all — with a `?ticket=` minted from
- * `POST /tickets` carried in `path` as the credential instead (checks 31+).
+ * (an undici extension), so by default this sends this posture's bearer.
+ * Pass `{auth: false}` to connect the way a browser does — no headers at
+ * all — with a `?ticket=` minted from `POST /tickets` carried in `path` as
+ * the credential instead (checks 31+).
  *
  * The returned handle collects inbound frames into arrival order; `.next()`
  * awaits (and consumes) the next one, whether it already arrived or is still
@@ -330,7 +502,9 @@ function wsHandshakeAttempt(path, opts = {}) {
 function openSocket(path, sockOpts = {}) {
     const url = new URL(path, baseUrl).toString().replace(/^http/, 'ws');
     const opts =
-        APP_KEY && sockOpts.auth !== false ? { headers: { Authorization: `Bearer ${APP_KEY}` } } : undefined;
+        AUTH_HEADER_VALUE && sockOpts.auth !== false
+            ? { headers: { Authorization: `Bearer ${AUTH_HEADER_VALUE}` } }
+            : undefined;
     const ws = opts ? new WebSocket(url, opts) : new WebSocket(url);
     ws.binaryType = 'arraybuffer';
 
@@ -395,18 +569,36 @@ async function mintTicketReq(type, id, claims = null) {
 }
 
 /**
- * Hand-build the unsigned dev form (`v1u.<base64url(payload)>`). Legitimate
- * precisely BECAUSE unsigned tickets are forgeable by design: it is what
- * makes the keyless refusals (expiry, scope) testable instantly, with no TTL
- * wait and no env matching — and what check 36 presents to an auth-enabled
- * Worker to prove a forgery is not a credential there.
+ * Mint a ticket the way the Worker does — `v1.<payload>.<sig>`, the signature
+ * an HMAC-SHA256 over `"v1\n" + <payload segment>` under
+ * `HKDF(secret, "atoms/ws-ticket/v1")`.
+ *
+ * Holding the root is what makes ticket refusals testable instantly: a ticket
+ * with an `exp` already in the past proves the expiry path with no TTL wait,
+ * and a ticket signed under the rotation overlap secret proves tickets get no
+ * previous-secret acceptance (check 40).
+ *
+ * @param {object} payload
+ * @param {string} secretB64 the secret whose ticket key signs it
  */
-function forgeDevTicket(payload) {
+function forgeTicket(payload, secretB64) {
+    const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const sig = createHmac('sha256', derive(secretB64, 'ticket'))
+        .update(`v1\n${payloadB64}`)
+        .digest('base64url');
+    return `v1.${payloadB64}.${sig}`;
+}
+
+/**
+ * A `v1u.`-form string: two segments, no signature. Not a v1 connection
+ * ticket, and checks 33/36 assert the Worker says so in every posture.
+ */
+function unsignedForm(payload) {
     return 'v1u.' + Buffer.from(JSON.stringify(payload)).toString('base64url');
 }
 
 /** A syntactically plausible ticket payload for one atom. */
-function devPayload(type, id, overrides = {}) {
+function ticketPayload(type, id, overrides = {}) {
     return {
         t: type,
         i: id,
@@ -420,14 +612,28 @@ function devPayload(type, id, overrides = {}) {
 // ------------------------------------------------------- callback listener
 
 /**
- * Wrap a raw 32-byte Ed25519 public key in the fixed SPKI DER header so
- * node:crypto can import it. Mirrors the PKCS8 trick on the signing side —
- * same idea, the public-key encoding.
+ * The callback envelope's signed message: `"v1\n{ts}\n{nonce}\n" + body`.
+ *
+ * @param {string} timestamp
+ * @param {string} nonce
+ * @param {Buffer} rawBody
  */
-function importRawEd25519PublicKey(b64) {
-    const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-    const raw = Buffer.from(b64, 'base64');
-    return createPublicKey({ key: Buffer.concat([SPKI_PREFIX, raw]), format: 'der', type: 'spki' });
+function callbackMessage(timestamp, nonce, rawBody) {
+    return Buffer.concat([Buffer.from(`v1\n${timestamp}\n${nonce}\n`, 'utf8'), rawBody]);
+}
+
+/**
+ * Verify a callback signature under one key: the tag must decode to exactly
+ * 32 bytes — the length HMAC-SHA256 produces — before it is compared.
+ *
+ * @param {Buffer} key the 32-byte callback key
+ * @param {Buffer} message
+ * @param {string} signatureB64
+ */
+function callbackSignatureValid(key, message, signatureB64) {
+    const tag = Buffer.from(signatureB64, 'base64');
+    if (tag.length !== 32) return false;
+    return timingSafeEqual(tag, createHmac('sha256', key).update(message).digest());
 }
 
 /**
@@ -454,8 +660,9 @@ function importRawEd25519PublicKey(b64) {
  * deployed workerd (mvp-spec.md §Appendix item 4).
  */
 class CallbackListener {
-    constructor(publicKeyB64) {
-        this.publicKey = importRawEd25519PublicKey(publicKeyB64);
+    /** @param {Buffer} callbackKey HKDF(shared secret, "atoms/callback/v1") */
+    constructor(callbackKey) {
+        this.callbackKey = callbackKey;
         /** @type {object[]} */
         this.records = [];
         this.seenNonces = new Set();
@@ -514,10 +721,11 @@ class CallbackListener {
         const signatureB64 = String(req.headers['x-atoms-signature'] ?? '');
         const kind = String(req.headers['x-atoms-kind'] ?? '');
 
-        const message = Buffer.concat([Buffer.from(`v1\n${timestamp}\n${nonce}\n`, 'utf8'), rawBody]);
+        const message = callbackMessage(timestamp, nonce, rawBody);
+        const signatureBytes = Buffer.from(signatureB64, 'base64').length;
         let signatureValid = false;
         try {
-            signatureValid = verifyEd25519(null, message, this.publicKey, Buffer.from(signatureB64, 'base64'));
+            signatureValid = callbackSignatureValid(this.callbackKey, message, signatureB64);
         } catch {
             signatureValid = false;
         }
@@ -541,6 +749,8 @@ class CallbackListener {
             rawText,
             parsed,
             signatureValid,
+            /** The HMAC-SHA256 tag length the Worker sent: exactly 32 bytes. */
+            signatureBytes,
             timestampFresh,
             nonceValid,
             nonceRepeated,
@@ -598,22 +808,6 @@ class CallbackListener {
     }
 }
 
-/**
- * Load the per-run key file scripts/dev-with-callback.mjs wrote. Absent means
- * the suite is running against a Worker with no callback channel configured
- * (or against a deployed Worker) — checks 13-17 skip rather than fail.
- */
-function loadCallbackKeyFile() {
-    const path = join(__dirname, '.callback-key.json');
-    if (!existsSync(path)) return null;
-    try {
-        return JSON.parse(readFileSync(path, 'utf-8'));
-    } catch (e) {
-        console.error(`Warning: could not read ${path}: ${e.message}`);
-        return null;
-    }
-}
-
 /** Set inside run(), before the check loop, once the listener (if any) is up. */
 let listener = null;
 
@@ -625,6 +819,31 @@ let listener = null;
  * @type {{php: string, cases: Array<{id: string, group: string, member: string, title: string, class: string, ours: string, theirs: string, detail: string}>}|null}
  */
 let pdoMatrixReport = null;
+
+/**
+ * Run a snippet under the `php` on PATH, with `env` added to the child's
+ * environment. Reports `missing: true` when there is no `php` to run, so
+ * check 39's cross-language leg skips rather than inventing a result.
+ *
+ * @param {string} code
+ * @param {Record<string, string>} env
+ * @returns {Promise<{ok: boolean, missing?: boolean, stdout?: string, error?: string}>}
+ */
+function runPhp(code, env) {
+    return new Promise((resolve) => {
+        execFile('php', ['-r', code], { env: { ...process.env, ...env }, timeout: 20000 }, (err, stdout, stderr) => {
+            if (err && /** @type {any} */ (err).code === 'ENOENT') {
+                resolve({ ok: false, missing: true });
+                return;
+            }
+            if (err) {
+                resolve({ ok: false, error: `${err.message} ${String(stderr).slice(0, 200)}`.trim() });
+                return;
+            }
+            resolve({ ok: true, stdout: String(stdout).trim() });
+        });
+    });
+}
 
 // ---------------------------------------------------------------- checks
 
@@ -1089,7 +1308,7 @@ checks.push(async () => {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                ...(APP_KEY ? { Authorization: `Bearer ${APP_KEY}` } : {}),
+                ...(AUTH_HEADER_VALUE ? { Authorization: `Bearer ${AUTH_HEADER_VALUE}` } : {}),
             },
             body: `{"args":[${nested}]}`,
         });
@@ -1317,7 +1536,7 @@ checks.push(async () => {
         skip(
             checkNum,
             name,
-            'no callback listener — test/.callback-key.json is missing; run via `npm run dev:callback`',
+            'no callback listener — it needs ATOMS_SHARED_SECRET and a callback port; run via `npm run dev:callback`',
             REQUIRE_CALLBACK_CHECKS,
             'ATOMS_CALLBACK_PORT'
         );
@@ -1355,6 +1574,9 @@ checks.push(async () => {
         const rec = made[0];
         if (rec.kind !== 'methods') problems.push(`${tc.label}: X-Atoms-Kind=${rec.kind} (expected methods)`);
         if (!rec.signatureValid) problems.push(`${tc.label}: signature did not verify`);
+        if (rec.signatureBytes !== 32) {
+            problems.push(`${tc.label}: the signature decoded to ${rec.signatureBytes} bytes (expected 32)`);
+        }
         if (!rec.timestampFresh) problems.push(`${tc.label}: timestamp not within +-300s`);
         if (!rec.nonceValid) problems.push(`${tc.label}: nonce ${JSON.stringify(rec.headers.nonce)} is not 32 lowercase hex`);
         if (rec.nonceRepeated) problems.push(`${tc.label}: nonce repeated`);
@@ -1364,7 +1586,11 @@ checks.push(async () => {
     }
 
     if (problems.length === 0) {
-        pass(checkNum, name, `${cases.length} int64 boundary values round-tripped through app(), signed, no nonce reuse`);
+        pass(
+            checkNum,
+            name,
+            `${cases.length} int64 boundary values round-tripped through app(), 32-byte HMAC verified, no nonce reuse`
+        );
     } else {
         fail(checkNum, name, problems.join('; '));
     }
@@ -3205,11 +3431,11 @@ checks.push(async () => {
 });
 
 // CHECK 31: connection tickets — the happy path, in whichever posture this
-// run is in: mint envelope shape (signed v1 under auth-on, unsigned v1u dev
-// form under auth-off), then a HEADERLESS upgrade carrying the ticket — the
-// way a browser arrives — with a spoofed query param the ticket's claim must
-// override, the reserved `ticket` key never delivered, and the ticket
-// excluded from the param budgets.
+// run is in: the mint envelope (a signed 3-segment `v1.` ticket, in every
+// posture), then a HEADERLESS upgrade carrying the ticket — the way a browser
+// arrives — with a spoofed query param the ticket's claim must override, the
+// reserved `ticket` key never delivered, and the ticket excluded from the
+// param budgets.
 checks.push(async () => {
     const checkNum = 31;
     const name = 'tickets: mint + headerless connect, claims win, ticket stripped';
@@ -3222,9 +3448,9 @@ checks.push(async () => {
         return;
     }
     const ticket = mint.data?.ticket;
-    const wanted = APP_KEY ? /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/ : /^v1u\.[A-Za-z0-9_-]+$/;
+    const wanted = /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
     if (typeof ticket !== 'string' || !wanted.test(ticket)) {
-        problems.push(`ticket=${JSON.stringify(ticket)} does not match ${wanted} for this posture`);
+        problems.push(`ticket=${JSON.stringify(ticket)} does not match ${wanted}`);
     }
     const now = Date.now();
     if (
@@ -3283,7 +3509,7 @@ checks.push(async () => {
     }
 
     if (problems.length === 0) {
-        pass(checkNum, name, `${APP_KEY ? 'signed v1' : 'unsigned v1u'} minted, claims merged, ticket outside the budgets`);
+        pass(checkNum, name, 'signed v1 minted, claims merged, ticket outside the budgets');
     } else {
         fail(checkNum, name, problems.join('; '));
     }
@@ -3330,16 +3556,16 @@ checks.push(async () => {
     }
 });
 
-// CHECK 33: stateless edge refusals on /ws, probed headerless. Garbage and
-// scope run identically in both postures; the forged, already-expired dev
-// ticket is what makes expiry testable with no TTL wait — keyless posture
-// must name ticket_expired, while an auth-on Worker must refuse the same
-// forgery as ticket_invalid before even reading its exp (a v1u forgery is
-// not a credential there).
+// CHECK 33: stateless edge refusals on /ws, probed headerless and identical
+// in both postures. Garbage and wrong-atom scope always run; holding the root
+// adds two more — a correctly signed ticket whose `exp` is already in the past
+// (expiry, provable with no TTL wait) and a `v1u.`-form string (two segments,
+// no signature: not a v1 connection ticket).
 checks.push(async () => {
     const checkNum = 33;
-    const name = 'tickets: garbage, wrong-atom scope, and expired refused at the edge';
+    const name = 'tickets: garbage, wrong-atom scope, expired, and unsigned-form refused at the edge';
     const problems = [];
+    const notes = [];
     const id = atomId('tkt-refuse');
 
     const garbage = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=zzz`, { auth: false });
@@ -3364,17 +3590,36 @@ checks.push(async () => {
         }
     }
 
-    const expired = forgeDevTicket(devPayload('Room', id, { exp: Date.now() - 60000 }));
-    const expectCode = APP_KEY ? 'ticket_invalid' : 'ticket_expired';
-    const late = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=${encodeURIComponent(expired)}`, { auth: false });
-    if (late.status !== 401 || late.data?.error?.code !== expectCode) {
+    if (SHARED_SECRET) {
+        const expired = forgeTicket(ticketPayload('Room', id, { exp: Date.now() - 60000 }), SHARED_SECRET);
+        const late = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=${encodeURIComponent(expired)}`, { auth: false });
+        if (late.status !== 401 || late.data?.error?.code !== 'ticket_expired') {
+            problems.push(
+                `a correctly signed ticket with a past exp gave ${late.status}/${late.data?.error?.code} ` +
+                    '(expected 401/ticket_expired)'
+            );
+        }
+
+        const unsigned = unsignedForm(ticketPayload('Room', id));
+        const refused = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=${encodeURIComponent(unsigned)}`, {
+            auth: false,
+        });
+        if (refused.status !== 401 || refused.data?.error?.code !== 'ticket_invalid') {
+            problems.push(
+                `a v1u.-form string gave ${refused.status}/${refused.data?.error?.code} (expected 401/ticket_invalid)`
+            );
+        }
+    } else if (REQUIRE_TICKET_CHECKS) {
         problems.push(
-            `an expired forged dev ticket gave ${late.status}/${late.data?.error?.code} (expected 401/${expectCode} in this posture)`
+            'the expiry and unsigned-form legs need ATOMS_SHARED_SECRET to sign with, and this run asserted ' +
+                'the ticket checks must be available'
         );
+    } else {
+        notes.push('expiry and unsigned-form legs skipped (env var: ATOMS_SHARED_SECRET)');
     }
 
     if (problems.length === 0) {
-        pass(checkNum, name, `all refused 401 before any DO was addressed (expired => ${expectCode})`);
+        pass(checkNum, name, ['all refused 401 before any DO was addressed', ...notes].join('; '));
     } else {
         fail(checkNum, name, problems.join('; '));
     }
@@ -3384,9 +3629,8 @@ checks.push(async () => {
 // short TTL is its entire replay defense (spec §Routing and auth): no jti
 // claim, no burn, no DO-side state. The same ticket must open a second
 // connection both while the first socket is still open and after it has
-// closed. This is a contract assertion, not a smoke test — a reintroduced
-// single-use burn fails it. Runs in both postures, so the default auth-off
-// CI run covers it with unsigned dev tickets.
+// closed. This is a contract assertion, not a smoke test — a single-use burn
+// fails it. Runs in both postures, on the minted signed ticket.
 checks.push(async () => {
     const checkNum = 34;
     const name = 'tickets: reusable within TTL — no single-use burn';
@@ -3457,15 +3701,21 @@ checks.push(async () => {
     pass(checkNum, name, 'same-ticket reuse connected both concurrently and across a close');
 });
 
-// CHECK 35: the auth-on posture's core promise — minting requires the bearer
-// (a ticket cannot mint a ticket, and neither can nothing), and the signed
-// ticket then admits a completely headerless browser-style upgrade with its
-// claims merged.
+// CHECK 35: the bearer-required posture's core promise — minting requires the
+// bearer (a ticket cannot mint a ticket, and neither can nothing), and the
+// signed ticket then admits a completely headerless browser-style upgrade
+// with its claims merged.
 checks.push(async () => {
     const checkNum = 35;
-    const name = 'tickets (auth on): mint is bearer-gated, signed ticket admits headerless upgrade';
-    if (!APP_KEY) {
-        skip(checkNum, name, 'needs ATOMS_APP_KEY set on the Worker and the runner', REQUIRE_TICKET_CHECKS, 'ATOMS_APP_KEY');
+    const name = 'tickets (bearer required): mint is bearer-gated, signed ticket admits headerless upgrade';
+    if (!AUTH_REQUIRED) {
+        skip(
+            checkNum,
+            name,
+            'needs the Worker under test running ATOMS_BEARER_AUTH=required',
+            REQUIRE_TICKET_CHECKS,
+            'ATOMS_BEARER_AUTH'
+        );
         return;
     }
     const problems = [];
@@ -3504,15 +3754,21 @@ checks.push(async () => {
     }
 });
 
-// CHECK 36: auth-on refusals — a tampered signature, a forged unsigned dev
-// ticket (the critical anti-downgrade assertion: v1u is not a credential
-// where a key is set), no credential at all, and — when the environment
-// allows the short wait — a genuinely expired SIGNED ticket.
+// CHECK 36: bearer-required refusals — a tampered signature, a `v1u.`-form
+// string (two segments, no signature: not a v1 connection ticket), no
+// credential at all, and — when the environment allows the short wait — a
+// genuinely expired ticket, waited out for real.
 checks.push(async () => {
     const checkNum = 36;
-    const name = 'tickets (auth on): tamper, v1u forgery, no credential, signed expiry';
-    if (!APP_KEY) {
-        skip(checkNum, name, 'needs ATOMS_APP_KEY set on the Worker and the runner', REQUIRE_TICKET_CHECKS, 'ATOMS_APP_KEY');
+    const name = 'tickets (bearer required): tamper, unsigned form, no credential, real expiry';
+    if (!AUTH_REQUIRED) {
+        skip(
+            checkNum,
+            name,
+            'needs the Worker under test running ATOMS_BEARER_AUTH=required',
+            REQUIRE_TICKET_CHECKS,
+            'ATOMS_BEARER_AUTH'
+        );
         return;
     }
     const problems = [];
@@ -3531,10 +3787,14 @@ checks.push(async () => {
         problems.push(`a tampered signature gave ${flipped.status}/${flipped.data?.error?.code} (expected 401/ticket_invalid)`);
     }
 
-    const forged = forgeDevTicket(devPayload('Room', id));
-    const unsigned = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=${encodeURIComponent(forged)}`, { auth: false });
+    const unsignedTicket = unsignedForm(ticketPayload('Room', id));
+    const unsigned = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=${encodeURIComponent(unsignedTicket)}`, {
+        auth: false,
+    });
     if (unsigned.status !== 401 || unsigned.data?.error?.code !== 'ticket_invalid') {
-        problems.push(`a forged v1u ticket gave ${unsigned.status}/${unsigned.data?.error?.code} (expected 401/ticket_invalid)`);
+        problems.push(
+            `a v1u.-form string gave ${unsigned.status}/${unsigned.data?.error?.code} (expected 401/ticket_invalid)`
+        );
     }
 
     const naked = await wsHandshakeAttempt(`/ws/Room/${id}?channels=lobby`, { auth: false });
@@ -3542,15 +3802,15 @@ checks.push(async () => {
         problems.push(`no credential at all gave ${naked.status}/${naked.data?.error?.code} (expected 401/unauthenticated)`);
     }
 
-    // Signed expiry: a real minted ticket, waited out. Needs the Worker's
+    // Real expiry: a genuinely minted ticket, waited out. Needs the Worker's
     // verification skew in the runner env (never defaulted, the check-15
-    // pattern) and a server TTL short enough to wait — CI's auth-on run
-    // starts the Worker with a short ATOMS_WS_TICKET_TTL_MS for exactly this.
+    // pattern) and a server TTL short enough to wait — CI's bearer-required
+    // run starts the Worker with a short ATOMS_WS_TICKET_TTL_MS for this.
     if (WS_TICKET_SKEW_MS === null) {
         if (REQUIRE_TICKET_CHECKS) {
-            problems.push('the signed-expiry leg needs ATOMS_WS_TICKET_SKEW_MS in the runner env, and this run asserted it must be available');
+            problems.push('the expiry leg needs ATOMS_WS_TICKET_SKEW_MS in the runner env, and this run asserted it must be available');
         } else {
-            notes.push('signed-expiry leg skipped (env var: ATOMS_WS_TICKET_SKEW_MS)');
+            notes.push('expiry leg skipped (env var: ATOMS_WS_TICKET_SKEW_MS)');
         }
     } else {
         const m2 = await mintTicketReq('Room', id);
@@ -3560,10 +3820,10 @@ checks.push(async () => {
         } else if (waitMs > 8000) {
             if (REQUIRE_TICKET_CHECKS) {
                 problems.push(
-                    `the signed-expiry leg would need a ${waitMs}ms wait — start the Worker with a short ATOMS_WS_TICKET_TTL_MS`
+                    `the expiry leg would need a ${waitMs}ms wait — start the Worker with a short ATOMS_WS_TICKET_TTL_MS`
                 );
             } else {
-                notes.push('signed-expiry leg skipped (server TTL too long to wait out; set ATOMS_WS_TICKET_TTL_MS low)');
+                notes.push('expiry leg skipped (server TTL too long to wait out; set ATOMS_WS_TICKET_TTL_MS low)');
             }
         } else {
             await new Promise((r) => setTimeout(r, waitMs));
@@ -3573,14 +3833,14 @@ checks.push(async () => {
             );
             if (stale.status !== 401 || stale.data?.error?.code !== 'ticket_expired') {
                 problems.push(
-                    `the waited-out signed ticket gave ${stale.status}/${stale.data?.error?.code} (expected 401/ticket_expired)`
+                    `the waited-out ticket gave ${stale.status}/${stale.data?.error?.code} (expected 401/ticket_expired)`
                 );
             }
         }
     }
 
     if (problems.length === 0) {
-        pass(checkNum, name, ['tamper/forgery/no-credential all refused', ...notes].join('; '));
+        pass(checkNum, name, ['tamper/unsigned-form/no-credential all refused', ...notes].join('; '));
     } else {
         fail(checkNum, name, problems.join('; '));
     }
@@ -3594,9 +3854,15 @@ checks.push(async () => {
 // the same upgrade must connect, proving the ticket path never ran.
 checks.push(async () => {
     const checkNum = 37;
-    const name = 'tickets (auth on): bearer wins; a ridden-along ticket is stripped unverified';
-    if (!APP_KEY) {
-        skip(checkNum, name, 'needs ATOMS_APP_KEY set on the Worker and the runner', REQUIRE_TICKET_CHECKS, 'ATOMS_APP_KEY');
+    const name = 'tickets (bearer required): bearer wins; a ridden-along ticket is stripped unverified';
+    if (!AUTH_REQUIRED) {
+        skip(
+            checkNum,
+            name,
+            'needs the Worker under test running ATOMS_BEARER_AUTH=required',
+            REQUIRE_TICKET_CHECKS,
+            'ATOMS_BEARER_AUTH'
+        );
         return;
     }
     const id = atomId('tkt-precedence');
@@ -3644,14 +3910,20 @@ checks.push(async () => {
 });
 
 // CHECK 38: the routing regression guard — the /ws ticket carve-out must
-// leak into no other route. With auth on, a headerless /invoke and a
-// headerless /debug are still 401 (the /debug gate runs before the
+// leak into no other route. With bearer auth required, a headerless /invoke
+// and a headerless /debug are still 401 (the /debug gate runs before the
 // debug-disabled check, so this holds whatever ATOMS_DEBUG_ENDPOINTS says).
 checks.push(async () => {
     const checkNum = 38;
-    const name = 'tickets (auth on): /invoke and /debug still require the bearer';
-    if (!APP_KEY) {
-        skip(checkNum, name, 'needs ATOMS_APP_KEY set on the Worker and the runner', REQUIRE_TICKET_CHECKS, 'ATOMS_APP_KEY');
+    const name = 'tickets (bearer required): /invoke and /debug still require the bearer';
+    if (!AUTH_REQUIRED) {
+        skip(
+            checkNum,
+            name,
+            'needs the Worker under test running ATOMS_BEARER_AUTH=required',
+            REQUIRE_TICKET_CHECKS,
+            'ATOMS_BEARER_AUTH'
+        );
         return;
     }
     const problems = [];
@@ -3680,23 +3952,305 @@ checks.push(async () => {
     }
 });
 
+// CHECK 39: the bearer is HKDF(shared secret, "atoms/bearer/v1"), and both
+// languages derive it identically. Three legs: (a) this runner reproduces the
+// reference vector for all three purposes; (b) a live `php` reproduces the
+// runner's own derivation byte for byte — the cross-language pin, because the
+// monolith derives in PHP and the Worker in WebCrypto; (c) with bearer auth
+// required, the derived bearer is accepted by the Worker and an unrelated
+// 44-character bearer is not.
+checks.push(async () => {
+    const checkNum = 39;
+    const name = 'bearer derivation: reference vector, cross-language, live acceptance';
+    const problems = [];
+    const notes = [];
+
+    // (a) The pinned vector, all three purposes.
+    for (const purpose of ['bearer', 'ticket', 'callback']) {
+        const got = derive(REFERENCE_SECRET, purpose).toString('base64');
+        if (got !== REFERENCE_DERIVED[purpose]) {
+            problems.push(`HKDF info ${HKDF_INFO[purpose]} derived ${got} (expected ${REFERENCE_DERIVED[purpose]})`);
+        }
+    }
+    if (deriveBearer(REFERENCE_SECRET).length !== 44) {
+        problems.push('the derived bearer is not 44 characters of standard base64');
+    }
+
+    // (b) PHP's hash_hkdf() over the same IKM. The secret reaches the child in
+    // its environment rather than in argv, so it stays out of `ps` output;
+    // when this run holds no root, the reference secret pins the same equality.
+    const vectorSecret = SHARED_SECRET ?? REFERENCE_SECRET;
+    const php = await runPhp(
+        "echo base64_encode(hash_hkdf('sha256', base64_decode(getenv('ATOMS_VECTOR_SECRET'), true), 32, " +
+            "'atoms/bearer/v1', ''));",
+        { ATOMS_VECTOR_SECRET: vectorSecret }
+    );
+    if (php.missing) {
+        if (REQUIRE_BEARER_VECTOR) {
+            problems.push('no `php` on PATH for the cross-language leg, and this run asserted it must be available');
+        } else {
+            notes.push('cross-language leg skipped (no `php` on PATH)');
+        }
+    } else if (!php.ok) {
+        problems.push(`php could not derive the bearer: ${php.error}`);
+    } else if (php.stdout !== deriveBearer(vectorSecret)) {
+        problems.push(
+            `php derived ${JSON.stringify(php.stdout)} where this runner derived ` +
+                `${JSON.stringify(deriveBearer(vectorSecret))} from the same secret`
+        );
+    }
+
+    // (c) The live Worker accepts exactly the derived value.
+    if (AUTH_REQUIRED && BEARER_TOKEN) {
+        const id = atomId('bearer-live');
+        const good = await invoke('Counter', id, 'increment', [1], { bearer: BEARER_TOKEN });
+        if (good.status !== 200 || good.data?.error) {
+            problems.push(`the derived bearer gave ${good.status} ${JSON.stringify(good.data?.error ?? '')} (expected 200)`);
+        }
+        const wrong = await invoke('Counter', id, 'increment', [1], {
+            bearer: deriveBearer(randomBytes(32).toString('base64')),
+        });
+        if (wrong.status !== 401 || wrong.data?.error?.code !== 'unauthenticated') {
+            problems.push(
+                `a bearer derived from an unrelated secret gave ${wrong.status}/${wrong.data?.error?.code} ` +
+                    '(expected 401/unauthenticated)'
+            );
+        }
+    } else {
+        notes.push('live-acceptance leg skipped (env var: ATOMS_BEARER_AUTH)');
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, ['reference vector reproduced', ...notes].join('; '));
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 40: rotation. ATOMS_SHARED_SECRET_PREVIOUS widens ACCEPTANCE at
+// exactly two verification sites and emission nowhere: the Worker's bearer
+// check takes either bearer, callbacks keep arriving under the current key,
+// and tickets — which carry a seconds-scale TTL and are re-minted through the
+// application — get no overlap at all.
+checks.push(async () => {
+    const checkNum = 40;
+    const name = 'rotation: both bearers accepted, tickets current-only, callbacks signed with the current key';
+    if (!SHARED_SECRET_PREVIOUS) {
+        skip(
+            checkNum,
+            name,
+            'needs the Worker started with a rotation overlap secret, and the same value in the runner env',
+            REQUIRE_ROTATION_CHECKS,
+            'ATOMS_SHARED_SECRET_PREVIOUS'
+        );
+        return;
+    }
+    if (!SHARED_SECRET) {
+        skip(
+            checkNum,
+            name,
+            'needs the current root to derive the current bearer and ticket key',
+            REQUIRE_ROTATION_CHECKS,
+            'ATOMS_SHARED_SECRET'
+        );
+        return;
+    }
+    const problems = [];
+    const notes = [];
+    const id = atomId('rotation');
+
+    // Both bearers are accepted while the overlap is configured; a bearer from
+    // an unrelated secret is not, so the two acceptances are not vacuous.
+    if (AUTH_REQUIRED) {
+        const legs = [
+            ['the current bearer', deriveBearer(SHARED_SECRET), 200],
+            ['the previous bearer', deriveBearer(SHARED_SECRET_PREVIOUS), 200],
+            ['an unrelated bearer', deriveBearer(randomBytes(32).toString('base64')), 401],
+        ];
+        for (const [label, bearer, want] of legs) {
+            const r = await invoke('Counter', id, 'increment', [1], { bearer });
+            if (r.status !== want) {
+                problems.push(`${label} gave ${r.status}/${r.data?.error?.code} (expected ${want})`);
+            }
+        }
+    } else {
+        notes.push('bearer legs skipped (env var: ATOMS_BEARER_AUTH)');
+    }
+
+    // Tickets get no overlap: one signed under the previous secret's ticket
+    // key is refused, while one signed under the current key connects — the
+    // non-vacuity half, proving the refusal is about the key and not the form.
+    const roomId = atomId('rotation-ws');
+    const stale = forgeTicket(ticketPayload('Room', roomId), SHARED_SECRET_PREVIOUS);
+    const refused = await wsHandshakeAttempt(`/ws/Room/${roomId}?ticket=${encodeURIComponent(stale)}`, {
+        auth: false,
+    });
+    if (refused.status !== 401 || refused.data?.error?.code !== 'ticket_invalid') {
+        problems.push(
+            `a ticket signed under the previous secret gave ${refused.status}/${refused.data?.error?.code} ` +
+                '(expected 401/ticket_invalid)'
+        );
+    }
+    const current = forgeTicket(ticketPayload('Room', roomId), SHARED_SECRET);
+    const accepted = await openSocket(
+        `/ws/Room/${roomId}?channels=lobby&ticket=${encodeURIComponent(current)}`,
+        { auth: false }
+    ).catch((e) => {
+        problems.push(`a ticket signed under the current secret did not connect: ${e.message}`);
+        return null;
+    });
+    if (accepted) await accepted.close();
+
+    // Callbacks are emitted under the current key only.
+    if (listener) {
+        listener.clear();
+        const res = await invoke('Vault', atomId('rotation-cb'), 'echoViaApp', [7]);
+        const rec = listener.records[0];
+        if (res.status !== 200 || res.data?.error) {
+            problems.push(`echoViaApp gave ${res.status} ${JSON.stringify(res.data?.error ?? '')}`);
+        } else if (!rec) {
+            problems.push('the listener saw no callback');
+        } else {
+            if (!rec.signatureValid) {
+                problems.push('the callback did not verify under the current callback key');
+            }
+            const underPrevious = callbackSignatureValid(
+                derive(SHARED_SECRET_PREVIOUS, 'callback'),
+                callbackMessage(rec.headers.timestamp, rec.headers.nonce, Buffer.from(rec.rawText, 'utf8')),
+                rec.headers.signatureB64
+            );
+            if (underPrevious) {
+                problems.push('the callback verified under the previous callback key — emission must be current-only');
+            }
+        }
+    } else if (REQUIRE_CALLBACK_CHECKS) {
+        problems.push('the callback leg needs a listener, and this run asserted the callback channel must be available');
+    } else {
+        notes.push('callback leg skipped (env var: ATOMS_CALLBACK_PORT)');
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, ['both bearers accepted, tickets current-only', ...notes].join('; '));
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 41: a Worker booted with no shared secret is loudly broken rather
+// than quietly open. `GET /healthz` still answers 200 — `loadConfig()` stays
+// total — and every other route answers the wire code `misconfigured` with
+// HTTP 500. Its own short posture: the Worker under test has no secret, so
+// this is the whole run (ATOMS_ONLY=41, ATOMS_EXPECT_MISCONFIGURED=1).
+checks.push(async () => {
+    const checkNum = 41;
+    const name = 'misconfigured Worker: /healthz answers, every other route is `misconfigured`';
+    if (!EXPECT_MISCONFIGURED) {
+        skip(
+            checkNum,
+            name,
+            'this run tests a configured Worker',
+            false,
+            'ATOMS_EXPECT_MISCONFIGURED'
+        );
+        return;
+    }
+    const problems = [];
+    const id = atomId('misconfigured');
+
+    const health = await request('GET', '/healthz');
+    if (health.status !== 200 || health.data?.ok !== true) {
+        problems.push(`/healthz gave ${health.status}/${JSON.stringify(health.data)} (expected 200 {ok:true})`);
+    }
+
+    const routes = [
+        ['POST /invoke', await invoke('Counter', id, 'increment', [1])],
+        ['POST /tickets', await request('POST', `/tickets/Room/${id}`)],
+        ['GET /debug', await request('GET', `/debug/Counter/${id}/info`)],
+        ['GET /ws', await wsHandshakeAttempt(`/ws/Room/${id}?channels=lobby`, { auth: false })],
+    ];
+    for (const [label, r] of routes) {
+        if (r.status !== 500 || r.data?.error?.code !== 'misconfigured') {
+            problems.push(`${label} gave ${r.status}/${r.data?.error?.code} (expected 500/misconfigured)`);
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, '/healthz 200; invoke/tickets/debug/ws all 500 misconfigured');
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 42: the config deny list. A guest that could read the shared secret
+// through `config()` would hold the root of everything, so the built-in deny
+// list wins over the operator's allowlist: with the Worker started with
+// ATOMS_CONFIG_ENV_KEYS naming both secret variables, the guest still reads
+// null for them. The control key — allowlisted the same way and NOT on the
+// deny list — is what makes that null meaningful: it proves the allowlist
+// itself is live in this Worker.
+checks.push(async () => {
+    const checkNum = 42;
+    const name = 'config deny list: the shared secret is unreadable from guest code';
+    const DENIED = ['ATOMS_SHARED_SECRET', 'ATOMS_SHARED_SECRET_PREVIOUS'];
+    const CONTROL = 'ATOMS_DEBUG_ENDPOINTS';
+    const id = atomId('deny');
+
+    const r = await invoke('Counter', id, 'configProbe', [[...DENIED, CONTROL]]);
+    if (r.status !== 200 || r.data?.error) {
+        fail(checkNum, name, `configProbe gave ${r.status} ${JSON.stringify(r.data?.error ?? r.data)}`);
+        return;
+    }
+    const seen = r.data.result ?? {};
+
+    if (seen[CONTROL] === null || seen[CONTROL] === undefined) {
+        skip(
+            checkNum,
+            name,
+            `the control key ${CONTROL} did not resolve, so a null for the secrets would prove nothing — ` +
+                `start the Worker with ATOMS_CONFIG_ENV_KEYS naming ${CONTROL} and both secret variables`,
+            REQUIRE_DENY_CHECKS,
+            'ATOMS_CONFIG_ENV_KEYS'
+        );
+        return;
+    }
+
+    const problems = [];
+    for (const key of DENIED) {
+        if (seen[key] !== null && seen[key] !== undefined) {
+            problems.push(`${key} resolved to ${JSON.stringify(seen[key])} in guest code (expected null)`);
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, `${DENIED.join(' and ')} both null while ${CONTROL} resolved`);
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
 // ---------------------------------------------------------------- run
 
 async function run() {
     console.log(`\nAtoms-on-Cloudflare MVP Conformance Suite`);
     console.log(`Base URL: ${baseUrl}`);
+    console.log(
+        `Bearer auth: ${AUTH_REQUIRED ? 'required' : 'disabled'}` +
+            ` (credential: ${SHARED_SECRET ? 'derived from ATOMS_SHARED_SECRET' : BEARER_TOKEN ? 'ATOMS_BEARER_TOKEN' : 'none'})`
+    );
     console.log(`Skip: ${SKIP.length ? SKIP.join(', ') : 'none'}`);
     console.log(`Only: ${ONLY.length ? ONLY.join(', ') : 'all'}`);
     console.log(`Eviction wait: ${EVICTION_WAIT_MS}ms`);
 
-    const keyFile = loadCallbackKeyFile();
-    if (keyFile) {
-        const port = parseInt(process.env.ATOMS_CALLBACK_PORT || '', 10) || keyFile.port;
-        listener = new CallbackListener(keyFile.publicKey);
-        await listener.start(port);
-        console.log(`Callback listener: 127.0.0.1:${port} (checks 13-17 enabled)`);
+    const callbackPort = parseInt(process.env.ATOMS_CALLBACK_PORT || '', 10) || devSecretFile?.port || 0;
+    if (SHARED_SECRET && callbackPort) {
+        listener = new CallbackListener(derive(SHARED_SECRET, 'callback'));
+        await listener.start(callbackPort);
+        console.log(`Callback listener: 127.0.0.1:${callbackPort} (checks 13-17 enabled)`);
     } else {
-        console.log(`Callback listener: none (test/.callback-key.json missing — checks 13-17 will skip)`);
+        console.log(
+            'Callback listener: none — it needs ATOMS_SHARED_SECRET (to derive the callback key) and a port ' +
+                '(ATOMS_CALLBACK_PORT, or the one in test/.dev-secret.json); checks 13-17 will skip'
+        );
     }
     console.log(`Turn deadline (checks 15a/15b): ${TURN_DEADLINE_MS ? `${TURN_DEADLINE_MS}ms` : 'not set — 15 will skip'}`);
     console.log('');

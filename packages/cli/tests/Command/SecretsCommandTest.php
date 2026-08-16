@@ -155,6 +155,33 @@ final class SecretsCommandTest extends TestCase
         self::assertSame([], $wrangler->calls, 'nothing may be stored');
     }
 
+    /**
+     * `SecretName::toWorker()` prefixes whatever it is given, so
+     * `secrets:set ATOMS_SHARED_SECRET v` would otherwise store the Worker's
+     * own credential under ATOMS_CONFIG_ATOMS_SHARED_SECRET — a name outside
+     * the deny list and readable by guest code. Refused before prefixing,
+     * whatever case the key arrives in.
+     */
+    public function testSetRefusesTheWorkersOwnCredentialNamesEvenLowercased(): void
+    {
+        foreach (['ATOMS_SHARED_SECRET', 'atoms_shared_secret', 'ATOMS_SHARED_SECRET_PREVIOUS'] as $key) {
+            $wrangler = new FakeWrangler();
+            $tester = new CommandTester(new SecretsSetCommand($wrangler));
+
+            $exit = $tester->execute([
+                '--root' => $this->fixtureDir('sample-app'),
+                '--env' => 'production',
+                '--worker-dir' => $this->workerDir(),
+                'key' => $key,
+                'value' => 'v',
+            ]);
+
+            self::assertSame(1, $exit, "{$key} must be refused");
+            self::assertStringContainsString('ATOMS-E077', $tester->getDisplay());
+            self::assertSame([], $wrangler->calls, "nothing may be stored for {$key}");
+        }
+    }
+
     public function testListClassifiesAgainstTheWorkersOwnPrefix(): void
     {
         $wrangler = new FakeWrangler();
@@ -197,7 +224,7 @@ final class SecretsCommandTest extends TestCase
         $wrangler = new FakeWrangler();
         $wrangler->listSecretsResult = FakeWrangler::ok(['secret', 'list'], json_encode([
             ['name' => 'ATOMS_CONFIG_PAYMENTS_API_KEY', 'type' => 'secret_text'],
-            ['name' => 'ATOMS_APP_KEY', 'type' => 'secret_text'],
+            ['name' => 'ATOMS_SHARED_SECRET', 'type' => 'secret_text'],
         ], JSON_THROW_ON_ERROR));
 
         $tester = new CommandTester(new SecretsListCommand($wrangler));
@@ -212,7 +239,7 @@ final class SecretsCommandTest extends TestCase
         self::assertStringContainsString('Readable from Atom code', $display);
         self::assertStringContainsString('- PAYMENTS_API_KEY', $display);
         self::assertStringContainsString('not readable from Atom code', $display);
-        self::assertStringContainsString('- ATOMS_APP_KEY', $display);
+        self::assertStringContainsString('- ATOMS_SHARED_SECRET', $display);
     }
 
     public function testListSurvivesWranglerPrefixingItsJsonWithWarnings(): void

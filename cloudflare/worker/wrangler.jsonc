@@ -40,8 +40,21 @@
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["AtomDurableObject"] }],
 
 	// Operational values live in env, with defaults resolved in src/config.js.
-	// ATOMS_APP_KEY is a secret (`wrangler secret put ATOMS_APP_KEY`); when it
-	// is unset, bearer auth is off, which is the local-dev posture.
+	//
+	// ATOMS_SHARED_SECRET is a secret, never a var here:
+	// `wrangler secret put ATOMS_SHARED_SECRET` with the base64 of 32 random
+	// bytes (`openssl rand -base64 32`), the same value the app holds. Every key
+	// on the boundary — bearer, ticket signatures, callback signatures — is
+	// derived from it, and it is never transmitted. Local dev gets a per-run
+	// secret through the gitignored `.dev.vars` or `scripts/dev-with-callback.mjs`.
+	// Without a usable secret every route but GET /healthz answers
+	// `misconfigured` (HTTP 500) — a Worker without one is loudly broken, never
+	// open.
+	//
+	// ATOMS_BEARER_AUTH is `required` (the default) or `disabled`. `disabled` is
+	// the explicit opt-out for a Worker behind an authenticating proxy such as
+	// Cloudflare Access; it turns off the bearer comparison only, and tickets
+	// and callbacks stay signed.
 	"vars": {
 		"ATOMS_DEBUG_ENDPOINTS": "1",
 		"ATOMS_LOG_LEVEL": "info"

@@ -1,7 +1,7 @@
 {
     "name": "atoms/laravel",
     "description": "Laravel adapter for Atoms: service provider, facade, callback route, queue bridge, Artisan wrappers.",
-    "version": "0.1.2",
+    "version": "0.1.1",
     "license": "MIT",
     "homepage": "https://atomsphp.dev",
     "support": {
@@ -16,7 +16,6 @@
     ],
     "require": {
         "php": "^8.3",
-        "ext-sodium": "*",
         "atoms/client": "^0.1",
         "guzzlehttp/psr7": "^2.7",
         "illuminate/bus": "^11.0 || ^12.0",

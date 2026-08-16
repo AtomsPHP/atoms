@@ -16,6 +16,7 @@
  * @typedef {(
  *   | 'invalid_request'
  *   | 'unauthenticated'
+ *   | 'misconfigured'
  *   | 'not_found'
  *   | 'method_not_allowed'
  *   | 'unknown_atom_type'
@@ -49,6 +50,15 @@
 const CODE_TABLE = {
 	invalid_request: { status: 400, retryable: false },
 	unauthenticated: { status: 401, retryable: false },
+	// The Worker's own configuration is unusable: ATOMS_SHARED_SECRET is absent
+	// or does not decode to exactly 32 bytes of base64 (or the optional
+	// ATOMS_SHARED_SECRET_PREVIOUS overlap is set and malformed). Every route
+	// except GET /healthz refuses with this code, so a misconfigured Worker is
+	// loudly broken rather than silently open. 500 because the fault is the
+	// deployment's, not the caller's, and not retryable because re-sending the
+	// same request cannot fix a secret — the message names the variable and the
+	// rule, and the operator-facing catalog entry is ATOMS-E105.
+	misconfigured: { status: 500, retryable: false },
 	not_found: { status: 404, retryable: false },
 	method_not_allowed: { status: 405, retryable: false },
 	unknown_atom_type: { status: 404, retryable: false },
@@ -94,9 +104,9 @@ const CODE_TABLE = {
 	// Connection-ticket refusals (spec §Routing and auth). Both are
 	// credential failures on the /ws upgrade, so 401 like `unauthenticated` —
 	// but distinct slugs for logs, server-side probes and non-browser
-	// clients: ticket_invalid (malformed, forged, mis-scoped, or an unsigned
-	// dev ticket under auth-on) and ticket_expired both mean "mint a fresh
-	// ticket". Neither is retryable: re-sending the same request re-presents
+	// clients: ticket_invalid (malformed, forged, mis-scoped, or signed under
+	// a secret this deployment does not hold) and ticket_expired both mean
+	// "mint a fresh ticket". Neither is retryable: re-sending the same request re-presents
 	// the same ticket, which can never succeed. Both are raised at the edge
 	// before any DO is addressed.
 	ticket_invalid: { status: 401, retryable: false },

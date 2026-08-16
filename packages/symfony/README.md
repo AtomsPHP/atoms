@@ -1,7 +1,7 @@
 # atoms/symfony
 
 The supported Symfony bundle for Atoms wires `Atoms\Client\AtomsClient`, the
-inbound callback stack (Ed25519 verification, Methods dispatch, AtomJob
+inbound callback stack (HMAC verification, Methods dispatch, AtomJob
 reconstruction), a Messenger-backed queue bridge, and thin console wrappers
 around the `atoms` binary — all on top of `atoms/client` alone.
 `atoms/client` is deliberately framework-free (integration-plan §5.3), so
@@ -26,10 +26,10 @@ return [
 atoms:
     environment: '%env(APP_ENV)%'
     endpoint: https://atoms.your-subdomain.workers.dev   # your own deployed Worker
-    api_key: '%env(ATOMS_API_KEY)%'                      # null when the Worker's ATOMS_APP_KEY is unset
+    shared_secret: '%env(ATOMS_SHARED_SECRET)%'          # base64 of 32 random bytes, identical on the Worker
+    # shared_secret_previous: '%env(ATOMS_SHARED_SECRET_PREVIOUS)%'   # add during a rotation overlap
     timeout: 10.0
     max_attempts: 3
-    platform_public_key: '%env(ATOMS_PLATFORM_PUBLIC_KEY)%'
     callback_path: /atoms/callback
     callback_timestamp_window: 300   # seconds of clock skew a callback's timestamp may deviate before rejection
     http_client: null                # service id, or null to auto-detect / fall back to Guzzle
@@ -37,6 +37,14 @@ atoms:
     methods_classes:
         - App\Atoms\GameRoom\Methods   # only needed for #[MethodsFor] overrides
 ```
+
+`shared_secret` is the root of the app ↔ Worker boundary: the same base64 of
+32 random bytes the Worker holds as `ATOMS_SHARED_SECRET`. Keep it on your
+hosts — requests carry a bearer derived from it with HKDF-SHA256, and inbound
+callbacks are verified with a second derived key; `atoms token` prints the
+bearer for hand-issued requests. To rotate, set `shared_secret_previous` to
+the outgoing value on both sides: callbacks signed under either secret verify
+while the overlap lasts, and outbound requests use the current one.
 
 ## Mount the callback route
 
@@ -59,7 +67,7 @@ change.
 
 - `Atoms\Client\AtomsClient` — the RPC stub-proxy client, service id
   `atoms.client` (public; the `AtomsClient::class` service itself is private).
-- The callback stack — `Ed25519Verifier`, `InMemoryNonceStore`,
+- The callback stack — `HmacVerifier`, `InMemoryNonceStore`,
   `MethodsResolver`, `CallbackKernel` — plus
   `Atoms\Symfony\Controller\CallbackController`, which converts Symfony
   `Request`/`Response` to/from PSR-7 by hand against the plain

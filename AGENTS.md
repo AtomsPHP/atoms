@@ -137,9 +137,12 @@ not direction.
 
 - **One CI workflow tests everything, from one clone.** `.github/workflows/ci.yml`
   runs the PHP suites (`composer test` on 8.3 and 8.4), `composer stan`,
-  manifest lint, *and* the Worker's 38-check conformance suite under a
-  local `wrangler dev` (run twice for the two auth postures: the full suite
-  with auth off, then the ticket checks again with a per-run bearer key). Keep that true: a change to either half must leave the
+  manifest lint, *and* the Worker's conformance suite under a local
+  `wrangler dev`, run for three auth postures: the full suite with
+  `ATOMS_BEARER_AUTH=disabled`, the ticket/rotation/cross-language checks
+  again with `ATOMS_BEARER_AUTH=required` and a per-run `ATOMS_SHARED_SECRET`,
+  and a tiny run against a Worker with no secret configured, asserting
+  `misconfigured`. Keep that true: a change to either half must leave the
   whole workflow green, and no job may need a Cloudflare account, an API
   token, or a cross-repo fetch of any kind.
 - **The conformance suite is the acceptance gate for `cloudflare/`.** Its
@@ -171,24 +174,20 @@ npm run prepare-runtime              # stage the runtime unconditionally
 npm run bundle                       # build src/bundle.generated.js from the conformance fixture
 npm run bundle:cli -- B M src/bundle.generated.js   # ...or from an `atoms build` bundle + manifest
 npx wrangler dev                     # serves on 127.0.0.1:8787 (wrangler.jsonc)
-npm run dev:callback                 # same, plus a per-run callback keypair wired in
-                                      # (ATOMS_CALLBACK_URL/ATOMS_CALLBACK_SIGNING_KEY), for checks 13-17
+npm run dev:callback                 # same, plus a per-run ATOMS_SHARED_SECRET and
+                                      # ATOMS_CALLBACK_URL wired in, for the callback checks
 ATOMS_BASE_URL=http://127.0.0.1:8787 node test/conformance.mjs
 ```
 
-The conformance runner reads `ATOMS_BASE_URL` (required), `ATOMS_APP_KEY`
-(optional bearer token; unset means auth is off), `ATOMS_EVICTION_WAIT_MS`
-(default 12500), `ATOMS_SKIP` (comma-separated check numbers) and
-`ATOMS_ONLY` (comma-separated allowlist — run only these checks; how the
-auth-enabled second run exercises the ticket checks, 31–38, without
-re-paying the eviction waits). Debug
-endpoints, which checks 5/10/12 need, are gated on the worker's own
-`ATOMS_DEBUG_ENDPOINTS` var, already set in `wrangler.jsonc`. Checks 13-17
-(the callback channel) additionally need `ATOMS_CALLBACK_PORT` (the runner's
-own loopback listener port; default is the port `dev-with-callback.mjs`
-recorded in the gitignored `test/.callback-key.json`) and, for check 15,
-`ATOMS_TURN_DEADLINE_MS` set to the same value the Worker was started with —
-both absent just skips those checks rather than failing the run — unless
-`ATOMS_REQUIRE_CALLBACK_CHECKS=1` (which CI sets), which turns those skips into
-failures so a broken harness cannot quietly delete five checks. No Cloudflare
-account is needed for any of it.
+The conformance runner reads `ATOMS_BASE_URL` (required) and one of
+`ATOMS_SHARED_SECRET` (full capability: derives the bearer, forges test
+tickets, verifies callbacks — the local/CI posture) or `ATOMS_BEARER_TOKEN`
+(a pre-derived bearer for invoke-only checks against a deployed Worker, so
+the root never has to travel to the runner). `ATOMS_BEARER_AUTH`
+(`required` or `disabled`) names the posture the Worker under test is
+running. `ATOMS_EVICTION_WAIT_MS` (default 12500), `ATOMS_SKIP`/`ATOMS_ONLY`
+(comma-separated check numbers), and the callback-channel, rotation and
+deny-list toggles are documented in `test/conformance.mjs`'s own header
+comment. Debug endpoints, which some checks need, are gated on the worker's
+own `ATOMS_DEBUG_ENDPOINTS` var, already set in `wrangler.jsonc`. No
+Cloudflare account is needed for any of it.

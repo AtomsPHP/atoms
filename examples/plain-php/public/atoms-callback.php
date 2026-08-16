@@ -20,10 +20,11 @@ $http = new class implements \Psr\Http\Client\ClientInterface {
     }
 };
 
+$sharedSecretPrevious = getenv('ATOMS_SHARED_SECRET_PREVIOUS');
+
 $app = AtomsBootstrap::create(
     endpoint: (string) getenv('ATOMS_ENDPOINT'),
-    apiKey: getenv('ATOMS_API_KEY') !== false ? getenv('ATOMS_API_KEY') : null,
-    platformPublicKey: (string) getenv('ATOMS_PLATFORM_PUBLIC_KEY'),
+    sharedSecret: (string) getenv('ATOMS_SHARED_SECRET'),
     callbackPath: '/atoms/callback',
     http: $http,
     requestFactory: $factory,
@@ -31,6 +32,7 @@ $app = AtomsBootstrap::create(
     responseFactory: $factory,
     streamFactory: $factory,
     queueBridge: new ArrayQueueBridge(),
+    sharedSecretPrevious: $sharedSecretPrevious !== false ? $sharedSecretPrevious : null,
 );
 
 $response = $app->handleGlobals($_SERVER, (string) file_get_contents('php://input'));

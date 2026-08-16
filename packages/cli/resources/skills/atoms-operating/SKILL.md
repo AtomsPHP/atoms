@@ -37,8 +37,9 @@ environment, set `"debug_endpoints": true` on that environment in atoms.json —
 never by editing the Worker directory's wrangler.jsonc, which is gitignored
 and regenerated, so the edit would not survive a deploy. `atoms dev` and
 `atoms deploy` both forward the setting to Wrangler as a `--var`. The routes
-sit behind the Worker's auth check when that is on; with auth off (local dev,
-or access control in front of the Worker) the flag is the only gate.
+sit behind the Worker's bearer check under the default
+`ATOMS_BEARER_AUTH=required`; under `ATOMS_BEARER_AUTH=disabled` (an
+authenticating proxy in front of the Worker) the flag is the only gate.
 
 `atoms secrets:set PAYMENTS_API_KEY` stores the Worker secret
 `ATOMS_CONFIG_PAYMENTS_API_KEY`, because that is the name the Worker's config

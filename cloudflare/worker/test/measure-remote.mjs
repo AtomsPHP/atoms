@@ -13,7 +13,10 @@
  *
  * Config via env:
  *   ATOMS_BASE_URL   (required)
- *   ATOMS_APP_KEY    (optional bearer token)
+ *   ATOMS_SHARED_SECRET (base64, 32 bytes: the bearer is derived from it)
+ *   ATOMS_BEARER_TOKEN  (the derived bearer, which `atoms token` prints —
+ *                        what a measurement run against a deployed Worker
+ *                        carries, so the root stays where it is configured)
  *   ATOMS_COLD_SAMPLES     (default 5)  distinct fresh ids, first invoke each
  *   ATOMS_WARM_SAMPLES     (default 20) sequential invokes on one residency
  *   ATOMS_EVICTION_WAIT_MS (default 16000)
@@ -24,13 +27,31 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
+import { hkdfSync } from 'node:crypto';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 
 const BASE_URL = process.env.ATOMS_BASE_URL;
-const APP_KEY = process.env.ATOMS_APP_KEY;
+
+/**
+ * The bearer: HKDF-SHA256 over the decoded shared secret, empty salt, info
+ * `atoms/bearer/v1`, 32 bytes, standard base64 (docs/shared-secret.md).
+ */
+function deriveBearer(secretB64) {
+    const ikm = Buffer.from(secretB64.trim(), 'base64');
+    if (ikm.length !== 32) {
+        console.error('Error: ATOMS_SHARED_SECRET must be exactly 32 bytes of base64');
+        process.exit(1);
+    }
+    return Buffer.from(
+        hkdfSync('sha256', ikm, Buffer.alloc(0), Buffer.from('atoms/bearer/v1', 'utf8'), 32)
+    ).toString('base64');
+}
+
+const SHARED_SECRET = (process.env.ATOMS_SHARED_SECRET || '').trim();
+const BEARER = (process.env.ATOMS_BEARER_TOKEN || '').trim() || (SHARED_SECRET ? deriveBearer(SHARED_SECRET) : null);
 const COLD_SAMPLES = Number(process.env.ATOMS_COLD_SAMPLES ?? '5');
 const WARM_SAMPLES = Number(process.env.ATOMS_WARM_SAMPLES ?? '20');
 const EVICTION_WAIT_MS = Number(process.env.ATOMS_EVICTION_WAIT_MS ?? '16000');
@@ -51,7 +72,7 @@ const RUN = `m${Date.now().toString(36)}`;
 /** @param {string} method @param {string} path @param {unknown} [body] */
 async function request(method, path, body) {
 	const opts = { method, headers: {} };
-	if (APP_KEY) opts.headers.Authorization = `Bearer ${APP_KEY}`;
+	if (BEARER) opts.headers.Authorization = `Bearer ${BEARER}`;
 	if (body !== undefined) {
 		opts.headers['Content-Type'] = 'application/json';
 		opts.body = JSON.stringify(body);

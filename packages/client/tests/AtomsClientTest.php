@@ -23,6 +23,12 @@ use PHPUnit\Framework\TestCase;
 
 final class AtomsClientTest extends TestCase
 {
+    /** The reference vector's secret (docs/shared-secret.md). */
+    private const SECRET = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=';
+
+    /** The bearer HKDF derives from it — asserted as a literal, per the vector. */
+    private const BEARER = 'Bearer Dx6RY9LS43pOQhM4PMdaUWx3lk9mfyiiJZFfJtvl9E0=';
+
     private FakePsr18Client $http;
 
     /** @var list<int> milliseconds passed to the injected sleep */
@@ -36,7 +42,7 @@ final class AtomsClientTest extends TestCase
         $factory = new HttpFactory();
         $config = AtomsConfig::fromArray($configOverrides + [
             'endpoint' => 'https://atoms.example.workers.dev/',
-            'apiKey' => 'atoms_v1_secret',
+            'sharedSecret' => self::SECRET,
             'maxAttempts' => 3,
             'backoffBaseMs' => 50,
             'backoffJitter' => false,
@@ -73,7 +79,7 @@ final class AtomsClientTest extends TestCase
         $req = $this->http->lastRequest();
         self::assertSame('POST', $req->getMethod());
         self::assertSame('https://atoms.example.workers.dev/invoke/GameRoom/g-1/ping', (string) $req->getUri());
-        self::assertSame('Bearer atoms_v1_secret', $req->getHeaderLine('Authorization'));
+        self::assertSame(self::BEARER, $req->getHeaderLine('Authorization'));
         self::assertSame('application/json', $req->getHeaderLine('Content-Type'));
         self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $req->getHeaderLine('Idempotency-Key'));
         self::assertMatchesRegularExpression('/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/', $req->getHeaderLine('traceparent'));
@@ -315,47 +321,79 @@ final class AtomsClientTest extends TestCase
         self::assertSame('pong', $proxy->ping());
     }
 
-    public function testRealApiKeyIsSentAsABearerCredential(): void
+    /**
+     * The bearer is derived from the shared secret, so every call carries the
+     * same 44-character value the Worker derives from its own copy.
+     */
+    public function testEveryCallCarriesTheDerivedBearer(): void
     {
-        $client = $this->client(['apiKey' => 'atoms_v1_real']);
+        $client = $this->client();
+        $this->http
+            ->queueJson(200, ['result' => 'pong'])
+            ->queueJson(200, ['destroyed' => true]);
+
+        $client->call('GameRoom', 'g-1', 'ping');
+        $client->destroy('GameRoom', 'g-1');
+
+        foreach ($this->http->requests as $request) {
+            self::assertSame(self::BEARER, $request->getHeaderLine('Authorization'));
+        }
+
+        self::assertSame(
+            (new AtomsConfig('https://atoms.example.workers.dev', self::SECRET))->bearerToken(),
+            substr(self::BEARER, strlen('Bearer ')),
+        );
+    }
+
+    /**
+     * A rotation overlap widens which callbacks verify; the bearer on the way
+     * out stays the current secret's.
+     */
+    public function testAConfiguredPreviousSecretDoesNotChangeTheBearerSent(): void
+    {
+        $client = $this->client(['sharedSecretPrevious' => base64_encode(str_repeat("\x02", 32))]);
         $this->http->queueJson(200, ['result' => 'pong']);
 
         $client->call('GameRoom', 'g-1', 'ping');
 
-        self::assertSame('Bearer atoms_v1_real', $this->http->lastRequest()->getHeaderLine('Authorization'));
+        self::assertSame(self::BEARER, $this->http->lastRequest()->getHeaderLine('Authorization'));
     }
 
     /**
-     * A Worker deployed with ATOMS_APP_KEY unset disables its bearer check
-     * entirely. A null api key is how the client says "that is deliberate":
-     * no Authorization header at all, not an empty one.
+     * A Worker whose own secret is missing or malformed answers `misconfigured`
+     * on every route but /healthz. It is not retryable, and the message says
+     * what to set.
      */
-    public function testNullApiKeySendsNoAuthorizationHeader(): void
+    public function testMisconfiguredWorkerMapsToAClearNonRetryableFailure(): void
     {
-        $client = $this->client(['apiKey' => null]);
-        $this->http->queueJson(200, ['result' => 'pong']);
+        $client = $this->client(['maxAttempts' => 3]);
+        $this->http->queueJson(500, ['error' => [
+            'code' => 'misconfigured',
+            'message' => 'ATOMS_SHARED_SECRET is missing or is not base64 of 32 bytes',
+            'retryable' => false,
+        ]]);
 
-        $client->call('GameRoom', 'g-1', 'ping');
+        try {
+            $client->call('GameRoom', 'g-1', 'ping');
+            self::fail('expected AtomsRequestFailed');
+        } catch (AtomsRequestFailed $e) {
+            self::assertSame('misconfigured', $e->platformCode);
+            self::assertFalse($e->retryable);
+            self::assertSame(500, $e->httpStatus);
+            self::assertStringContainsString('ATOMS_SHARED_SECRET', $e->getMessage());
+            self::assertStringContainsString('wrangler secret put', $e->getMessage());
+        }
 
-        $req = $this->http->lastRequest();
-        self::assertFalse($req->hasHeader('Authorization'));
-        self::assertSame('', $req->getHeaderLine('Authorization'));
-        // Everything else still goes out as normal.
-        self::assertSame('https://atoms.example.workers.dev/invoke/GameRoom/g-1/ping', (string) $req->getUri());
-        self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $req->getHeaderLine('Idempotency-Key'));
+        self::assertCount(1, $this->http->requests, 'not retried');
+        self::assertSame([], $this->sleeps);
     }
 
-    /**
-     * An empty api key is a misconfiguration (an env var that resolved to
-     * empty), not a posture — it must never reach the wire as
-     * "Authorization: Bearer ".
-     */
-    public function testEmptyApiKeyThrowsAtConstructionRatherThanShippingAnEmptyBearer(): void
+    public function testAMalformedSecretThrowsAtConstruction(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessageMatches('/empty string/');
+        $this->expectExceptionMessageMatches('/ATOMS-E105/');
 
-        $this->client(['apiKey' => '']);
+        $this->client(['sharedSecret' => 'nope']);
     }
 
     public function testManifestHashHeaderSentWhenLoaded(): void
