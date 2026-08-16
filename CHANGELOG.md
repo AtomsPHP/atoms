@@ -32,6 +32,12 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   always mints a signed `v1.` ticket, including under
   `ATOMS_BEARER_AUTH=disabled`, since a shared secret — and therefore a
   signing key — is always configured.
+- **Fixed:** A ticket signature's base64url decoding discarded a trailing
+  segment's unused "wasted" bits, so a tampered signature could sometimes
+  decode to the identical bytes as the real one and still verify — a
+  malleability gap in the ticket check above. `verifyTicket()`'s base64url
+  decoder now rejects any non-canonical encoding (round-trip re-encoding must
+  reproduce the exact input) for both the signature and payload segments.
 - **Added:** Rotation overlap via `ATOMS_SHARED_SECRET_PREVIOUS`, accepted at
   exactly two verification sites (the Worker's bearer check, the monolith's
   callback verification), try-both, never a key selector; a sender always
