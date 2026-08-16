@@ -13,6 +13,7 @@ use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Client\Callback\NonceStore;
 use Atoms\Client\Callback\QueueBridge;
 use Atoms\Client\Manifest\ManifestLoader;
+use Atoms\Client\Tickets\TicketIssuer;
 use Atoms\Laravel\Console\DeployCommand;
 use Atoms\Laravel\Console\DevCommand;
 use Atoms\Laravel\Console\InstallCommand;
@@ -64,6 +65,10 @@ final class AtomsServiceProvider extends ServiceProvider
 
         $this->app->singleton(AtomsManager::class, static fn (Application $app): AtomsManager => new AtomsManager(
             $app->make(AtomsClient::class),
+        ));
+
+        $this->app->singleton(TicketIssuer::class, static fn (Application $app): TicketIssuer => new TicketIssuer(
+            $app->make(AtomsConfig::class),
         ));
     }
 
@@ -149,6 +154,7 @@ final class AtomsServiceProvider extends ServiceProvider
                 'maxAttempts' => $config['max_attempts'] ?? 3,
                 'manifestPath' => is_string($manifestPath) ? $this->resolvePath($manifestPath) : null,
                 'environment' => $config['environment'] ?? 'production',
+                'wsTicketTtlMs' => $config['ws_ticket_ttl_ms'] ?? 60000,
             ]);
         });
     }

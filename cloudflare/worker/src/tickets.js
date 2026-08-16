@@ -1,12 +1,17 @@
 /**
- * WebSocket connection tickets (spec §Routing and auth).
+ * WebSocket connection tickets (spec §Routing and auth, docs/ws-ticket-protocol.md).
  *
  * A ticket is the browser's credential for `GET /ws/:type/:id`: browsers
  * cannot set an `Authorization` header on `new WebSocket(url)`, so the
- * application's server mints one at `POST /tickets/:type/:id` (behind the same
- * credential gate as every other route) and the browser presents it as
- * `?ticket=`. Short-TTL, scoped to exactly one atom, and a carrier for
- * server-asserted claims that merge over the browser's own query params.
+ * application issues one and the browser presents it as `?ticket=`.
+ * Short-lived, scoped to exactly one atom, and a carrier for server-asserted
+ * claims that merge over the browser's own query params.
+ *
+ * **This Worker only verifies.** Issuance is the application's, in process,
+ * with no HTTP: it already holds `ATOMS_SHARED_SECRET` and derives the same
+ * signing key, so a mint endpoint here was a round trip to compute something
+ * the caller could compute itself. `Atoms\Client\Tickets\TicketIssuer` is the
+ * reference issuer; the format below is the contract between the two.
  *
  * Wire form — one form, always signed, in every auth posture:
  *
@@ -18,18 +23,25 @@
  * `signRequest()`. The key is derived from `ATOMS_SHARED_SECRET` (HKDF-SHA256,
  * empty salt, info `atoms/ws-ticket/v1` — a protocol constant, the same
  * category as `WS_ATTACHMENT_VERSION`; see `derive.js`), so there is no second
- * secret and rotating the shared secret invalidates every outstanding ticket
- * at once.
+ * secret. Note the signature covers the payload segment exactly as presented:
+ * nothing here re-serializes the JSON, so an issuer's byte-level choices are
+ * its own determinism problem, never a verification input.
  *
- * Tickets take **no** rotation overlap: verification uses the current secret
- * only, never `ATOMS_SHARED_SECRET_PREVIOUS`. They carry a seconds-scale TTL
- * and are re-minted through the application, so a flip costs at most one
- * re-mint per connection.
+ * Tickets take the same rotation overlap as the bearer: the signature is
+ * verified under the current secret, then under `ATOMS_SHARED_SECRET_PREVIOUS`
+ * while one is configured. Try-both, never a key selector — the previous
+ * secret is an operator-provisioned fallback tried unconditionally, never
+ * chosen by anything in the ticket. A verifier accepts both, an issuer emits
+ * only the current value, which is what keeps a rotation zero-downtime now
+ * that the issuers are application instances rolling out on their own
+ * schedule: mid-rollout, an instance that still holds the old secret signs
+ * with it, and re-issuing would not help it. Deleting the previous secret
+ * still invalidates every outstanding ticket signed under it, at once.
  *
  * Everything here is stateless, and so is the whole ticket contract: a
- * ticket is deliberately reusable until it expires, and the seconds-scale
- * TTL is the entire defense against a leaked URL (spec §Routing and auth).
- * The `jti` is a per-mint identifier for logs and any future revocation
+ * ticket is deliberately reusable until it expires, and the short lifetime
+ * is the entire defense against a leaked URL (spec §Routing and auth).
+ * The `jti` is a per-issue identifier for logs and any future revocation
  * contract; nothing consumes it.
  */
 
@@ -80,107 +92,26 @@ function base64UrlDecode(s) {
 }
 
 /**
- * @param {Uint8Array} bytes
- * @returns {string} lowercase hex
- */
-function toHex(bytes) {
-	let out = '';
-	for (let i = 0; i < bytes.length; i++) out += bytes[i].toString(16).padStart(2, '0');
-	return out;
-}
-
-/**
- * The ticket key for the CURRENT shared secret. `derive.js` memoizes the
- * derivation per secret for the life of the isolate.
+ * The keys a presented ticket may be verified under: the current secret's,
+ * followed by the previous secret's while a rotation overlap is configured.
+ * `derive.js` memoizes each derivation per secret for the life of the isolate,
+ * and keeps a slot per secret precisely so an overlap costs no re-derivation.
  *
  * @param {import('./config.js').AtomsConfig} config with `sharedSecretState === 'configured'`
- * @returns {Promise<CryptoKey>} non-extractable HMAC-SHA256 key
+ * @returns {Promise<CryptoKey[]>} non-extractable HMAC-SHA256 keys, current first
  */
-function ticketKey(config) {
+async function ticketKeys(config) {
 	const secret = config.sharedSecretBytes;
 	if (secret === null) {
 		throw new AtomsError('internal', 'ATOMS_SHARED_SECRET is not configured');
 	}
-	return deriveTicketKey(secret);
-}
 
-/**
- * Validate a mint request's claims: a flat own-property string→string map,
- * within the configured caps, with the reserved keys refused. Returns a
- * null-prototype copy so `?__proto__=` games are unrepresentable downstream
- * (same reasoning as `parseWsParams`).
- *
- * @param {unknown} raw the request body's `claims` member (absent = {})
- * @param {import('./config.js').AtomsConfig} config
- * @returns {Record<string, string>}
- * @throws {AtomsError} `invalid_request`
- */
-export function validateClaims(raw, config) {
-	/** @type {Record<string, string>} */
-	const claims = Object.create(null);
-	if (raw === undefined || raw === null) return claims;
-	if (typeof raw !== 'object' || Array.isArray(raw)) {
-		throw new AtomsError('invalid_request', '"claims" must be a JSON object of string values');
+	const keys = [await deriveTicketKey(secret)];
+	const previous = config.sharedSecretPreviousBytes;
+	if (previous !== null) {
+		keys.push(await deriveTicketKey(previous));
 	}
-
-	let count = 0;
-	let totalBytes = 0;
-	for (const key of Object.keys(raw)) {
-		const value = /** @type {Record<string, unknown>} */ (raw)[key];
-		if (typeof value !== 'string') {
-			throw new AtomsError('invalid_request', `claim ${JSON.stringify(key)} must be a string`);
-		}
-		// `ticket` never reaches onConnect (it is the reserved credential key),
-		// and `channels` as a claim would desync the delivered params from the
-		// actual channel membership, which is fixed from the query string.
-		if (key === 'ticket' || key === 'channels') {
-			throw new AtomsError('invalid_request', `claim key ${JSON.stringify(key)} is reserved`);
-		}
-		count++;
-		totalBytes += encoder.encode(key).length + encoder.encode(value).length;
-		claims[key] = value;
-	}
-
-	if (count > config.wsTicketMaxClaims) {
-		throw new AtomsError(
-			'invalid_request',
-			`the mint request has ${count} claims, over ATOMS_WS_TICKET_MAX_CLAIMS (${config.wsTicketMaxClaims})`
-		);
-	}
-	if (totalBytes > config.wsTicketMaxClaimBytes) {
-		throw new AtomsError(
-			'invalid_request',
-			`the mint request's claims total ${totalBytes} bytes, over ATOMS_WS_TICKET_MAX_CLAIM_BYTES ` +
-				`(${config.wsTicketMaxClaimBytes})`
-		);
-	}
-
-	return claims;
-}
-
-/**
- * Mint a ticket for one atom. Always signed: the Worker always holds a shared
- * secret, so local dev and production run the same code path.
- *
- * @param {import('./config.js').AtomsConfig} config
- * @param {string} type
- * @param {string} id
- * @param {Record<string, string>} claims already validated
- * @param {number} nowMs
- * @returns {Promise<{ticket: string, expiresAt: number, jti: string}>}
- */
-export async function mintTicket(config, type, id, claims, nowMs) {
-	const expiresAt = nowMs + config.wsTicketTtlMs;
-	const jti = toHex(crypto.getRandomValues(new Uint8Array(16)));
-	const payloadB64 = base64UrlEncode(
-		encoder.encode(JSON.stringify({ t: type, i: id, exp: expiresAt, jti, claims }))
-	);
-
-	const key = await ticketKey(config);
-	const sig = new Uint8Array(
-		await crypto.subtle.sign('HMAC', key, encoder.encode(TICKET_SIGNING_PREFIX + payloadB64))
-	);
-	return { ticket: `v1.${payloadB64}.${base64UrlEncode(sig)}`, expiresAt, jti };
+	return keys;
 }
 
 /**
@@ -189,10 +120,15 @@ export async function mintTicket(config, type, id, claims, nowMs) {
  * expired or mis-scoped ticket never costs an activation.
  *
  * Order: length cap; version/format; signature; payload shape; scope; expiry.
- * The signature is checked under the CURRENT shared secret only — a ticket
- * signed under `ATOMS_SHARED_SECRET_PREVIOUS` is `ticket_invalid` — so a
- * rotation costs at most one re-mint per connection and the previous secret
- * widens nothing here.
+ * The signature is checked under the current shared secret and then, while a
+ * rotation overlap is configured, under `ATOMS_SHARED_SECRET_PREVIOUS`; a
+ * ticket signed under neither is `ticket_invalid`.
+ *
+ * Expiry is absolute and allows no clock skew: the ticket is expired the
+ * moment this Worker's clock reaches `exp`. There is no skew setting to widen
+ * it. The issuer chooses the lifetime and has the same wall clock available;
+ * a tolerance here would only have blurred the one property the ticket
+ * actually promises.
  *
  * @param {import('./config.js').AtomsConfig} config
  * @param {string} raw the `?ticket=` value
@@ -217,10 +153,16 @@ export async function verifyTicket(config, raw, type, id, nowMs) {
 	const payloadB64 = segments[1];
 
 	const sig = base64UrlDecode(segments[2]);
-	const key = await ticketKey(config);
-	const ok =
-		sig !== null &&
-		(await crypto.subtle.verify('HMAC', key, sig, encoder.encode(TICKET_SIGNING_PREFIX + payloadB64)));
+	const signed = encoder.encode(TICKET_SIGNING_PREFIX + payloadB64);
+	let ok = false;
+	if (sig !== null) {
+		for (const key of await ticketKeys(config)) {
+			if (await crypto.subtle.verify('HMAC', key, sig, signed)) {
+				ok = true;
+				break;
+			}
+		}
+	}
 	if (!ok) {
 		throw new AtomsError('ticket_invalid', 'the ticket signature does not verify');
 	}
@@ -255,8 +197,8 @@ export async function verifyTicket(config, raw, type, id, nowMs) {
 		);
 	}
 
-	if (nowMs > payload.exp + config.wsTicketSkewMs) {
-		throw new AtomsError('ticket_expired', 'the ticket has expired; mint a fresh one');
+	if (nowMs >= payload.exp) {
+		throw new AtomsError('ticket_expired', 'the ticket has expired; issue a fresh one');
 	}
 
 	// Claims: a flat string map, copied onto a null prototype so a forged

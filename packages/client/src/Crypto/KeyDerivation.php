@@ -29,6 +29,9 @@ final class KeyDerivation
     /** HKDF `info` for the HMAC-SHA256 key protecting inbound callbacks. */
     public const CALLBACK_INFO = 'atoms/callback/v1';
 
+    /** HKDF `info` for the HMAC-SHA256 key WebSocket connection tickets are signed with. */
+    public const TICKET_INFO = 'atoms/ws-ticket/v1';
+
     /** Decoded length of the shared secret, and of every key derived from it. */
     public const SECRET_BYTES = 32;
 
@@ -82,6 +85,20 @@ final class KeyDerivation
     public static function callbackKey(string $secret, string $setting = 'ATOMS_SHARED_SECRET'): string
     {
         return self::derive(self::decodeSecret($secret, $setting), self::CALLBACK_INFO);
+    }
+
+    /**
+     * The raw 32-byte HMAC-SHA256 key WebSocket connection tickets are signed
+     * with (docs/ws-ticket-protocol.md). Derived from the current secret only:
+     * this app issues its own tickets, and a sender emits under the current
+     * secret. The Worker verifies under this key and, during a rotation
+     * overlap, under the previous secret's as well.
+     *
+     * @throws \InvalidArgumentException when $secret is absent or malformed.
+     */
+    public static function ticketKey(string $secret, string $setting = 'ATOMS_SHARED_SECRET'): string
+    {
+        return self::derive(self::decodeSecret($secret, $setting), self::TICKET_INFO);
     }
 
     /**

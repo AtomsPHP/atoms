@@ -46,13 +46,13 @@
  *     Complements ATOMS_SKIP; exists so a scoped second run can exercise just
  *     the auth/ticket checks without re-paying the eviction waits. An
  *     allowlist is self-maintaining where a 30-entry skip list is not.)
- *   ATOMS_WS_TICKET_SKEW_MS (required for check 36's signed-expiry leg and,
- *     when positive, enables check 34's within-skew replay leg; must match
- *     the value the Worker was started with — never defaulted here)
  *   ATOMS_REQUIRE_TICKET_CHECKS=1 (turn the connection-ticket skips — checks
- *     35-38 and check 36's conditional expiry leg — into failures. Set it on
- *     the bearer-required run; the anti-silent-deletion device from
- *     ATOMS_REQUIRE_CALLBACK_CHECKS)
+ *     31-38 — into failures. Set it on the bearer-required run; the
+ *     anti-silent-deletion device from ATOMS_REQUIRE_CALLBACK_CHECKS.
+ *     Since M5 the ticket checks issue their own tickets rather than minting
+ *     them over a route, so they need ATOMS_SHARED_SECRET and take no ticket
+ *     TTL or skew settings — the issuer picks the lifetime, and check 36
+ *     waits out a 1.5s one against the Worker's own clock)
  *   ATOMS_REQUIRE_BEARER_VECTOR=1 (turn check 39's cross-language leg's skip —
  *     no `php` on PATH — into a failure; CI sets it)
  *   ATOMS_REQUIRE_ROTATION_CHECKS=1 (turn check 40's skip into a failure; set
@@ -102,13 +102,6 @@ const ONLY = (process.env.ATOMS_ONLY || '')
     .split(',')
     .map(s => parseInt(s.trim()))
     .filter(n => !isNaN(n));
-// Check 36's signed-expiry leg must know the Worker's verification-side clock
-// allowance to wait out `expires_at + skew`, and check 34's within-skew
-// replay leg exists only when that allowance is positive (never defaulted
-// here, same rule as ATOMS_TURN_DEADLINE_MS). Absent => those legs skip.
-const WS_TICKET_SKEW_MS = process.env.ATOMS_WS_TICKET_SKEW_MS
-    ? parseInt(process.env.ATOMS_WS_TICKET_SKEW_MS, 10)
-    : null;
 // Same anti-silent-deletion device as ATOMS_REQUIRE_CALLBACK_CHECKS, for the
 // connection-ticket checks: set on the auth-enabled run, where 35-38 must
 // run rather than skip.
@@ -484,8 +477,8 @@ function wsHandshakeAttempt(path, opts = {}) {
  * Node 22's global `WebSocket` accepts `{headers: {Authorization: ...}}`
  * (an undici extension), so by default this sends this posture's bearer.
  * Pass `{auth: false}` to connect the way a browser does — no headers at
- * all — with a `?ticket=` minted from `POST /tickets` carried in `path` as
- * the credential instead (checks 31+).
+ * all — with a `?ticket=` issued locally by `issueLocal()` carried in `path`
+ * as the credential instead (checks 31+).
  *
  * The returned handle collects inbound frames into arrival order; `.next()`
  * awaits (and consumes) the next one, whether it already arrived or is still
@@ -563,20 +556,21 @@ function openSocket(path, sockOpts = {}) {
 
 // ------------------------------------------------------------ tickets
 
-/** Mint a connection ticket over the route the suite already trusts. */
-async function mintTicketReq(type, id, claims = null) {
-    return request('POST', `/tickets/${type}/${id}`, claims ? { claims } : null);
-}
-
 /**
- * Mint a ticket the way the Worker does — `v1.<payload>.<sig>`, the signature
- * an HMAC-SHA256 over `"v1\n" + <payload segment>` under
+ * Issue a ticket the way an application does — `v1.<payload>.<sig>`, the
+ * signature an HMAC-SHA256 over `"v1\n" + <payload segment>` under
  * `HKDF(secret, "atoms/ws-ticket/v1")`.
  *
- * Holding the root is what makes ticket refusals testable instantly: a ticket
- * with an `exp` already in the past proves the expiry path with no TTL wait,
- * and a ticket signed under the rotation overlap secret proves tickets get no
- * previous-secret acceptance (check 40).
+ * This is the whole issuing side of the protocol, and it is five lines,
+ * which is the point: the Worker never minted anything the caller could not
+ * mint itself, and since M5 it does not offer to. `Atoms\Client\Tickets\
+ * TicketIssuer` is the reference implementation of these same bytes, and
+ * check 39 pins the two against each other and against fixed vectors.
+ *
+ * Holding the root also makes refusals testable instantly: a ticket with an
+ * `exp` already in the past proves the expiry path with no waiting, and a
+ * ticket signed under an unrelated secret proves the signature is load
+ * bearing (check 40).
  *
  * @param {object} payload
  * @param {string} secretB64 the secret whose ticket key signs it
@@ -608,6 +602,64 @@ function ticketPayload(type, id, overrides = {}) {
         ...overrides,
     };
 }
+
+/**
+ * Issue a live ticket for one atom, the way the application would: signed
+ * under the current shared secret, expiring `ttlMs` from now. The suite's
+ * replacement for the deleted mint route — every check that used to POST for
+ * a ticket calls this instead, and asserts exactly what it asserted before
+ * about how `/ws` treats what comes back.
+ */
+function issueLocal(type, id, claims = {}, ttlMs = 60000) {
+    return forgeTicket(ticketPayload(type, id, { claims, exp: Date.now() + ttlMs }), SHARED_SECRET);
+}
+
+/**
+ * Fixed vectors for the ticket protocol, shared verbatim with the PHP suite
+ * (`packages/client/tests/Tickets/TicketIssuerTest.php`) and recorded in
+ * `docs/ws-ticket-protocol.md`.
+ *
+ * Two independent implementations agreeing on a live request only proves they
+ * agree today; pinning the bytes proves what they agreed to. Vector 1 carries
+ * non-ASCII and a slash, the two characters a JSON encoder is most likely to
+ * escape differently; vector 2 pins that an empty claims map serializes as
+ * `{}` and not `[]`. Change these only alongside both implementations.
+ */
+const TICKET_VECTORS = {
+    secret: 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=',
+    key: 'oAhR1o7PQdNULciqv8FZkgnlJ89a48C5wpdSEMXHBoA=',
+    jti: '000102030405060708090a0b0c0d0e0f',
+    exp: 1755200060000,
+    cases: [
+        {
+            name: 'unicode and an unescaped slash',
+            payload: {
+                t: 'Room',
+                i: 'vector-1',
+                exp: 1755200060000,
+                jti: '000102030405060708090a0b0c0d0e0f',
+                claims: { client_id: 'u-42', name: 'Zoë ✨', path: 'a/b' },
+            },
+            ticket:
+                'v1.eyJ0IjoiUm9vbSIsImkiOiJ2ZWN0b3ItMSIsImV4cCI6MTc1NTIwMDA2MDAwMCwianRpIjoiMDAwMTAyMDMwNDA1MDYwNzA4' +
+                'MDkwYTBiMGMwZDBlMGYiLCJjbGFpbXMiOnsiY2xpZW50X2lkIjoidS00MiIsIm5hbWUiOiJab8OrIOKcqCIsInBhdGgiOiJhL2Ii' +
+                'fX0.p3PJLrBSNdsUUEiq4nL3zvnKq7iiozRibGPGd87zgyM',
+        },
+        {
+            name: 'empty claims serialize as {}',
+            payload: {
+                t: 'Room',
+                i: 'vector-2',
+                exp: 1755200060000,
+                jti: '000102030405060708090a0b0c0d0e0f',
+                claims: {},
+            },
+            ticket:
+                'v1.eyJ0IjoiUm9vbSIsImkiOiJ2ZWN0b3ItMiIsImV4cCI6MTc1NTIwMDA2MDAwMCwianRpIjoiMDAwMTAyMDMwNDA1MDYwNzA4' +
+                'MDkwYTBiMGMwZDBlMGYiLCJjbGFpbXMiOnt9fQ.1C0xNRHM-ev1U6yv8G0pEPLcO0jhGhv5YItL6Yku9-o',
+        },
+    ],
+};
 
 // ------------------------------------------------------- callback listener
 
@@ -3431,37 +3483,44 @@ checks.push(async () => {
 });
 
 // CHECK 31: connection tickets — the happy path, in whichever posture this
-// run is in: the mint envelope (a signed 3-segment `v1.` ticket, in every
-// posture), then a HEADERLESS upgrade carrying the ticket — the way a browser
+// run is in: the pinned protocol vectors (offline, byte-exact), then a
+// HEADERLESS upgrade carrying a locally issued ticket — the way a browser
 // arrives — with a spoofed query param the ticket's claim must override, the
 // reserved `ticket` key never delivered, and the ticket excluded from the
 // param budgets.
+//
+// M5: the ticket is issued here rather than fetched from `POST /tickets`,
+// which no longer exists. Every assertion about how `/ws` treats it is
+// unchanged; what the mint envelope used to prove about the bytes is now
+// proved harder, against fixed vectors the PHP issuer asserts too.
 checks.push(async () => {
     const checkNum = 31;
-    const name = 'tickets: mint + headerless connect, claims win, ticket stripped';
+    const name = 'tickets: locally issued ticket, headerless connect, claims win, ticket stripped';
     const problems = [];
     const id = atomId('tkt-happy');
 
-    const mint = await mintTicketReq('Room', id, { client_id: 'server-truth' });
-    if (mint.status !== 200) {
-        fail(checkNum, name, `mint gave ${mint.status}: ${JSON.stringify(mint.data)}`);
+    if (!SHARED_SECRET) {
+        skip(checkNum, name, 'issuing a ticket needs the root', REQUIRE_TICKET_CHECKS, 'ATOMS_SHARED_SECRET');
         return;
     }
-    const ticket = mint.data?.ticket;
+
+    // The protocol vectors, offline. Two implementations agreeing on a live
+    // request only proves they agree today; pinning the bytes says what they
+    // agreed to.
+    if (derive(TICKET_VECTORS.secret, 'ticket').toString('base64') !== TICKET_VECTORS.key) {
+        problems.push('the ticket key derived from the reference secret does not match the pinned vector');
+    }
+    for (const c of TICKET_VECTORS.cases) {
+        const got = forgeTicket(c.payload, TICKET_VECTORS.secret);
+        if (got !== c.ticket) {
+            problems.push(`vector "${c.name}" produced ${got}, expected ${c.ticket}`);
+        }
+    }
+
+    const ticket = issueLocal('Room', id, { client_id: 'server-truth' });
     const wanted = /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
-    if (typeof ticket !== 'string' || !wanted.test(ticket)) {
+    if (!wanted.test(ticket)) {
         problems.push(`ticket=${JSON.stringify(ticket)} does not match ${wanted}`);
-    }
-    const now = Date.now();
-    if (
-        typeof mint.data?.expires_at !== 'number' ||
-        mint.data.expires_at <= now ||
-        mint.data.expires_at > now + 24 * 3600 * 1000
-    ) {
-        problems.push(`expires_at=${JSON.stringify(mint.data?.expires_at)} is not a sane future epoch-ms`);
-    }
-    if (mint.data?.atom?.type !== 'Room' || mint.data?.atom?.id !== id) {
-        problems.push(`atom echo=${JSON.stringify(mint.data?.atom)} (expected Room/${id})`);
     }
 
     // Headerless, like a browser: the ticket is the only credential. The
@@ -3488,15 +3547,11 @@ checks.push(async () => {
 
     // Budget exclusion: exactly the documented default ATOMS_WS_MAX_PARAMS
     // (32) query keys PLUS the ticket must still open — same
-    // over-the-documented-default practice as check 18's 40 channels. A
-    // fresh mint, because the first ticket was consumed by the connect above.
-    const mint2 = await mintTicketReq('Room', id);
-    if (mint2.status !== 200) {
-        problems.push(`second mint gave ${mint2.status}`);
-    } else {
+    // over-the-documented-default practice as check 18's 40 channels.
+    {
         const filler = Array.from({ length: 30 }, (_, i) => `p${i}=x`).join('&');
         const sock2 = await openSocket(
-            `/ws/Room/${id}?channels=lobby&client_id=c&${filler}&ticket=${encodeURIComponent(mint2.data.ticket)}`,
+            `/ws/Room/${id}?channels=lobby&client_id=c&${filler}&ticket=${encodeURIComponent(issueLocal('Room', id))}`,
             { auth: false }
         );
         try {
@@ -3509,48 +3564,58 @@ checks.push(async () => {
     }
 
     if (problems.length === 0) {
-        pass(checkNum, name, 'signed v1 minted, claims merged, ticket outside the budgets');
+        pass(checkNum, name, 'vectors byte-exact, claims merged, ticket outside the budgets');
     } else {
         fail(checkNum, name, problems.join('; '));
     }
 });
 
-// CHECK 32: mint validation — claims shape and caps, reserved claim keys,
-// and the eligibility refusals shared with /ws (a ticket must never be
-// mintable for a connection the upgrade would refuse).
+// CHECK 32: the mint route is GONE, and /ws is the only authority on whether
+// an atom can be connected to at all.
+//
+// M5 replaced this check's contents rather than weakening them. It used to
+// assert `POST /tickets` validated claims and refused ineligible types; claim
+// validation moved to the issuer and is asserted in the PHP suite, so what is
+// left here is what only a live Worker can answer — that the route no longer
+// exists, and that the eligibility refusals it used to share with /ws still
+// come from /ws itself, against a ticket that is otherwise perfectly valid.
 checks.push(async () => {
     const checkNum = 32;
-    const name = 'tickets: mint validation and eligibility refusals';
+    const name = 'tickets: the mint route is removed; /ws owns eligibility';
     const problems = [];
-    const id = atomId('tkt-mintval');
+    const id = atomId('tkt-eligibility');
 
-    const expect = async (label, promise, status, code) => {
-        const r = await promise;
+    if (!SHARED_SECRET) {
+        skip(checkNum, name, 'issuing a ticket needs the root', REQUIRE_TICKET_CHECKS, 'ATOMS_SHARED_SECRET');
+        return;
+    }
+
+    // The removal itself. Under this posture the runner carries a credential,
+    // so a 404 is the route being absent rather than a credential refusal —
+    // check 35 covers the headerless case under bearer auth.
+    const gone = await request('POST', `/tickets/Room/${id}`, { claims: {} });
+    if (gone.status !== 404 || gone.data?.error?.code !== 'not_found') {
+        problems.push(
+            `POST /tickets gave ${gone.status}/${gone.data?.error?.code} (expected 404/not_found — the route is removed)`
+        );
+    }
+
+    const upgrade = async (label, type, status, code) => {
+        const ticket = issueLocal(type, id);
+        const r = await wsHandshakeAttempt(`/ws/${type}/${id}?ticket=${encodeURIComponent(ticket)}`, { auth: false });
         if (r.status !== status || r.data?.error?.code !== code) {
             problems.push(`${label} gave ${r.status}/${r.data?.error?.code} (expected ${status}/${code})`);
         }
     };
 
-    await expect('a non-string claim value', mintTicketReq('Room', id, { n: 5 }), 400, 'invalid_request');
-    // 40 claims — over the documented default ATOMS_WS_TICKET_MAX_CLAIMS (16),
-    // same over-the-default practice as check 18's 40 channels.
-    await expect(
-        '40 claims',
-        mintTicketReq('Room', id, Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`c${i}`, 'x']))),
-        400,
-        'invalid_request'
-    );
-    await expect('a reserved "ticket" claim key', mintTicketReq('Room', id, { ticket: 'x' }), 400, 'invalid_request');
-    await expect('a reserved "channels" claim key', mintTicketReq('Room', id, { channels: 'lobby' }), 400, 'invalid_request');
-    // Counter declares no WebSocket handlers ("websocket": false) — the same
-    // refusal /ws gives, so no ticket exists that /ws would then refuse.
-    await expect('minting for a websocket:false type', mintTicketReq('Counter', id), 501, 'not_supported');
-    await expect('minting for an unknown type', mintTicketReq('NotAnAtom', id), 404, 'unknown_atom_type');
-    await expect('GET on the mint route', request('GET', `/tickets/Room/${id}`), 405, 'method_not_allowed');
-    await expect('a two-segment mint path', request('POST', `/tickets/Room`), 400, 'invalid_request');
+    // Counter declares no WebSocket handlers ("websocket": false). An issuer
+    // cannot know that — its manifest may lag this deployment — so a valid,
+    // correctly signed ticket for it must be refused here, by the upgrade.
+    await upgrade('a valid ticket for a websocket:false type', 'Counter', 501, 'not_supported');
+    await upgrade('a valid ticket for an unknown type', 'NotAnAtom', 404, 'unknown_atom_type');
 
     if (problems.length === 0) {
-        pass(checkNum, name, 'claims caps, reserved keys, and shared eligibility all refused correctly');
+        pass(checkNum, name, 'mint route absent; eligibility refused at the upgrade on otherwise valid tickets');
     } else {
         fail(checkNum, name, problems.join('; '));
     }
@@ -3575,12 +3640,9 @@ checks.push(async () => {
 
     const idA = atomId('tkt-scope-a');
     const idB = atomId('tkt-scope-b');
-    const mintA = await mintTicketReq('Room', idA);
-    if (mintA.status !== 200) {
-        problems.push(`scope-test mint gave ${mintA.status}`);
-    } else {
+    if (SHARED_SECRET) {
         const crossed = await wsHandshakeAttempt(
-            `/ws/Room/${idB}?ticket=${encodeURIComponent(mintA.data.ticket)}`,
+            `/ws/Room/${idB}?ticket=${encodeURIComponent(issueLocal('Room', idA))}`,
             { auth: false }
         );
         if (crossed.status !== 401 || crossed.data?.error?.code !== 'ticket_invalid') {
@@ -3600,6 +3662,34 @@ checks.push(async () => {
             );
         }
 
+        // The expiry boundary itself (M5). Expiry is absolute — expired once
+        // the Worker's clock reaches `exp`, with no skew allowance — so a
+        // ticket one millisecond past its `exp` is refused. Under the old
+        // default skew this leg connected, which makes it the sharpest
+        // statement of what changed; the live leg below keeps it honest by
+        // proving a ticket that is merely young still connects.
+        const justExpired = forgeTicket(ticketPayload('Room', id, { exp: Date.now() - 1 }), SHARED_SECRET);
+        const boundary = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=${encodeURIComponent(justExpired)}`, {
+            auth: false,
+        });
+        if (boundary.status !== 401 || boundary.data?.error?.code !== 'ticket_expired') {
+            problems.push(
+                `a ticket 1ms past its exp gave ${boundary.status}/${boundary.data?.error?.code} ` +
+                    '(expected 401/ticket_expired — expiry takes no skew allowance)'
+            );
+        }
+
+        const live = await openSocket(`/ws/Room/${id}?ticket=${encodeURIComponent(issueLocal('Room', id, {}, 5000))}`, {
+            auth: false,
+        });
+        try {
+            await live.next();
+        } catch (e) {
+            problems.push(`a ticket 5s from expiry failed to connect: ${e.message}`);
+        } finally {
+            await live.close();
+        }
+
         const unsigned = unsignedForm(ticketPayload('Room', id));
         const refused = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=${encodeURIComponent(unsigned)}`, {
             auth: false,
@@ -3611,11 +3701,11 @@ checks.push(async () => {
         }
     } else if (REQUIRE_TICKET_CHECKS) {
         problems.push(
-            'the expiry and unsigned-form legs need ATOMS_SHARED_SECRET to sign with, and this run asserted ' +
-                'the ticket checks must be available'
+            'the scope, expiry and unsigned-form legs need ATOMS_SHARED_SECRET to sign with, and this run ' +
+                'asserted the ticket checks must be available'
         );
     } else {
-        notes.push('expiry and unsigned-form legs skipped (env var: ATOMS_SHARED_SECRET)');
+        notes.push('scope, expiry and unsigned-form legs skipped (env var: ATOMS_SHARED_SECRET)');
     }
 
     if (problems.length === 0) {
@@ -3630,25 +3720,23 @@ checks.push(async () => {
 // claim, no burn, no DO-side state. The same ticket must open a second
 // connection both while the first socket is still open and after it has
 // closed. This is a contract assertion, not a smoke test — a single-use burn
-// fails it. Runs in both postures, on the minted signed ticket.
+// fails it. Runs in both postures, on a locally issued signed ticket.
 checks.push(async () => {
     const checkNum = 34;
     const name = 'tickets: reusable within TTL — no single-use burn';
     const id = atomId('tkt-reuse');
 
-    // Warm the atom BEFORE minting: a cold activation (PHP boot +
-    // migrations) inside the connect/reconnect cycle adds seconds of
-    // latency — enough that a run against a test-shortened TTL would expire
-    // the ticket mid-check and turn the reuse assertion into a vacuous
-    // ticket_expired failure.
-    await invoke('Room', id, 'stats', []);
-
-    const mint = await mintTicketReq('Room', id);
-    if (mint.status !== 200) {
-        fail(checkNum, name, `mint gave ${mint.status}: ${JSON.stringify(mint.data)}`);
+    if (!SHARED_SECRET) {
+        skip(checkNum, name, 'issuing a ticket needs the root', REQUIRE_TICKET_CHECKS, 'ATOMS_SHARED_SECRET');
         return;
     }
-    const path = `/ws/Room/${id}?channels=lobby&ticket=${encodeURIComponent(mint.data.ticket)}`;
+
+    // Warm the atom BEFORE issuing: a cold activation (PHP boot +
+    // migrations) inside the connect/reconnect cycle adds seconds of
+    // latency, and the ticket's lifetime is running throughout.
+    await invoke('Room', id, 'stats', []);
+
+    const path = `/ws/Room/${id}?channels=lobby&ticket=${encodeURIComponent(issueLocal('Room', id))}`;
 
     // Concurrent reuse: the second connect happens while the first socket is
     // still open.
@@ -3669,18 +3757,11 @@ checks.push(async () => {
         await sock.close();
     }
 
-    // Reuse after close: the reconnect-without-re-mint the reusable contract
-    // exists for — a browser that drops inside the TTL retries the same URL.
-    // A FRESH ticket, so exactly one connect/close cycle sits inside its TTL
-    // window: close handshakes take seconds locally, and reusing the first
-    // ticket here would expire a test-shortened TTL and fail this leg for
-    // the wrong reason.
-    const m2 = await mintTicketReq('Room', id);
-    if (m2.status !== 200) {
-        fail(checkNum, name, `the post-close leg's mint gave ${m2.status}`);
-        return;
-    }
-    const path2 = `/ws/Room/${id}?channels=lobby&ticket=${encodeURIComponent(m2.data.ticket)}`;
+    // Reuse after close: the reconnect-without-re-issue the reusable contract
+    // exists for — a browser that drops inside the lifetime retries the same
+    // URL. A FRESH ticket, so exactly one connect/close cycle sits inside its
+    // window: close handshakes take seconds locally.
+    const path2 = `/ws/Room/${id}?channels=lobby&ticket=${encodeURIComponent(issueLocal('Room', id))}`;
     const first = await openSocket(path2, { auth: false });
     try {
         await first.next();
@@ -3701,13 +3782,18 @@ checks.push(async () => {
     pass(checkNum, name, 'same-ticket reuse connected both concurrently and across a close');
 });
 
-// CHECK 35: the bearer-required posture's core promise — minting requires the
-// bearer (a ticket cannot mint a ticket, and neither can nothing), and the
-// signed ticket then admits a completely headerless browser-style upgrade
-// with its claims merged.
+// CHECK 35: the bearer-required posture's core promise — the removed mint
+// route is gone under a credential too, and a locally issued ticket admits a
+// completely headerless browser-style upgrade with its claims merged.
+//
+// The two removal legs are deliberately both here: headerless, the mint path
+// must still refuse for lack of a credential (the pre-dispatch auth gate runs
+// before routing, so its absence is not observable without one), and WITH the
+// bearer it must be a plain 404. Together they say the route is absent rather
+// than merely unreachable.
 checks.push(async () => {
     const checkNum = 35;
-    const name = 'tickets (bearer required): mint is bearer-gated, signed ticket admits headerless upgrade';
+    const name = 'tickets (bearer required): mint route removed, issued ticket admits headerless upgrade';
     if (!AUTH_REQUIRED) {
         skip(
             checkNum,
@@ -3718,37 +3804,48 @@ checks.push(async () => {
         );
         return;
     }
+    if (!SHARED_SECRET) {
+        skip(checkNum, name, 'issuing a ticket needs the root', REQUIRE_TICKET_CHECKS, 'ATOMS_SHARED_SECRET');
+        return;
+    }
     const problems = [];
     const id = atomId('tkt-authed');
 
     const bare = await fetch(new URL(`/tickets/Room/${id}`, baseUrl), { method: 'POST' });
     const bareData = await bare.json().catch(() => ({}));
     if (bare.status !== 401 || bareData?.error?.code !== 'unauthenticated') {
-        problems.push(`a headerless mint gave ${bare.status}/${bareData?.error?.code} (expected 401/unauthenticated)`);
+        problems.push(
+            `a headerless POST /tickets gave ${bare.status}/${bareData?.error?.code} (expected 401/unauthenticated — ` +
+                'the credential gate precedes routing)'
+        );
     }
 
-    const mint = await mintTicketReq('Room', id, { client_id: 'real' });
-    if (mint.status !== 200 || !/^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(mint.data?.ticket ?? '')) {
-        problems.push(`the authed mint gave ${mint.status}, ticket=${JSON.stringify(mint.data?.ticket)} (expected a 3-segment v1)`);
-    } else {
-        const sock = await openSocket(
-            `/ws/Room/${id}?channels=lobby&client_id=spoofed&ticket=${encodeURIComponent(mint.data.ticket)}`,
-            { auth: false }
+    const authed = await request('POST', `/tickets/Room/${id}`, { claims: {} });
+    if (authed.status !== 404 || authed.data?.error?.code !== 'not_found') {
+        problems.push(
+            `POST /tickets with the bearer gave ${authed.status}/${authed.data?.error?.code} ` +
+                '(expected 404/not_found — the route is removed)'
         );
-        try {
-            const welcome = JSON.parse(/** @type {string} */ (await sock.next()));
-            if (welcome.params?.client_id !== 'real') {
-                problems.push(`params.client_id=${JSON.stringify(welcome.params?.client_id)} (expected the claim "real")`);
-            }
-        } catch (e) {
-            problems.push(`the headerless upgrade with a signed ticket failed: ${e.message}`);
-        } finally {
-            await sock.close();
+    }
+
+    const ticket = issueLocal('Room', id, { client_id: 'real' });
+    const sock = await openSocket(
+        `/ws/Room/${id}?channels=lobby&client_id=spoofed&ticket=${encodeURIComponent(ticket)}`,
+        { auth: false }
+    );
+    try {
+        const welcome = JSON.parse(/** @type {string} */ (await sock.next()));
+        if (welcome.params?.client_id !== 'real') {
+            problems.push(`params.client_id=${JSON.stringify(welcome.params?.client_id)} (expected the claim "real")`);
         }
+    } catch (e) {
+        problems.push(`the headerless upgrade with a signed ticket failed: ${e.message}`);
+    } finally {
+        await sock.close();
     }
 
     if (problems.length === 0) {
-        pass(checkNum, name, 'headerless mint 401, signed ticket connected a headerless browser-style client');
+        pass(checkNum, name, 'mint route 401 headerless and 404 authed; issued ticket connected a headerless client');
     } else {
         fail(checkNum, name, problems.join('; '));
     }
@@ -3771,16 +3868,14 @@ checks.push(async () => {
         );
         return;
     }
-    const problems = [];
-    const notes = [];
-    const id = atomId('tkt-refuse-on');
-
-    const mint = await mintTicketReq('Room', id);
-    if (mint.status !== 200) {
-        fail(checkNum, name, `mint gave ${mint.status}: ${JSON.stringify(mint.data)}`);
+    if (!SHARED_SECRET) {
+        skip(checkNum, name, 'issuing a ticket needs the root', REQUIRE_TICKET_CHECKS, 'ATOMS_SHARED_SECRET');
         return;
     }
-    const t = mint.data.ticket;
+    const problems = [];
+    const id = atomId('tkt-refuse-on');
+
+    const t = issueLocal('Room', id);
     const tampered = t.slice(0, -1) + (t.endsWith('A') ? 'B' : 'A');
     const flipped = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=${encodeURIComponent(tampered)}`, { auth: false });
     if (flipped.status !== 401 || flipped.data?.error?.code !== 'ticket_invalid') {
@@ -3802,45 +3897,35 @@ checks.push(async () => {
         problems.push(`no credential at all gave ${naked.status}/${naked.data?.error?.code} (expected 401/unauthenticated)`);
     }
 
-    // Real expiry: a genuinely minted ticket, waited out. Needs the Worker's
-    // verification skew in the runner env (never defaulted, the check-15
-    // pattern) and a server TTL short enough to wait — CI's bearer-required
-    // run starts the Worker with a short ATOMS_WS_TICKET_TTL_MS for this.
-    if (WS_TICKET_SKEW_MS === null) {
-        if (REQUIRE_TICKET_CHECKS) {
-            problems.push('the expiry leg needs ATOMS_WS_TICKET_SKEW_MS in the runner env, and this run asserted it must be available');
-        } else {
-            notes.push('expiry leg skipped (env var: ATOMS_WS_TICKET_SKEW_MS)');
-        }
-    } else {
-        const m2 = await mintTicketReq('Room', id);
-        const waitMs = m2.data.expires_at - Date.now() + WS_TICKET_SKEW_MS + 500;
-        if (m2.status !== 200) {
-            problems.push(`the expiry-leg mint gave ${m2.status}`);
-        } else if (waitMs > 8000) {
-            if (REQUIRE_TICKET_CHECKS) {
-                problems.push(
-                    `the expiry leg would need a ${waitMs}ms wait — start the Worker with a short ATOMS_WS_TICKET_TTL_MS`
-                );
-            } else {
-                notes.push('expiry leg skipped (server TTL too long to wait out; set ATOMS_WS_TICKET_TTL_MS low)');
-            }
-        } else {
-            await new Promise((r) => setTimeout(r, waitMs));
-            const stale = await wsHandshakeAttempt(
-                `/ws/Room/${id}?ticket=${encodeURIComponent(m2.data.ticket)}`,
-                { auth: false }
-            );
-            if (stale.status !== 401 || stale.data?.error?.code !== 'ticket_expired') {
-                problems.push(
-                    `the waited-out ticket gave ${stale.status}/${stale.data?.error?.code} (expected 401/ticket_expired)`
-                );
-            }
-        }
+    // Real expiry, waited out against the live Worker clock — the leg the
+    // forged past-`exp` ticket in check 33 cannot replace, because only this
+    // one proves a ticket that WAS accepted stops being accepted.
+    //
+    // M5: it needs no environment at all now. The issuer chooses the
+    // lifetime, so the check asks for a 1.5s one and waits it out; there is
+    // no server TTL to shorten and no skew to know. It connects first, so a
+    // later refusal cannot be mistaken for a ticket that was never good.
+    const shortLived = issueLocal('Room', id, {}, 1500);
+    const expiresAt = Date.now() + 1500;
+    const early = await openSocket(`/ws/Room/${id}?ticket=${encodeURIComponent(shortLived)}`, { auth: false });
+    try {
+        await early.next();
+    } catch (e) {
+        problems.push(`the short-lived ticket failed to connect while still valid: ${e.message}`);
+    } finally {
+        await early.close();
+    }
+
+    await new Promise((r) => setTimeout(r, Math.max(0, expiresAt - Date.now()) + 200));
+    const stale = await wsHandshakeAttempt(`/ws/Room/${id}?ticket=${encodeURIComponent(shortLived)}`, { auth: false });
+    if (stale.status !== 401 || stale.data?.error?.code !== 'ticket_expired') {
+        problems.push(
+            `the waited-out ticket gave ${stale.status}/${stale.data?.error?.code} (expected 401/ticket_expired)`
+        );
     }
 
     if (problems.length === 0) {
-        pass(checkNum, name, ['tamper/unsigned-form/no-credential all refused', ...notes].join('; '));
+        pass(checkNum, name, 'tamper/unsigned-form/no-credential refused; a live ticket expired for real');
     } else {
         fail(checkNum, name, problems.join('; '));
     }
@@ -3865,18 +3950,17 @@ checks.push(async () => {
         );
         return;
     }
+    if (!SHARED_SECRET) {
+        skip(checkNum, name, 'issuing a ticket needs the root', REQUIRE_TICKET_CHECKS, 'ATOMS_SHARED_SECRET');
+        return;
+    }
     const id = atomId('tkt-precedence');
 
     // Warm the atom first, same reasoning as check 34: a cold activation
-    // against a test-shortened TTL would expire the ticket mid-check.
+    // spends the ticket's lifetime inside the check.
     await invoke('Room', id, 'stats', []);
 
-    const mint = await mintTicketReq('Room', id);
-    if (mint.status !== 200) {
-        fail(checkNum, name, `mint gave ${mint.status}: ${JSON.stringify(mint.data)}`);
-        return;
-    }
-    const t = mint.data.ticket;
+    const t = issueLocal('Room', id);
     const tampered = t.slice(0, -1) + (t.endsWith('A') ? 'B' : 'A');
     const path = `/ws/Room/${id}?channels=lobby&ticket=${encodeURIComponent(tampered)}`;
 
@@ -4000,6 +4084,42 @@ checks.push(async () => {
         );
     }
 
+    // (b2) The whole ticket, cross-language (M5). Deriving the same key only
+    // proves the two agree about HKDF; the ticket adds a JSON encoder and a
+    // base64url encoder to the agreement, which is where two implementations
+    // actually drift — an escaped slash or an escaped non-ASCII character
+    // changes the signed bytes and nothing catches it until a browser cannot
+    // connect. The PHP here is the issuer's algorithm inline (no autoloader:
+    // this job has no composer install), checked against both this runner's
+    // own forge and the pinned vector.
+    if (!php.missing && php.ok) {
+        const vector = TICKET_VECTORS.cases[0];
+        const phpTicket = await runPhp(
+            "$k = hash_hkdf('sha256', base64_decode(getenv('ATOMS_VECTOR_SECRET'), true), 32, 'atoms/ws-ticket/v1', '');" +
+                "$p = json_encode(['t' => 'Room', 'i' => 'vector-1', 'exp' => 1755200060000, " +
+                "'jti' => '000102030405060708090a0b0c0d0e0f', 'claims' => (object) ['client_id' => 'u-42', " +
+                "'name' => \"Zo\\u{eb} \\u{2728}\", 'path' => 'a/b']], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);" +
+                "$b = rtrim(strtr(base64_encode($p), '+/', '-_'), '=');" +
+                "$s = rtrim(strtr(base64_encode(hash_hmac('sha256', \"v1\\n\" . $b, $k, true)), '+/', '-_'), '=');" +
+                "echo \"v1.$b.$s\";",
+            { ATOMS_VECTOR_SECRET: TICKET_VECTORS.secret }
+        );
+        if (!phpTicket.ok) {
+            problems.push(`php could not issue the vector ticket: ${phpTicket.error}`);
+        } else {
+            const mine = forgeTicket(vector.payload, TICKET_VECTORS.secret);
+            if (phpTicket.stdout !== vector.ticket) {
+                problems.push(
+                    `php issued ${JSON.stringify(phpTicket.stdout)} for the pinned vector, expected ` +
+                        `${JSON.stringify(vector.ticket)}`
+                );
+            }
+            if (phpTicket.stdout !== mine) {
+                problems.push('php and this runner disagree on the same ticket inputs');
+            }
+        }
+    }
+
     // (c) The live Worker accepts exactly the derived value.
     if (AUTH_REQUIRED && BEARER_TOKEN) {
         const id = atomId('bearer-live');
@@ -4028,13 +4148,20 @@ checks.push(async () => {
 });
 
 // CHECK 40: rotation. ATOMS_SHARED_SECRET_PREVIOUS widens ACCEPTANCE at
-// exactly two verification sites and emission nowhere: the Worker's bearer
-// check takes either bearer, callbacks keep arriving under the current key,
-// and tickets — which carry a seconds-scale TTL and are re-minted through the
-// application — get no overlap at all.
+// exactly three verification sites and emission nowhere: the Worker's bearer
+// check takes either bearer, its ticket check takes a ticket signed under
+// either, and callbacks keep arriving under the current key.
+//
+// M5 moved the ticket legs. Tickets used to get no overlap, on the reasoning
+// that they were re-minted through the application within seconds of a flip.
+// That stopped being true when the application became the issuer: mid-rollout
+// an instance still holding the old secret signs with it, and re-issuing
+// produces another ticket signed the same way. So tickets now overlap like
+// the bearer, and the leg that asserted refusal asserts acceptance instead —
+// with an unrelated-secret leg added, so the acceptance is not vacuous.
 checks.push(async () => {
     const checkNum = 40;
-    const name = 'rotation: both bearers accepted, tickets current-only, callbacks signed with the current key';
+    const name = 'rotation: bearers and tickets accepted under either secret, callbacks signed with the current key';
     if (!SHARED_SECRET_PREVIOUS) {
         skip(
             checkNum,
@@ -4077,29 +4204,36 @@ checks.push(async () => {
         notes.push('bearer legs skipped (env var: ATOMS_BEARER_AUTH)');
     }
 
-    // Tickets get no overlap: one signed under the previous secret's ticket
-    // key is refused, while one signed under the current key connects — the
-    // non-vacuity half, proving the refusal is about the key and not the form.
+    // Tickets take the overlap: signed under either live secret they connect,
+    // which is what makes a rotation survivable while application instances
+    // are still rolling out. Signed under an unrelated secret the ticket is
+    // refused, so neither acceptance is vacuous — the signature is still what
+    // is being trusted, not the form.
     const roomId = atomId('rotation-ws');
-    const stale = forgeTicket(ticketPayload('Room', roomId), SHARED_SECRET_PREVIOUS);
-    const refused = await wsHandshakeAttempt(`/ws/Room/${roomId}?ticket=${encodeURIComponent(stale)}`, {
+    for (const [label, secret] of [
+        ['the current secret', SHARED_SECRET],
+        ['the previous secret', SHARED_SECRET_PREVIOUS],
+    ]) {
+        const ticket = forgeTicket(ticketPayload('Room', roomId), secret);
+        const sock = await openSocket(`/ws/Room/${roomId}?channels=lobby&ticket=${encodeURIComponent(ticket)}`, {
+            auth: false,
+        }).catch((e) => {
+            problems.push(`a ticket signed under ${label} did not connect: ${e.message}`);
+            return null;
+        });
+        if (sock) await sock.close();
+    }
+
+    const unrelated = forgeTicket(ticketPayload('Room', roomId), randomBytes(32).toString('base64'));
+    const refused = await wsHandshakeAttempt(`/ws/Room/${roomId}?ticket=${encodeURIComponent(unrelated)}`, {
         auth: false,
     });
     if (refused.status !== 401 || refused.data?.error?.code !== 'ticket_invalid') {
         problems.push(
-            `a ticket signed under the previous secret gave ${refused.status}/${refused.data?.error?.code} ` +
+            `a ticket signed under an unrelated secret gave ${refused.status}/${refused.data?.error?.code} ` +
                 '(expected 401/ticket_invalid)'
         );
     }
-    const current = forgeTicket(ticketPayload('Room', roomId), SHARED_SECRET);
-    const accepted = await openSocket(
-        `/ws/Room/${roomId}?channels=lobby&ticket=${encodeURIComponent(current)}`,
-        { auth: false }
-    ).catch((e) => {
-        problems.push(`a ticket signed under the current secret did not connect: ${e.message}`);
-        return null;
-    });
-    if (accepted) await accepted.close();
 
     // Callbacks are emitted under the current key only.
     if (listener) {
@@ -4130,7 +4264,7 @@ checks.push(async () => {
     }
 
     if (problems.length === 0) {
-        pass(checkNum, name, ['both bearers accepted, tickets current-only', ...notes].join('; '));
+        pass(checkNum, name, ['both bearers and both ticket keys accepted', ...notes].join('; '));
     } else {
         fail(checkNum, name, problems.join('; '));
     }
@@ -4164,6 +4298,10 @@ checks.push(async () => {
 
     const routes = [
         ['POST /invoke', await invoke('Counter', id, 'increment', [1])],
+        // The removed mint route too: the configuration gate runs ahead of
+        // routing, so an unconfigured Worker answers `misconfigured` even for
+        // a path that no longer exists. That ordering is the assertion here —
+        // a deployment missing its secret must never leak which routes it has.
         ['POST /tickets', await request('POST', `/tickets/Room/${id}`)],
         ['GET /debug', await request('GET', `/debug/Counter/${id}/info`)],
         ['GET /ws', await wsHandshakeAttempt(`/ws/Room/${id}?channels=lobby`, { auth: false })],
@@ -4175,7 +4313,7 @@ checks.push(async () => {
     }
 
     if (problems.length === 0) {
-        pass(checkNum, name, '/healthz 200; invoke/tickets/debug/ws all 500 misconfigured');
+        pass(checkNum, name, '/healthz 200; invoke/tickets/debug/ws all 500 misconfigured before routing');
     } else {
         fail(checkNum, name, problems.join('; '));
     }

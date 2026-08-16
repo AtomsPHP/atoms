@@ -285,7 +285,15 @@
             "code": "ATOMS-E067",
             "title": "WebSocket ticket acquisition failed",
             "message": "Could not acquire a WebSocket connection ticket for {type}/{id}: {reason}.",
-            "fix": "The Worker mints tickets at POST /tickets/{type}/{id}; when bearer auth is required the client must send the bearer derived from ATOMS_SHARED_SECRET (the same value `atoms token` prints). Check the secret configuration, that the atom type is deployed, and that it does not declare \"websocket\": false. Tickets are short-lived and reusable until they expire: on any connection failure, mint a fresh one.",
+            "fix": "Retired, and kept here so the code still resolves in an older log: the Worker no longer mints tickets over HTTP, so there is nothing left to acquire. The application issues its own tickets locally through Atoms\\Client\\Tickets\\TicketIssuer, signing them with the key derived from ATOMS_SHARED_SECRET. Rejected claims now report ATOMS-E068; a missing or malformed secret reports ATOMS-E105. Whether an atom type is deployed and accepts WebSockets is answered by the upgrade itself, at GET /ws/{type}/{id}.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E068",
+            "title": "WebSocket ticket claims invalid",
+            "message": "Cannot issue a WebSocket ticket for {type}/{id}: {reason}.",
+            "fix": "Claims are a flat map of string keys to string values: at most 16 entries, at most 2048 UTF-8 bytes over keys plus values, and the assembled ticket must stay under 8192 bytes. Values must be valid UTF-8. The keys \"ticket\" and \"channels\" are reserved — channel membership is fixed from the upgrade's query string, and \"ticket\" is the query key the ticket itself travels in. The atom type must match ^[A-Za-z_][A-Za-z0-9_]*$ and the id must not be empty. The wire format and these limits are pinned in docs/ws-ticket-protocol.md.",
             "severity": "error",
             "phase": "runtime"
         },

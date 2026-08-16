@@ -294,20 +294,25 @@ jobs:
       # overlap and the config allowlist wired in. A full second suite run
       # would re-pay the eviction waits (checks 12/21/24/25 — minutes) for
       # zero new coverage, so ATOMS_ONLY scopes it to the auth-shaped checks:
-      # 2 as a bearer smoke test, 33-38 (tickets under a live bearer), 39
-      # (derivation + live acceptance), 40 (rotation) and 42 (the deny list).
-      # Every REQUIRE_ flag this posture can satisfy is set, so a broken setup
-      # fails instead of silently deleting checks.
+      # 2 as a bearer smoke test, 32-38 (tickets under a live bearer, and the
+      # removed mint route proved absent WITH a credential in hand), 39
+      # (derivation + cross-language issuance), 40 (rotation) and 42 (the deny
+      # list). Every REQUIRE_ flag this posture can satisfy is set, so a broken
+      # setup fails instead of silently deleting checks.
       #
       # The Worker is started with wrangler directly rather than through
       # dev:callback, because this posture's env is the subject: the current
-      # and previous secrets, a ticket TTL short enough for check 36's expiry
-      # wait, and an ATOMS_CONFIG_ENV_KEYS that names both secret variables —
-      # which is what makes check 42's deny-list assertion meaningful, with
-      # ATOMS_DEBUG_ENDPOINTS on the same list as the control that proves the
-      # allowlist is live. ATOMS_CALLBACK_URL points at the suite's own
-      # loopback listener so check 40 can verify a callback under the current
-      # key.
+      # and previous secrets, and an ATOMS_CONFIG_ENV_KEYS that names both
+      # secret variables — which is what makes check 42's deny-list assertion
+      # meaningful, with ATOMS_DEBUG_ENDPOINTS on the same list as the control
+      # that proves the allowlist is live. ATOMS_CALLBACK_URL points at the
+      # suite's own loopback listener so check 40 can verify a callback under
+      # the current key.
+      #
+      # No ticket TTL or skew is passed any more: the suite issues its own
+      # tickets, so check 34's reuse cycle and check 36's expiry wait each
+      # choose their own lifetime and there is nothing here for them to drift
+      # from.
       #
       # The current secret here is the ROTATED one and the previous is the
       # secret posture 1 ran with: two genuinely different values, so "both
@@ -316,16 +321,6 @@ jobs:
         env:
           ATOMS_SHARED_SECRET: ${{ env.RUN_SECRET_NEXT }}
           ATOMS_SHARED_SECRET_PREVIOUS: ${{ env.RUN_SECRET }}
-          # 3000, not smaller: check 34 carries a minted ticket through a
-          # full connect/close/reconnect cycle (the reuse contract), and the
-          # TTL has to outlive that cycle even on a slow runner (the atoms
-          # are pre-warmed by the checks, so no PHP boot is inside the
-          # window). The skew exists for check 36's expiry leg, whose wait is
-          # TTL + skew + margin ≈ 5.5s. Passed to the Worker AND read by the
-          # check, so the two never drift — the ATOMS_TURN_DEADLINE_MS/check
-          # 15 pattern.
-          ATOMS_WS_TICKET_TTL_MS: '3000'
-          ATOMS_WS_TICKET_SKEW_MS: '2000'
         run: |
           # wrangler.pid is the `npm run` wrapper; killing it alone orphans
           # the wrangler/workerd children, which keep the port and would make
@@ -350,8 +345,6 @@ jobs:
             --var "ATOMS_SHARED_SECRET_PREVIOUS:${ATOMS_SHARED_SECRET_PREVIOUS}" \
             --var "ATOMS_CALLBACK_URL:http://127.0.0.1:${ATOMS_CALLBACK_PORT}/atoms/callback" \
             --var "ATOMS_CONFIG_ENV_KEYS:ATOMS_SHARED_SECRET,ATOMS_SHARED_SECRET_PREVIOUS,ATOMS_DEBUG_ENDPOINTS" \
-            --var "ATOMS_WS_TICKET_TTL_MS:${ATOMS_WS_TICKET_TTL_MS}" \
-            --var "ATOMS_WS_TICKET_SKEW_MS:${ATOMS_WS_TICKET_SKEW_MS}" \
             > wrangler-auth.log 2>&1 &
           echo $! > wrangler.pid
           up=0
@@ -374,7 +367,7 @@ jobs:
             exit 1
           fi
           ATOMS_BASE_URL="http://127.0.0.1:${WORKER_PORT}" \
-            ATOMS_ONLY=2,33,34,35,36,37,38,39,40,42 \
+            ATOMS_ONLY=2,32,33,34,35,36,37,38,39,40,42 \
             ATOMS_REQUIRE_TICKET_CHECKS=1 \
             ATOMS_REQUIRE_ROTATION_CHECKS=1 \
             ATOMS_REQUIRE_DENY_CHECKS=1 \
