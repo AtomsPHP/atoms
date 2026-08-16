@@ -69,6 +69,15 @@ final class EnvFileTest extends TestCase
         self::assertSame("# top\nA=1\nKEY=new\nB=2\n", (string) file_get_contents($path));
     }
 
+    /** A rewrite lands where the line already sat, indentation included. */
+    public function testWriteKeepsTheIndentationOfTheLineItReplaces(): void
+    {
+        $path = $this->file("A=1\n  KEY=old\nB=2\n");
+
+        self::assertFalse(EnvFile::write($path, 'KEY', 'new'));
+        self::assertSame("A=1\n  KEY=new\nB=2\n", (string) file_get_contents($path));
+    }
+
     public function testWriteAppendsWithItsCommentWhenTheKeyIsAbsent(): void
     {
         $path = $this->file("A=1\n");

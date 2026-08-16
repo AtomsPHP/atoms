@@ -28,7 +28,7 @@ final class EnvFile
             return null;
         }
 
-        $value = self::unquote(trim(rtrim($m[1], "\r")));
+        $value = self::unquote(trim(rtrim($m[2], "\r")));
 
         return $value === '' ? null : $value;
     }
@@ -50,7 +50,7 @@ final class EnvFile
         $line = $key . '=' . $value;
 
         if (!$isNew && preg_match(self::pattern($key), $existing) === 1) {
-            $replaced = preg_replace(self::pattern($key), self::escapeReplacement($line), $existing, 1);
+            $replaced = preg_replace(self::pattern($key), '$1' . self::escapeReplacement($line), $existing, 1);
             if (\is_string($replaced)) {
                 file_put_contents($path, $replaced, \LOCK_EX);
 
@@ -76,7 +76,9 @@ final class EnvFile
     /** Anchored per-line, so a key never matches inside another's value. */
     private static function pattern(string $key): string
     {
-        return '/^[ \t]*' . preg_quote($key, '/') . '[ \t]*=[ \t]*(.*)$/m';
+        // Group 1 is the line's indentation, kept so a rewrite lands where the
+        // line already sat; group 2 is the value.
+        return '/^([ \t]*)' . preg_quote($key, '/') . '[ \t]*=[ \t]*(.*)$/m';
     }
 
     private static function unquote(string $value): string
