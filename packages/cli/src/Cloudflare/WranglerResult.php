@@ -83,6 +83,39 @@ final class WranglerResult
     }
 
     /**
+     * The secret names in a `wrangler secret list --json` document.
+     *
+     * Every caller that reads that document goes through here, so the
+     * warning-tolerant decoding above is applied once rather than per command
+     * — decoding it by hand reads an existing secret as absent the moment
+     * Wrangler prefixes its JSON with a notice.
+     *
+     * Returns null when the output does not decode at all. That is not the
+     * same fact as "no secrets are set", and the two callers that ask draw
+     * opposite conclusions from it, so the distinction stays theirs to make.
+     *
+     * @return list<string>|null
+     */
+    public function secretNames(): ?array
+    {
+        $decoded = $this->json();
+        if ($decoded === null) {
+            return null;
+        }
+
+        $names = [];
+        foreach ($decoded as $entry) {
+            /** @var mixed $name */
+            $name = \is_array($entry) ? ($entry['name'] ?? null) : $entry;
+            if (\is_string($name) && $name !== '') {
+                $names[] = $name;
+            }
+        }
+
+        return $names;
+    }
+
+    /**
      * Offsets where a JSON document could begin: the start of any line whose
      * first non-space character opens an array or an object.
      *

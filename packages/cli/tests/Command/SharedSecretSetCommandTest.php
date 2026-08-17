@@ -140,6 +140,28 @@ final class SharedSecretSetCommandTest extends TestCase
     }
 
     /**
+     * Wrangler prefixes its JSON with proxy/update notices on stdout, so a
+     * hand-rolled json_decode of the whole stream reads an existing secret as
+     * absent — and idempotence quietly stops holding, minting a Worker version
+     * on every deploy.
+     */
+    public function testSkipsWhenWranglerPrefixesItsSecretListWithWarnings(): void
+    {
+        $wrangler = new FakeWrangler();
+        $wrangler->listSecretsResult = FakeWrangler::ok(
+            [],
+            "▲ [WARNING] Proxy environment variables detected.\n\n"
+            . json_encode([['name' => 'ATOMS_SHARED_SECRET']], JSON_THROW_ON_ERROR),
+        );
+
+        $tester = $this->invoke($wrangler, $this->secret());
+
+        self::assertSame(0, $tester->getStatusCode(), $tester->getDisplay());
+        self::assertNull($wrangler->lastCall('putSecret'), 'a warning line must not hide an existing secret');
+        self::assertStringContainsString('already set', $tester->getDisplay());
+    }
+
+    /**
      * An unreadable `secret list` must not be read as "already set" — skipping
      * wrongly leaves a Worker that never gets its secret, while a redundant
      * put costs only a version.
