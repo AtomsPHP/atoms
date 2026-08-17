@@ -16,6 +16,7 @@ use Atoms\Database;
 use Atoms\Runtime\AtomContext;
 use Atoms\Serialization\Serializer;
 use Atoms\Timers\Timers;
+use Atoms\Websocket\JsonFrame;
 
 final class CfAtomContext implements AtomContext
 {
@@ -152,37 +153,36 @@ final class CfAtomContext implements AtomContext
 
     /**
      * The GUEST builds the entire wire frame — `json_encode()` here, never a
-     * structured payload handed to JS for `JSON.stringify()` — because that is
-     * what keeps a wide integer inside `$payload` exact all the way to the
-     * client. The host never parses or re-encodes `$frame`: it is a string in,
-     * the same string out, fanned to every socket tagged for `$channel`
-     * (mvp-spec.md's int64 rule).
+     * structure handed to JS for `JSON.stringify()` — so a wide integer inside
+     * `$payload` stays exact all the way to the client (mvp-spec.md's int64 rule).
+     * The host never parses or re-encodes `$frame`: string in, same string out,
+     * fanned to every socket tagged for `$channel`.
      *
-     * Wire shape, pinned: `{"kind":"broadcast","channel":...,"payload":...}`
-     * — deliberately asymmetric with `Connection::send(string $payload)`,
-     * which sends exactly the bytes the customer framed. `broadcast()` takes
-     * a structure, so the runtime must serialize it, and once it does it must
-     * also say which channel it came from: a socket on more than one channel
-     * has no other way to tell two broadcasts apart.
+     * `normalize()` is idempotent over its own output, so normalizing `$payload`
+     * here and letting {@see JsonFrame::encode()} normalize the assembled envelope
+     * again produces byte-identical output.
      *
      * @param array<string, mixed> $payload
      */
     public function broadcast(string $channel, array $payload): void
     {
-        $frame = json_encode(
-            [
-                'kind' => 'broadcast',
-                'channel' => $channel,
-                'payload' => $this->serializer->normalize($payload),
-            ],
-            JSON_UNESCAPED_SLASHES
-        );
-
-        if ($frame === false) {
+        try {
+            $frame = JsonFrame::encode(
+                [
+                    'kind' => 'broadcast',
+                    'channel' => $channel,
+                    'payload' => $this->serializer->normalize($payload),
+                ],
+                $this->serializer
+            );
+        } catch (\JsonException $e) {
+            // Re-wrapped to \RuntimeException (this method's contract type);
+            // json_last_error_msg() is unusable after a throwing encode, so the
+            // message comes off the exception.
             throw new \RuntimeException(sprintf(
                 'Atoms: could not encode the broadcast payload for channel %s: %s.',
                 $channel,
-                json_last_error_msg()
+                $e->getMessage()
             ));
         }
 

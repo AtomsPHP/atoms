@@ -140,6 +140,10 @@ final class AtomTest extends TestCase
             {
             }
 
+            public function sendJson(array $payload): void
+            {
+            }
+
             public function close(int $code = 1000, string $reason = ''): void
             {
             }

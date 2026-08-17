@@ -16,6 +16,7 @@
 namespace Atoms\Cf;
 
 use Atoms\Websocket\Connection;
+use Atoms\Websocket\JsonFrame;
 
 final class CfConnection implements Connection
 {
@@ -71,6 +72,16 @@ final class CfConnection implements Connection
                 isset($error['message']) ? (string) $error['message'] : 'no message'
             ));
         }
+    }
+
+    /**
+     * Encode through the shared frame encoder, then hand the bytes to
+     * {@see self::send()} — so sendJson() inherits send()'s UTF-8 rule, size cap
+     * and {@see ConnectionClosed} and cannot drift from it.
+     */
+    public function sendJson(array $payload): void
+    {
+        $this->send(JsonFrame::encode($payload));
     }
 
     /**

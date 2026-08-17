@@ -19,6 +19,7 @@ use Atoms\Symfony\Controller\CallbackController;
 use Atoms\Symfony\Messenger\MessengerQueueBridge;
 use Atoms\Symfony\Routing\AtomsRouteLoader;
 use Atoms\Symfony\Tests\Fixtures\CustomOtherRoomMethods;
+use Atoms\Symfony\Tests\Fixtures\GameRoom;
 use Atoms\Symfony\Tests\Fixtures\OtherRoom;
 use Atoms\Symfony\Tests\Support\FakePsr17Factory;
 use Atoms\Symfony\Tests\Support\FakePsr18Client;
@@ -115,6 +116,21 @@ final class AtomsBundleExtensionTest extends TestCase
 
         $ticket = $issuer->issue('GameRoom', 'g-1');
         self::assertStringStartsWith('v1.', $ticket->ticket);
+    }
+
+    public function testWsUrlIsReachableThroughThePublicClientAlias(): void
+    {
+        $container = $this->buildContainer(['http_client' => 'test.psr18_client']);
+        $container->register('test.psr18_client', FakePsr18Client::class)->setPublic(true);
+        $container->compile();
+
+        $client = $container->get('atoms.client');
+
+        self::assertInstanceOf(AtomsClient::class, $client);
+        self::assertSame(
+            'wss://atoms.example.workers.dev/ws/GameRoom/g-1?channels=lobby',
+            $client->wsUrl(GameRoom::class, 'g-1', ['channels' => 'lobby']),
+        );
     }
 
     public function testConfiguredWsTicketTtlMsLandsInAtomsConfig(): void

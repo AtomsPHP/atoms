@@ -11,6 +11,7 @@ use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Client\Callback\NonceStore;
 use Atoms\Client\Callback\NullQueueBridge;
 use Atoms\Client\Callback\QueueBridge;
+use Atoms\Client\Tickets\TicketIssuer;
 use Psr\Container\ContainerInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
@@ -67,12 +68,14 @@ final class AtomsBootstrap
         int $timestampWindow = 300,
         ?LoggerInterface $logger = null,
         ?ContainerInterface $container = null,
+        ?int $wsTicketTtlMs = null,
     ): PlainPhpApp {
-        $config = AtomsConfig::fromArray([
+        $config = AtomsConfig::fromArray(array_filter([
             'endpoint' => $endpoint,
             'sharedSecret' => $sharedSecret,
             'sharedSecretPrevious' => $sharedSecretPrevious,
-        ]);
+            'wsTicketTtlMs' => $wsTicketTtlMs,
+        ], static fn (mixed $v): bool => $v !== null));
 
         $client = new AtomsClient($config, $http, $requestFactory, $streamFactory, $logger);
 
@@ -91,6 +94,7 @@ final class AtomsBootstrap
 
         return new PlainPhpApp(
             $client,
+            new TicketIssuer($config),
             $kernel,
             $callbackPath,
             $serverRequestFactory,

@@ -128,6 +128,31 @@ final class AtomsConfig
     }
 
     /**
+     * The same endpoint with a WebSocket scheme (`https` → `wss`, `http` → `ws`),
+     * preserving port and path prefix. One endpoint setting serves both transports;
+     * a separate `ws_endpoint` would be a second thing to misconfigure for a
+     * deployment where the two never legitimately differ.
+     *
+     * @throws \InvalidArgumentException when the endpoint carries no http(s) scheme to swap
+     */
+    public function wsBaseUrl(): string
+    {
+        $base = $this->baseUrl();
+
+        foreach (['https://' => 'wss://', 'http://' => 'ws://'] as $http => $ws) {
+            if (str_starts_with($base, $http)) {
+                return $ws . substr($base, strlen($http));
+            }
+        }
+
+        throw new \InvalidArgumentException(sprintf(
+            'Atoms: the endpoint %s has no http:// or https:// scheme to derive a WebSocket URL from. '
+            . 'Set the endpoint to the Worker\'s origin, e.g. https://atoms.example.workers.dev.',
+            var_export($this->endpoint, true),
+        ));
+    }
+
+    /**
      * The `Authorization: Bearer` value for this configuration: standard
      * base64 (44 characters) of HKDF(secret, "atoms/bearer/v1"). Derived from
      * $sharedSecret only — a sender emits the current value.

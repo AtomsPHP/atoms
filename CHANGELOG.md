@@ -65,6 +65,68 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   now-deleted skew allowance. `ATOMS_WS_TICKET_MAX_BYTES` is kept, since the
   Worker still bounds how large a ticket string it will look at.
 
+- **Added:** `Atoms\Websocket\Connection::sendJson(array $payload): void` and
+  `Atoms\Websocket\Message::json(): array`, so a structured reply to one
+  connection is symmetric with `broadcast()`'s array-in call instead of the
+  hand-rolled `$conn->send(json_encode(...))` and
+  `json_decode($msg->payload(), true, ...)` every application was writing.
+  Both go through the new `Atoms\Websocket\JsonFrame`, the single encoder
+  `broadcast()` now uses too, so the normalization rules cannot drift between
+  them: `Serializer::normalize()`, then `json_encode()` with
+  `JSON_UNESCAPED_SLASHES`. A `sendJson()` frame is sent **bare** — there is no
+  channel to name, so there is no `kind`/`channel` envelope, unlike a broadcast
+  — and always arrives as a text frame. `json()` throws `\JsonException` for
+  malformed input *and* for a top-level value that is not a JSON object, so an
+  `onMessage()` handler needs one catch rather than a shape check; no
+  `ATOMS-E###` is involved, because what to do about a bad inbound frame is the
+  application's decision. Conformance check 43 pins the wire bytes. See
+  `cloudflare/docs/mvp-spec.md` §The three client-facing frame formats.
+  **Implementors of the two interfaces** — meaning a runtime or a test double,
+  not application code — must add one method each.
+- **Added:** `Atoms\Client\CallOptions`, per-call options passed to
+  `AtomsClient::get()` / `AtomsManager::get()`, so the proxy covers every call
+  site: `Atoms::get(GameRoom::class, $id, new CallOptions(retryTurnDeadline: true))->method(...)`.
+  Previously `retryTurnDeadline` was reachable only through the positional
+  `call()` form, which names the Atom twice and loses the return type. It also
+  carries `idempotencyKey` and a per-call `traceparent`. Deliberately *not*
+  fluent methods on `AtomProxy`: a declared method beats `__call()` silently, so
+  `->retryingTurnDeadline()` would make a customer Atom method of that name
+  permanently unreachable. `docs/conventions.md` §Per-call options records that
+  the proxy declares nothing else, ever.
+- **Added:** `AtomsClient::wsUrl()` / `AtomsManager::wsUrl()` (and
+  `AtomsConfig::wsBaseUrl()`), deriving `ws`/`wss` and the `/ws/{type}/{id}`
+  path from the one configured endpoint, with a `channels` list joined the way
+  the Worker parses it. Applications were reconstructing this in JavaScript from
+  a bare endpoint string. A ticket is passed in rather than minted, so
+  issuance failures stay visible at the call site. Also
+  `AtomsClient::wireType()`, the class-basename rule three call sites had each
+  derived for themselves.
+- **Added:** `Atoms::ticket(GameRoom::class, $id, $claims)` on the Laravel
+  manager and facade — sugar over `TicketIssuer::issue()`, which takes the wire
+  type, so a call site names the Atom class once instead of repeating its
+  basename as a string. `AtomsFake` gained `stubTicket()`,
+  `assertTicketIssued()` and `issuedTickets()`, so a test can assert the scope
+  and claims of an issued ticket without standing up a PSR-18 fake.
+- **Added:** `TicketIssuer` is now part of the normative adapter contract —
+  a "Ticket minting" row in `docs/adapters.md`, wired into
+  `examples/plain-php`'s `AtomsBootstrap`/`PlainPhpApp`, and asserted by two new
+  conformance cases (S8: the issued ticket verifies under the host's own shared
+  secret; S9: the host's config path yields a usable `wsUrl()`). Both are gated
+  on the existing `'client'` capability, because an issuer is built from the
+  same `AtomsConfig` the client is — a host supplying one and not the other has
+  a wiring bug, not a missing capability.
+- **Changed:** `AtomsClient::get()`, `AtomsManager::get()` and
+  `AtomsFake::get()` declare `object` rather than a concrete proxy class, so
+  they can carry `@template T` / `@return T`. This is what makes
+  `Atoms::get(GameRoom::class, $id)->join($player)` statically analysable and a
+  misspelled method name an error rather than a runtime 404 — the other reason
+  applications were dropping to `Atoms::call()`. Reading a *property* through a
+  proxy now throws `\LogicException` naming the problem: the annotation makes
+  `->id` look legal, but an Atom's properties live on the platform and nothing
+  was fetched, so a warning and `null` would have been the worst answer. A
+  Laravel facade's `@method` block cannot carry a template, so inject
+  `AtomsManager` or `AtomsClient` where you want full inference.
+
 ### UPGRADING from 0.2.0
 
 1. Any code calling `Atoms\Client\Tickets\TicketClient::acquire()` must

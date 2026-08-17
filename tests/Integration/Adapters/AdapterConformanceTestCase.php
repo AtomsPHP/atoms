@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Tests\Integration\Adapters;
 
 use Atoms\Client\AtomsClient;
+use Atoms\Client\Tickets\TicketIssuer;
 use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 use Atoms\Tests\Integration\Adapters\Fixtures\GameRoom;
@@ -481,6 +482,85 @@ abstract class AdapterConformanceTestCase extends TestCase
         } finally {
             $host->shutdown();
         }
+    }
+
+    /**
+     * S8: every client-capable host resolves a TicketIssuer wired from the same
+     * configuration its AtomsClient uses, and the ticket it issues verifies
+     * under the host's own shared secret.
+     *
+     * Gated on 'client' rather than a capability of its own: an issuer is built
+     * from the same AtomsConfig the client is, so a host that supplies one and
+     * not the other has a wiring bug — which is exactly what this asserts.
+     * Issuance is local computation, so unlike S1 there is no HTTP fake in play.
+     */
+    public function testS8TicketIssuerResolvesAndIssuesAVerifiableTicket(): void
+    {
+        $this->skipUnlessSupports('client', 'S8');
+
+        /** @var TicketIssuer $issuer */
+        $issuer = $this->host->service(TicketIssuer::class);
+
+        $ticket = $issuer->issue('GameRoom', 'g-1', ['client_id' => 'u-7']);
+
+        [$version, $payloadSegment, $signature] = explode('.', $ticket->ticket) + [null, null, null];
+        self::assertSame('v1', $version);
+        self::assertNotNull($payloadSegment);
+        self::assertNotNull($signature);
+
+        // Verify the way the Worker does: HMAC over "v1\n<payload>" with the
+        // ticket key derived from this host's configured secret. If a host wired
+        // the issuer from the wrong config, this is where it shows.
+        $expected = hash_hmac(
+            'sha256',
+            'v1' . "\n" . $payloadSegment,
+            $this->derivedTicketKey($this->options->sharedSecret),
+            true,
+        );
+        self::assertSame(self::base64Url($expected), $signature);
+
+        $payload = json_decode((string) self::base64UrlDecode($payloadSegment), true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($payload);
+        self::assertSame('GameRoom', $payload['t']);
+        self::assertSame('g-1', $payload['i']);
+        self::assertSame(['client_id' => 'u-7'], $payload['claims']);
+        self::assertGreaterThan(0, $ticket->expiresAtMs);
+    }
+
+    /**
+     * S9: every client-capable host derives a usable WebSocket URL from the one
+     * endpoint it was configured with — no separate ws endpoint to configure,
+     * and no scheme swapping left to the browser.
+     */
+    public function testS9WsUrlDerivesFromTheConfiguredEndpoint(): void
+    {
+        $this->skipUnlessSupports('client', 'S9');
+
+        /** @var AtomsClient $client */
+        $client = $this->host->service(AtomsClient::class);
+
+        $url = $client->wsUrl(GameRoom::class, 'g-1', ['channels' => ['lobby', 'chat'], 'ticket' => 'v1.a.b']);
+
+        $expectedBase = (string) preg_replace('#^http#', 'ws', $this->options->endpoint);
+        self::assertSame($expectedBase . '/ws/GameRoom/g-1?channels=lobby%2Cchat&ticket=v1.a.b', $url);
+    }
+
+    /** The ticket signing key: HKDF-SHA256(sharedSecret, info 'atoms/ws-ticket/v1', 32 bytes), raw. */
+    private function derivedTicketKey(string $sharedSecretBase64): string
+    {
+        $decoded = (string) base64_decode($sharedSecretBase64, true);
+
+        return hash_hkdf('sha256', $decoded, 32, 'atoms/ws-ticket/v1', '');
+    }
+
+    private static function base64Url(string $raw): string
+    {
+        return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
+    }
+
+    private static function base64UrlDecode(string $segment): string
+    {
+        return (string) base64_decode(strtr($segment, '-_', '+/'), true);
     }
 
     /**

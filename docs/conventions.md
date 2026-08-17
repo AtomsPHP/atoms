@@ -105,7 +105,8 @@ abstract class Atom
     protected function onDeactivation(): void {}
     protected function onTimer(string $name): void {}
 
-    // WebSocket handlers (optional overrides)
+    // WebSocket handlers (optional overrides). Reply to one connection with
+    // $conn->sendJson([...]); read an inbound frame with $msg->json().
     public function onConnect(Websocket\Connection $conn, array $params): void {}
     public function onMessage(Websocket\Connection $conn, Websocket\Message $msg): void {}
     public function onDisconnect(Websocket\Connection $conn): void {}
@@ -158,8 +159,23 @@ Supporting types in core (exact FQCNs — other packages reference these):
   Validates: strictly increasing numbers, no duplicates; exposes
   `headVersion(): int` and per-migration content hashes (sha256).
 - `Atoms\Websocket\Connection` — interface: `id(): string`,
-  `send(string $payload): void`, `close(int $code = 1000, string $reason = ''): void`.
-- `Atoms\Websocket\Message` — interface: `payload(): string`, `isBinary(): bool`.
+  `send(string $payload): void`, `sendJson(array $payload): void`,
+  `close(int $code = 1000, string $reason = ''): void`.
+- `Atoms\Websocket\Message` — interface: `payload(): string`, `json(): array`,
+  `isBinary(): bool`. `json()` throws `\JsonException` for malformed input and
+  for a top-level value that is not a JSON object, so one catch covers every
+  unusable frame.
+- `Atoms\Websocket\JsonFrame` — `encode(array, ?Serializer): string` and
+  `decode(string): array`, the **single encoder** for structured frames.
+  `Connection::sendJson()`, `Message::json()` and the runtime's `broadcast()`
+  all pass through it, which is what keeps their normalization identical. The
+  rule: `Serializer::normalize()`, then `json_encode()` with
+  `JSON_UNESCAPED_SLASHES` and the default depth; an empty top-level map
+  encodes as `{}` so it round-trips.
+  What it does **not** decide is the envelope — `broadcast()` wraps its payload
+  in `{"kind":"broadcast","channel":…,"payload":…}` because a socket on several
+  channels must tell two broadcasts apart, while `sendJson()` has no channel and
+  sends the object bare. That asymmetry is the runtime's, not the encoder's.
 - `Atoms\Attributes\SharedWithAtoms` — class attribute marking a DTO outside
   `Shared/` as boundary-shared.
 - `Atoms\Attributes\MethodsFor` — class attribute:
@@ -223,6 +239,39 @@ contract and is history only.
   table AND transport-level failures, with exponential backoff + jitter;
   never retry non-retryable codes. `turn_deadline_exceeded` retries are
   opt-in per call site (default off).
+- The WebSocket URL for an Atom is `AtomsClient::wsUrl()`, which derives
+  `ws`/`wss` from the one configured endpoint (`AtomsConfig::wsBaseUrl()`).
+  There is deliberately no second `ws_endpoint` setting: the Worker serves
+  `/invoke` and `/ws` from one origin, so a second key would only be a second
+  thing to get wrong. A ticket is passed in, never minted by the builder.
+
+### Per-call options, and why the proxy declares nothing
+
+Per-call configuration is an `Atoms\Client\CallOptions` passed to
+`AtomsClient::get()` (and `AtomsManager::get()`), not a fluent method on the
+proxy:
+
+```php
+Atoms::get(GameRoom::class, $id, new CallOptions(retryTurnDeadline: true))
+    ->recordResult($score);
+```
+
+**`Atoms\Client\AtomProxy` declares `__construct`, `__call` and `__get`, and
+nothing else, permanently.** Every other name on it belongs to the Atom. A
+declared method beats `__call()` in PHP, silently, so a fluent
+`->retryingTurnDeadline()` would make a customer Atom method of that name
+unreachable — the wrong code would run, with no error at either end. This is
+the same hazard the Worker's `invocable_method()` denylist exists for, and the
+reason options arrive before the proxy does rather than through it.
+
+`get()` is annotated `@template T` / `@return T`, so
+`Atoms::get(GameRoom::class, $id)->join($player)` is statically checked and a
+typo is an error rather than a runtime 404. `__get()` throws for the same
+reason: the annotation makes `->id` look legal, but an Atom's properties live
+on the platform and nothing was fetched, so the honest answer is a loud
+exception instead of a warning and `null`. A Laravel facade's `@method` block
+cannot carry a template, so full inference is available where the manager or
+client is injected.
 - Error mapping (`Atoms\Client\Exception\*`): `unknown_atom_type` →
   `AtomNotDeployed`; `turn_deadline_exceeded` → `TurnDeadlineExceeded`;
   `capacity_refused`/`rate_limited` → `CapacityRefused` (carries retry-after);

@@ -6,6 +6,7 @@ namespace Atoms\Client\Tests;
 
 use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
+use Atoms\Client\CallOptions;
 use Atoms\Client\Exception\AtomNotDeployed;
 use Atoms\Client\Exception\AtomsRequestFailed;
 use Atoms\Client\Exception\CapacityRefused;
@@ -415,5 +416,89 @@ final class AtomsClientTest extends TestCase
         } finally {
             @unlink($path);
         }
+    }
+
+    public function testWsUrlDerivesFromTheEndpoint(): void
+    {
+        $client = $this->client();
+
+        self::assertSame(
+            'wss://atoms.example.workers.dev/ws/GameRoom/g-1',
+            $client->wsUrl(GameRoom::class, 'g-1'),
+        );
+    }
+
+    public function testWsUrlEncodesTheIdAndTheQuery(): void
+    {
+        $client = $this->client();
+
+        // A list of channels becomes the comma-separated form the Worker
+        // parses; the comma is percent-encoded and decodes back before the
+        // Worker's channel-name check.
+        self::assertSame(
+            'wss://atoms.example.workers.dev/ws/GameRoom/room%20one?channels=lobby%2Cchat&mode=observe&ticket=v1.a.b',
+            $client->wsUrl(GameRoom::class, 'room one', [
+                'channels' => ['lobby', 'chat'],
+                'mode' => 'observe',
+                'ticket' => 'v1.a.b',
+            ]),
+        );
+    }
+
+    public function testWireTypeIsTheClassBasename(): void
+    {
+        self::assertSame('GameRoom', AtomsClient::wireType(GameRoom::class));
+        self::assertSame('GameRoom', AtomsClient::wireType('GameRoom'));
+    }
+
+    public function testCallOptionsMakeTurnDeadlineRetryableThroughTheProxy(): void
+    {
+        $client = $this->client();
+        $this->http->queueJson(500, ['error' => ['code' => 'turn_deadline_exceeded', 'message' => 'slow', 'retryable' => false]]);
+        $this->http->queueJson(200, ['result' => 'ok']);
+
+        // The whole point: this used to require the positional call() form.
+        $result = $client->get(GameRoom::class, 'g-1', new CallOptions(retryTurnDeadline: true))->ping();
+
+        self::assertSame('ok', $result);
+        self::assertCount(2, $this->http->requests);
+    }
+
+    public function testWithoutOptionsATurnDeadlineIsNotRetried(): void
+    {
+        $client = $this->client();
+        $this->http->queueJson(500, ['error' => ['code' => 'turn_deadline_exceeded', 'message' => 'slow', 'retryable' => false]]);
+
+        $this->expectException(TurnDeadlineExceeded::class);
+
+        $client->get(GameRoom::class, 'g-1')->ping();
+    }
+
+    public function testCallOptionsCarryAnIdempotencyKeyAndTraceparent(): void
+    {
+        $client = $this->client();
+        $this->http->queueJson(200, ['result' => 'ok']);
+
+        $client->get(GameRoom::class, 'g-1', new CallOptions(
+            idempotencyKey: 'order-42',
+            traceparent: '00-11111111111111111111111111111111-2222222222222222-01',
+        ))->ping();
+
+        $request = $this->http->lastRequest();
+        self::assertSame('order-42', $request->getHeaderLine('Idempotency-Key'));
+        self::assertSame('00-11111111111111111111111111111111-2222222222222222-01', $request->getHeaderLine('traceparent'));
+    }
+
+    public function testReadingAPropertyThroughTheProxyIsALoudError(): void
+    {
+        $client = $this->client();
+
+        // @return T makes `->id` statically legal; nothing was fetched, so the
+        // honest answer is an exception rather than a warning and null.
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('cannot be read through a proxy');
+
+        /** @phpstan-ignore-next-line deliberately reading a property off a proxy */
+        $client->get(GameRoom::class, 'g-1')->id;
     }
 }

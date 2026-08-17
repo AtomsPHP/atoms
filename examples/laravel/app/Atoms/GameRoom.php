@@ -6,6 +6,8 @@ namespace App\Atoms;
 
 use Atoms\Atom;
 use Atoms\Database;
+use Atoms\Websocket\Connection;
+use Atoms\Websocket\Message;
 
 /**
  * One durable game room. Each room id gets its own serialized instance and
@@ -26,5 +28,48 @@ final class GameRoom extends Atom
 
             return (int) $rows[0]['visits'];
         });
+    }
+
+    /**
+     * `client_id` arrives as a signed ticket claim, so it is the server's
+     * assertion of who this is — a browser cannot put its own value there.
+     */
+    public function onConnect(Connection $conn, array $params): void
+    {
+        $playerId = $params['client_id'] ?? '';
+
+        if ($playerId === '') {
+            $conn->close(4401, 'No player identity');
+
+            return;
+        }
+
+        // sendJson() takes the array directly, with the same encoding rules
+        // broadcast() uses — no json_encode() helper to hand-roll.
+        $conn->sendJson([
+            'kind' => 'welcome',
+            'player' => $playerId,
+            'visits' => $this->join($playerId),
+        ]);
+    }
+
+    public function onMessage(Connection $conn, Message $msg): void
+    {
+        try {
+            $frame = $msg->json();
+        } catch (\JsonException) {
+            // One catch covers malformed JSON and a top-level non-object alike.
+            $conn->sendJson(['kind' => 'error', 'reason' => 'expected a JSON object']);
+
+            return;
+        }
+
+        if (($frame['kind'] ?? null) !== 'say') {
+            $conn->sendJson(['kind' => 'error', 'reason' => 'unknown frame kind']);
+
+            return;
+        }
+
+        $this->broadcast('room', ['kind' => 'said', 'text' => (string) ($frame['text'] ?? '')]);
     }
 }

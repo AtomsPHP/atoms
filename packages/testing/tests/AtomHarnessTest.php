@@ -155,6 +155,40 @@ final class AtomHarnessTest extends TestCase
         $harness->shutdown();
     }
 
+    public function testStructuredFramesAreRecordedEncodedAndDecoded(): void
+    {
+        $harness = $this->harness();
+        $conn = $harness->connect();
+
+        $harness->sendMessage($conn, '{"pit":3,"revision":7}');
+
+        // sentJson() is the assertion surface; sent() still holds every frame in
+        // call order, structured ones as the bytes the client would receive.
+        self::assertSame([['kind' => 'echo', 'frame' => ['pit' => 3, 'revision' => 7]]], $conn->sentJson());
+        self::assertSame(
+            ['connected:', '{"kind":"echo","frame":{"pit":3,"revision":7}}'],
+            $conn->sent(),
+        );
+
+        $harness->shutdown();
+    }
+
+    public function testAMalformedStructuredFrameSurfacesAsAJsonException(): void
+    {
+        $harness = $this->harness();
+        $conn = $harness->connect();
+
+        // A top-level list is refused the same way malformed JSON is, so the
+        // Atom needs only one catch.
+        $harness->sendMessage($conn, '[1,2]');
+        $harness->sendMessage($conn, '{oops');
+
+        $kinds = array_column($conn->sentJson(), 'kind');
+        self::assertSame(['error', 'error'], $kinds);
+
+        $harness->shutdown();
+    }
+
     public function testConfigReturnsProvidedValuesAndNullForMissing(): void
     {
         $harness = AtomHarness::for(ChatRoom::class, 'room-1')->withConfig(['FEATURE' => 'on']);

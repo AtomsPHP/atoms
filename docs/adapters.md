@@ -25,6 +25,7 @@ checked against.
 | Route mounting | Written contract (below) — no PHP interface | `Route::post()` in `bootCallbackRoute()`, path/middleware from config | `Atoms\Symfony\Routing\AtomsRouteLoader`, a `routing.loader`-tagged service, resolving the `atoms` resource type | Caller wires `$router->post($path, fn($req) => $app->handle($req))`, or the `public/atoms-callback.php` front controller + `PlainPhpApp::handleGlobals()` | N/A — no router; the suite calls `CallbackKernel::handle()` directly |
 | Logging | PSR-3 `Psr\Log\LoggerInterface` into both `AtomsClient` and `CallbackKernel` | The app's bound `LoggerInterface`, if any, else `null` | The app's `logger` service, if any (`IGNORE_ON_INVALID_REFERENCE` resolves a missing one to `null`) | `logger:` parameter, forwarded to both | `logger:` parameter to `CallbackKernelFactory::create()` |
 | Methods instantiation | PSR-11 `Psr\Container\ContainerInterface` (optional; see S6 in `AdapterConformanceTestCase`) | The app's own container, passed straight through as `$container` | A `ServiceLocator` built from `methods_classes`, passed as `$container` | `container:` parameter to `AtomsBootstrap::create()`; `new $class()` when a Methods class isn't in it (default: nothing is) | `container:` parameter to `CallbackKernelFactory::create()`; `new $class()` when a Methods class isn't in it (default: nothing is) |
+| Ticket minting | `Atoms\Client\Tickets\TicketIssuer` (concrete class; built from `AtomsConfig`, no other collaborator) | Singleton in `AtomsServiceProvider::register()`; `Atoms::ticket(GameRoom::class, $id, $claims)` is the facade sugar over it | `TicketIssuer::class` private, public alias `atoms.ticket_issuer` | Built by `AtomsBootstrap::create()`, reachable as `PlainPhpApp::tickets()` | N/A — no client |
 | Replay store | `Atoms\Client\Callback\NonceStore` (overridable) | `Atoms\Client\Callback\InMemoryNonceStore` singleton; alias `NonceStore` to your own for a multi-process deployment | Same default; alias `NonceStore` to your own | `nonceStore:` parameter; default `InMemoryNonceStore` | `nonceStore:` parameter to `CallbackKernelFactory::create()`; default `InMemoryNonceStore` |
 
 The "bare kernel" column is `tests/Integration/Adapters/Host/BareKernelHost.php`
@@ -132,3 +133,9 @@ hang, static analysis or not.
    with the existing case table (`Atoms\Tests\Integration\Adapters\CallbackCases::all()`)
    unmodified. That AdapterHost interface and that case table are the
    definition of done — not a bespoke test suite for the new adapter.
+4. Make `AdapterHost::service()` resolve `AtomsClient::class` **and**
+   `TicketIssuer::class`. Both are gated on the same `'client'` capability
+   (S1/S8/S9), deliberately: an issuer is built from the same `AtomsConfig` the
+   client is, so a host that supplies one and not the other has a wiring bug
+   rather than a missing capability. S9 additionally asserts the host's config
+   path yields a usable `wsUrl()` — one endpoint serving both transports.

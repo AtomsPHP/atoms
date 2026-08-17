@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Testing;
 
+use Atoms\Websocket\JsonFrame;
 use Atoms\Websocket\Message;
 
 /**
@@ -21,6 +22,11 @@ final class FakeMessage implements Message
     public function payload(): string
     {
         return $this->payload;
+    }
+
+    public function json(): array
+    {
+        return JsonFrame::decode($this->payload);
     }
 
     public function isBinary(): bool

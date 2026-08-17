@@ -29,7 +29,7 @@ atoms-composer.json                 ← World A dependencies only
 
 | Where | Code | Executes in | Import | Behavior |
 |-------|------|-------------|--------|----------|
-| **Atom class** (e.g., `GameRoom.php`) | World A | Platform Atoms runtime | `atoms/core`, `atoms-composer.json` approved packages, `Shared/` | `$this->db()`, `$this->dispatch()`, `$this->app()`, WebSocket handlers |
+| **Atom class** (e.g., `GameRoom.php`) | World A | Platform Atoms runtime | `atoms/core`, `atoms-composer.json` approved packages, `Shared/` | `$this->db()`, `$this->dispatch()`, `$this->app()`, `$this->broadcast()`, `$this->timers()`, WebSocket handlers — where `$conn->sendJson([...])` replies to one connection and `$msg->json()` reads an inbound frame, both using `broadcast()`'s encoding rules |
 | **Methods class** (e.g., `GameRoom/Methods.php`) | World B | Your Laravel/Symfony app | Full app access | `$this->app()->someMethod()` receives calls from Atoms |
 | **Shared DTOs** (e.g., `Shared/PlayerSnapshot.php`) | BOTH | Platform runtime + your app | `atoms/core` + stdlib only | Data crossing the RPC boundary |
 | **AtomJob** (e.g., `Jobs/RecordGameResult.php`) | World B | Your app's queue/job system | Full app access | Dispatched **by name** via `$this->dispatch(RecordGameResult::class, [...])` from Atoms |
@@ -110,7 +110,7 @@ Activation-time cost gets a budget: a migration exceeding it (default 250ms) tri
 | `atoms/client` | World B (monolith) | Stub proxies, RPC transport, callback kernel, manifest loader. PSR-7/15/17/18 contracts. |
 | `atoms/laravel` | World B (monolith) | Service provider, `Atoms` facade, queue bridge, Artisan wrappers, callback route registration. |
 | `atoms/symfony` | World B (monolith) | Bundle, DI extension, callback controller, Messenger bridge, console commands. |
-| `atoms/testing` | Dev-time | `AtomHarness` (in-process Atom against temp SQLite), fake `app()` proxy, dispatcher recorder, WebSocket test client. |
+| `atoms/testing` | Dev-time | `AtomHarness` (in-process Atom against temp SQLite), fake `app()` proxy, dispatcher recorder, WebSocket test client — `FakeConnection::sentJson()` records structured frames decoded, so assertions compare payloads rather than JSON strings. |
 | `atoms/phpstan-rules` | Dev-time | Boundary enforcement: serialization rules, call-site collector, World A symbol restrictions. |
 | `atoms/cli` | Dev-time | Standalone `atoms` binary: `init`, `make`, `validate`, `build`, `deploy`, `rollback`, `local`, `ai:install`. |
 

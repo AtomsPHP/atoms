@@ -109,20 +109,76 @@ final class AtomsClient
      * Return a proxy bound to $atomClass and $id whose method calls become RPC
      * invocations. The wire {type} is the class basename.
      *
+     * Declared return type is `object` so the `@return T` below can stand without
+     * claiming `AtomProxy` is a subtype of every Atom class; the value really is an
+     * {@see AtomProxy}.
+     *
+     * @template T of object
+     *
+     * @param class-string<T> $atomClass
+     *
+     * @return T
+     */
+    public function get(string $atomClass, string $id, ?CallOptions $options = null): object
+    {
+        /** @var T $proxy */
+        $proxy = $this->newProxy($atomClass, $id, $options);
+
+        return $proxy;
+    }
+
+    /**
+     * Declared `object` rather than `AtomProxy` for the same reason as
+     * {@see self::get()}.
+     *
      * @param class-string $atomClass
      */
-    public function get(string $atomClass, string $id): AtomProxy
+    private function newProxy(string $atomClass, string $id, ?CallOptions $options): object
     {
-        return new AtomProxy($this, $atomClass, self::basename($atomClass), $id);
+        return new AtomProxy($this, $atomClass, self::wireType($atomClass), $id, $options);
+    }
+
+    /**
+     * The WebSocket URL for one Atom, derived from the configured endpoint.
+     *
+     * The ticket is passed in rather than minted here, so an issuance failure
+     * stays visible at the call site. A `channels` value given as a list is joined
+     * with commas (the form the Worker parses); every other key passes through as
+     * a connection param into `onConnect()`'s `$params`.
+     *
+     * @param class-string                        $atomClass
+     * @param array<string, string|int|float|bool|list<string>> $query
+     */
+    public function wsUrl(string $atomClass, string $id, array $query = []): string
+    {
+        $url = sprintf(
+            '%s/ws/%s/%s',
+            $this->config->wsBaseUrl(),
+            rawurlencode(self::wireType($atomClass)),
+            rawurlencode($id),
+        );
+
+        if ($query === []) {
+            return $url;
+        }
+
+        $flat = [];
+        foreach ($query as $key => $value) {
+            $flat[$key] = is_array($value) ? implode(',', $value) : $value;
+        }
+
+        return $url . '?' . http_build_query($flat, '', '&', PHP_QUERY_RFC3986);
     }
 
     /**
      * Invoke $method on the Atom ($type, $id) with positional $args.
      *
      * @param list<mixed>       $args
-     * @param class-string|null $atomClass When given and the method has a usable
-     *                                     declared return type, the result is
-     *                                     denormalized to that type.
+     * @param class-string|null $atomClass When given and the method has a usable declared
+     *                                     return type, the result is denormalized to that type.
+     * @param bool              $retryTurnDeadline Kept separate from $options: renaming or retyping it
+     *                                             would break existing named-argument callers.
+     * @param CallOptions|null  $options  When given, wins for every field it carries.
      */
     public function call(
         string $type,
@@ -131,7 +187,9 @@ final class AtomsClient
         array $args = [],
         ?string $atomClass = null,
         bool $retryTurnDeadline = false,
+        ?CallOptions $options = null,
     ): mixed {
+        $retryTurnDeadline = $options->retryTurnDeadline ?? $retryTurnDeadline;
         $normalized = [];
         foreach (array_values($args) as $arg) {
             $normalized[] = $this->serializer->normalize($arg);
@@ -149,8 +207,12 @@ final class AtomsClient
 
         $request = $this->baseRequest('POST', $uri)
             ->withHeader('Content-Type', 'application/json')
-            ->withHeader('Idempotency-Key', bin2hex(($this->idGenerator)(16)))
+            ->withHeader('Idempotency-Key', $options->idempotencyKey ?? bin2hex(($this->idGenerator)(16)))
             ->withBody($this->streamFactory->createStream($body));
+
+        if ($options !== null && $options->traceparent !== null) {
+            $request = $request->withHeader('traceparent', $options->traceparent);
+        }
 
         $decoded = $this->execute($request, $retryTurnDeadline, [
             'type' => $type,
@@ -435,10 +497,15 @@ final class AtomsClient
         return sprintf('00-%s-%s-01', $traceId, $parentId);
     }
 
-    private static function basename(string $class): string
+    /**
+     * The wire `{type}` for an Atom class: its basename. Public because
+     * {@see self::wsUrl()}, the Laravel manager and the testing fake need the same
+     * rule without going through {@see self::get()}.
+     */
+    public static function wireType(string $atomClass): string
     {
-        $pos = strrpos($class, '\\');
+        $pos = strrpos($atomClass, '\\');
 
-        return $pos === false ? $class : substr($class, $pos + 1);
+        return $pos === false ? $atomClass : substr($atomClass, $pos + 1);
     }
 }

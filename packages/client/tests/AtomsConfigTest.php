@@ -166,4 +166,32 @@ final class AtomsConfigTest extends TestCase
             (new AtomsConfig('https://atoms.example.workers.dev/', self::SECRET))->baseUrl(),
         );
     }
+
+    public function testWsBaseUrlSwapsTheSchemeAndKeepsEverythingElse(): void
+    {
+        $cases = [
+            'https://atoms.example.workers.dev' => 'wss://atoms.example.workers.dev',
+            'http://127.0.0.1:8787' => 'ws://127.0.0.1:8787',
+            // A trailing slash is already stripped by baseUrl(); a path prefix
+            // is not, because a Worker can be mounted under one.
+            'https://example.test/atoms/' => 'wss://example.test/atoms',
+            'https://example.test:8443/edge' => 'wss://example.test:8443/edge',
+        ];
+
+        foreach ($cases as $endpoint => $expected) {
+            $config = new AtomsConfig($endpoint, self::SECRET);
+
+            self::assertSame($expected, $config->wsBaseUrl(), $endpoint);
+        }
+    }
+
+    public function testWsBaseUrlRefusesAnEndpointWithNoHttpScheme(): void
+    {
+        $config = new AtomsConfig('atoms.example.workers.dev', self::SECRET);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('no http:// or https:// scheme');
+
+        $config->wsBaseUrl();
+    }
 }

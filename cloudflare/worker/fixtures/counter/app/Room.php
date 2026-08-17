@@ -27,6 +27,11 @@ use Atoms\Websocket\Message;
  *   - "id?"                -> `send('id:' . $conn->id())`
  *   - "poke:<connId>"      -> `send()` on a Connection for that id, catching
  *                             ConnectionClosed and recording the outcome
+ *   - "json:<text>"        -> `sendJson()` with a payload carrying a slash and
+ *                             an int past 2^53-1, to pin the encoding rules
+ *   - a frame starting `{` or `[` -> `sendJson(['echo' => $msg->json()])`,
+ *                             catching \JsonException into a `jsonerr` reply
+ *                             and `stats().lastJsonError`
  *
  * `stats()` is invocable over plain `/invoke` — how the suite observes the
  * WebSocket side through the route it already trusts.
@@ -47,6 +52,9 @@ final class Room extends Atom
 
     /** Outcome of the most recent "poke:<connId>" — 'ok', 'ConnectionClosed', or null before the first poke. */
     private ?string $lastPoke = null;
+
+    /** Class of the most recent structured-frame decode failure, or null before the first one. */
+    private ?string $lastJsonError = null;
 
     public function onConnect(Connection $conn, array $params): void
     {
@@ -79,6 +87,33 @@ final class Room extends Atom
         }
 
         $payload = $msg->payload();
+
+        // Structured frames first, so a JSON frame is never mistaken for one of
+        // the string verbs below. The catch is NOT optional: run_ws_turn()
+        // swallows an uncaught throwable and the peer would see nothing at all,
+        // which would make the failure path unobservable from a test.
+        if (str_starts_with($payload, '{') || str_starts_with($payload, '[')) {
+            try {
+                $conn->sendJson(['echo' => $msg->json()]);
+            } catch (\JsonException $e) {
+                $this->lastJsonError = 'JsonException';
+                $conn->send('jsonerr');
+            }
+            return;
+        }
+
+        if (str_starts_with($payload, 'json:')) {
+            // A slash and an integer past 2^53-1 in one frame: the first pins
+            // JSON_UNESCAPED_SLASHES, the second pins that the guest builds the
+            // frame itself rather than letting the host re-encode it.
+            $conn->sendJson([
+                'kind' => 'json',
+                'text' => substr($payload, 5),
+                'path' => 'a/b',
+                'n' => 9007199254740993,
+            ]);
+            return;
+        }
 
         if (str_starts_with($payload, 'echo:')) {
             $conn->send('echo:' . substr($payload, 5));
@@ -157,7 +192,7 @@ final class Room extends Atom
     }
 
     /**
-     * @return array{connects: int, messages: int, disconnects: int, lastPoke: string|null, lastBinary: bool, connectsThisResidency: int}
+     * @return array{connects: int, messages: int, disconnects: int, lastPoke: string|null, lastBinary: bool, connectsThisResidency: int, lastJsonError: string|null}
      */
     public function stats(): array
     {
@@ -168,6 +203,7 @@ final class Room extends Atom
             'lastPoke' => $this->lastPoke,
             'lastBinary' => $this->lastBinary,
             'connectsThisResidency' => $this->connectsThisResidency,
+            'lastJsonError' => $this->lastJsonError,
         ];
     }
 

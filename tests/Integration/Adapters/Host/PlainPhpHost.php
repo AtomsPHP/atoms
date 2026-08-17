@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Tests\Integration\Adapters\Host;
 
 use Atoms\Client\AtomsClient;
+use Atoms\Client\Tickets\TicketIssuer;
 use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Client\Callback\NullQueueBridge;
 use Atoms\Examples\PlainPhp\AtomsBootstrap;
@@ -99,6 +100,10 @@ final class PlainPhpHost implements AdapterHost
     {
         if ($id === AtomsClient::class) {
             return $this->app->client();
+        }
+
+        if ($id === TicketIssuer::class) {
+            return $this->app->tickets();
         }
 
         throw new \LogicException('PlainPhpHost has no service registered for ' . $id . '.');

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Laravel\Testing;
 
+use Atoms\Client\Tickets\Ticket;
 use PHPUnit\Framework\Assert as PHPUnit;
 
 /**
@@ -22,6 +23,12 @@ final class AtomsFake
 
     /** @var list<array{type: string, id: string}> */
     private array $destroyedAtoms = [];
+
+    /** @var array<string, Ticket|\Closure> type => ticket|closure */
+    private array $ticketStubs = [];
+
+    /** @var list<array{type: string, id: string, claims: array<string, string>}> */
+    private array $mintedTickets = [];
 
     /**
      * @param array<string, array<string, mixed>> $stubs type => [method => value|closure]
@@ -72,6 +79,75 @@ final class AtomsFake
         $stub = $this->stubs[$type][$method] ?? null;
 
         return $stub instanceof \Closure ? $stub(...$args) : $stub;
+    }
+
+    /**
+     * Register the {@see Ticket} this fake answers with for one Atom type, or a
+     * closure receiving ($id, $claims). Unstubbed types still get a plausible
+     * ticket: most tests assert a ticket was issued for the right scope/claims,
+     * not what its bytes are.
+     */
+    public function stubTicket(string $atomClassOrType, Ticket|\Closure $ticketOrClosure): self
+    {
+        $this->ticketStubs[self::typeOf($atomClassOrType)] = $ticketOrClosure;
+
+        return $this;
+    }
+
+    /**
+     * Called by {@see \Atoms\Laravel\AtomsManager::ticket()} in fake mode.
+     *
+     * @param array<string, string> $claims
+     */
+    public function ticket(string $atomClassOrType, string $id, array $claims = []): Ticket
+    {
+        $type = self::typeOf($atomClassOrType);
+
+        $this->mintedTickets[] = ['type' => $type, 'id' => $id, 'claims' => $claims];
+
+        $stub = $this->ticketStubs[$type] ?? null;
+
+        if ($stub instanceof \Closure) {
+            return $stub($id, $claims);
+        }
+
+        // Shaped like a real ticket (distinguishable, expiry a minute out) but
+        // not signed: a fake's job is to be asserted on, not verified.
+        return $stub ?? new Ticket(
+            sprintf('v1.fake-%s-%s.fake-signature', $type, $id),
+            (time() + 60) * 1000,
+        );
+    }
+
+    /**
+     * @param callable(array<string, string>): bool|null $filter receives the claims
+     */
+    public function assertTicketIssued(string $atomClassOrType, string $id, ?callable $filter = null): void
+    {
+        $type = self::typeOf($atomClassOrType);
+        $found = false;
+
+        foreach ($this->mintedTickets as $minted) {
+            if ($minted['type'] !== $type || $minted['id'] !== $id) {
+                continue;
+            }
+
+            if ($filter === null || $filter($minted['claims'])) {
+                $found = true;
+
+                break;
+            }
+        }
+
+        PHPUnit::assertTrue($found, "Expected a ticket to have been issued for Atom {$type}:{$id}, but none was.");
+    }
+
+    /**
+     * @return list<array{type: string, id: string, claims: array<string, string>}>
+     */
+    public function issuedTickets(): array
+    {
+        return $this->mintedTickets;
     }
 
     public function assertInvoked(string $atomClassOrType, string $method, ?callable $filter = null): void

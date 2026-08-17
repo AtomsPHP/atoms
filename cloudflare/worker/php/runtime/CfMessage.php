@@ -15,6 +15,7 @@
 
 namespace Atoms\Cf;
 
+use Atoms\Websocket\JsonFrame;
 use Atoms\Websocket\Message;
 
 final class CfMessage implements Message
@@ -38,6 +39,17 @@ final class CfMessage implements Message
     public function payload(): string
     {
         return $this->payload;
+    }
+
+    /**
+     * Decodes the raw {@see self::payload()} — see {@see JsonFrame::decode()} for
+     * what the payload must decode to. A decoder, not a content-type check: it
+     * works whether this message is binary or text; consult {@see self::isBinary()}
+     * if that distinction matters.
+     */
+    public function json(): array
+    {
+        return JsonFrame::decode($this->payload);
     }
 
     public function isBinary(): bool

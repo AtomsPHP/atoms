@@ -4366,6 +4366,74 @@ checks.push(async () => {
     }
 });
 
+// CHECK 43: structured WebSocket frames — Connection::sendJson() / Message::json()
+checks.push(async () => {
+    const checkNum = 43;
+    const name = 'ws structured frames: sendJson() is bare and exact, json() refuses non-objects';
+    const problems = [];
+    const id = atomId('room-json');
+
+    const sock = await openSocket(`/ws/Room/${id}?channels=lobby`);
+    try {
+        await sock.next(); // welcome
+
+        // Every frame below is compared as a RAW STRING, never JSON.parse()d.
+        // Parsing would defeat all three things this check exists to pin: the
+        // absence of a "kind":"broadcast" envelope, JSON_UNESCAPED_SLASHES, and
+        // the int64 rule — JSON.parse would silently round `n` to
+        // 9007199254740992 and the check would pass over a real regression.
+        sock.send('json:hi');
+        const frame = await sock.next();
+        const expected = '{"kind":"json","text":"hi","path":"a/b","n":9007199254740993}';
+        if (typeof frame !== 'string') {
+            problems.push(`sendJson() produced a ${typeof frame} frame, not text (json_encode output is always UTF-8)`);
+        } else if (frame !== expected) {
+            problems.push(`sendJson() frame was ${JSON.stringify(frame)} (expected ${JSON.stringify(expected)})`);
+        }
+
+        // Round trip: json() decodes an object, sendJson() re-encodes it, and a
+        // nested list survives as a list.
+        sock.send('{"a":1,"b":[1,2]}');
+        const echoed = await sock.next();
+        if (echoed !== '{"echo":{"a":1,"b":[1,2]}}') {
+            problems.push(`structured echo was ${JSON.stringify(echoed)} (expected {"echo":{"a":1,"b":[1,2]}})`);
+        }
+
+        // The documented edge, pinned deliberately: only the TOP level of an
+        // encode is forced to an object, so an empty map nested under a key
+        // stays a JSON list. JSON_FORCE_OBJECT would "fix" this by corrupting
+        // every nested list, which is why it is documented instead.
+        sock.send('{}');
+        const empty = await sock.next();
+        if (empty !== '{"echo":[]}') {
+            problems.push(`empty-object echo was ${JSON.stringify(empty)} (expected {"echo":[]})`);
+        }
+
+        // A top-level list is refused exactly as malformed JSON is, so an Atom
+        // needs a single catch (\JsonException) rather than a shape check.
+        for (const [label, bad] of [['top-level list', '[1,2]'], ['malformed', '{oops']]) {
+            sock.send(bad);
+            const reply = await sock.next();
+            if (reply !== 'jsonerr') {
+                problems.push(`${label}: got ${JSON.stringify(reply)} (expected "jsonerr")`);
+            }
+        }
+
+        const stats = await invoke('Room', id, 'stats', []);
+        if (stats.data?.result?.lastJsonError !== 'JsonException') {
+            problems.push(`stats().lastJsonError=${JSON.stringify(stats.data?.result?.lastJsonError)} (expected "JsonException")`);
+        }
+    } finally {
+        await sock.close();
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, 'bare frame, unescaped slash, int64 exact, nested list preserved, non-objects refused');
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
 // ---------------------------------------------------------------- run
 
 async function run() {
