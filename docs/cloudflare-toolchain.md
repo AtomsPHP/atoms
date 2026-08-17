@@ -194,12 +194,18 @@ journeys cannot drift apart.
 Tokens → Create Token → Create Custom Token**:
 
 - **Workers Scripts: Edit** — required. It is what publishes the Worker, and
-  Worker secrets are part of that same resource, so one permission covers
-  `deploy`, `rollback`, `status`, `secrets:*` and `shared-secret:*` alike.
+  it is the permission the E074 fix line names when Cloudflare rejects a
+  deploy.
 - **Account Settings: Read** — add it if Wrangler reports an authorisation
-  failure. Some account-lookup paths want it; a plain deploy does not.
+  failure; some account-lookup paths want it.
 - Under **Account Resources**, scope the token to the **one account** you
   deploy into, rather than "All accounts".
+
+Exactly which Cloudflare permission each Wrangler operation demands is
+Cloudflare's to define and change, and this repository has no way to assert it:
+no job here may hold an API token (§Known gaps), so nothing in CI can measure
+it. Start from the two above, and treat Wrangler's own authorisation error as
+the authority when it disagrees — it reports Cloudflare's rejection verbatim.
 
 A broader token works, and choosing one is your call. The narrow one is the
 default advice because this token's blast radius is a whole Cloudflare
@@ -218,9 +224,11 @@ documented.
 
 **Which commands need it.** `deploy`, `rollback`, `status`, `secrets:list`,
 `secrets:set`, `shared-secret:set` and `shared-secret:unset` resolve
-credentials before doing any work, failing with **ATOMS-E072** (no token) or
-**ATOMS-E075** (no account id) up front rather than part-way through. `build`,
-`init`, `token` and `dev` need neither, so the whole write-build-run loop is
+credentials before contacting Cloudflare, failing with **ATOMS-E072** (no
+token) or **ATOMS-E075** (no account id) up front rather than part-way through.
+(The two commands that take a secret value read it first, so a piped value is
+consumed before the credential check reports.) `build`, `init`, `token` and
+`dev` need neither — among others — so the whole write-build-run loop is
 reachable without a Cloudflare account at all.
 
 **Do not commit the export — and prefer not to persist it in a shell either.**
@@ -245,8 +253,10 @@ Better, roughly in order of preference:
 Whichever you pick, keep the value off your own command lines too: a token
 typed as an argument, or exported in a way your shell records, lands in
 history — the same objection that rules out an `--api-token` option, applying
-one hop earlier. A leading space suppresses history in most shells, and the
-first two options above avoid the question entirely.
+one hop earlier. A leading space suppresses the entry only in a shell
+configured for it (bash's `HISTCONTROL=ignorespace`, zsh's `HIST_IGNORE_SPACE`,
+neither of them on by default), which is a thin thing to rely on; the first two
+options above avoid the question entirely.
 
 **What the CLI then does with it** is §Credentials, immediately above, and the
 short version is that it does almost nothing: reads the environment, places the
@@ -265,8 +275,10 @@ two are easy to conflate. `atoms secrets:set` writes a Worker secret, and a
 Worker secret reaches running Atoms *eventually*: an Atom that is already
 resident keeps the value its isolate started with, so a rotated
 `ATOMS_CONFIG_*` value is not in force everywhere at the moment the command
-reports success — see §Deploying does not mean deployed, and the caveat
-`secrets:set` prints in its own output. `ATOMS_SHARED_SECRET` needs a whole
+reports success — the caveat `secrets:set` prints in its own output. Nor may
+you infer that a freshly addressed Atom therefore has the new value: §Deploying
+does not mean deployed records both warm and fresh Atoms lagging,
+inconsistently, so neither can be assumed to lead the other. `ATOMS_SHARED_SECRET` needs a whole
 rotation window for the same reason (`docs/shared-secret.md` §Rotation).
 Rotating the Cloudflare API token needs none of that machinery, because
 nothing but Wrangler ever reads it.

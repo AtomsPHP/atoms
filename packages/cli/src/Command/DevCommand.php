@@ -25,7 +25,8 @@ use Symfony\Component\Console\Output\OutputInterface;
  * No Cloudflare credentials are required. `wrangler dev` runs workerd on this
  * machine, so a developer with no Cloudflare account can still work — which is
  * why {@see CloudflareTarget::resolve()} is called with `requireCredentials`
- * false here and nowhere else.
+ * false here, as it is in `atoms token`, which likewise reaches Cloudflare
+ * not at all. Every other caller takes the default and fails up front.
  *
  * ## The dev secret
  *
