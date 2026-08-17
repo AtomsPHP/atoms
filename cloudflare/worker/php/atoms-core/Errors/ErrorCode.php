@@ -14,6 +14,7 @@ namespace Atoms\Errors;
 enum ErrorCode: string
 {
     case UnclassifiableFile = 'ATOMS-E001';
+    case DuplicateClassDeclaration = 'ATOMS-E002';
     case FrameworkSymbolInAtom = 'ATOMS-E010';
     case FrameworkHelperInAtom = 'ATOMS-E011';
     case MonolithClassInAtom = 'ATOMS-E012';

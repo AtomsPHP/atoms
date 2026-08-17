@@ -102,6 +102,29 @@ final class SharedSecretUnsetCommandTest extends TestCase
     }
 
     /**
+     * Wrangler prefixes its JSON with proxy/update notices on stdout. Decoding
+     * the whole stream by hand makes a closed window look open, so the delete
+     * is attempted and Wrangler fails it — ATOMS-E074 on a pipeline step that
+     * had nothing left to do.
+     */
+    public function testSucceedsWhenWranglerPrefixesItsSecretListWithWarnings(): void
+    {
+        $wrangler = new FakeWrangler();
+        $wrangler->listSecretsResult = FakeWrangler::ok(
+            [],
+            "▲ [WARNING] Proxy environment variables detected.\n\n"
+            . json_encode([['name' => 'ATOMS_SHARED_SECRET']], JSON_THROW_ON_ERROR),
+        );
+        $wrangler->deleteSecretResult = FakeWrangler::failed([], 'binding name not found');
+
+        $tester = $this->invoke($wrangler);
+
+        self::assertSame(0, $tester->getStatusCode(), $tester->getDisplay());
+        self::assertNull($wrangler->lastCall('deleteSecret'), 'a warning line must not hide an absent key');
+        self::assertStringContainsString('nothing to do', $tester->getDisplay());
+    }
+
+    /**
      * An unreadable list must not be read as "already closed" — that would
      * report a closed window while the old secret stays live and trusted.
      */

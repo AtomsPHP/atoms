@@ -10,6 +10,14 @@
             "phase": "build"
         },
         {
+            "code": "ATOMS-E002",
+            "title": "Two files declare the same class",
+            "message": "{class} is declared twice under the Atoms path: {first} and {second}.",
+            "fix": "Rename one of the two declarations, or move it to its own namespace. A bundle carries both files, so the guest would fatal at class-declaration time on whichever one loads second.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
             "code": "ATOMS-E010",
             "title": "Framework symbol referenced inside Atom code",
             "message": "{symbol} belongs to a web framework and cannot be used inside Atom code — the Atoms runtime has no framework loaded.",

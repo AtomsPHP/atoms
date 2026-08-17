@@ -6,7 +6,8 @@ namespace Atoms\Cli\Build;
 
 /**
  * The output of §3.1 stage 1: every classified class under the Atoms path,
- * indexed by FQCN, plus any E001 warnings for unclassifiable files.
+ * indexed by FQCN, plus what stage 1 found — E001 warnings for unclassifiable
+ * files and E002 errors for one FQCN declared by two files.
  */
 final class DiscoveryResult
 {
@@ -15,11 +16,11 @@ final class DiscoveryResult
 
     /**
      * @param list<DiscoveredClass> $classes
-     * @param list<Violation>       $warnings
+     * @param list<Violation>       $violations
      */
     public function __construct(
         public readonly array $classes,
-        public readonly array $warnings,
+        public readonly array $violations,
     ) {
         foreach ($classes as $class) {
             $this->byFqcn[$class->fqcn] = $class;
@@ -43,7 +44,7 @@ final class DiscoveryResult
     {
         return array_values(array_filter(
             $this->classes,
-            static fn (DiscoveredClass $c): bool => $c->kind === $kind,
+            static fn (DiscoveredClass $c): bool => $c->kind() === $kind,
         ));
     }
 }

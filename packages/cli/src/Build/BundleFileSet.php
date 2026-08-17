@@ -29,7 +29,7 @@ final class BundleFileSet
         $paths = [];
 
         foreach ($discovery->classes as $class) {
-            if ($class->kind->isBundled()) {
+            if ($class->kind()->isBundled()) {
                 $paths[$class->relativePath] = $class->absolutePath;
             }
         }

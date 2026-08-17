@@ -82,8 +82,8 @@ final class SecretsListCommand extends AbstractCommand
             return self::FAILURE;
         }
 
-        $decoded = $result->json();
-        if ($decoded === null) {
+        $names = $result->secretNames();
+        if ($names === null) {
             $output->writeln('Could not parse `wrangler secret list` output:');
             $output->write($result->stdout);
 
@@ -92,11 +92,7 @@ final class SecretsListCommand extends AbstractCommand
 
         $keys = [];
         $other = [];
-        foreach ($decoded as $entry) {
-            $name = \is_array($entry) ? ($entry['name'] ?? null) : $entry;
-            if (!\is_string($name) || $name === '') {
-                continue;
-            }
+        foreach ($names as $name) {
             if (!$worker->isReadable($name)) {
                 $other[] = $name;
                 continue;

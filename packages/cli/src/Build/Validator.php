@@ -34,7 +34,7 @@ final class Validator
             $composer->approvedNamespaces($allowed),
         );
 
-        $violations = $discovered->warnings;
+        $violations = $discovered->violations;
 
         // Stages 2–3: closure walk + symbol classification.
         $violations = [...$violations, ...(new ClosureWalker($discovered, $classifier))->walk()];

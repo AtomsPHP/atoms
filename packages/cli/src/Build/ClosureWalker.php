@@ -31,7 +31,7 @@ final class ClosureWalker
         $queue = [];
 
         foreach ($this->discovery->classes as $class) {
-            if ($class->kind->isBundled()) {
+            if ($class->kind()->isBundled()) {
                 $queue[] = $class;
                 $visited[$class->fqcn] = true;
             }
@@ -42,14 +42,14 @@ final class ClosureWalker
 
         while ($queue !== []) {
             $class = array_shift($queue);
-            $shared = $class->kind === ClassKind::Shared;
+            $shared = $class->kind() === ClassKind::Shared;
 
             foreach ($this->collectReferences($class) as $ref) {
                 $name = ltrim($ref['name'], '\\');
 
                 // Enqueue transitively-referenced bundled classes.
                 $target = $this->discovery->get($name);
-                if ($target !== null && $target->kind->isBundled() && !isset($visited[$target->fqcn])) {
+                if ($target !== null && $target->kind()->isBundled() && !isset($visited[$target->fqcn])) {
                     $visited[$target->fqcn] = true;
                     $queue[] = $target;
                 }

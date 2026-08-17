@@ -107,18 +107,11 @@ final class SharedSecretUnsetCommand extends AbstractCommand
             return true;
         }
 
-        $decoded = json_decode($result->stdout, true);
-        if (!\is_array($decoded)) {
+        $names = $result->secretNames();
+        if ($names === null) {
             return true;
         }
 
-        foreach ($decoded as $entry) {
-            $name = \is_array($entry) ? ($entry['name'] ?? null) : $entry;
-            if ($name === self::KEY) {
-                return true;
-            }
-        }
-
-        return false;
+        return \in_array(self::KEY, $names, true);
     }
 }

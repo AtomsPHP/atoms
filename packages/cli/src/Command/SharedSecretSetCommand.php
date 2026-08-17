@@ -127,19 +127,12 @@ final class SharedSecretSetCommand extends AbstractCommand
             return false;
         }
 
-        $decoded = json_decode($result->stdout, true);
-        if (!\is_array($decoded)) {
+        $names = $result->secretNames();
+        if ($names === null) {
             return false;
         }
 
-        foreach ($decoded as $entry) {
-            $name = \is_array($entry) ? ($entry['name'] ?? null) : $entry;
-            if ($name === $key) {
-                return true;
-            }
-        }
-
-        return false;
+        return \in_array($key, $names, true);
     }
 
     /**

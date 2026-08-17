@@ -20,6 +20,7 @@ reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 | Re-verified | 2026-08-16, on structured WebSocket frames — `Websocket/Connection.php` and `Websocket/Message.php` re-vendored (`sendJson(array $payload): void` and `json(): array` added to the two interfaces), and **new file** `Websocket/JsonFrame.php`, the single encoder both they and `CfAtomContext::broadcast()` pass through. **24 files total**, up from 23; the other 21 digests are unchanged |
 | Re-verified | 2026-08-16, comment-only trim of `Websocket/{Connection,Message,JsonFrame}.php` (prose docblocks reduced to load-bearing constraints; no behavioural change). All three re-vendored; still 24 files total, the other 21 digests are unchanged |
 | Re-verified | 2026-08-16, comment-pattern cleanup of `Websocket/{JsonFrame,Message}.php` — `JsonFrame::decode()`'s docblock reworded from constraint-as-identity phrasing ("is a frame") to a stated rule ("must decode to"), and from a "frame" reused mid-sentence for both the WebSocket-protocol sense and this library's structured-payload sense; `Message::json()`'s docblock, which duplicated that same explanation in full, now cross-references `{@see JsonFrame::decode()}` instead. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
+| Re-verified | 2026-08-16, on the duplicate-FQCN discovery fix — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E002 added: two files declaring the same class under the Atoms path, raised by the CLI's build-time discovery). Nothing in the guest raises it; the copy carries it because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -97,7 +98,7 @@ efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/Met
 7c996f6c31cff9bf210040f311bb534a140e79ae3c62b721c6266ad6d78353e2  Errors/AtomsError.php
 0b4bfcf9ea74ed277614139157b03696f4eae42dc85f420120f96663cf654283  Errors/CatalogEntry.php
 3d1a122b24f6e3dd88104816b2b3b96b846690a9acd9316cd142d16afb71c411  Errors/ErrorCatalog.php
-d73198a35e7c7ae2c0984bccad026aa8c9bea96cefcf53b91d185dfa34b7e877  Errors/ErrorCode.php
+d845cb8add39ccba1f68cd4063a2516da01a526a203b90581ecded62e7ded129  Errors/ErrorCode.php
 e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Migration.php
 f433e85e2449339b31bf806c4c8dde1afbd9e06dda005a2dc5a3df62fcd1252e  Migrations/MigrationEntry.php
 addfe71f9472e7f2e76422227ef06586818b546e09842cdcba8e8a97a1dcd690  Migrations/MigrationSet.php
@@ -111,7 +112,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
 a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
 b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
-0b9ca162e567aec1b575b4d408c669c05df6f8363cb88739b57189ffa7f1beed  resources/errors.json
+63a192553e2e4475628c830717a49cbb0b8541b9b93c91c639a1070e529a628a  resources/errors.json
 ```
 
 Verify with, from this directory:
