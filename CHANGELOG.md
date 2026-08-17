@@ -3,6 +3,41 @@
 All notable changes to Atoms are documented here. The seven Composer packages,
 the Cloudflare runtime, and deploy Action use one coordinated version.
 
+## [0.3.1] - 2026-08-17
+
+- **Fixed:** the published `@atomsphp/runtime-cloudflare` tarball was missing
+  `src/derive.js` and `src/tickets.js`, so every scaffolded worker failed its
+  first esbuild pass and `atoms dev`/`atoms deploy` were broken for anyone
+  consuming the 0.3.0 package. The packed module list is now derived by
+  walking the import graph from the package entrypoints, so a module reachable
+  from shipped code is packaged because it is reachable — adding a module can
+  no longer silently ship a broken package.
+- **Fixed:** `atoms shared-secret:set` and `atoms shared-secret:unset` failed
+  to decode `wrangler secret list` whenever Wrangler printed a proxy or update
+  notice on stdout alongside its JSON. `set` read an existing secret as absent
+  and re-put it on every deploy, minting a Worker version each time and
+  dropping the idempotence its docblock promises; `unset` read a closed
+  rotation window as open and failed the pipeline step with `ATOMS-E074` for
+  work already done. Both now decode through the same warning-tolerant reader
+  `SecretsListCommand` already used.
+- **Fixed:** `atoms build` discovery reported a valid Atom as `ATOMS-E001`
+  "Unclassifiable file" when a later file in the same app declared the same
+  fully-qualified class name, because the pass that reports unclassifiable
+  files read a set the last-writer-wins index had already dropped that file
+  from. The FQCN collision itself was never mentioned. Discovery now
+  classifies every parsed class rather than only index survivors, and the
+  collision is reported as a new error, `ATOMS-E002` — a bundle carrying both
+  files would fatal in the guest at class-declaration time on whichever one
+  loads second.
+- **Fixed:** a Durable Object's PHP residency could inherit a dead instance's
+  failure. `php.run()` is never awaited and a discarded instance's run promise
+  can settle after a fresh instance has already booted into the same
+  residency; the settle handlers wrote flags with no record of which instance
+  they belonged to, so a late-ending run from a poisoned, discarded instance
+  could throw its cause of death at a healthy new session. Residency state is
+  now one record scoped to the instance it describes, and a stale settle is
+  logged (`atoms.do.stale_run_settled`) instead of overwriting a live one.
+
 ## [0.3.0] - 2026-08-17
 
 - **Added:** `atoms shared-secret:set --env X` stores `ATOMS_SHARED_SECRET`
@@ -271,7 +306,7 @@ Initial open-source release of the Atoms programming model, Laravel and
 Symfony adapters, testing and PHPStan tooling, deterministic CLI build and
 deploy workflow, and the Cloudflare Durable Object PHP runtime.
 
-[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.3.0...main
+[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.3.1...main
 
 [0.1.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.0
 
@@ -280,3 +315,5 @@ deploy workflow, and the Cloudflare Durable Object PHP runtime.
 [0.2.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.2.0
 
 [0.3.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.3.0
+
+[0.3.1]: https://github.com/AtomsPHP/atoms/releases/tag/v0.3.1
