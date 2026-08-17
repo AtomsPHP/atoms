@@ -173,9 +173,11 @@ final class DeployCommandTest extends TestCase
     public function testWranglerFailureMapsToE074AndShowsWranglerOutput(): void
     {
         $wrangler = new FakeWrangler();
+        // A Cloudflare rejection that is not about credentials: those are
+        // ATOMS-E072 now, and this test is about everything else.
         $wrangler->deployResult = FakeWrangler::failed(
             ['deploy'],
-            "✘ [ERROR] Authentication error [code: 10000]\n",
+            "✘ [ERROR] A request to the Cloudflare API failed.\n  Script size too large [code: 10027]\n",
         );
         $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
 
@@ -189,7 +191,7 @@ final class DeployCommandTest extends TestCase
         $display = $tester->getDisplay();
         self::assertSame(1, $exit);
         self::assertStringContainsString('ATOMS-E074', $display);
-        self::assertStringContainsString('Authentication error', $display, "wrangler's own diagnosis must survive");
+        self::assertStringContainsString('Script size too large', $display, "wrangler's own diagnosis must survive");
     }
 
     public function testStagingFailureMapsToE074AndNeverDeploys(): void
@@ -238,7 +240,7 @@ final class DeployCommandTest extends TestCase
         self::assertSame([], $wrangler->calls);
     }
 
-    public function testMissingApiTokenMapsToE072(): void
+    public function testMissingApiTokenDefersToWranglersOwnLoginSession(): void
     {
         putenv('CLOUDFLARE_API_TOKEN');
         $wrangler = new FakeWrangler();
@@ -248,11 +250,43 @@ final class DeployCommandTest extends TestCase
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
             '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
         ]);
 
+        self::assertSame(0, $exit, $tester->getDisplay());
+        self::assertStringNotContainsString('ATOMS-E072', $tester->getDisplay());
+
+        $call = $wrangler->lastCall('deploy');
+        self::assertNotNull($call, 'a token-less deploy must still reach Wrangler');
+        // Nothing injected: the absence is what lets Wrangler use the OAuth
+        // session `wrangler login` maintains, which Atoms never sees.
+        self::assertArrayNotHasKey('CLOUDFLARE_API_TOKEN', $call['target']->credentialEnv());
+    }
+
+    public function testWranglerHavingNoCredentialsEitherMapsToE072(): void
+    {
+        putenv('CLOUDFLARE_API_TOKEN');
+        $wrangler = new FakeWrangler();
+        $wrangler->deployResult = FakeWrangler::failed(
+            ['deploy'],
+            "✘ [ERROR] In a non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN "
+            . "environment variable for wrangler to work.\n",
+        );
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        $display = $tester->getDisplay();
         self::assertSame(1, $exit);
-        self::assertStringContainsString('ATOMS-E072', $tester->getDisplay());
-        self::assertSame([], $wrangler->calls, 'nothing should run without credentials');
+        self::assertStringContainsString('ATOMS-E072', $display);
+        self::assertStringNotContainsString('ATOMS-E074', $display);
+        // Wrangler's own diagnosis is printed, not summarised away.
+        self::assertStringContainsString('non-interactive environment', $display);
     }
 
     public function testMissingAccountIdMapsToE075(): void

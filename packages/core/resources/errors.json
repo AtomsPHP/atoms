@@ -324,8 +324,8 @@
         {
             "code": "ATOMS-E072",
             "title": "Deploy credentials missing",
-            "message": "No Cloudflare API token found for environment {environment}.",
-            "fix": "Export CLOUDFLARE_API_TOKEN. It is never accepted as a command-line option — a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`.",
+            "message": "`wrangler {command}` found no Cloudflare credentials to use.",
+            "fix": "Either export CLOUDFLARE_API_TOKEN with Workers Scripts:Edit on the target account, or run `wrangler login` in the Worker directory so Wrangler holds its own OAuth session — Atoms passes through whichever it finds, and injects nothing when there is no token. A token is never accepted as a command-line option: a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`; a runner has no login session to fall back on.",
             "severity": "error",
             "phase": "cli"
         },

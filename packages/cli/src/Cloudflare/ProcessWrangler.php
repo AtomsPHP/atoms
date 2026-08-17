@@ -120,7 +120,9 @@ final class ProcessWrangler implements Wrangler
      *
      * Inheriting matters — Wrangler needs `PATH` to find `node`, and `HOME` to
      * find an existing `wrangler login` session, which is how a developer with
-     * no API token still gets a working `atoms dev`.
+     * no API token still gets a working `atoms dev`, `atoms deploy` and the
+     * rest: with `CLOUDFLARE_API_TOKEN` unset, that session is the credential
+     * and Atoms never sees it.
      *
      * @return array<string, string>
      */
@@ -129,7 +131,10 @@ final class ProcessWrangler implements Wrangler
         $env = getenv();
 
         // Atoms is scripted; Wrangler's interactive prompts and telemetry pings
-        // have no one to answer them.
+        // have no one to answer them. This is also what keeps the credential
+        // handoff fail-fast: with no token and no login session, Wrangler in a
+        // non-interactive environment errors saying so rather than blocking on
+        // an OAuth browser round trip that a headless run could never complete.
         $env['CI'] ??= 'true';
         $env['WRANGLER_SEND_METRICS'] ??= 'false';
 
