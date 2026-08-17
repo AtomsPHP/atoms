@@ -5,18 +5,26 @@
  * of production Worker inputs. The staging directory begins empty, so a new
  * fixture, test, generated customer bundle, cache, or wasm artifact cannot
  * enter the tarball merely by appearing under cloudflare/worker.
+ *
+ * The JavaScript half of that list is *derived*, not hand-maintained: every
+ * module reachable from an entrypoint below is packaged, so adding a module
+ * cannot silently ship a package whose imports do not resolve. Everything a
+ * module graph cannot see — PHP sources, the scaffold config, dotfiles — is
+ * still enumerated by hand, and what is deliberately withheld is named in
+ * UNPACKAGED_MODULES / UNPACKAGED_PREFIXES rather than merely left off a list.
  */
 
 import { spawnSync } from 'node:child_process';
 import {
 	cpSync,
+	existsSync,
 	mkdtempSync,
 	mkdirSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
@@ -25,28 +33,81 @@ const workerRoot = resolve(here, '..');
 const cloudflareRoot = resolve(workerRoot, '..');
 const repoRoot = resolve(cloudflareRoot, '..');
 
-const PRODUCTION_FILES = [
+/** Roots of the shipped module graph; everything they reach is packaged. */
+const PACKAGE_ENTRYPOINTS = [
+	'src/index.js',
+	'scripts/bundle-from-cli.mjs',
+	'scripts/prepare-runtime.mjs',
+];
+
+/** Imported by shipped code, deliberately not shipped. */
+const UNPACKAGED_MODULES = new Set([
+	// Written per project by scripts/bundle-from-cli.mjs out of the customer's
+	// `atoms build` output. The repository's own copy is the conformance
+	// fixture's bundle and must never enter the tarball.
+	'src/bundle.generated.js',
+]);
+
+/** Directory prefixes imported by shipped code, deliberately not shipped. */
+const UNPACKAGED_PREFIXES = [
+	// The GPL php-wasm binary and its glue: fetched from npm and staged by
+	// scripts/prepare-runtime.mjs at install time, never redistributed here.
+	'.php-wasm/',
+];
+
+/** Non-module inputs, which no import graph can discover. */
+const STATIC_FILES = [
 	'.gitignore',
 	'php/atoms-core',
 	'php/runtime',
 	'release/supported-core',
-	'scripts/bundle-from-cli.mjs',
-	'scripts/prepare-runtime.mjs',
-	'src/atom-do.js',
-	'src/bridge.js',
-	'src/callbacks.js',
-	'src/config.js',
-	'src/errors.js',
-	'src/index.js',
-	'src/int64.js',
-	'src/php-host.js',
-	'src/timers.js',
-	'src/websockets.js',
 	// Ships as the template's wrangler.jsonc. The repository's own
 	// wrangler.jsonc is the conformance-harness config (debug endpoints on,
 	// name atoms-mvp-conformance) and deliberately never enters the tarball.
 	'wrangler.scaffold.jsonc',
 ];
+
+// `from '…'`, `import '…'`, `import('…')` — and the `import('./x.js')` inside a
+// JSDoc type, which is a real dependency of anyone type-checking the package.
+const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*)['"]([^'"]+)['"]/g;
+
+function toPosix(path) {
+	return path.split(sep).join('/');
+}
+
+/**
+ * Walk the static import graph from `entrypoints`, returning every reachable
+ * module as a worker-root-relative POSIX path. Throws on an import that does
+ * not resolve to a file, which is the failure this replaced.
+ */
+export function packagedModules(entrypoints = PACKAGE_ENTRYPOINTS) {
+	const found = new Set();
+	const queue = [...entrypoints];
+	while (queue.length > 0) {
+		const current = queue.shift();
+		if (found.has(current)) continue;
+		const absolute = join(workerRoot, current);
+		if (!existsSync(absolute)) {
+			throw new Error(`packaged module does not exist: ${current}`);
+		}
+		found.add(current);
+
+		const source = readFileSync(absolute, 'utf8');
+		for (const [, specifier] of source.matchAll(SPECIFIER)) {
+			if (!specifier.startsWith('.')) continue; // a bare specifier is a dependency
+			const target = toPosix(relative(workerRoot, resolve(dirname(absolute), specifier)));
+			if (target.startsWith('..')) {
+				throw new Error(`${current} imports outside cloudflare/worker: ${specifier}`);
+			}
+			if (UNPACKAGED_MODULES.has(target)) continue;
+			if (UNPACKAGED_PREFIXES.some((prefix) => target.startsWith(prefix))) continue;
+			queue.push(target);
+		}
+	}
+	return [...found].sort();
+}
+
+const PRODUCTION_FILES = [...STATIC_FILES, ...packagedModules()].sort();
 
 const ROOT_PACKAGE_FILES = [
 	['LICENSE-MIT', 'LICENSE'],
@@ -112,9 +173,9 @@ export function stageRuntimePackage(stageRoot) {
 		'.gitignore': 'gitignore',
 		'wrangler.scaffold.jsonc': 'wrangler.jsonc',
 	};
-	for (const relative of PRODUCTION_FILES) {
-		const destination = RENAMES[relative] ?? relative;
-		copy(join(workerRoot, relative), join(stageRoot, 'template', destination));
+	for (const file of PRODUCTION_FILES) {
+		const destination = RENAMES[file] ?? file;
+		copy(join(workerRoot, file), join(stageRoot, 'template', destination));
 	}
 	for (const [source, destination] of ROOT_PACKAGE_FILES) {
 		copy(join(cloudflareRoot, source), join(stageRoot, destination));

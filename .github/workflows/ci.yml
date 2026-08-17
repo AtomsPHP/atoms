@@ -20,10 +20,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: cloudflare/worker/package-lock.json
       - name: Check coordinated release metadata
         run: php scripts/release/release.php check
       - name: Validate Composer mirror splits
         run: php scripts/release/release.php validate-splits
+      # test:package bundles the scaffolded worker to prove its module graph
+      # resolves, which needs the esbuild wrangler pins — so this job installs
+      # the worker's dependencies even though nothing else here does.
+      - name: Install worker dependencies
+        working-directory: cloudflare/worker
+        run: npm ci
       - name: Inspect and exercise the runtime package
         working-directory: cloudflare/worker
         run: npm run test:package
