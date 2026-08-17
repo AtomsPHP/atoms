@@ -184,16 +184,26 @@ final class AtomsBundle extends AbstractBundle
         // that ordering matters.
         //
         // These two parameters are internal machinery, not configuration
-        // surface: they are the only channel by which a value parsed here can
-        // reach a pass that had to be constructed in build(), before any
-        // config existed. Aliasing 'atoms.http_client' directly from this
-        // method instead would let the parameters go, and is deliberately not
-        // done — resolution would then happen at load time, so which binding
-        // won would depend on bundle registration order, and an app that binds
-        // 'atoms.http_client' from an extension loaded before this one would
-        // lose to a config key it never set. The passes' compile-time
-        // resolution is what makes that order irrelevant; the parameters are
-        // the price of it. (Audit F8, resolved as decline-and-document.)
+        // surface: they are the conventional channel by which a value parsed
+        // here reaches a pass that had to be constructed in build(), before
+        // any config existed.
+        //
+        // Aliasing 'atoms.http_client' directly from this method instead would
+        // let the parameters go, and is deliberately not done, for two
+        // reasons. Resolution would move to load time, where extension tmp
+        // containers merge in bundle registration order — so between two
+        // bundles that both bind the id, the winner would become whichever
+        // registered last. (An app binding it in its own config is safe either
+        // way: MergeExtensionConfigurationPass restores the main container's
+        // definitions and aliases over every extension's.) And a guard there
+        // could not see the conflict at all: loadExtension() receives a
+        // throwaway container holding only this extension's own work, so
+        // hasAlias() would read false in every case that matters. The passes'
+        // compile-time resolution is what makes registration order irrelevant;
+        // the parameters are the price of it, and the two
+        // testAnAppBound*AliasWinsOverTheConfiguredServiceId cases in
+        // AtomsBundleExtensionTest fail if that is ever undone.
+        // (Audit F8, resolved as decline-and-document.)
         $container->setParameter(HttpClientPass::CONFIGURED_SERVICE_ID_PARAMETER, $config['http_client']);
         $container->setParameter(Psr17FactoryPass::CONFIGURED_SERVICE_ID_PARAMETER, $config['psr17_factory']);
     }

@@ -114,10 +114,13 @@ change.
 Every auto-detected collaborator has an explicit override point:
 
 - **HTTP client** — set `http_client` to a service id, or just register your
-  own `Psr\Http\Client\ClientInterface` service and leave it null.
+  own `Psr\Http\Client\ClientInterface` service and leave it null. Binding the
+  `atoms.http_client` service id yourself outranks both, and is the way to
+  override the resolution outright.
 - **PSR-17 factory** — set `psr17_factory` to a service id implementing
   `ServerRequestFactoryInterface`, `StreamFactoryInterface` and
-  `ResponseFactoryInterface`.
+  `ResponseFactoryInterface`. As with the HTTP client, binding
+  `atoms.psr17_factory` yourself takes precedence over the config key.
 - **Queue bridge** — install `symfony/messenger` and register a message bus,
   or bind your own `Atoms\Client\Callback\QueueBridge` implementation to that
   service id directly.
