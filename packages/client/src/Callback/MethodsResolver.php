@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Client\Callback;
 
 use Atoms\Attributes\MethodsFor;
+use Atoms\Client\Manifest\Manifest;
 
 /**
  * Resolves the AtomMethods class that serves callbacks for a given Atom type.
@@ -17,7 +18,8 @@ use Atoms\Attributes\MethodsFor;
  *  3. the namespace convention `App\Atoms\GameRoom` → `App\Atoms\GameRoom\Methods`.
  *
  * A wire type resolves to an Atom FQCN either because it is already a FQCN, or
- * via a {@see self::registerTypeMap()} basename → FQCN entry.
+ * via a {@see self::registerTypeMap()} basename → FQCN entry — which
+ * {@see self::registerManifest()} fills in from a build manifest.
  */
 final class MethodsResolver
 {
@@ -57,6 +59,21 @@ final class MethodsResolver
         }
 
         return $this;
+    }
+
+    /**
+     * Register every Atom in a build manifest, so wire types resolve without
+     * the host having to name each Atom class itself.
+     *
+     * The manifest supplies the entries ({@see Manifest::typeMap()}); this is
+     * the seam an adapter calls once it has loaded one, so no adapter has to
+     * know either the manifest's shape or that {@see self::registerTypeMap()}
+     * is where the result belongs. Loading the manifest — finding its path,
+     * and deciding what an unreadable one means — stays with the adapter.
+     */
+    public function registerManifest(Manifest $manifest): self
+    {
+        return $this->registerTypeMap($manifest->typeMap());
     }
 
     /**

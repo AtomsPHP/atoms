@@ -114,6 +114,43 @@ final class ManifestTest extends TestCase
         self::assertNotSame($loader->fromArray($base)->hash(), $loader->fromArray($mutated)->hash());
     }
 
+    public function testTypeMapKeysEachAtomByItsWireType(): void
+    {
+        $manifest = (new ManifestLoader())->fromArray($this->sampleManifest());
+
+        self::assertSame(['GameRoom' => 'App\\Atoms\\GameRoom'], $manifest->typeMap());
+    }
+
+    public function testTypeMapFallsBackToTheClassWhenTypeIsEmpty(): void
+    {
+        $data = $this->sampleManifest();
+        unset($data['atoms'][0]['type']);
+
+        $manifest = (new ManifestLoader())->fromArray($data);
+
+        self::assertSame('', $manifest->atoms[0]->type);
+        self::assertSame(['App\\Atoms\\GameRoom' => 'App\\Atoms\\GameRoom'], $manifest->typeMap());
+    }
+
+    public function testTypeMapSkipsAtomsWithNoClass(): void
+    {
+        $data = $this->sampleManifest();
+        $data['atoms'][] = ['type' => 'Ghost', 'methods' => []];
+
+        $manifest = (new ManifestLoader())->fromArray($data);
+
+        self::assertCount(2, $manifest->atoms);
+        self::assertSame(['GameRoom' => 'App\\Atoms\\GameRoom'], $manifest->typeMap());
+    }
+
+    public function testTypeMapIsEmptyWhenTheManifestDeclaresNoAtoms(): void
+    {
+        $data = $this->sampleManifest();
+        $data['atoms'] = [];
+
+        self::assertSame([], (new ManifestLoader())->fromArray($data)->typeMap());
+    }
+
     public function testLoadFromFile(): void
     {
         $path = sys_get_temp_dir() . '/atoms-manifest-' . uniqid() . '.json';
