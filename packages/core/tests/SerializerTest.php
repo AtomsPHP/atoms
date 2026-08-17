@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Atoms\Core\Tests;
 
+use Atoms\Core\Tests\Fixtures\NoConstructor;
 use Atoms\Core\Tests\Fixtures\NonPromoted;
 use Atoms\Core\Tests\Fixtures\PlayerSnapshot;
 use Atoms\Core\Tests\Fixtures\Priority;
+use Atoms\Core\Tests\Fixtures\ReportJob;
 use Atoms\Core\Tests\Fixtures\Status;
 use Atoms\Core\Tests\Fixtures\Team;
 use Atoms\Core\Tests\Fixtures\TestMethods;
@@ -297,5 +299,92 @@ final class SerializerTest extends TestCase
         self::assertInstanceOf(PlayerSnapshot::class, $args[2]);
         self::assertSame('Ann', $args[2]->name);
         self::assertSame(Status::Active, $args[3]);
+    }
+
+    // --- denormalizeNamedArguments ------------------------------------------
+
+    public function testDenormalizeNamedArgumentsBindsEveryParameterByName(): void
+    {
+        $args = $this->serializer->denormalizeNamedArguments(ReportJob::class, [
+            'id' => 'r1',
+            'player' => ['id' => 'p1', 'name' => 'Ann', 'elo' => 1500],
+            'retries' => 5,
+        ]);
+
+        self::assertCount(3, $args);
+        self::assertSame('r1', $args[0]);
+        self::assertInstanceOf(PlayerSnapshot::class, $args[1]);
+        self::assertSame('Ann', $args[1]->name);
+        self::assertSame(5, $args[2]);
+    }
+
+    public function testDenormalizeNamedArgumentsHydratesPromotedProperties(): void
+    {
+        $args = $this->serializer->denormalizeNamedArguments(ReportJob::class, [
+            'id' => 'r1',
+            'player' => ['id' => 'p1', 'name' => 'Ann', 'elo' => 1500],
+        ]);
+
+        $job = new ReportJob(...$args);
+
+        self::assertSame('r1', $job->id);
+        self::assertInstanceOf(PlayerSnapshot::class, $job->player);
+        self::assertSame(1500, $job->player->elo);
+        self::assertSame(3, $job->retries);
+    }
+
+    public function testDenormalizeNamedArgumentsIgnoresUnknownKeys(): void
+    {
+        $args = $this->serializer->denormalizeNamedArguments(ReportJob::class, [
+            'id' => 'r1',
+            'player' => null,
+            'retries' => 1,
+            'unknown' => 'ignored',
+        ]);
+
+        self::assertSame(['r1', null, 1], $args);
+    }
+
+    public function testDenormalizeNamedArgumentsUsesDeclaredDefaultWhenAbsent(): void
+    {
+        $args = $this->serializer->denormalizeNamedArguments(ReportJob::class, [
+            'id' => 'r1',
+            'player' => null,
+        ]);
+
+        self::assertSame(3, $args[2]);
+    }
+
+    public function testDenormalizeNamedArgumentsFillsNullForAbsentNullableWithoutDefault(): void
+    {
+        $args = $this->serializer->denormalizeNamedArguments(ReportJob::class, ['id' => 'r1']);
+
+        self::assertSame(['r1', null, 3], $args);
+    }
+
+    public function testDenormalizeNamedArgumentsMissingRequiredArgumentThrows(): void
+    {
+        try {
+            $this->serializer->denormalizeNamedArguments(ReportJob::class, ['player' => null]);
+            self::fail('Expected SerializationException');
+        } catch (SerializationException $e) {
+            self::assertSame(ErrorCode::BoundaryTypeMismatch, $e->errorCode);
+            self::assertStringContainsString('id', $e->getMessage());
+        }
+    }
+
+    public function testDenormalizeNamedArgumentsTypeMismatchThrows(): void
+    {
+        try {
+            $this->serializer->denormalizeNamedArguments(ReportJob::class, ['id' => 42]);
+            self::fail('Expected SerializationException');
+        } catch (SerializationException $e) {
+            self::assertSame(ErrorCode::BoundaryTypeMismatch, $e->errorCode);
+        }
+    }
+
+    public function testDenormalizeNamedArgumentsWithoutConstructorIsEmpty(): void
+    {
+        self::assertSame([], $this->serializer->denormalizeNamedArguments(NoConstructor::class, ['x' => 1]));
     }
 }
