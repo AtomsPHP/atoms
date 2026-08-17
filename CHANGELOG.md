@@ -31,6 +31,13 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   null for an absent nullable constructor argument instead of reporting it
   missing — the same reconstruction the callback kernel performs, which is
   what the harness exists to imitate.
+- **Added:** `MethodsResolver::registerManifest()` and `Manifest::typeMap()`
+  (`atoms/client`) register every Atom a build manifest declares, so a host
+  resolves wire types to Atom classes in one call instead of one line per
+  Atom. The Laravel provider already did this, but by walking the manifest
+  itself; the shape knowledge now lives in the package that owns the
+  manifest, where the Symfony bundle and a plain-PHP host can reach it too.
+  A Laravel app sees no behaviour change.
 
 ## [0.3.1] - 2026-08-17
 
