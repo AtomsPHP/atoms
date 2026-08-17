@@ -7,12 +7,19 @@ namespace Atoms\Client\Internal;
 /**
  * The `error` object of a platform response body, destructured exactly once.
  *
- * The Worker answers a failure as `{"error": {"code", "message", "retryable",
- * ...}}`, and may add `remote_class`/`remote_trace` when the failure was an
- * exception thrown by the customer's own Atom. Reading those keys is the only
- * place in {@see \Atoms\Client\AtomsClient} that knows the envelope's shape:
- * everything downstream — the 200-with-error-frame check, the exception
- * mapping, and the retry decision — works from an instance of this class.
+ * A failure arrives as `{"error": {"code", "message", "retryable", ...}}`.
+ * Reading those keys is the only place in {@see \Atoms\Client\AtomsClient} that
+ * knows the envelope's shape: everything downstream — the 200-with-error-frame
+ * check, the exception mapping, and the retry decision — works from an instance
+ * of this class.
+ *
+ * `remote_class`/`remote_trace` are the keys this client has always read to
+ * recognise an exception thrown by the customer's own Atom. Note that the
+ * current Cloudflare Worker does not send them: it reports the throwing class
+ * as `class` (`worker/src/index.js`, `worker/src/atom-do.js`), and sends no
+ * trace at all. The keys are preserved here verbatim rather than remapped,
+ * because reconciling the two is a contract question this class must not decide
+ * on its own.
  *
  * @internal Not part of `atoms/client`'s public surface. Its shape may change
  *           with the wire protocol; nothing outside this package may depend on it.

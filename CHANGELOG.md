@@ -60,6 +60,17 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   `code`, saw the deadline code, and retried the call anyway. Retryability is
   now read off the mapped exception, which is the same object the caller
   receives, so the two can no longer disagree.
+- **Changed:** `AtomsClient` decides whether to retry by asking the exception it
+  mapped the failure to, rather than by re-matching the raw error envelope's
+  `code`. The retry decision and the exception the caller receives can no longer
+  disagree. One observable consequence: an error frame carrying both
+  `remote_class` and `turn_deadline_exceeded` is no longer auto-retried under
+  the `retryTurnDeadline` opt-in, because such a frame is your own Atom's
+  exception — surfaced as a `RemoteAtomException` — and re-running code that
+  threw cannot help. No deployed Worker emits that combination today: the
+  Cloudflare runtime reports a throwing class as `class`, not `remote_class`,
+  so nothing in live traffic changes. It is recorded because it is a change to
+  the client's documented handling of the frame shape it reads.
 
 ## [0.3.1] - 2026-08-17
 

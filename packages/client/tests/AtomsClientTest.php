@@ -375,6 +375,46 @@ final class AtomsClientTest extends TestCase
     }
 
     /**
+     * The constant's other entry. Against the current Worker `internal` always
+     * arrives with `retryable: true`, so the constant only decides the flagless
+     * case — which is exactly the case this pins.
+     */
+    public function testInternalRetriesFromTheConstantWithNoPlatformFlag(): void
+    {
+        $client = $this->client();
+        $this->http
+            ->queueJson(500, ['error' => ['code' => 'internal', 'message' => 'oops']])
+            ->queueJson(200, ['result' => 'ok']);
+
+        self::assertSame('ok', $client->call('GameRoom', 'g-1', 'ping'));
+        self::assertCount(2, $this->http->requests);
+    }
+
+    /**
+     * The other half of the 2xx path: an error frame on a 2xx with no
+     * `remote_class` is still mapped and thrown on the spot. Not even the
+     * deadline opt-in retries it — a 2xx frame never reaches the retry
+     * predicate at all.
+     */
+    public function testATwoHundredErrorFrameIsNotRetriedEvenWithTheDeadlineOptIn(): void
+    {
+        $client = $this->client();
+        $this->http
+            ->queueJson(200, ['error' => ['code' => 'turn_deadline_exceeded', 'message' => 'slow', 'retryable' => true]])
+            ->queueJson(200, ['result' => 'ok']);
+
+        try {
+            $client->call('GameRoom', 'g-1', 'ping', [], null, true);
+            self::fail('expected TurnDeadlineExceeded');
+        } catch (TurnDeadlineExceeded $e) {
+            self::assertSame(200, $e->httpStatus);
+        }
+
+        self::assertCount(1, $this->http->requests, 'a 2xx error frame is thrown, never retried');
+        self::assertSame([], $this->sleeps);
+    }
+
+    /**
      * A code this client has never heard of is retried when — and only when —
      * the platform itself flags the frame retryable.
      */
