@@ -18,8 +18,8 @@ use Atoms\Client\Manifest\Manifest;
  *  3. the namespace convention `App\Atoms\GameRoom` → `App\Atoms\GameRoom\Methods`.
  *
  * A wire type resolves to an Atom FQCN either because it is already a FQCN, or
- * via a {@see self::registerTypeMap()} basename → FQCN entry — which
- * {@see self::registerManifest()} fills in from a build manifest.
+ * via a {@see self::registerTypeMap()} basename → FQCN entry, which
+ * {@see self::registerManifest()} can fill from a build manifest.
  */
 final class MethodsResolver
 {

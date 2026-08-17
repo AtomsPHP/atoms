@@ -137,8 +137,8 @@ lower-level escape hatch for a Methods class with no `#[MethodsFor]`
 attribute, or a wire type whose basename does not match the Atom class's own.
 
 If you already run `atoms build`, `registerManifest()` fills that same map
-from the manifest instead of a line per Atom — every wire type the build
-declared, in one call:
+from the manifest instead of a line per Atom — every Atom the manifest
+declares, in one call:
 
 ```php
 $manifest = (new \Atoms\Client\Manifest\ManifestLoader())->load('.atoms/build/manifest.json');
