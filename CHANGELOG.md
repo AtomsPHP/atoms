@@ -71,6 +71,14 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   Cloudflare runtime reports a throwing class as `class`, not `remote_class`,
   so nothing in live traffic changes. It is recorded because it is a change to
   the client's documented handling of the frame shape it reads.
+- **Changed:** `atoms/phpstan-rules` gains an `Atoms\PHPStan\Zone` value
+  object, and `AtomsLayeringConfig::zones()` / `zonesContaining()` now return
+  `list<Zone>` instead of the raw `list<array{paths, forbid, allow}>` shape.
+  A zone's `forbid`/`allow` prefixes are normalized once, when the config is
+  constructed, rather than three divergent ways inside `LayeringRule`'s loops
+  over zones × nodes × prefixes. The `parameters.atomsLayering` neon shape and
+  every rule verdict are unchanged; this is a source-level API change for
+  anything that consumed those two methods directly.
 
 ## [0.3.1] - 2026-08-17
 

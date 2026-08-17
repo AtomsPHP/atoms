@@ -18,21 +18,29 @@ namespace Atoms\PHPStan;
  * Path matching is delegated to {@see PathMatcher}, the same
  * normalized-segment matcher AtomsRulesConfig uses — agnostic to the project
  * root and to the OS directory separator.
+ *
+ * The raw neon array shape is converted to {@see Zone} objects once here, in
+ * the constructor, so every prefix in the configuration is normalized exactly
+ * once per analysis rather than once per file per node per prefix.
  */
 final class AtomsLayeringConfig
 {
+    /** @var list<Zone> */
+    private readonly array $zones;
+
     /**
      * @param list<array{paths: list<string>, forbid: list<string>, allow: list<string>}> $zones
      * @param list<string> $forbiddenFunctions
      */
     public function __construct(
-        private readonly array $zones = [],
+        array $zones = [],
         private readonly array $forbiddenFunctions = [],
     ) {
+        $this->zones = array_map(Zone::fromArray(...), $zones);
     }
 
     /**
-     * @return list<array{paths: list<string>, forbid: list<string>, allow: list<string>}>
+     * @return list<Zone>
      */
     public function zones(): array
     {
@@ -50,13 +58,13 @@ final class AtomsLayeringConfig
      * fall under more than one zone (e.g. a package path nested under a
      * broader one), so this returns every match rather than the first.
      *
-     * @return list<array{paths: list<string>, forbid: list<string>, allow: list<string>}>
+     * @return list<Zone>
      */
     public function zonesContaining(string $file): array
     {
         $matches = [];
         foreach ($this->zones as $zone) {
-            if (PathMatcher::isUnderAnyPath($file, $zone['paths'])) {
+            if ($zone->covers($file)) {
                 $matches[] = $zone;
             }
         }
