@@ -13,8 +13,8 @@ use PhpParser\Node\Stmt\TraitUse;
 /**
  * Stage 1 of the extraction pipeline: enumerate every `.php` class under the
  * Atoms path and classify it as an Atom, Methods, AtomJob, Shared DTO, or an
- * unclassifiable file (ATOMS-E001). Purely static — files are parsed, never
- * included.
+ * unclassifiable file (ATOMS-E001). Two files declaring one FQCN is
+ * ATOMS-E002. Purely static — files are parsed, never included.
  */
 final class Discovery
 {
@@ -36,8 +36,10 @@ final class Discovery
 
         /** @var list<array{file: PhpFile, classes: list<DiscoveredClass>}> $parsed */
         $parsed = [];
-        /** @var array<string, DiscoveredClass> $raw indexed by fqcn (kind Unknown initially) */
+        /** @var array<string, DiscoveredClass> $raw the FQCN index, last declaration wins */
         $raw = [];
+        /** @var list<Violation> $duplicates */
+        $duplicates = [];
 
         foreach ($this->phpFiles($atomsDir) as $absolute) {
             $relative = self::relativePath($rootDir, $absolute);
@@ -45,6 +47,24 @@ final class Discovery
             $fileClasses = [];
             foreach ($file->classes as $node) {
                 $discovered = $this->toDiscovered($node, $absolute, $relative);
+                // Two files declaring one FQCN is a collision the index cannot
+                // hold, so it is reported here rather than inferred later from
+                // the shape of what survived it. E002 is an error: a bundle
+                // carries both files and the guest fatals on the second.
+                $first = $raw[$discovered->fqcn] ?? null;
+                if ($first !== null) {
+                    $duplicates[] = new Violation(
+                        \Atoms\Errors\ErrorCode::DuplicateClassDeclaration,
+                        $discovered->relativePath,
+                        $discovered->line,
+                        [
+                            'class' => $discovered->fqcn,
+                            'first' => $first->relativePath,
+                            'second' => $discovered->relativePath,
+                        ],
+                        $discovered->fqcn,
+                    );
+                }
                 $raw[$discovered->fqcn] = $discovered;
                 $fileClasses[] = $discovered;
             }
@@ -52,14 +72,20 @@ final class Discovery
         }
 
         // Classify now that every discovered FQCN is known (transitive parents).
-        foreach ($raw as $class) {
-            $class->kind = $this->classify($class, $raw, $sharedDir);
+        // Driven from $parsed, not $raw: a class a later file re-declared is
+        // gone from the index but is still one of the classes the warning pass
+        // below reads, and an unclassified one there reads as Unknown and
+        // convicts its file of ATOMS-E001.
+        foreach ($parsed as $entry) {
+            foreach ($entry['classes'] as $class) {
+                $class->classifyAs($this->classify($class, $raw, $sharedDir));
+            }
         }
 
         // Deterministic ordering by FQCN for stable manifests.
         ksort($raw, SORT_STRING);
 
-        $warnings = [];
+        $violations = $duplicates;
         foreach ($parsed as $entry) {
             $file = $entry['file'];
             if ($entry['classes'] === []) {
@@ -67,13 +93,13 @@ final class Discovery
             }
             $allUnknown = true;
             foreach ($entry['classes'] as $c) {
-                if ($c->kind !== ClassKind::Unknown) {
+                if ($c->kind() !== ClassKind::Unknown) {
                     $allUnknown = false;
                     break;
                 }
             }
             if ($allUnknown) {
-                $warnings[] = new Violation(
+                $violations[] = new Violation(
                     \Atoms\Errors\ErrorCode::UnclassifiableFile,
                     $file->relativePath,
                     $entry['classes'][0]->line,
@@ -82,7 +108,7 @@ final class Discovery
             }
         }
 
-        return new DiscoveryResult(array_values($raw), $warnings);
+        return new DiscoveryResult(array_values($raw), $violations);
     }
 
     /**
@@ -171,7 +197,6 @@ final class Discovery
 
         return new DiscoveredClass(
             fqcn: $fqcn,
-            kind: ClassKind::Unknown,
             absolutePath: $absolute,
             relativePath: $relative,
             line: $node->getStartLine(),

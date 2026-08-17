@@ -147,7 +147,7 @@ final class SymbolClassifier
         if ($this->discovery->has($name)) {
             $bundled = $this->discovery->get($name);
             // A Shared DTO may only reference core + stdlib + other Shared DTOs.
-            if ($shared && $bundled !== null && $bundled->kind !== ClassKind::Shared) {
+            if ($shared && $bundled !== null && $bundled->kind() !== ClassKind::Shared) {
                 return $this->sharedViolation($name, $owner, $file, $line);
             }
 

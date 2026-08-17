@@ -7,6 +7,7 @@ This catalog is the single source of truth: `packages/core/resources/errors.json
 | Code | Title | Severity | Phase | Fix |
 |------|-------|----------|-------|-----|
 | ATOMS-E001 | Unclassifiable file under the Atoms path | warning | build | Move non-Atoms code out of the Atoms path, or make the class extend the appropriate atoms/core base class. |
+| ATOMS-E002 | Two files declare the same class | error | build | Rename one of the two declarations, or move it to its own namespace. A bundle carries both files, so the guest would fatal at class-declaration time on whichever one loads second. |
 | ATOMS-E010 | Framework symbol referenced inside Atom code | error | build | Move the behavior into a Methods class (runs in your app via $this->app()) or use the atoms/core equivalent. |
 | ATOMS-E011 | Global framework helper called inside Atom code | error | build | Use $this->config() for configuration, new \DateTimeImmutable() for time, or move the call into a Methods class. |
 | ATOMS-E012 | Monolith class referenced inside Atom code | error | build | Pass data across the boundary as a Shared DTO (implement Atoms\Serialization\Payload) or call it via $this->app(). |

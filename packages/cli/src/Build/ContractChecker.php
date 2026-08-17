@@ -138,7 +138,7 @@ final class ContractChecker
             $jobName = $first->value->class->toString();
             $job = $this->discovery->get($jobName);
 
-            return $job !== null && $job->kind === ClassKind::Job
+            return $job !== null && $job->kind() === ClassKind::Job
                 ? $this->violation(ErrorCode::AtomJobConstructedInAtom, $atom, $call, ['job' => $jobName], $jobName)
                 : $this->violation(ErrorCode::NotAnAtomJob, $atom, $call, ['class' => $jobName], $jobName);
         }
@@ -149,7 +149,7 @@ final class ContractChecker
         }
 
         $job = $this->discovery->get($jobName);
-        if ($job === null || $job->kind !== ClassKind::Job) {
+        if ($job === null || $job->kind() !== ClassKind::Job) {
             return $this->violation(ErrorCode::NotAnAtomJob, $atom, $call, ['class' => $jobName], $jobName);
         }
 

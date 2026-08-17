@@ -33,6 +33,15 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
+     * Two files declaring one FQCN, both real Atoms. Kept apart from
+     * violating-app, whose findings several tests assert exactly.
+     */
+    protected function duplicateFqcnApp(): AtomsJson
+    {
+        return AtomsJson::load($this->fixtureDir('duplicate-fqcn-app') . '/atoms.json');
+    }
+
+    /**
      * Four Atom shapes that exercise every answer the manifest's `websocket`
      * key can give (declared handler / directly extends Atom with none /
      * inherited-and-unknowable / case-variant handler name). Kept apart from

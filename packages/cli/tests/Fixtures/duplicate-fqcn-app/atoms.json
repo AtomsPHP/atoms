@@ -1,0 +1,14 @@
+{
+    "project": "duplicate-fqcn-app",
+    "paths": {
+        "atoms": "app/Atoms",
+        "shared": "app/Atoms/Shared"
+    },
+    "php": "8.3",
+    "environments": {
+        "production": {
+            "endpoint": "https://duplicate-fqcn-app.example.workers.dev",
+            "account_id": "cf-account-1234"
+        }
+    }
+}
