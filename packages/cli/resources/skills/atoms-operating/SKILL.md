@@ -23,12 +23,16 @@ atoms shared-secret:set --env X  # ATOMS_SHARED_SECRET, read from stdin. The aut
 atoms shared-secret:unset --env X  # Remove ATOMS_SHARED_SECRET_PREVIOUS, closing a rotation window.
 ```
 
-Credentials: `CLOUDFLARE_ACCOUNT_ID` (or `account_id` in atoms.json), plus
-either `CLOUDFLARE_API_TOKEN` or an existing `wrangler login` session — with no
-token set, Atoms injects nothing and Wrangler uses its own. Whatever the CLI
-does resolve goes straight to your own Wrangler; Atoms never proxies or retains
-it. In CI, supply them to the deploy action as `cloudflare-api-token` /
-`cloudflare-account-id`: a runner has no login session to fall back on.
+Credentials: either `CLOUDFLARE_API_TOKEN` or an existing `wrangler login`
+session — with no token set, Atoms injects nothing and Wrangler uses its own.
+`CLOUDFLARE_ACCOUNT_ID` (or `account_id` in atoms.json) is recommended and not
+required: it pins the deploy target explicitly, but credentials reaching a
+single account resolve without it. Neither is pre-checked — Wrangler reports
+what it cannot resolve, as ATOMS-E072 (no credentials) or ATOMS-E075 (several
+accounts, none chosen). Whatever the CLI does resolve goes straight to your own
+Wrangler; Atoms never proxies or retains it. In CI, supply them to the deploy
+action as `cloudflare-api-token` / `cloudflare-account-id`: a runner has no
+login session to fall back on.
 
 Deploy needs a Worker project directory (`worker_dir` in atoms.json, default
 `.atoms/worker`) with `npm ci` already run in it. `atoms init` prints the exact

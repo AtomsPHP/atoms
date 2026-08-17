@@ -21,7 +21,7 @@ reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 | Re-verified | 2026-08-16, comment-only trim of `Websocket/{Connection,Message,JsonFrame}.php` (prose docblocks reduced to load-bearing constraints; no behavioural change). All three re-vendored; still 24 files total, the other 21 digests are unchanged |
 | Re-verified | 2026-08-16, comment-pattern cleanup of `Websocket/{JsonFrame,Message}.php` — `JsonFrame::decode()`'s docblock reworded from constraint-as-identity phrasing ("is a frame") to a stated rule ("must decode to"), and from a "frame" reused mid-sentence for both the WebSocket-protocol sense and this library's structured-payload sense; `Message::json()`'s docblock, which duplicated that same explanation in full, now cross-references `{@see JsonFrame::decode()}` instead. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-16, on the duplicate-FQCN discovery fix — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E002 added: two files declaring the same class under the Atoms path, raised by the CLI's build-time discovery). Nothing in the guest raises it; the copy carries it because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
-| Re-verified | 2026-08-17, on the Wrangler OAuth fallback (`docs/cloudflare-toolchain.md` §Credentials) — `resources/errors.json` re-vendored (E072 reworded: the CLI no longer pre-empts a missing `CLOUDFLARE_API_TOKEN`, so the code now names both credential inlets and is raised from Wrangler's own authentication failure). No code added or removed; still 24 files total, the other 23 digests are unchanged |
+| Re-verified | 2026-08-17, on the Wrangler credential handoff (`docs/cloudflare-toolchain.md` §Credentials) — `resources/errors.json` re-vendored (E072 and E075 reworded: the CLI no longer pre-empts a missing `CLOUDFLARE_API_TOKEN` or a missing account id, so both codes now name the inlets and are raised from Wrangler's own failure output). No code added or removed; still 24 files total, the other 23 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -113,7 +113,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
 a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
 b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
-5fa30298d3169978c379ffdaa6b691c0a94a21aa77ac2a3be501434e808757c1  resources/errors.json
+86078cfd049644d8426c67ca0edeee521e195642fa2f7a88d9536070041a1a29  resources/errors.json
 ```
 
 Verify with, from this directory:

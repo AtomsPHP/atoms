@@ -208,11 +208,21 @@ Nothing about this can hang a headless run. `ProcessWrangler::childEnv()` sets
 token nor session errors out immediately instead of waiting on a browser
 handoff it could not complete.
 
-`CLOUDFLARE_ACCOUNT_ID` is unchanged and still required for the commands that
-reach Cloudflare (**ATOMS-E075**): `--name` targeting has to be unambiguous on
-a login that can see more than one account. It is not a secret, so
-`atoms.json`'s per-environment `account_id` is the usual home for it, and a
-`wrangler login` user typically sets nothing at all in their environment.
+`CLOUDFLARE_ACCOUNT_ID` follows the same rule, for the same reason. Credentials
+that reach exactly one account resolve it without being told, and how many they
+reach is Wrangler's knowledge, not ours — so an absent account id is no longer a
+precondition either. Where it genuinely is ambiguous, Wrangler says so and that
+becomes **ATOMS-E075**, with its own listing of the accounts it can see printed
+above. Setting `account_id` in `atoms.json` is still the recommendation: it is
+not a secret, it makes the deploy target explicit in the repository rather than
+dependent on whose login is running, and it is the only way to be sure a
+multi-account login deploys where you meant. It is simply no longer demanded up
+front.
+
+Both codes now arrive from the same seam, and neither pre-empts Wrangler on a
+question only Wrangler can answer. The cost is that a run missing both fails
+after the build and stage rather than before them; the benefit is that it fails
+only when it genuinely could not have worked.
 
 `atoms dev` requires neither: `wrangler dev` runs workerd locally, so a
 developer with no Cloudflare account can still work.
@@ -606,9 +616,9 @@ atoms deploy --env production
 
 1. Load `atoms.json`; resolve the environment.
 2. Resolve the Cloudflare target: worker name, account id, API token, worker
-   directory. A missing account id fails here — E075 — before anything runs. A
-   missing API token does not: Wrangler may have a login session of its own,
-   and that is only knowable at step 5.
+   directory. No credential check happens here any more — a missing token may
+   be a `wrangler login` session, and a missing account id may be the only
+   account that session reaches. Both are knowable only at step 5.
 3. `atoms build` → `.atoms/build/bundle-{sha}.tar.gz` + `manifest.json`.
    Deterministic; executes no customer code. (`--bundle` skips this and deploys
    a prebuilt one.)
@@ -621,7 +631,8 @@ atoms deploy --env production
    which case Wrangler uses its own login session — and Wrangler's own output
    passed through unedited.
 6. Non-zero exit ⇒ **ATOMS-E074**, with Wrangler's diagnosis already printed;
-   or **ATOMS-E072** when that diagnosis is that it had no credentials at all.
+   or **ATOMS-E072** when that diagnosis is that it had no credentials at all,
+   or **ATOMS-E075** when it could not choose between several accounts.
 
 Nothing in this sequence contacts a service operated by Atoms.
 

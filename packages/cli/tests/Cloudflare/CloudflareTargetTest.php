@@ -59,18 +59,23 @@ final class CloudflareTargetTest extends TestCase
         self::assertSame(['CLOUDFLARE_ACCOUNT_ID' => 'cf-account-1234'], $target->credentialEnv());
     }
 
-    public function testTheAccountIdIsStillRequired(): void
+    public function testNoAccountIdResolvesAndInjectsNothing(): void
     {
-        // Unchanged by the token becoming optional: `--name` targeting has to
-        // be unambiguous on a login that can see more than one account.
+        // Also not pre-empted: a login that reaches exactly one account needs
+        // no telling, and only Wrangler knows how many it reaches. Ambiguity
+        // is Wrangler's to report, and arrives as ATOMS-E075 from its output.
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true);
         unset($json['environments']['production']['account_id']);
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
 
-        $this->expectException(AtomsError::class);
-        $this->expectExceptionMessageMatches('/ATOMS-E075/');
-        CloudflareTarget::resolve(\Atoms\Cli\Config\AtomsJson::load($root . '/atoms.json'), 'production');
+        $target = CloudflareTarget::resolve(
+            \Atoms\Cli\Config\AtomsJson::load($root . '/atoms.json'),
+            'production',
+        );
+
+        self::assertSame('', $target->accountId);
+        self::assertSame([], $target->credentialEnv());
     }
 
     public function testWorkerNameFallsBackToTheProject(): void
@@ -109,7 +114,7 @@ final class CloudflareTargetTest extends TestCase
 
     public function testDevNeedsNoCredentials(): void
     {
-        $target = CloudflareTarget::resolve($this->sampleApp(), 'staging', null, null, requireCredentials: false);
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'staging');
 
         self::assertNull($target->apiToken);
         self::assertSame([], array_diff_key($target->credentialEnv(), ['CLOUDFLARE_ACCOUNT_ID' => '']));
@@ -117,7 +122,7 @@ final class CloudflareTargetTest extends TestCase
 
     public function testCredentialEnvOmitsWhatIsNotSet(): void
     {
-        $target = CloudflareTarget::resolve($this->sampleApp(), 'staging', null, null, requireCredentials: false);
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'staging');
 
         self::assertArrayNotHasKey('CLOUDFLARE_API_TOKEN', $target->credentialEnv());
     }
