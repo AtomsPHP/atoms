@@ -3,7 +3,7 @@
 All notable changes to Atoms are documented here. The seven Composer packages,
 the Cloudflare runtime, and deploy Action use one coordinated version.
 
-## [Unreleased]
+## [0.3.0] - 2026-08-17
 
 - **Added:** `atoms shared-secret:set --env X` stores `ATOMS_SHARED_SECRET`
   (or, with `--previous`, the rotation overlap value) on the Worker, read from
@@ -271,10 +271,12 @@ Initial open-source release of the Atoms programming model, Laravel and
 Symfony adapters, testing and PHPStan tooling, deterministic CLI build and
 deploy workflow, and the Cloudflare Durable Object PHP runtime.
 
-[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.2.0...main
+[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.3.0...main
 
 [0.1.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.0
 
 [0.1.1]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.1
 
 [0.2.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.2.0
+
+[0.3.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.3.0

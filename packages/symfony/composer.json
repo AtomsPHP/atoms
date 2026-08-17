@@ -1,7 +1,7 @@
 {
     "name": "atoms/symfony",
     "description": "Symfony bundle for Atoms: AtomsClient, the inbound callback stack, PSR-17/18 resolution, a Messenger queue bridge, and console wrappers around the atoms binary.",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "license": "MIT",
     "homepage": "https://atomsphp.dev",
     "support": {
@@ -16,7 +16,7 @@
     ],
     "require": {
         "php": "^8.3",
-        "atoms/client": "^0.2",
+        "atoms/client": "^0.3",
         "psr/container": "^1.1 || ^2.0",
         "psr/http-factory": "^1.0",
         "psr/http-message": "^1.1 || ^2.0",

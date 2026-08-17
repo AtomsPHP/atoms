@@ -11,9 +11,9 @@ final class RuntimeVersion
 {
     public const PACKAGE = '@atomsphp/runtime-cloudflare';
 
-    public const VERSION = '0.2.0';
+    public const VERSION = '0.3.0';
 
-    public const CORE_VERSION = '0.2.0';
+    public const CORE_VERSION = '0.3.0';
 
     public static function scaffoldCommand(string $target = '.atoms/worker'): string
     {
