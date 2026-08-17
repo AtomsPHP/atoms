@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Testing\Tests;
 
+use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCode;
 use Atoms\Serialization\SerializationException;
 use Atoms\Testing\AtomHarness;
@@ -256,6 +257,137 @@ final class AtomHarnessTest extends TestCase
         $harness->shutdown();
 
         self::assertTrue(true);
+    }
+
+    /**
+     * A migrations directory whose one file has no `NNN_` prefix, so
+     * `MigrationSet::fromDirectory()` throws ATOMS-E051. Boot fails after the
+     * temp directory and database are open, which is the window the `booted`
+     * flag used to be set inside.
+     */
+    private function migrationsThatFailToLoad(): string
+    {
+        return __DIR__ . '/Fixtures/UnnumberedMigrations';
+    }
+
+    public function testAFailedBootDoesNotLeaveTheHarnessMarkedBooted(): void
+    {
+        $harness = $this->harness()->withMigrations($this->migrationsThatFailToLoad());
+
+        try {
+            $harness->boot();
+            self::fail('Expected the migration set to fail to load.');
+        } catch (AtomsError $e) {
+            self::assertSame(ErrorCode::MigrationNumberingConflict, $e->errorCode);
+        }
+
+        // Before the fix this second call returned $harness untouched — booted
+        // was true, database was null — and the caller met a TypeError from
+        // db() instead of the migration error above.
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('AtomHarness::boot() did not complete');
+
+        $harness->db();
+    }
+
+    public function testAFailedBootStillCleansUpItsTemporaryDirectory(): void
+    {
+        $pattern = rtrim(sys_get_temp_dir(), '/') . '/atoms-testing-*';
+        $before = glob($pattern) ?: [];
+
+        $harness = $this->harness()->withMigrations($this->migrationsThatFailToLoad());
+
+        try {
+            $harness->boot();
+        } catch (AtomsError) {
+            // asserted in the test above
+        }
+
+        $created = array_values(array_diff(glob($pattern) ?: [], $before));
+        self::assertCount(1, $created, 'The failed boot should have opened exactly one temp directory.');
+        self::assertDirectoryExists($created[0]);
+
+        $harness->shutdown();
+
+        self::assertDirectoryDoesNotExist($created[0]);
+    }
+
+    public function testConfigurationCannotBeChangedFromInsideTheBootSequence(): void
+    {
+        $caught = null;
+
+        $harness = AtomHarness::for(ChatRoom::class, 'room-1')->withConfig([
+            'boot_hook' => function () use (&$harness, &$caught): void {
+                try {
+                    /** @var AtomHarness<ChatRoom> $harness */
+                    $harness->withConfig(['FEATURE' => 'too late']);
+                } catch (\LogicException $e) {
+                    $caught = $e;
+                }
+            },
+        ]);
+
+        $harness->boot();
+
+        self::assertInstanceOf(\LogicException::class, $caught);
+        self::assertStringContainsString('already booted', $caught->getMessage());
+
+        $harness->shutdown();
+    }
+
+    public function testBootIsNotReenteredFromInsideTheBootSequence(): void
+    {
+        $caught = null;
+
+        $harness = AtomHarness::for(ChatRoom::class, 'room-1')->withConfig([
+            'boot_hook' => function () use (&$harness, &$caught): void {
+                try {
+                    /** @var AtomHarness<ChatRoom> $harness */
+                    $harness->db();
+                } catch (\LogicException $e) {
+                    $caught = $e;
+                }
+            },
+        ]);
+
+        $harness->boot();
+
+        self::assertInstanceOf(\LogicException::class, $caught);
+        self::assertStringContainsString('AtomHarness::boot() did not complete', $caught->getMessage());
+
+        $harness->shutdown();
+    }
+
+    public function testOperationsAfterShutdownThrowInsteadOfUsingTheDeletedTempDirectory(): void
+    {
+        $harness = $this->harness();
+        $harness->boot();
+        $harness->shutdown();
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('AtomHarness has been shut down');
+
+        $harness->db();
+    }
+
+    public function testRecordersStayReadableAfterShutdown(): void
+    {
+        $harness = $this->harness();
+
+        $harness->invoke('screenAndPost', ['hello']);
+        $harness->invoke('recordScore', [
+            'alice',
+            10,
+            new Score(10, 'bronze'),
+            new \DateTimeImmutable('2026-02-02T00:00:00+00:00'),
+        ]);
+
+        $harness->shutdown();
+
+        $harness->assertDispatched(RecordResult::class);
+        $harness->assertBroadcast('room');
+        self::assertCount(1, $harness->dispatched());
+        self::assertCount(1, $harness->broadcasts());
     }
 
     public function testWithMethodsOverridesConventionResolution(): void

@@ -107,6 +107,15 @@ final class ChatRoom extends Atom
     protected function onActivation(): void
     {
         $this->db()->execute('INSERT INTO messages (username, body) VALUES (?, ?)', ['system', 'activated']);
+
+        // Escape hatch for the re-entrancy tests: activation is the one point
+        // where the harness runs user code while its own boot() is still on
+        // the stack, and only a test supplying this key reaches it.
+        $hook = $this->config('boot_hook');
+
+        if ($hook instanceof \Closure) {
+            $hook();
+        }
     }
 
     protected function onDeactivation(): void
