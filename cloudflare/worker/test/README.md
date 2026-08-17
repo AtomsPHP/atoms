@@ -90,6 +90,24 @@ the posture can satisfy.
 Checks 18–28 and 30 have no gate; they always run. Check 30 never skips — a
 stale doc is not excused by a missing run.
 
+## Tests that are not conformance checks
+
+Two files here run without a Worker, a network, or `npm ci`:
+
+| File | `npm run` | What it holds |
+|---|---|---|
+| `runtime-package.mjs` | `test:package` | the public runtime scaffold's shape |
+| `atom-do-instance.mjs` | `test:instance` | a discarded PHP instance cannot report onto a live one |
+
+`atom-do-instance.mjs` exists because the conformance suite cannot express its
+subject. `php.run()` is never awaited and ends only when the guest exits, so a
+run belonging to a discarded instance can settle after a fresh instance has
+booted into the same residency — and the suite, which drives a real Worker over
+HTTP, has no way to hold one instance's run promise open across another's boot.
+The test drives the real `watchRun()`/`settleRun()` with promises whose settle
+moment it chooses, stubbing `cloudflare:workers` and `php-host.js` (a `.wasm`
+import) through a loader hook. Needs Node >= 22.15 for `module.registerHooks`.
+
 ## Credentials
 
 The boundary has one operator-facing root, **`ATOMS_SHARED_SECRET`**: 32

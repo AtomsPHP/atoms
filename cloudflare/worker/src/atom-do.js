@@ -35,6 +35,16 @@ import { WebSocketHost, WS_ATTACHMENT_VERSION, buildAttachment, readAttachment, 
 /** Wire version of the boot payload handed to the PHP runtime prelude. */
 const BOOT_PROTOCOL = 1;
 
+/**
+ * One booted PHP instance and the facts whose lifetime is exactly its own.
+ *
+ * `settled`/`error` describe this instance's `php.run()`, not "the" run: two
+ * instances can have unsettled runs at once, because discarding an instance
+ * does not make its run promise settle on the spot.
+ *
+ * @typedef {{php: any, gen: number, settled: boolean, error: string|null}} PhpInstance
+ */
+
 const now = () => Date.now();
 const encoder = new TextEncoder();
 
@@ -62,8 +72,23 @@ export class AtomDurableObject extends DurableObject {
 
 		/** @type {{type: string, id: string}|null} */
 		this.identity = null;
-		/** @type {any} */
-		this.php = null;
+		/**
+		 * The PHP residency: the booted instance, the generation it was born
+		 * into, and whether its one `php.run()` has ended. Null between
+		 * `discardPhp()` and the next activation.
+		 *
+		 * One record rather than a field per fact, because every one of those
+		 * facts belongs to a specific instance and only that instance. The
+		 * settle handlers close over the record they were attached for
+		 * (`watchRun()`), so a `php.run()` that ends late — after the instance
+		 * it belonged to was discarded and a fresh one booted — reports onto
+		 * its own dead record. Written as fields on `this`, that late settle
+		 * landed on whatever was resident at the time, and a healthy new
+		 * residency answered with a dead instance's error.
+		 *
+		 * @type {PhpInstance|null}
+		 */
+		this.instance = null;
 		/** @type {import('./bridge.js').ParkedCall|null} */
 		this.pending = null;
 		/** @type {import('./bridge.js').ParkedCall|null} */
@@ -73,15 +98,10 @@ export class AtomDurableObject extends DurableObject {
 		this.turns = 0;
 		this.activations = 0;
 		this.phpBootMs = /** @type {number|null} */ (null);
-		this.runSettled = false;
-		/** @type {string|null} */
-		this.runError = null;
 		/** @type {{code: string, message: string, at: number}|null} */
 		this.lastPoison = null;
 		/** @type {Promise<void>|null} */
 		this.activationPromise = null;
-		/** @type {Promise<unknown>|null} */
-		this.runPromise = null;
 
 		// Bumped by discardPhp(). Lets a callback in flight across an await
 		// (serviceAppCall) detect that the PHP instance it would resume is gone,
@@ -648,7 +668,7 @@ export class AtomDurableObject extends DurableObject {
 		}
 
 		if (!next) {
-			const why = this.runError ?? 'the PHP runtime exited without parking';
+			const why = this.instance?.error ?? 'the PHP runtime exited without parking';
 			this.poison('internal', why);
 			throw new AtomsError('internal', 'the PHP runtime terminated mid-turn');
 		}
@@ -678,7 +698,7 @@ export class AtomDurableObject extends DurableObject {
 				);
 			}
 			if (!p) {
-				if (this.runSettled) return null;
+				if (!this.instance || this.instance.settled) return null;
 				p = await this.waitForPark(this.config.parkWaitTimeoutMs);
 				if (!p) return null;
 			}
@@ -731,7 +751,7 @@ export class AtomDurableObject extends DurableObject {
 	 * @param {string} id
 	 */
 	async ensureActive(type, id) {
-		if (this.php && this.parkedTurn) {
+		if (this.instance && this.parkedTurn) {
 			this.assertIdentity(type, id);
 			return;
 		}
@@ -798,11 +818,11 @@ export class AtomDurableObject extends DurableObject {
 			);
 		}
 
-		this.php = php;
+		/** @type {PhpInstance} */
+		const instance = { php, gen: this.phpGeneration, settled: false, error: null };
+		this.instance = instance;
 		this.pending = null;
 		this.parkedTurn = null;
-		this.runSettled = false;
-		this.runError = null;
 		this.tx.reset();
 
 		// The activation window opens here — before a single line of guest code
@@ -814,22 +834,13 @@ export class AtomDurableObject extends DurableObject {
 		try {
 			// One php.run() that never returns until shutdown. It is deliberately not
 			// awaited; handlers are attached so a rejection is never unhandled.
-			this.runPromise = php.run({ code: composeBootCode(payload, bootstrapPath) }).then(
-				(/** @type {any} */ r) => {
-					this.runSettled = true;
-					this.runError = `the PHP bootstrap returned (exit ${r?.exitCode ?? '?'}): ${String(r?.errors ?? '').slice(0, 2000)}`;
-				},
-				(/** @type {any} */ e) => {
-					this.runSettled = true;
-					this.runError = `the PHP bootstrap threw: ${e?.name ?? 'Error'}: ${e?.message ?? String(e)}`;
-				}
-			);
+			this.watchRun(instance, php.run({ code: composeBootCode(payload, bootstrapPath) }));
 
 			const first = await this.waitForPark(this.config.activationTimeoutMs);
 			if (!first) {
 				throw new AtomsError(
 					'internal',
-					this.runError ?? 'the PHP bootstrap never parked within the activation budget'
+					instance.error ?? 'the PHP bootstrap never parked within the activation budget'
 				);
 			}
 			// Re-stamp the activation budget's clock to NOW. The window was opened
@@ -844,7 +855,7 @@ export class AtomDurableObject extends DurableObject {
 			if (this.turnBudget) this.turnBudget.startedAt = now();
 			const parked = await this.serviceParks(first);
 			if (!parked) {
-				throw new AtomsError('internal', this.runError ?? 'the PHP bootstrap exited before its first turn.await');
+				throw new AtomsError('internal', instance.error ?? 'the PHP bootstrap exited before its first turn.await');
 			}
 
 			this.markIdentity(type, id);
@@ -1000,6 +1011,47 @@ export class AtomDurableObject extends DurableObject {
 	}
 
 	/**
+	 * Attach the settle handlers for one instance's `php.run()`.
+	 *
+	 * The handlers close over `instance`, which is the whole point: discarding
+	 * an instance does not settle its run promise, so a run can end at any
+	 * later moment — including after a fresh instance has booted into the same
+	 * Durable Object. It reports onto the record it belonged to, and the
+	 * residency reads `this.instance`, so a dead instance can no longer file
+	 * its cause of death against a live one.
+	 *
+	 * @param {PhpInstance} instance
+	 * @param {Promise<any>} run
+	 */
+	watchRun(instance, run) {
+		run.then(
+			(/** @type {any} */ r) =>
+				this.settleRun(
+					instance,
+					`the PHP bootstrap returned (exit ${r?.exitCode ?? '?'}): ${String(r?.errors ?? '').slice(0, 2000)}`
+				),
+			(/** @type {any} */ e) =>
+				this.settleRun(instance, `the PHP bootstrap threw: ${e?.name ?? 'Error'}: ${e?.message ?? String(e)}`)
+		);
+	}
+
+	/**
+	 * @param {PhpInstance} instance
+	 * @param {string} error
+	 */
+	settleRun(instance, error) {
+		instance.settled = true;
+		instance.error = error;
+		if (this.instance !== instance) {
+			// Not a failure: a discarded instance's run ends when it ends. It is
+			// logged because this is the moment that used to corrupt the state
+			// of whatever had booted in its place, and a silent one would leave
+			// nothing to point at if it ever does again.
+			this.log('info', { msg: 'atoms.do.stale_run_settled', gen: instance.gen, error });
+		}
+	}
+
+	/**
 	 * Wait for the guest to park. Used where the park is produced by php.run()'s
 	 * own async progression (activation) rather than by a synchronous resume.
 	 *
@@ -1010,7 +1062,8 @@ export class AtomDurableObject extends DurableObject {
 		const deadline = now() + timeoutMs;
 		for (let polls = 0; polls <= this.config.activationMaxPolls; polls++) {
 			if (this.pending) return this.takePending();
-			if (this.runSettled) return null;
+			// No instance is the same answer as a settled one: no park is coming.
+			if (!this.instance || this.instance.settled) return null;
 			if (now() > deadline) {
 				throw new AtomsError('internal', `the PHP runtime did not park within ${timeoutMs}ms`);
 			}
@@ -1038,8 +1091,12 @@ export class AtomDurableObject extends DurableObject {
 	}
 
 	discardPhp() {
-		const php = this.php;
-		this.php = null;
+		// Detached first: the instance stops being this residency's the moment
+		// it is discarded, and its run promise may still be pending — whatever
+		// it eventually reports belongs to `discarded`, not to whatever boots
+		// next.
+		const discarded = this.instance;
+		this.instance = null;
 		this.pending = null;
 		this.parkedTurn = null;
 		this.activationPromise = null;
@@ -1059,9 +1116,9 @@ export class AtomDurableObject extends DurableObject {
 		// generation captured: its reply is dropped rather than resuming a
 		// discarded PHP instance.
 		this.phpGeneration++;
-		if (php) {
+		if (discarded) {
 			try {
-				php.exit();
+				discarded.php.exit();
 			} catch {
 				/* the instance is being thrown away; exit() is best effort */
 			}
@@ -1244,10 +1301,10 @@ export class AtomDurableObject extends DurableObject {
 			activations_this_residency: this.activations,
 			turns_this_residency: this.turns,
 			resident_ms: now() - this.bornAt,
-			php_booted: !!this.php,
+			php_booted: !!this.instance,
 			php_boot_ms: this.phpBootMs,
 			php_parked: !!this.parkedTurn,
-			guest_memory_bytes: this.php ? guestMemoryBytes(this.php) : null,
+			guest_memory_bytes: this.instance ? guestMemoryBytes(this.instance.php) : null,
 			sql_calls_this_residency: this.bridge.sqlCalls,
 			user_version: Number.isFinite(userVersion) ? userVersion : 0,
 			transaction_open: this.tx.open,
