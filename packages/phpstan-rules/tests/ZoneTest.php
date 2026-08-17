@@ -140,6 +140,21 @@ final class ZoneTest extends TestCase
         self::assertFalse($zone->covers('/home/someone/atoms/packages/client/src/Client.php'));
     }
 
+    /**
+     * Only the stray leading/trailing backslashes go: a multi-segment prefix
+     * like `Atoms\Client` (the shape the repo's own zones use) keeps its
+     * internal separators.
+     */
+    public function testMultiSegmentPrefixesKeepTheirInternalSeparators(): void
+    {
+        $zone = new Zone(paths: ['packages/core/src'], forbid: ['\Atoms\Client\\'], allow: []);
+
+        self::assertTrue($zone->isForbidden('Atoms\Client\AtomClient'));
+        self::assertFalse($zone->isForbidden('Atoms\Core\Atom'));
+        self::assertFalse($zone->isForbidden('Atoms\Client'));
+        self::assertSame(['Atoms\Client\AtomClient'], $zone->symbolsMentionedIn('@see \Atoms\Client\AtomClient'));
+    }
+
     public function testFromArrayBuildsTheSameZoneAsTheConstructor(): void
     {
         $zone = Zone::fromArray([
@@ -148,7 +163,7 @@ final class ZoneTest extends TestCase
             'allow' => ['Illuminate\Support\Facades'],
         ]);
 
-        self::assertSame(['packages/core/src'], $zone->paths());
+        self::assertTrue($zone->covers('/home/someone/atoms/packages/core/src/Atom.php'));
         self::assertTrue($zone->isForbidden('Illuminate\Support\Str'));
         self::assertFalse($zone->isForbidden('Illuminate\Support\Facades\Facade'));
     }

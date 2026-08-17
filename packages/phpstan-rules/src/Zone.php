@@ -79,12 +79,6 @@ final class Zone
         return new self($zone['paths'], $zone['forbid'], $zone['allow']);
     }
 
-    /** @return list<string> */
-    public function paths(): array
-    {
-        return $this->paths;
-    }
-
     public function covers(string $file): bool
     {
         return PathMatcher::isUnderAnyPath($file, $this->paths);
