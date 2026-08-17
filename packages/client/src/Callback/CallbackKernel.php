@@ -188,47 +188,18 @@ final class CallbackKernel implements RequestHandlerInterface
     }
 
     /**
-     * Reconstruct an AtomJob from named, wire-form constructor arguments.
+     * Reconstruct an AtomJob from named, wire-form constructor arguments —
+     * the core Serializer owns the binding algebra (docs/conventions.md).
      *
      * @param class-string<AtomJob> $class
      * @param array<array-key, mixed> $args
+     * @throws SerializationException on a type mismatch or a missing required argument
      */
     private function constructJob(string $class, array $args): AtomJob
     {
         $reflection = new \ReflectionClass($class);
-        $constructor = $reflection->getConstructor();
 
-        if ($constructor === null) {
-            return $reflection->newInstance();
-        }
-
-        $callArgs = [];
-        foreach ($constructor->getParameters() as $param) {
-            $name = $param->getName();
-
-            if (array_key_exists($name, $args)) {
-                $type = $this->parameterType($param);
-                $callArgs[] = $type === 'mixed' ? $args[$name] : $this->serializer->denormalize($args[$name], $type);
-                continue;
-            }
-
-            if ($param->isDefaultValueAvailable()) {
-                $callArgs[] = $param->getDefaultValue();
-                continue;
-            }
-
-            if ($param->allowsNull()) {
-                $callArgs[] = null;
-                continue;
-            }
-
-            throw new SerializationException(
-                ErrorCode::BoundaryTypeMismatch,
-                "Missing required argument {$name} reconstructing {$class}.",
-            );
-        }
-
-        return $reflection->newInstanceArgs($callArgs);
+        return $reflection->newInstanceArgs($this->serializer->denormalizeNamedArguments($class, $args));
     }
 
     /**
@@ -244,23 +215,6 @@ final class CallbackKernel implements RequestHandlerInterface
         }
 
         return new $class();
-    }
-
-    private function parameterType(\ReflectionParameter $param): string
-    {
-        $type = $param->getType();
-
-        if (!$type instanceof \ReflectionNamedType) {
-            return 'mixed';
-        }
-
-        $name = $type->getName();
-
-        if ($name === 'mixed') {
-            return 'mixed';
-        }
-
-        return ($type->allowsNull() && $name !== 'null') ? '?' . $name : $name;
     }
 
     private function timestampFresh(string $timestamp): bool
