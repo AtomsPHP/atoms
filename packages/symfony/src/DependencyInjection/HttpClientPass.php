@@ -12,7 +12,8 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
  * Resolves the `atoms.http_client` alias at the compiler-pass phase — after
  * every bundle's extension has already loaded — so it never matters whether
  * this bundle or the one defining Psr\Http\Client\ClientInterface registers
- * first. Precedence: explicitly configured service id > an app-provided
+ * first. Precedence: an `atoms.http_client` binding the app made itself >
+ * explicitly configured service id > an app-provided
  * Psr\Http\Client\ClientInterface service > the bundled Guzzle default.
  *
  * Registered from AtomsBundle::build() (not from loadExtension(), where
@@ -32,11 +33,16 @@ final class HttpClientPass implements CompilerPassInterface
      * Where AtomsBundle leaves the parsed `http_client` config value for this
      * pass to read back.
      *
-     * @internal This is the load-phase-to-compile-phase hand-off, not a
-     * supported knob: setting it from an app does not configure anything the
-     * `atoms.http_client` config key does not already configure, and the
-     * bundle overwrites it on every load. Bind the `atoms.http_client`
-     * service id directly if you need to override the resolution outright.
+     * @internal The load-phase-to-compile-phase hand-off, not a supported
+     * knob — and specifically not one because of how it behaves rather than
+     * in spite of it. MergeExtensionConfigurationPass snapshots the main
+     * container's parameters before any extension loads and re-adds them
+     * after each merge, so a parameter of this name set by the app wins over
+     * the bundle's own write and silently overrides an explicit `http_client`
+     * config key. That precedence is an artefact of Symfony's merge order,
+     * not a designed override. To override the resolution, bind the
+     * `atoms.http_client` service id directly — the early return in
+     * process() honours it, and it says what it means.
      */
     public const CONFIGURED_SERVICE_ID_PARAMETER = 'atoms.http_client_service_id';
 
