@@ -183,6 +183,94 @@ sentence above false at the very first hop. The environment is the only inlet.
 `atoms dev` requires neither: `wrangler dev` runs workerd locally, so a
 developer with no Cloudflare account can still work.
 
+### Getting a token
+
+The credential above has to come from somewhere, and the first encounter with
+it is more often a laptop than a CI runner. `action/README.md` is written for
+the runner and links here rather than restating any of this, so the two
+journeys cannot drift apart.
+
+**Create a scoped custom token.** Cloudflare dashboard → **My Profile → API
+Tokens → Create Token → Create Custom Token**:
+
+- **Workers Scripts: Edit** — required. It is what publishes the Worker, and
+  Worker secrets are part of that same resource, so one permission covers
+  `deploy`, `rollback`, `status`, `secrets:*` and `shared-secret:*` alike.
+- **Account Settings: Read** — add it if Wrangler reports an authorisation
+  failure. Some account-lookup paths want it; a plain deploy does not.
+- Under **Account Resources**, scope the token to the **one account** you
+  deploy into, rather than "All accounts".
+
+A broader token works, and choosing one is your call. The narrow one is the
+default advice because this token's blast radius is a whole Cloudflare
+account: there is no Atoms-side credential to revoke instead, no Atoms-side
+audit log to read, and nothing in this toolchain that could contain the
+damage, because nothing in this toolchain sits between you and Cloudflare.
+
+**The account id is not a secret, and lives differently.** Cloudflare
+dashboard → **Workers & Pages** → the overview page shows **Account ID** in
+the right-hand column. It may be committed, as `environments.<env>.account_id`
+in `atoms.json`; an explicit value there wins over `CLOUDFLARE_ACCOUNT_ID` in
+the environment (`CloudflareTarget::resolve()`). The token has no `atoms.json`
+equivalent and will not get one — atoms.json is a committed file, and an inlet
+that invites a credential into a committed file is a defect however well it is
+documented.
+
+**Which commands need it.** `deploy`, `rollback`, `status`, `secrets:list`,
+`secrets:set`, `shared-secret:set` and `shared-secret:unset` resolve
+credentials before doing any work, failing with **ATOMS-E072** (no token) or
+**ATOMS-E075** (no account id) up front rather than part-way through. `build`,
+`init`, `token` and `dev` need neither, so the whole write-build-run loop is
+reachable without a Cloudflare account at all.
+
+**Do not commit the export — and prefer not to persist it in a shell either.**
+`export CLOUDFLARE_API_TOKEN=…` in `.zshrc` or `.bashrc` is the path of least
+resistance and the one worth refusing. Shell rc files get committed to dotfile
+repositories, synced between machines, restored from backups onto machines
+they were never meant to reach, and pasted whole into support threads; and a
+token that lives in one is loaded into every shell you open, deploying or not.
+Better, roughly in order of preference:
+
+- **A secret manager, read per command.** `CLOUDFLARE_API_TOKEN=$(op read
+  op://vault/cloudflare/token) atoms deploy --env production`, or the
+  equivalent for `pass`, `gopass`, Vault, or your platform keychain. The value
+  exists for the lifetime of one process and is never at rest in plaintext.
+- **A per-project, gitignored `.env`**, loaded deliberately — `direnv`, or
+  `set -a; . ./.env; set +a` in the shell that is about to deploy. Scoped to
+  the project rather than to you. Add it to `.gitignore` *before* writing the
+  token into it, not after.
+- **A session-scoped export**, typed into the one terminal doing a one-off
+  deploy and gone when it closes.
+
+Whichever you pick, keep the value off your own command lines too: a token
+typed as an argument, or exported in a way your shell records, lands in
+history — the same objection that rules out an `--api-token` option, applying
+one hop earlier. A leading space suppresses history in most shells, and the
+first two options above avoid the question entirely.
+
+**What the CLI then does with it** is §Credentials, immediately above, and the
+short version is that it does almost nothing: reads the environment, places the
+value in the Wrangler child process's environment, and that is the end of it.
+No file, no log, no echo, and no option that would put it in argv.
+
+**Rotation is immediate, because this token never leaves your machine.** It is
+Cloudflare's credential for Wrangler on whatever host is deploying — never a
+Worker variable, never something an Atom can read, never transmitted anywhere
+but Cloudflare's own API. So a replacement is in force for the next command you
+run, and deleting the old one in the dashboard stops it dead. Nothing has to
+propagate, and there is no overlap window to manage.
+
+That is emphatically **not** true of the secrets you set *through* it, and the
+two are easy to conflate. `atoms secrets:set` writes a Worker secret, and a
+Worker secret reaches running Atoms *eventually*: an Atom that is already
+resident keeps the value its isolate started with, so a rotated
+`ATOMS_CONFIG_*` value is not in force everywhere at the moment the command
+reports success — see §Deploying does not mean deployed, and the caveat
+`secrets:set` prints in its own output. `ATOMS_SHARED_SECRET` needs a whole
+rotation window for the same reason (`docs/shared-secret.md` §Rotation).
+Rotating the Cloudflare API token needs none of that machinery, because
+nothing but Wrangler ever reads it.
+
 ### The callback channel: `ATOMS_CALLBACK_URL` and the derived signing key
 
 `app()`/`dispatch()` need one Worker var and one Worker secret, and they
