@@ -3,6 +3,35 @@
 All notable changes to Atoms are documented here. The seven Composer packages,
 the Cloudflare runtime, and deploy Action use one coordinated version.
 
+## [Unreleased]
+
+- **Added:** `Atoms\Serialization\Serializer::denormalizeNamedArguments(string $class, array $wireArgs)`
+  binds a dispatched job's `{"job": FQCN, "args": {...}}` argument map to a
+  constructor by parameter name — wire value, else declared default, else null
+  when the parameter is nullable, else `ATOMS-E024`. Additive; no existing
+  signature changed. It is now the single implementation of that algebra:
+  `atoms/client`'s callback kernel, `atoms/laravel`'s `AtomJobEnvelope`,
+  `atoms/symfony`'s `AtomJobHandler`, `atoms/testing`'s `AtomHarness` and
+  core's own Payload hydration all bind through it, where each previously
+  carried its own copy of the loop.
+- **Fixed:** A job delivered through Symfony Messenger with a missing
+  constructor argument passed `null` for it regardless of whether the
+  parameter was nullable, so a non-nullable parameter produced a raw PHP
+  `TypeError` (and, for a nullable one, a half-built job) instead of an Atoms
+  error. It now fails with `ATOMS-E024`, naming the argument.
+- **Fixed:** `atoms/laravel`'s `AtomJobEnvelope` threw an uncatalogued
+  `\RuntimeException` for a missing argument and instantiated whatever class
+  the queue payload named without checking it is an `AtomJob`. Missing or
+  ill-typed arguments are now `ATOMS-E024` and a non-`AtomJob` class is
+  `ATOMS-E033`, matching the Symfony handler and the callback kernel. Both
+  still extend `\RuntimeException`. `handle()` also takes an optional
+  `Serializer`, container-injected in a queue worker.
+- **Changed:** `AtomHarness::dispatched()` reports a job it cannot rebuild as
+  `ATOMS-E024` rather than a generic `\InvalidArgumentException`, and fills
+  null for an absent nullable constructor argument instead of reporting it
+  missing — the same reconstruction the callback kernel performs, which is
+  what the harness exists to imitate.
+
 ## [0.3.1] - 2026-08-17
 
 - **Fixed:** the published `@atomsphp/runtime-cloudflare` tarball was missing
