@@ -348,8 +348,8 @@
         {
             "code": "ATOMS-E075",
             "title": "Cloudflare account not configured",
-            "message": "Environment {environment} has no Cloudflare account id.",
-            "fix": "Add \"account_id\" to that environment in atoms.json, or set CLOUDFLARE_ACCOUNT_ID. Find it on the Workers & Pages overview in the Cloudflare dashboard.",
+            "message": "`wrangler {command}` could not choose a Cloudflare account: no account id was configured, and the credentials reach more than one.",
+            "fix": "Add \"account_id\" to that environment in atoms.json (it is not a secret), or set CLOUDFLARE_ACCOUNT_ID. Wrangler's own output above lists the accounts it can see; the id is also on the Workers & Pages overview in the Cloudflare dashboard. An account id is only required when the credentials reach several accounts — Atoms no longer demands one up front.",
             "severity": "error",
             "phase": "cli"
         },

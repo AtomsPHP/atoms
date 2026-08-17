@@ -16,7 +16,7 @@ final class WranglerResultTest extends TestCase
         $result = new WranglerResult(['wrangler', 'deploy'], 0, 'Deployed acme', '');
 
         self::assertSame($result, $result->assertOk());
-        self::assertFalse($result->isCredentialFailure());
+        self::assertNull($result->setupFailure());
     }
 
     /**
@@ -35,7 +35,7 @@ final class WranglerResultTest extends TestCase
 
         foreach ($cases as $label => $stderr) {
             $result = $this->failure($stderr);
-            self::assertTrue($result->isCredentialFailure(), $label);
+            self::assertSame(ErrorCode::DeployCredentialsMissing, $result->setupFailure(), $label);
 
             $error = $this->errorFrom($result);
             self::assertSame(ErrorCode::DeployCredentialsMissing, $error->errorCode, $label);
@@ -56,7 +56,27 @@ final class WranglerResultTest extends TestCase
             "▲ [WARNING] Update available\n✘ [ERROR] You are not authenticated. Please run `wrangler login`.\n",
         );
 
-        self::assertTrue($result->isCredentialFailure());
+        self::assertSame(ErrorCode::DeployCredentialsMissing, $result->setupFailure());
+    }
+
+    public function testAnUnselectableAccountIsE075(): void
+    {
+        // Wrangler with credentials that reach several accounts and no
+        // account id to choose between them. `childEnv()` forces CI=true, so
+        // Wrangler cannot ask — this is the failure the CLI stopped
+        // pre-empting, arriving where it can actually be known.
+        $result = $this->failure(
+            "✘ [ERROR] More than one account available but unable to select one in non-interactive mode.\n"
+            . "  Please set the appropriate `account_id` or assign it to the CLOUDFLARE_ACCOUNT_ID "
+            . "environment variable.\n",
+        );
+
+        self::assertSame(ErrorCode::CloudflareAccountMissing, $result->setupFailure());
+
+        $error = $this->errorFrom($result);
+        self::assertStringContainsString('ATOMS-E075', $error->getMessage());
+        self::assertStringContainsString('account_id', $error->getMessage());
+        self::assertStringContainsString('CLOUDFLARE_ACCOUNT_ID', $error->getMessage());
     }
 
     public function testARejectedCredentialIsE074AndNotConfusedForAMissingOne(): void
@@ -68,7 +88,7 @@ final class WranglerResultTest extends TestCase
             "✘ [ERROR] A request to the Cloudflare API failed.\n  Authentication error [code: 10000]\n"
         );
 
-        self::assertFalse($result->isCredentialFailure());
+        self::assertNull($result->setupFailure());
         self::assertSame(ErrorCode::WranglerFailed, $this->errorFrom($result)->errorCode);
     }
 
@@ -78,7 +98,7 @@ final class WranglerResultTest extends TestCase
             "✘ [ERROR] A request to the Cloudflare API failed.\n  workers.api.error [code: 10021]\n"
         );
 
-        self::assertFalse($result->isCredentialFailure());
+        self::assertNull($result->setupFailure());
 
         $error = $this->errorFrom($result);
         self::assertSame(ErrorCode::WranglerFailed, $error->errorCode);
@@ -92,7 +112,7 @@ final class WranglerResultTest extends TestCase
         // the Wrangler output the command already printed. Nothing is hidden.
         $result = $this->failure("✘ [ERROR] Credentials could not be established, somehow.\n");
 
-        self::assertFalse($result->isCredentialFailure());
+        self::assertNull($result->setupFailure());
         self::assertStringContainsString('ATOMS-E074', $this->errorFrom($result)->getMessage());
     }
 

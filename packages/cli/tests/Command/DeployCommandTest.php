@@ -289,27 +289,61 @@ final class DeployCommandTest extends TestCase
         self::assertStringContainsString('non-interactive environment', $display);
     }
 
-    public function testMissingAccountIdMapsToE075(): void
+    public function testMissingAccountIdAlsoDefersToWrangler(): void
     {
         $wrangler = new FakeWrangler();
         $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
 
-        // A project whose atoms.json carries no account_id, with none in the
-        // environment either.
+        $exit = $tester->execute([
+            '--root' => $this->rootWithoutAccountId(),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        // A login that reaches exactly one account resolves it without being
+        // told, so an absent account id cannot be an error before Wrangler runs.
+        self::assertSame(0, $exit, $tester->getDisplay());
+        $call = $wrangler->lastCall('deploy');
+        self::assertNotNull($call);
+        self::assertArrayNotHasKey('CLOUDFLARE_ACCOUNT_ID', $call['target']->credentialEnv());
+    }
+
+    public function testWranglerUnableToChooseAnAccountMapsToE075(): void
+    {
+        $wrangler = new FakeWrangler();
+        $wrangler->deployResult = FakeWrangler::failed(
+            ['deploy'],
+            "✘ [ERROR] More than one account available but unable to select one in non-interactive mode.\n"
+            . "  Please set the appropriate `account_id` or assign it to the CLOUDFLARE_ACCOUNT_ID "
+            . "environment variable.\n",
+        );
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+
+        $exit = $tester->execute([
+            '--root' => $this->rootWithoutAccountId(),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E075', $display);
+        self::assertStringNotContainsString('ATOMS-E074', $display);
+        // Wrangler lists the accounts it can see; that list is the fix.
+        self::assertStringContainsString('More than one account available', $display);
+    }
+
+    /** A copy of the fixture whose atoms.json carries no account_id. */
+    private function rootWithoutAccountId(): string
+    {
         $root = $this->tempCopy('sample-app');
         $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
         unset($config['environments']['production']['account_id']);
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
 
-        $exit = $tester->execute([
-            '--root' => $root,
-            '--env' => 'production',
-            '--worker-dir' => $this->workerDir(),
-        ]);
-
-        self::assertSame(1, $exit);
-        self::assertStringContainsString('ATOMS-E075', $tester->getDisplay());
-        self::assertSame([], $wrangler->calls);
+        return $root;
     }
 
     public function testUnusableWorkerDirectoryMapsToE076(): void

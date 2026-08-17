@@ -14,9 +14,10 @@ use Atoms\Errors\ErrorCode;
  * Wrangler reports Cloudflare's API rejections in its own output, and it does
  * so better than a re-wrapping layer could — so a failure carries the exit
  * status and the raw streams, and the command that ran it prints them
- * unedited before raising ATOMS-E074 — or ATOMS-E072, the one failure this
- * class reads the output to recognise: Wrangler having no credential at all,
- * neither an API token nor a login session.
+ * unedited before raising ATOMS-E074 — or one of the two setup failures this
+ * class reads the output to recognise, because only Wrangler can know them:
+ * having no credential at all (E072) and being unable to choose an account
+ * (E075). See {@see self::setupFailure()}.
  */
 final class WranglerResult
 {
@@ -140,45 +141,61 @@ final class WranglerResult
     }
 
     /**
-     * Whether this failure is Wrangler saying it has no credential to use at
-     * all — no API token in its environment and no `wrangler login` session.
+     * Which setup failure Wrangler is reporting, if this is one of the two the
+     * CLI stopped pre-empting: no credential at all (**E072**), or a login that
+     * can reach several accounts with none named (**E075**).
      *
-     * Atoms does not pre-empt that question: an unset `CLOUDFLARE_API_TOKEN`
-     * means Wrangler falls back to a session only Wrangler knows about. So the
-     * answer arrives as output, and this is where it is read.
+     * Atoms cannot answer either question in advance. An unset
+     * `CLOUDFLARE_API_TOKEN` means Wrangler falls back to a session only
+     * Wrangler knows about, and how many accounts that session reaches is
+     * likewise its knowledge, not ours. So both answers arrive as output, and
+     * this is where they are read.
      *
-     * Deliberately narrow. A credential Cloudflare *rejected* — a revoked
-     * token, one without Workers Scripts:Edit — is not this: it stays
-     * ATOMS-E074, whose fix line already names the permission to check. E072
-     * keeps meaning exactly what its title says.
+     * Deliberately narrow on each. A credential Cloudflare *rejected* — a
+     * revoked token, one without Workers Scripts:Edit — is not "missing": it
+     * stays ATOMS-E074, whose fix line already names the permission to check.
+     * Each code keeps meaning exactly what its title says.
      *
      * Matching Wrangler's own wording is a drift risk, taken deliberately
      * because the way it degrades is harmless: an unmatched phrasing is simply
      * ATOMS-E074, whose fix line sends the reader to the Wrangler output
      * printed directly above it. Nothing is hidden either way.
      */
-    public function isCredentialFailure(): bool
+    public function setupFailure(): ?ErrorCode
     {
-        // Wrangler's non-interactive no-token message, and the login-session
-        // equivalent it prints where it can name a remedy.
+        // Keyed by code, and checked in this order: a no-credentials failure
+        // happens before Wrangler ever gets far enough to choose an account.
         $markers = [
-            'necessary to set a cloudflare_api_token',
-            'you are not authenticated',
-            'run `wrangler login`',
+            // Wrangler's non-interactive no-token message, and the
+            // login-session equivalent it prints where it can name a remedy.
+            ErrorCode::DeployCredentialsMissing->value => [
+                'necessary to set a cloudflare_api_token',
+                'you are not authenticated',
+                'run `wrangler login`',
+            ],
+            // A login reaching more than one account, with none selected and
+            // no way to ask — `childEnv()` makes every run non-interactive.
+            ErrorCode::CloudflareAccountMissing->value => [
+                'more than one account available',
+                'unable to select one in non-interactive mode',
+            ],
         ];
 
         $output = strtolower($this->stdout . "\n" . $this->stderr);
-        foreach ($markers as $marker) {
-            if (str_contains($output, $marker)) {
-                return true;
+        foreach ($markers as $code => $phrases) {
+            foreach ($phrases as $phrase) {
+                if (str_contains($output, $phrase)) {
+                    return ErrorCode::from($code);
+                }
             }
         }
 
-        return false;
+        return null;
     }
 
     /**
      * @throws AtomsError E072 when Wrangler had no credentials at all,
+     *                    E075 when it could not choose an account,
      *                    E074 for any other non-zero exit
      */
     public function assertOk(): self
@@ -187,12 +204,11 @@ final class WranglerResult
             return $this;
         }
 
-        if ($this->isCredentialFailure()) {
+        $setup = $this->setupFailure();
+        if ($setup !== null) {
             throw new AtomsError(
-                ErrorCode::DeployCredentialsMissing,
-                ErrorCatalog::format(ErrorCode::DeployCredentialsMissing, [
-                    'command' => $this->subcommand(),
-                ]),
+                $setup,
+                ErrorCatalog::format($setup, ['command' => $this->subcommand()]),
             );
         }
 
