@@ -12,6 +12,7 @@ use Atoms\Client\Exception\InvalidRequest;
 use Atoms\Client\Exception\PlatformUnavailable;
 use Atoms\Client\Exception\RemoteAtomException;
 use Atoms\Client\Exception\TurnDeadlineExceeded;
+use Atoms\Client\Internal\ErrorFrame;
 use Atoms\Client\Manifest\Manifest;
 use Atoms\Client\Manifest\ManifestLoader;
 use Atoms\Serialization\Serializer;
@@ -50,14 +51,20 @@ final class AtomsClient
     private $sleep;
 
     /**
-     * Platform wire codes the contract marks retryable, excluding
-     * turn_deadline_exceeded which is opt-in per call site.
+     * Platform wire codes the contract marks retryable that have no exception of
+     * their own, so retryability has to be decided when the fallback
+     * {@see AtomsRequestFailed} is constructed.
+     *
+     * Deliberately shorter than the contract's full retryable list: every other
+     * retryable code reaches an explicit arm of {@see self::mapError()}'s switch
+     * and never this one, and the exception that arm builds already carries
+     * `retryable: true` (`rate_limited`/`capacity_refused` → {@see CapacityRefused},
+     * `machine_unavailable`/`directory_unavailable` → {@see PlatformUnavailable},
+     * `turn_deadline_exceeded` → {@see TurnDeadlineExceeded}, which the caller
+     * opts into per call site). Listing them here as well would state the same
+     * fact in a second place, where nothing reads it.
      */
-    private const RETRYABLE_CODES = [
-        'rate_limited',
-        'capacity_refused',
-        'directory_unavailable',
-        'machine_unavailable',
+    private const RETRYABLE_UNMAPPED_CODES = [
         'deploy_in_progress',
         'internal',
     ];
@@ -299,27 +306,35 @@ final class AtomsClient
 
             $status = $response->getStatusCode();
             $decoded = $this->decodeBody((string) $response->getBody());
+            $frame = ErrorFrame::fromBody($decoded);
 
             if ($status >= 200 && $status < 300) {
-                if (isset($decoded['error']) && is_array($decoded['error'])) {
+                if ($frame->present) {
                     // 200-with-error-frame (e.g. a remote Atom exception).
-                    throw $this->mapError($status, $decoded, null, $ctx);
+                    throw $this->mapError($status, $frame, null, $ctx);
                 }
 
                 return $decoded;
             }
 
             $retryAfter = $this->retryAfterSeconds($response);
-            $exception = $this->mapError($status, $decoded, $retryAfter, $ctx);
+            $exception = $this->mapError($status, $frame, $retryAfter, $ctx);
 
-            $code = is_array($decoded['error'] ?? null) ? (string) ($decoded['error']['code'] ?? '') : '';
-            $isRetryable = $code === 'turn_deadline_exceeded' ? $retryTurnDeadline : $exception->retryable;
+            // Retryability is whatever the mapped exception says, with one
+            // exception of its own: a turn deadline is retryable at the platform
+            // level but only auto-retried when the call site opted in. Asking the
+            // exception rather than the frame is what makes a frame carrying both
+            // `remote_class` and `turn_deadline_exceeded` non-retryable — it maps
+            // to a RemoteAtomException, and re-running code that threw cannot help.
+            $isRetryable = $exception instanceof TurnDeadlineExceeded
+                ? $retryTurnDeadline
+                : $exception->retryable;
 
             if ($isRetryable && $attempt < $this->config->maxAttempts) {
                 $this->logger?->info('Retrying Atoms invocation', [
                     'attempt' => $attempt,
                     'status' => $status,
-                    'code' => $code,
+                    'code' => $frame->code,
                 ]);
                 $this->backoff($attempt, $retryAfter === null ? null : $retryAfter * 1000);
                 continue;
@@ -330,28 +345,31 @@ final class AtomsClient
     }
 
     /**
-     * @param array<array-key, mixed>                        $decoded
+     * Map one already-destructured error frame onto the exception taxonomy. The
+     * returned exception is the single source of truth for retryability — see
+     * {@see self::execute()}, which asks it rather than re-reading the frame.
+     *
+     * @param ErrorFrame                                     $frame      The response body's `error` object, parsed once.
      * @param int|null                                       $retryAfter Retry-After in seconds, if present.
      * @param array{type: string, id: string, method: string} $ctx
      */
-    private function mapError(int $status, array $decoded, ?int $retryAfter, array $ctx): AtomsException
+    private function mapError(int $status, ErrorFrame $frame, ?int $retryAfter, array $ctx): AtomsException
     {
-        $error = is_array($decoded['error'] ?? null) ? $decoded['error'] : [];
-        $code = (string) ($error['code'] ?? '');
-        $message = (string) ($error['message'] ?? '');
+        $code = $frame->code;
+        $message = $frame->message;
 
-        $type = (string) ($ctx['type'] ?? '');
-        $id = (string) ($ctx['id'] ?? '');
-        $method = (string) ($ctx['method'] ?? '');
+        $type = $ctx['type'];
+        $id = $ctx['id'];
+        $method = $ctx['method'];
 
-        if (isset($error['remote_class'])) {
+        if ($frame->remoteClass !== null) {
             return new RemoteAtomException(
                 $type,
                 $id,
                 $method,
-                (string) $error['remote_class'],
+                $frame->remoteClass,
                 $message,
-                isset($error['remote_trace']) ? $this->sanitizeTrace((string) $error['remote_trace']) : null,
+                $frame->remoteTrace === null ? null : $this->sanitizeTrace($frame->remoteTrace),
                 $status,
             );
         }
@@ -386,8 +404,8 @@ final class AtomsClient
                     $status,
                 );
             default:
-                $retryable = in_array($code, self::RETRYABLE_CODES, true)
-                    || ($error['retryable'] ?? false) === true;
+                $retryable = in_array($code, self::RETRYABLE_UNMAPPED_CODES, true)
+                    || $frame->platformRetryable;
 
                 return new AtomsRequestFailed($message, $code, $retryable, $status);
         }

@@ -52,6 +52,14 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   stay readable, so asserting after `shutdown()` still works. Calling a
   harness method from inside the boot sequence (an Atom's `onActivation()`)
   now throws for the same reason.
+- **Changed:** `atoms/client` no longer auto-retries an error frame that carries
+  both `remote_class` and `turn_deadline_exceeded` when the call site opted into
+  `retryTurnDeadline`. Such a frame is your own Atom's exception, which
+  `AtomsClient` surfaces as a `RemoteAtomException`; re-running the code that
+  threw cannot help. Previously the retry decision re-read the raw envelope's
+  `code`, saw the deadline code, and retried the call anyway. Retryability is
+  now read off the mapped exception, which is the same object the caller
+  receives, so the two can no longer disagree.
 
 ## [0.3.1] - 2026-08-17
 
