@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Testing\Tests;
 
+use Atoms\Errors\ErrorCode;
 use Atoms\Serialization\SerializationException;
 use Atoms\Testing\AtomHarness;
 use Atoms\Testing\Tests\Fixtures\ChatRoom;
@@ -108,6 +109,23 @@ final class AtomHarnessTest extends TestCase
         self::assertSame('bronze', $jobs[0]->score->tier);
         self::assertSame(10, $jobs[0]->score->value);
         self::assertEquals(new \DateTimeImmutable('2026-02-02T00:00:00+00:00'), $jobs[0]->recordedAt);
+
+        $harness->shutdown();
+    }
+
+    public function testDispatchedRefusesAMissingRequiredArgumentWithTheCatalogCode(): void
+    {
+        $harness = $this->harness();
+
+        $harness->invoke('recordPartialScore', ['alice']);
+
+        try {
+            $harness->dispatched();
+            self::fail('Expected SerializationException');
+        } catch (SerializationException $e) {
+            self::assertSame(ErrorCode::BoundaryTypeMismatch, $e->errorCode);
+            self::assertStringContainsString('points', $e->getMessage());
+        }
 
         $harness->shutdown();
     }

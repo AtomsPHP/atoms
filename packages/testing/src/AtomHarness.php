@@ -405,41 +405,18 @@ final class AtomHarness
             ));
         }
 
+        // The arguments cross the boundary as JSON before anything binds them,
+        // so round-trip them first — a value that is not wire-safe fails here,
+        // as it would in the runtime — and then let the core Serializer bind
+        // them to the constructor by name, the one implementation of that
+        // algebra the callback kernel and both adapters also use. A missing
+        // required argument is therefore ATOMS-E024, not a bespoke error.
+        $wireArgs = Boundary::roundTripNamedArgs($args, $this->serializer);
+
         $reflection = new \ReflectionClass($jobClass);
-        $constructor = $reflection->getConstructor();
 
-        if ($constructor === null) {
-            return $reflection->newInstance();
-        }
-
-        // Ordered against the constructor, filling declared defaults, so an
-        // omitted optional parameter rebuilds what the kernel would build.
-        $rawArgs = [];
-        foreach ($constructor->getParameters() as $param) {
-            $name = $param->getName();
-
-            if (\array_key_exists($name, $args)) {
-                $rawArgs[] = $args[$name];
-
-                continue;
-            }
-
-            if ($param->isDefaultValueAvailable()) {
-                $rawArgs[] = $param->getDefaultValue();
-
-                continue;
-            }
-
-            throw new \InvalidArgumentException(sprintf(
-                'Atoms: %s was dispatched without a value for the required constructor '
-                . 'parameter "%s".',
-                $jobClass,
-                $name,
-            ));
-        }
-
-        $coerced = Boundary::roundTripArgs($rawArgs, $constructor, $this->serializer);
-
-        return $reflection->newInstanceArgs($coerced);
+        return $reflection->newInstanceArgs(
+            $this->serializer->denormalizeNamedArguments($jobClass, $wireArgs),
+        );
     }
 }
