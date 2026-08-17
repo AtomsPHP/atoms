@@ -281,9 +281,10 @@ final class AtomHarnessTest extends TestCase
             self::assertSame(ErrorCode::MigrationNumberingConflict, $e->errorCode);
         }
 
-        // Before the fix this second call returned $harness untouched — booted
-        // was true, database was null — and the caller met a TypeError from
-        // db() instead of the migration error above.
+        // Before the fix, booted was already true here, so this call booted
+        // nothing and handed back the database the failed attempt had opened —
+        // live, but with no migration ever applied. The test that followed
+        // failed on a missing table rather than on the error above.
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('AtomHarness::boot() did not complete');
 

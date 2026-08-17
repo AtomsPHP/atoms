@@ -40,8 +40,9 @@ final class AtomHarness
     private bool $booted = false;
 
     /**
-     * Set when {@see boot()} is entered and cleared only by boot() succeeding.
-     * It closes the window the flag above used to cover: `booted` is now the
+     * Set when {@see boot()} is entered and cleared only by boot() succeeding,
+     * so it means exactly "boot has been entered and has not completed". It
+     * closes the window the flag above used to cover: `booted` is now the
      * answer to "did boot finish?", so something else has to answer "is boot
      * under way?" — otherwise a harness method reached from inside the boot
      * sequence would re-enter boot() and recurse forever.
@@ -192,7 +193,9 @@ final class AtomHarness
         LifecycleInvoker::activate($this->atom);
 
         // Last, so that every step above having succeeded is what `booted`
-        // reports. Anything that throws on the way here leaves it false.
+        // reports. Anything that throws on the way here leaves it false, and
+        // leaves `booting` set — the one place that clears it is right here.
+        $this->booting = false;
         $this->booted = true;
 
         return $this;
