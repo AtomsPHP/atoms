@@ -106,8 +106,8 @@ final class InitCommand extends AbstractCommand
         $output->writeln('  install the release-matched Worker project:');
         $output->writeln('  ' . RuntimeVersion::scaffoldCommand());
         $output->writeln('  cd .atoms/worker && npm ci');
-        $output->writeln('  authenticate with Cloudflare — export CLOUDFLARE_API_TOKEN, or run');
-        $output->writeln('  `wrangler login` in that directory — and run `atoms deploy --env staging`.');
+        $output->writeln('  authenticate with Cloudflare — export CLOUDFLARE_API_TOKEN, or use the');
+        $output->writeln('  `wrangler login` session you already have — and run `atoms deploy --env staging`.');
 
         return Command::SUCCESS;
     }
