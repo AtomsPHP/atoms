@@ -11,20 +11,17 @@ use Atoms\Client\Tickets\TicketIssuer;
 use Atoms\Laravel\Testing\AtomsFake;
 
 /**
- * The facade root behind {@see Facades\Atoms}. A thin dispatch layer over
- * {@see AtomsClient} that also knows how to switch itself into an in-memory
- * {@see AtomsFake} for tests — nothing here talks HTTP or touches the wire
- * format directly, that all lives in atoms/client.
+ * The facade root behind {@see Facades\Atoms}: a thin dispatch layer over
+ * {@see AtomsClient} that can switch itself into an in-memory {@see AtomsFake}
+ * for tests. Nothing here touches the wire format; that lives in atoms/client.
  */
 final class AtomsManager
 {
     private ?AtomsFake $fake = null;
 
     /**
-     * $tickets is optional so that constructing a manager directly — which
-     * tests and third-party code do — keeps working. The service provider
-     * always supplies it; {@see self::ticket()} explains what to bind if it
-     * somehow did not.
+     * $tickets is optional so constructing a manager directly (tests, third-party
+     * code) keeps working; the service provider always supplies it.
      */
     public function __construct(
         private readonly AtomsClient $client,
@@ -35,19 +32,10 @@ final class AtomsManager
     /**
      * Return a proxy bound to an Atom instance.
      *
-     * Annotated with the Atom's own class so static analysis sees its methods:
-     * `Atoms::get(GameRoom::class, $id)->join($player)` is checked, and a typo
-     * is an error rather than a runtime 404.
-     *
-     * At runtime a bare wire type (the basename) still works, and the fake
-     * honours either — but the analysed contract is the FQCN, because that is
-     * the form that can be checked.
-     *
-     * $options apply to every call made through the returned proxy.
-     *
      * @template T of object
      *
-     * @param class-string<T> $class
+     * @param class-string<T> $class the Atom's FQCN for static analysis; a bare
+     *                               wire type also works at runtime and in the fake
      *
      * @return T
      */
@@ -60,12 +48,9 @@ final class AtomsManager
     }
 
     /**
-     * Issue a WebSocket connection ticket for one Atom.
-     *
-     * Sugar over {@see TicketIssuer::issue()} that takes the Atom's FQCN, so a
-     * call site names the class once instead of repeating its basename as a
-     * string next to `GameRoom::class`. Issuance is local computation — no HTTP
-     * call, nothing to be unavailable.
+     * Issue a WebSocket connection ticket for one Atom. Sugar over
+     * {@see TicketIssuer::issue()} that takes the FQCN instead of repeating the
+     * basename as a string next to `GameRoom::class`.
      *
      * @param class-string|string   $class  the Atom's FQCN, or its wire type
      * @param array<string, string> $claims merged over the browser's query params on connect, server wins
@@ -93,9 +78,9 @@ final class AtomsManager
     /**
      * The WebSocket URL for one Atom. Pass a ticket in `$query['ticket']`.
      *
-     * Always built from the real client, even under {@see self::fake()}: this is
-     * string assembly over configuration, with no request to intercept, and a
-     * test asserting the URL a view renders wants the real one.
+     * Always built from the real client, even under {@see self::fake()}: there is
+     * no request to intercept, and a test asserting the URL a view renders wants
+     * the real one.
      *
      * @param class-string                                      $class
      * @param array<string, string|int|float|bool|list<string>> $query

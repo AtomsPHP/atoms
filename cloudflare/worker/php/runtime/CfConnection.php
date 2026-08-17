@@ -76,11 +76,8 @@ final class CfConnection implements Connection
 
     /**
      * Encode through the shared frame encoder, then hand the bytes to
-     * {@see self::send()} rather than issuing `ws.send` again here. That
-     * delegation is the whole design: `sendJson()` inherits the UTF-8 rule, the
-     * outbound size cap and {@see ConnectionClosed} for free, and cannot drift
-     * from `send()` as either evolves. `json_encode()` output is always valid
-     * UTF-8, so a structured frame always leaves as a text frame.
+     * {@see self::send()} — so sendJson() inherits send()'s UTF-8 rule, size cap
+     * and {@see ConnectionClosed} and cannot drift from it.
      */
     public function sendJson(array $payload): void
     {

@@ -128,14 +128,10 @@ final class AtomsConfig
     }
 
     /**
-     * The same endpoint with a WebSocket scheme: `https` → `wss`, `http` → `ws`.
-     * Port and path prefix are preserved, so an endpoint behind a path-mounted
-     * proxy keeps working.
-     *
-     * One endpoint setting serves both transports on purpose. A separate
-     * `ws_endpoint` key would be a second thing to configure, a second thing to
-     * get wrong, and there is no deployment where the two legitimately differ —
-     * the Worker serves `/invoke` and `/ws` from one origin.
+     * The same endpoint with a WebSocket scheme (`https` → `wss`, `http` → `ws`),
+     * preserving port and path prefix. One endpoint setting serves both transports;
+     * a separate `ws_endpoint` would be a second thing to misconfigure for a
+     * deployment where the two never legitimately differ.
      *
      * @throws \InvalidArgumentException when the endpoint carries no http(s) scheme to swap
      */

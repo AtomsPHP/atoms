@@ -19,12 +19,10 @@ use Illuminate\Support\Facades\Facade;
  * @method static AtomsFake fake(array<string, array<string, mixed>> $stubs = [])
  * @method static bool isFake()
  *
- * A note on static analysis: `AtomsClient::get()` carries `@template T` so
- * `$client->get(GameRoom::class, $id)->join(...)` is fully inferred. A facade's
- * `@method` block cannot carry a template, so this line stays `object` and the
- * facade path infers only as far as your analyser's own facade support takes
- * it. Inject {@see AtomsManager} or {@see \Atoms\Client\AtomsClient} where you
- * want the Atom's methods checked.
+ * A note on static analysis: `AtomsClient::get()` carries `@template T`, but a
+ * facade's `@method` block cannot, so `get()` stays `object` here. Inject
+ * {@see AtomsManager} or {@see \Atoms\Client\AtomsClient} where you want the
+ * Atom's methods checked.
  *
  * @see AtomsManager
  */

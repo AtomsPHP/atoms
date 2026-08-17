@@ -18,6 +18,8 @@ reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 | Re-verified | 2026-08-15, on the shared-secret change (`docs/shared-secret.md`) — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E105 added: shared secret missing or malformed; E064/E067/E080/E081 reworded from the two-secret design to `ATOMS_SHARED_SECRET`); still 23 files total, the other 21 digests are unchanged |
 | Re-verified | 2026-08-16, on local WebSocket ticket issuance — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E068 added: WebSocket ticket claims invalid, raised by the application's own `TicketIssuer`; E067 reworded to record that it is retired, the Worker having stopped minting tickets over HTTP). Still 23 files total, the other 21 digests are unchanged |
 | Re-verified | 2026-08-16, on structured WebSocket frames — `Websocket/Connection.php` and `Websocket/Message.php` re-vendored (`sendJson(array $payload): void` and `json(): array` added to the two interfaces), and **new file** `Websocket/JsonFrame.php`, the single encoder both they and `CfAtomContext::broadcast()` pass through. **24 files total**, up from 23; the other 21 digests are unchanged |
+| Re-verified | 2026-08-16, comment-only trim of `Websocket/{Connection,Message,JsonFrame}.php` (prose docblocks reduced to load-bearing constraints; no behavioural change). All three re-vendored; still 24 files total, the other 21 digests are unchanged |
+| Re-verified | 2026-08-16, comment-pattern cleanup of `Websocket/{JsonFrame,Message}.php` — `JsonFrame::decode()`'s docblock reworded from constraint-as-identity phrasing ("is a frame") to a stated rule ("must decode to"), and from a "frame" reused mid-sentence for both the WebSocket-protocol sense and this library's structured-payload sense; `Message::json()`'s docblock, which duplicated that same explanation in full, now cross-references `{@see JsonFrame::decode()}` instead. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -106,9 +108,9 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 1486ab89bf416b88929159b6014b2a268b081f2efd1d46a314fe4d86948d8bc8  Serialization/SerializationException.php
 0b3224c2173e0fcde24b433a9373a5a1268f72a7a94e232f214e1c6bb15ec1d4  Serialization/Serializer.php
 1fde1d8fa58f1bf741d746d8f82fd3dc847fb0ae44b04baa4c2eccd033df3295  Timers/Timers.php
-a5267815d280f3ea13c81d67f703c5f463d29c6343f33447dc5398c87e2f8c3d  Websocket/Connection.php
-93a23f5e8d683b23cfbf746d218b597ef430e7418450fa7ba8eb30a567c625c5  Websocket/JsonFrame.php
-0c58384691c306f71233f3e226b635297b792a56d55404415722b45d5f11fc0d  Websocket/Message.php
+7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
+a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
+b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
 0b9ca162e567aec1b575b4d408c669c05df6f8363cb88739b57189ffa7f1beed  resources/errors.json
 ```
 

@@ -42,11 +42,10 @@ final class CfMessage implements Message
     }
 
     /**
-     * Decodes {@see self::payload()}, which is raw bytes, so this works on a
-     * binary frame whose contents happen to be JSON. It is a decoder, not a
-     * content-type check — consult {@see self::isBinary()} if the distinction
-     * matters. Throws `\JsonException` on malformed input and on a top-level
-     * value that is not an object.
+     * Decodes the raw {@see self::payload()} — see {@see JsonFrame::decode()} for
+     * what the payload must decode to. A decoder, not a content-type check: it
+     * works whether this message is binary or text; consult {@see self::isBinary()}
+     * if that distinction matters.
      */
     public function json(): array
     {

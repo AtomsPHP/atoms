@@ -8,15 +8,11 @@ use Atoms\Websocket\Connection;
 use Atoms\Websocket\JsonFrame;
 
 /**
- * A recording {@see Connection} fake for exercising `onConnect`/`onMessage`/
- * `onDisconnect` in-process, with no real socket. Every `send()` call is
- * captured in order; `close()` records the code/reason and flips
- * {@see isClosed()}.
- *
- * `sendJson()` really encodes, so a payload outside the serialization algebra
- * fails in a test exactly as it would in the runtime. It records into both
- * {@see sent()} (as the encoded string, interleaved with raw sends in call
- * order) and {@see sentJson()} (decoded, for assertions).
+ * A recording {@see Connection} fake for exercising the lifecycle handlers
+ * in-process. `send()` calls are captured in order; `close()` records code/reason
+ * and flips {@see isClosed()}. `sendJson()` really encodes, so a payload outside
+ * the serialization algebra fails here as it would in the runtime, and records
+ * into both {@see sent()} (the encoded string) and {@see sentJson()} (decoded).
  */
 final class FakeConnection implements Connection
 {
@@ -74,9 +70,9 @@ final class FakeConnection implements Connection
 
     /**
      * Every payload passed to sendJson(), decoded, in order. Values are
-     * post-normalization — a \DateTimeImmutable is already its RFC 3339 string —
-     * which is what an assertion should compare against, since that is what the
-     * client will receive.
+     * post-normalization (a \DateTimeImmutable is already its RFC 3339 string),
+     * which is what the client receives and what an assertion should compare
+     * against.
      *
      * @return list<array<array-key, mixed>>
      */

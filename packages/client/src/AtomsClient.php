@@ -109,15 +109,9 @@ final class AtomsClient
      * Return a proxy bound to $atomClass and $id whose method calls become RPC
      * invocations. The wire {type} is the class basename.
      *
-     * The declared return type is `object` so the `@return T` below can stand:
-     * static analysis then sees the Atom's own methods, and a typo in a method
-     * name is an error rather than a runtime 404. The value really is an
-     * {@see AtomProxy} — the annotation describes what you may call on it, not
-     * what it is.
-     *
-     * $options apply to every call made through the returned proxy. They live
-     * here rather than as fluent methods on the proxy because any method
-     * declared on the proxy would shadow an Atom method of the same name.
+     * Declared return type is `object` so the `@return T` below can stand without
+     * claiming `AtomProxy` is a subtype of every Atom class; the value really is an
+     * {@see AtomProxy}.
      *
      * @template T of object
      *
@@ -127,16 +121,15 @@ final class AtomsClient
      */
     public function get(string $atomClass, string $id, ?CallOptions $options = null): object
     {
-        /** @var T $proxy narrowing the proxy to the Atom you asked for — the one bridge this pattern needs */
+        /** @var T $proxy */
         $proxy = $this->newProxy($atomClass, $id, $options);
 
         return $proxy;
     }
 
     /**
-     * Declared `object` rather than `AtomProxy` on purpose: it is what lets
-     * {@see self::get()} narrow the result to `T` without claiming that
-     * `AtomProxy` itself is a subtype of every Atom class.
+     * Declared `object` rather than `AtomProxy` for the same reason as
+     * {@see self::get()}.
      *
      * @param class-string $atomClass
      */
@@ -148,25 +141,10 @@ final class AtomsClient
     /**
      * The WebSocket URL for one Atom, derived from the configured endpoint.
      *
-     * Server-side because the derivation is the package's to own: the scheme
-     * swap, the `/ws/{type}/{id}` shape and the encoding rules are all things a
-     * browser was previously left to reconstruct by hand from a bare endpoint
-     * string.
-     *
-     * A ticket is not minted here — pass one in. Keeping issuance at the call
-     * site is what keeps its failure visible, and a URL builder that could
-     * throw `InvalidTicketClaims` would be a surprising place to handle it:
-     *
-     *     $ticket = $issuer->issue(AtomsClient::wireType(GameRoom::class), $id, $claims);
-     *     $url = $client->wsUrl(GameRoom::class, $id, [
-     *         'channels' => ['lobby', 'chat'],
-     *         'ticket' => (string) $ticket,
-     *     ]);
-     *
-     * A `channels` value given as a list is joined with commas, the form the
-     * Worker parses. Every other key is passed through as a connection param
-     * and arrives in `onConnect()`'s `$params` — subject to the Worker's own
-     * per-connection param budgets, which this method does not police.
+     * The ticket is passed in rather than minted here, so an issuance failure
+     * stays visible at the call site. A `channels` value given as a list is joined
+     * with commas (the form the Worker parses); every other key passes through as
+     * a connection param into `onConnect()`'s `$params`.
      *
      * @param class-string                        $atomClass
      * @param array<string, string|int|float|bool|list<string>> $query
@@ -196,13 +174,10 @@ final class AtomsClient
      * Invoke $method on the Atom ($type, $id) with positional $args.
      *
      * @param list<mixed>       $args
-     * @param class-string|null $atomClass When given and the method has a usable
-     *                                     declared return type, the result is
-     *                                     denormalized to that type.
-     * @param bool              $retryTurnDeadline Kept as its own parameter rather than folded into
-     *                                             $options: renaming or retyping it would break every
-     *                                             existing named-argument caller, and this is exactly
-     *                                             the position named arguments get used in.
+     * @param class-string|null $atomClass When given and the method has a usable declared
+     *                                     return type, the result is denormalized to that type.
+     * @param bool              $retryTurnDeadline Kept separate from $options: renaming or retyping it
+     *                                             would break existing named-argument callers.
      * @param CallOptions|null  $options  When given, wins for every field it carries.
      */
     public function call(
@@ -523,11 +498,9 @@ final class AtomsClient
     }
 
     /**
-     * The wire `{type}` for an Atom class: its basename.
-     *
-     * Public because callers that never go through {@see self::get()} need the
-     * same rule — {@see self::wsUrl()}, the Laravel manager's ticket helper, and
-     * the testing fake all derived it independently before this existed.
+     * The wire `{type}` for an Atom class: its basename. Public because
+     * {@see self::wsUrl()}, the Laravel manager and the testing fake need the same
+     * rule without going through {@see self::get()}.
      */
     public static function wireType(string $atomClass): string
     {

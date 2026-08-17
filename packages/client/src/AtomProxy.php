@@ -5,17 +5,16 @@ declare(strict_types=1);
 namespace Atoms\Client;
 
 /**
- * A stub proxy bound to one Atom ($type, $id). Every method call is forwarded to
- * {@see AtomsClient::call()} carrying the bound Atom class so the result can be
+ * A stub proxy bound to one Atom ($type, $id). Every method call forwards to
+ * {@see AtomsClient::call()}, carrying the bound Atom class so the result is
  * denormalized against the method's declared return type.
  *
- * **This class declares `__construct`, `__call` and `__get`, and nothing else,
- * permanently.** Every other name on it belongs to the Atom. A declared method
- * wins over `__call()` in PHP, silently, so adding one here would make a
- * customer Atom method of that name unreachable — the wrong code would run, with
- * no error at either end. Per-call configuration therefore arrives as a
- * {@see CallOptions} through {@see AtomsClient::get()} instead of as fluent
- * methods here. See docs/conventions.md §The proxy declares nothing.
+ * **Declares `__construct`, `__call` and `__get`, and nothing else, permanently.**
+ * A declared method wins over `__call()` in PHP, silently, so any other name
+ * added here would shadow a customer Atom method of the same name with no error
+ * at either end. Per-call configuration therefore arrives as a
+ * {@see CallOptions} through {@see AtomsClient::get()}. See
+ * docs/conventions.md §The proxy declares nothing.
  */
 final class AtomProxy
 {
@@ -48,15 +47,10 @@ final class AtomProxy
     }
 
     /**
-     * Reading a property off a proxy is always a mistake, and this makes it a
-     * loud one.
-     *
-     * `AtomsClient::get()` is annotated `@return T`, so static analysis will
-     * happily accept `Atoms::get(GameRoom::class, $id)->id` — `Atom` really does
-     * declare `public readonly string $id`. But an Atom's properties live on the
-     * platform; nothing was fetched here. Without this, PHP would answer with a
-     * warning and `null`, which is the worst possible outcome: a plausible value
-     * that is silently wrong.
+     * `AtomsClient::get()` is annotated `@return T`, so static analysis accepts
+     * `Atoms::get(GameRoom::class, $id)->id` — but an Atom's properties live on the
+     * platform and nothing was fetched. Without this PHP would return `null` with
+     * a warning: a plausible, silently-wrong value.
      */
     public function __get(string $name): never
     {

@@ -82,12 +82,10 @@ final class AtomsFake
     }
 
     /**
-     * Register the {@see Ticket} this fake answers with for one Atom type.
-     * $ticketOrClosure may be a Ticket, or a closure receiving ($id, $claims).
-     *
-     * Unstubbed types still get a syntactically plausible ticket, because most
-     * tests care that a ticket was issued for the right scope and claims, not
-     * what its bytes are.
+     * Register the {@see Ticket} this fake answers with for one Atom type, or a
+     * closure receiving ($id, $claims). Unstubbed types still get a plausible
+     * ticket: most tests assert a ticket was issued for the right scope/claims,
+     * not what its bytes are.
      */
     public function stubTicket(string $atomClassOrType, Ticket|\Closure $ticketOrClosure): self
     {
@@ -113,9 +111,8 @@ final class AtomsFake
             return $stub($id, $claims);
         }
 
-        // A real issuer signs; this one only has to be distinguishable and
-        // shaped like the real thing. The expiry is a minute out so any code
-        // comparing it against "now" behaves as it would in production.
+        // Shaped like a real ticket (distinguishable, expiry a minute out) but
+        // not signed: a fake's job is to be asserted on, not verified.
         return $stub ?? new Ticket(
             sprintf('v1.fake-%s-%s.fake-signature', $type, $id),
             (time() + 60) * 1000,

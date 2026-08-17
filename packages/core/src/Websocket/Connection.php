@@ -15,15 +15,9 @@ interface Connection
     public function send(string $payload): void;
 
     /**
-     * Send one structured frame to this connection.
-     *
-     * The array-in convenience `broadcast()` has always had, for a direct reply:
-     * the payload is normalized and encoded by {@see JsonFrame::encode()}, the
-     * same encoder `broadcast()` uses. Unlike a broadcast it is sent **bare** —
-     * there is no channel to name, so there is no envelope to name it in.
-     *
-     * Everything {@see self::send()} does still applies: the outbound size cap,
-     * and the runtime's dead-connection exception.
+     * Send a structured frame bare — no `kind`/`channel` envelope, unlike
+     * `broadcast()`. The payload is normalized and encoded by
+     * {@see JsonFrame::encode()}, the same encoder `broadcast()` uses.
      *
      * @param array<string, mixed> $payload
      *
