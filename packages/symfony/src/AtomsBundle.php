@@ -71,8 +71,9 @@ final class AtomsBundle extends AbstractBundle
      * merge phase runs each extension's load() against a sandboxed container
      * that rejects addCompilerPass() outright (a bundle's config isn't fully
      * merged yet at that point). HttpClientPass reads back the configured
-     * service id via the 'atoms.http_client_service_id' parameter instead of
-     * a constructor argument, since build() runs before config is parsed.
+     * service id via HttpClientPass::CONFIGURED_SERVICE_ID_PARAMETER instead
+     * of a constructor argument, since build() runs before config is parsed —
+     * see registerHttpClient() for why the resolution stays in the passes.
      */
     public function build(ContainerBuilder $container): void
     {
@@ -181,8 +182,20 @@ final class AtomsBundle extends AbstractBundle
         // Read back by HttpClientPass / Psr17FactoryPass (registered in build())
         // once every bundle's extension has loaded — see HttpClientPass for why
         // that ordering matters.
-        $container->setParameter('atoms.http_client_service_id', $config['http_client']);
-        $container->setParameter('atoms.psr17_factory_service_id', $config['psr17_factory']);
+        //
+        // These two parameters are internal machinery, not configuration
+        // surface: they are the only channel by which a value parsed here can
+        // reach a pass that had to be constructed in build(), before any
+        // config existed. Aliasing 'atoms.http_client' directly from this
+        // method instead would let the parameters go, and is deliberately not
+        // done — resolution would then happen at load time, so which binding
+        // won would depend on bundle registration order, and an app that binds
+        // 'atoms.http_client' from an extension loaded before this one would
+        // lose to a config key it never set. The passes' compile-time
+        // resolution is what makes that order irrelevant; the parameters are
+        // the price of it. (Audit F8, resolved as decline-and-document.)
+        $container->setParameter(HttpClientPass::CONFIGURED_SERVICE_ID_PARAMETER, $config['http_client']);
+        $container->setParameter(Psr17FactoryPass::CONFIGURED_SERVICE_ID_PARAMETER, $config['psr17_factory']);
     }
 
     private function registerClient(ContainerBuilder $container): void
