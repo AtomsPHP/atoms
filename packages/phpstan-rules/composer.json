@@ -1,7 +1,7 @@
 {
     "name": "atoms/phpstan-rules",
     "description": "PHPStan rules enforcing the Atoms boundary: no framework symbols in Atom code, serialization-algebra checks, Shared-zone purity.",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "license": "MIT",
     "homepage": "https://atomsphp.dev",
     "support": {
