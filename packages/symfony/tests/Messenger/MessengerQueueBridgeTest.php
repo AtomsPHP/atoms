@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace Atoms\Symfony\Tests\Messenger;
 
+use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCode;
+use Atoms\Serialization\SerializationException;
 use Atoms\Symfony\Messenger\AtomJobHandler;
 use Atoms\Symfony\Messenger\AtomJobMessage;
 use Atoms\Symfony\Messenger\MessengerQueueBridge;
+use Atoms\Symfony\Tests\Fixtures\NotifyJob;
 use Atoms\Symfony\Tests\Fixtures\RecordingJob;
 use Atoms\Symfony\Tests\Support\RecordingMessageBus;
 use PHPUnit\Framework\TestCase;
@@ -16,6 +20,7 @@ final class MessengerQueueBridgeTest extends TestCase
     protected function setUp(): void
     {
         RecordingJob::$handled = [];
+        NotifyJob::$handled = [];
     }
 
     public function testEnqueueDispatchesAnAtomJobMessageWithNormalizedArgs(): void
@@ -43,9 +48,32 @@ final class MessengerQueueBridgeTest extends TestCase
 
     public function testAtomJobHandlerRejectsAClassThatIsNotAnAtomJob(): void
     {
-        $this->expectException(\RuntimeException::class);
+        try {
+            (new AtomJobHandler())(new AtomJobMessage(self::class, []));
+            self::fail('Expected AtomsError');
+        } catch (AtomsError $e) {
+            self::assertSame(ErrorCode::NotAnAtomJob, $e->errorCode);
+        }
+    }
 
-        (new AtomJobHandler())(new AtomJobMessage(self::class, []));
+    public function testAtomJobHandlerRefusesAMissingRequiredArgumentInsteadOfPassingNull(): void
+    {
+        try {
+            (new AtomJobHandler())(new AtomJobMessage(RecordingJob::class, ['playerId' => 'p-1']));
+            self::fail('Expected SerializationException');
+        } catch (SerializationException $e) {
+            self::assertSame(ErrorCode::BoundaryTypeMismatch, $e->errorCode);
+            self::assertStringContainsString('roomSize', $e->getMessage());
+        }
+
+        self::assertSame([], RecordingJob::$handled);
+    }
+
+    public function testAtomJobHandlerFillsNullForAnAbsentNullableArgument(): void
+    {
+        (new AtomJobHandler())(new AtomJobMessage(NotifyJob::class, ['playerId' => 'p-7']));
+
+        self::assertSame([['playerId' => 'p-7', 'note' => null, 'retries' => 3]], NotifyJob::$handled);
     }
 
     public function testEndToEndThroughARealBus(): void
