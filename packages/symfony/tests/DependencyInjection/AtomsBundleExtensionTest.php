@@ -209,6 +209,54 @@ final class AtomsBundleExtensionTest extends TestCase
         self::assertInstanceOf(ClientInterface::class, $container->get('atoms.http_client'));
     }
 
+    public function testHttpClientResolvesToConfiguredServiceIdOverAnAppDefinedClientInterface(): void
+    {
+        $container = $this->buildContainer(['http_client' => 'test.configured_client']);
+        $container->register('test.configured_client', FakePsr18Client::class)->setPublic(true);
+        $container->register(ClientInterface::class, FakePsr18Client::class)->setPublic(true);
+        $container->compile();
+
+        // Both candidates are the same class, so identity — not instanceof —
+        // is what separates them: same "the alias resolves to *this* service"
+        // pattern as testHttpClientFallsBackToAppDefinedClientInterfaceService.
+        self::assertSame($container->get('test.configured_client'), $container->get('atoms.http_client'));
+        self::assertNotSame($container->get(ClientInterface::class), $container->get('atoms.http_client'));
+    }
+
+    /**
+     * The escape hatch behind HttpClientPass's early return: an app (or
+     * another bundle) that binds `atoms.http_client` itself is left alone,
+     * ahead of the configured service id and both fallbacks. This is the
+     * property that would be lost if the alias were resolved from
+     * loadExtension() instead of from a compiler pass — resolution would then
+     * depend on which extension ran last — so it is pinned here rather than
+     * left to the passes' docblocks. See AtomsBundle::registerHttpClient().
+     */
+    public function testAnAppBoundHttpClientAliasWinsOverTheConfiguredServiceId(): void
+    {
+        $container = $this->buildContainer(['http_client' => 'test.configured_client']);
+        $container->register('test.configured_client', FakePsr18Client::class)->setPublic(true);
+        $container->register('test.prebound_client', FakePsr18Client::class)->setPublic(true);
+        $container->setAlias('atoms.http_client', 'test.prebound_client')->setPublic(true);
+        $container->compile();
+
+        self::assertSame($container->get('test.prebound_client'), $container->get('atoms.http_client'));
+        self::assertNotSame($container->get('test.configured_client'), $container->get('atoms.http_client'));
+    }
+
+    /** Psr17FactoryPass's half of the same early return. */
+    public function testAnAppBoundPsr17FactoryAliasWinsOverTheConfiguredServiceId(): void
+    {
+        $container = $this->buildContainer(['psr17_factory' => 'test.configured_psr17_factory']);
+        $container->register('test.configured_psr17_factory', FakePsr17Factory::class)->setPublic(true);
+        $container->register('test.prebound_psr17_factory', FakePsr17Factory::class)->setPublic(true);
+        $container->setAlias('atoms.psr17_factory', 'test.prebound_psr17_factory')->setPublic(true);
+        $container->compile();
+
+        self::assertSame($container->get('test.prebound_psr17_factory'), $container->get('atoms.psr17_factory'));
+        self::assertNotSame($container->get('test.configured_psr17_factory'), $container->get('atoms.psr17_factory'));
+    }
+
     /**
      * Pins Psr17FactoryPass's two-step contract (configured service id, else
      * Guzzle) against the "helpful" auto-detection that Psr17FactoryPass
