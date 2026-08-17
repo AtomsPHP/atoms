@@ -14,7 +14,9 @@ use Atoms\Errors\ErrorCode;
  * Wrangler reports Cloudflare's API rejections in its own output, and it does
  * so better than a re-wrapping layer could — so a failure carries the exit
  * status and the raw streams, and the command that ran it prints them
- * unedited before raising ATOMS-E074.
+ * unedited before raising ATOMS-E074 — or ATOMS-E072, the one failure this
+ * class reads the output to recognise: Wrangler having no credential at all,
+ * neither an API token nor a login session.
  */
 final class WranglerResult
 {
@@ -138,12 +140,60 @@ final class WranglerResult
     }
 
     /**
-     * @throws AtomsError E074 when Wrangler exited non-zero
+     * Whether this failure is Wrangler saying it has no credential to use at
+     * all — no API token in its environment and no `wrangler login` session.
+     *
+     * Atoms does not pre-empt that question: an unset `CLOUDFLARE_API_TOKEN`
+     * means Wrangler falls back to a session only Wrangler knows about. So the
+     * answer arrives as output, and this is where it is read.
+     *
+     * Deliberately narrow. A credential Cloudflare *rejected* — a revoked
+     * token, one without Workers Scripts:Edit — is not this: it stays
+     * ATOMS-E074, whose fix line already names the permission to check. E072
+     * keeps meaning exactly what its title says.
+     *
+     * Matching Wrangler's own wording is a drift risk, taken deliberately
+     * because the way it degrades is harmless: an unmatched phrasing is simply
+     * ATOMS-E074, whose fix line sends the reader to the Wrangler output
+     * printed directly above it. Nothing is hidden either way.
+     */
+    public function isCredentialFailure(): bool
+    {
+        // Wrangler's non-interactive no-token message, and the login-session
+        // equivalent it prints where it can name a remedy.
+        $markers = [
+            'necessary to set a cloudflare_api_token',
+            'you are not authenticated',
+            'run `wrangler login`',
+        ];
+
+        $output = strtolower($this->stdout . "\n" . $this->stderr);
+        foreach ($markers as $marker) {
+            if (str_contains($output, $marker)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @throws AtomsError E072 when Wrangler had no credentials at all,
+     *                    E074 for any other non-zero exit
      */
     public function assertOk(): self
     {
         if ($this->ok()) {
             return $this;
+        }
+
+        if ($this->isCredentialFailure()) {
+            throw new AtomsError(
+                ErrorCode::DeployCredentialsMissing,
+                ErrorCatalog::format(ErrorCode::DeployCredentialsMissing, [
+                    'command' => $this->subcommand(),
+                ]),
+            );
         }
 
         throw new AtomsError(

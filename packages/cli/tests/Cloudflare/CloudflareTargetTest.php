@@ -47,6 +47,32 @@ final class CloudflareTargetTest extends TestCase
         self::assertSame('cf-account-1234', $target->accountId);
     }
 
+    public function testNoTokenResolvesAndInjectsNothing(): void
+    {
+        // The `wrangler login` posture: no token anywhere, credentials still
+        // resolve. Wrangler is left to consult the OAuth session it owns, and
+        // an absent CLOUDFLARE_API_TOKEN in the child environment is what hands
+        // that decision to it.
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production');
+
+        self::assertNull($target->apiToken);
+        self::assertSame(['CLOUDFLARE_ACCOUNT_ID' => 'cf-account-1234'], $target->credentialEnv());
+    }
+
+    public function testTheAccountIdIsStillRequired(): void
+    {
+        // Unchanged by the token becoming optional: `--name` targeting has to
+        // be unambiguous on a login that can see more than one account.
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        unset($json['environments']['production']['account_id']);
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E075/');
+        CloudflareTarget::resolve(\Atoms\Cli\Config\AtomsJson::load($root . '/atoms.json'), 'production');
+    }
+
     public function testWorkerNameFallsBackToTheProject(): void
     {
         $config = $this->sampleApp();
