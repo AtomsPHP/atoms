@@ -245,18 +245,39 @@ final class Serializer
         }
 
         $reflection = new \ReflectionClass($class);
-        $constructor = $reflection->getConstructor();
+
+        return $reflection->newInstanceArgs($this->denormalizeNamedArguments($class, $data));
+    }
+
+    /**
+     * Bind wire-form named arguments to a constructor, in declaration order.
+     *
+     * The dispatched-job envelope (`{"job": FQCN, "args": {...}}`) and Payload
+     * hydration share one algebra: each parameter takes the wire value under
+     * its own name, denormalized against its declared type; an absent parameter
+     * falls back to its declared default, then to null when it is nullable;
+     * anything else absent is a boundary failure. Wire keys matching no
+     * parameter are ignored.
+     *
+     * @param class-string $class
+     * @param array<array-key, mixed> $wireArgs keyed by constructor parameter name
+     * @return list<mixed> positional constructor arguments
+     * @throws SerializationException on a type/value mismatch or a missing required argument
+     */
+    public function denormalizeNamedArguments(string $class, array $wireArgs): array
+    {
+        $constructor = (new \ReflectionClass($class))->getConstructor();
 
         if ($constructor === null) {
-            return $reflection->newInstance();
+            return [];
         }
 
         $args = [];
         foreach ($constructor->getParameters() as $param) {
             $name = $param->getName();
 
-            if (array_key_exists($name, $data)) {
-                $args[] = $this->denormalize($data[$name], $this->parameterType($param));
+            if (array_key_exists($name, $wireArgs)) {
+                $args[] = $this->denormalize($wireArgs[$name], $this->parameterType($param));
                 continue;
             }
 
@@ -272,11 +293,11 @@ final class Serializer
 
             throw new SerializationException(
                 ErrorCode::BoundaryTypeMismatch,
-                "Missing required property {$name} hydrating {$class}.",
+                "Missing required argument {$name} constructing {$class}.",
             );
         }
 
-        return $reflection->newInstanceArgs($args);
+        return $args;
     }
 
     /**
