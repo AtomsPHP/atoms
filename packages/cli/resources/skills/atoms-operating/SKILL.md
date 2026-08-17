@@ -23,10 +23,12 @@ atoms shared-secret:set --env X  # ATOMS_SHARED_SECRET, read from stdin. The aut
 atoms shared-secret:unset --env X  # Remove ATOMS_SHARED_SECRET_PREVIOUS, closing a rotation window.
 ```
 
-Credentials: `CLOUDFLARE_API_TOKEN` and
-`CLOUDFLARE_ACCOUNT_ID` (or `account_id` in atoms.json). They go straight to
-your own Wrangler; Atoms never proxies or retains them. In CI, supply them to
-the deploy action as `cloudflare-api-token` / `cloudflare-account-id`.
+Credentials: `CLOUDFLARE_ACCOUNT_ID` (or `account_id` in atoms.json), plus
+either `CLOUDFLARE_API_TOKEN` or an existing `wrangler login` session — with no
+token set, Atoms injects nothing and Wrangler uses its own. Whatever the CLI
+does resolve goes straight to your own Wrangler; Atoms never proxies or retains
+it. In CI, supply them to the deploy action as `cloudflare-api-token` /
+`cloudflare-account-id`: a runner has no login session to fall back on.
 
 Deploy needs a Worker project directory (`worker_dir` in atoms.json, default
 `.atoms/worker`) with `npm ci` already run in it. `atoms init` prints the exact
