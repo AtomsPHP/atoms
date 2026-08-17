@@ -23,6 +23,8 @@ reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 | Re-verified | 2026-08-16, on the duplicate-FQCN discovery fix — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E002 added: two files declaring the same class under the Atoms path, raised by the CLI's build-time discovery). Nothing in the guest raises it; the copy carries it because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-17, on the Wrangler credential handoff (`docs/cloudflare-toolchain.md` §Credentials) — `resources/errors.json` re-vendored (E072 and E075 reworded: the CLI no longer pre-empts a missing `CLOUDFLARE_API_TOKEN` or a missing account id, so both codes now name the inlets and are raised from Wrangler's own failure output). No code added or removed; still 24 files total, the other 23 digests are unchanged |
 | Re-verified | 2026-08-16, on the named-argument hydration primitive — `Serialization/Serializer.php` re-vendored (`denormalizeNamedArguments()` added: the one owner of the "bind wire args to a constructor by name" algebra the dispatched-job envelope and Payload hydration share; `denormalizePayload()` rewired onto it). Additive to the ABI, no existing signature changed. Still 24 files total, the other 23 digests are unchanged |
+| Re-verified | 2026-08-17, comment-only note of the migration-payload invariant — `Migrations/MigrationEntry.php` gains a constructor docblock stating that exactly one of `$sql`/`$phpFile` must be set (unenforced: the constructor is public ABI), and `Migrations/Migrator.php` a comment on why its `?->` is reachable only for an entry violating that. No behavioural change. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
+| Re-verified | 2026-08-17, comment-only note of the migration-payload invariant — `Migrations/MigrationEntry.php` gains a constructor docblock stating that exactly one of `$sql`/`$phpFile` must be set (unenforced: the constructor is public ABI), and `Migrations/Migrator.php` a comment on why its `?->` is reachable only for an entry violating that. No behavioural change. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -102,9 +104,9 @@ efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/Met
 3d1a122b24f6e3dd88104816b2b3b96b846690a9acd9316cd142d16afb71c411  Errors/ErrorCatalog.php
 d845cb8add39ccba1f68cd4063a2516da01a526a203b90581ecded62e7ded129  Errors/ErrorCode.php
 e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Migration.php
-f433e85e2449339b31bf806c4c8dde1afbd9e06dda005a2dc5a3df62fcd1252e  Migrations/MigrationEntry.php
+0f62d861c57e3b83ff13ecd20d991f6ab905d9f854b9c16f766349b14958b6ac  Migrations/MigrationEntry.php
 addfe71f9472e7f2e76422227ef06586818b546e09842cdcba8e8a97a1dcd690  Migrations/MigrationSet.php
-50af83b416b9dec8f9c16e4b0fa635ef4fb5be8e38134571f66d910bded18b9d  Migrations/Migrator.php
+dfd45d3a2afe9cd208bff409f5947f73ea715491ae91191444cd5b346b8f5055  Migrations/Migrator.php
 e0f9f876e5365af6f73e37c07957b202f1f6aef138e2b7ab3fd3acb98b261e7f  Runtime/AtomContext.php
 bad340c4631a86b8b0d33df013854e5494f7e639917c71e103ce0635cb47dc41  Runtime/LifecycleInvoker.php
 b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/Payload.php

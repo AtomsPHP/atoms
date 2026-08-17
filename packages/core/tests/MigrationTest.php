@@ -85,6 +85,30 @@ final class MigrationTest extends TestCase
         }
     }
 
+    public function testLoaderGivesEveryEntryExactlyOnePayload(): void
+    {
+        // MigrationEntry's constructor documents exactly-one-of-sql/phpFile and
+        // does not enforce it, so the invariant holds only while its in-repo
+        // producer upholds it. This pins that producer.
+        $this->write('001_create_events.sql', 'CREATE TABLE events (id INTEGER PRIMARY KEY, kind TEXT);');
+        $this->write('002_seed.php', "<?php return new \\Atoms\\Core\\Tests\\Fixtures\\SeedMigration();\n");
+
+        $set = MigrationSet::fromDirectory($this->dir);
+
+        self::assertCount(2, $set);
+
+        foreach ($set as $entry) {
+            $where = sprintf('%03d_%s', $entry->version, $entry->name);
+
+            self::assertNotSame(
+                $entry->sql === null,
+                $entry->phpFile === null,
+                "Migration {$where} must carry exactly one of sql/phpFile.",
+            );
+            self::assertSame($entry->sql !== null, $entry->isSql(), "isSql() disagrees for {$where}.");
+        }
+    }
+
     public function testMigratorAppliesInOrderAndSetsUserVersion(): void
     {
         $this->write('001_create_events.sql', 'CREATE TABLE events (id INTEGER PRIMARY KEY, kind TEXT);');

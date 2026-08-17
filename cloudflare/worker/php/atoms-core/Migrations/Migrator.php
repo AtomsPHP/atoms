@@ -38,6 +38,10 @@ final class Migrator
                 if ($entry->isSql()) {
                     $pdo->exec((string) $entry->sql);
                 } else {
+                    // Null here means the entry carries neither payload, which
+                    // MigrationEntry's constructor documents as illegal. The
+                    // version bump below runs either way, so such an entry
+                    // marks itself applied having done nothing.
                     $entry->migration()?->up($db);
                 }
 
