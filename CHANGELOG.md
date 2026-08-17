@@ -38,6 +38,20 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   itself; the shape knowledge now lives in the package that owns the
   manifest, where the Symfony bundle and a plain-PHP host can reach it too.
   A Laravel app sees no behaviour change.
+- **Fixed:** `AtomHarness` no longer reports itself booted before boot has
+  succeeded. It marked itself booted on entry to `boot()`, so a failure while
+  opening the temp database, loading migrations or running `onActivation()`
+  left a harness that answered "booted" over a database that had never
+  finished being set up — and the test that followed failed somewhere else,
+  hiding the real error. A boot that throws now leaves the harness refusing
+  further use, so the first exception is the one the test reports.
+- **Changed:** a shut-down `AtomHarness` throws from anything needing a live
+  Atom (`boot()`, `invoke()`, `db()`, `atom()`, `connect()`...) instead of
+  serving it over the temp directory `shutdown()` deleted. The recorders —
+  `dispatched()`, `broadcasts()` and their assertions — hold plain values and
+  stay readable, so asserting after `shutdown()` still works. Calling a
+  harness method from inside the boot sequence (an Atom's `onActivation()`)
+  now throws for the same reason.
 
 ## [0.3.1] - 2026-08-17
 

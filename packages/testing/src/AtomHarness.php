@@ -39,6 +39,20 @@ final class AtomHarness
 
     private bool $booted = false;
 
+    /**
+     * Set when {@see boot()} is entered and cleared only by boot() succeeding.
+     * It closes the window the flag above used to cover: `booted` is now the
+     * answer to "did boot finish?", so something else has to answer "is boot
+     * under way?" — otherwise a harness method reached from inside the boot
+     * sequence would re-enter boot() and recurse forever.
+     *
+     * It is deliberately *not* cleared when boot throws. A half-built harness
+     * cannot be booted again over the temp directory and database the failed
+     * attempt already opened, and the exception worth reading is the first
+     * one, not whatever a retry trips over next.
+     */
+    private bool $booting = false;
+
     private bool $shutDown = false;
 
     private ?TemporaryDirectory $tempDir = null;
@@ -128,15 +142,25 @@ final class AtomHarness
      * runs the activation lifecycle hook. Implicitly called by every other
      * harness method that needs a live Atom.
      *
+     * Throws rather than booting if the harness has been shut down, or if an
+     * earlier boot() did not complete — in both cases the resources a booted
+     * harness hands out are gone or were never built.
+     *
      * @return self<TAtom>
      */
     public function boot(): self
     {
+        $this->assertNotShutDown();
+
         if ($this->booted) {
             return $this;
         }
 
-        $this->booted = true;
+        if ($this->booting) {
+            throw new \LogicException('AtomHarness::boot() did not complete: either an earlier boot() threw — that exception is the failure to fix — or a harness method was called from inside the boot sequence (an Atom\'s onActivation(), or a Methods constructor). Build a fresh harness with AtomHarness::for().');
+        }
+
+        $this->booting = true;
 
         $this->tempDir = TemporaryDirectory::create();
         $this->database = SqliteDatabase::open($this->tempDir->path() . '/atom.sqlite');
@@ -166,6 +190,10 @@ final class AtomHarness
         $this->atom = $atom;
 
         LifecycleInvoker::activate($this->atom);
+
+        // Last, so that every step above having succeeded is what `booted`
+        // reports. Anything that throws on the way here leaves it false.
+        $this->booted = true;
 
         return $this;
     }
@@ -337,6 +365,12 @@ final class AtomHarness
     /**
      * Runs the deactivation lifecycle hook and removes the harness's temp
      * directory. Idempotent; also called from `__destruct()`.
+     *
+     * The harness is finished afterwards: anything needing a live Atom
+     * (`boot()`, `invoke()`, `db()`, `atom()`, `connect()`...) throws rather
+     * than working over the deleted directory. The recorders — `dispatched()`,
+     * `broadcasts()` and their assertions — hold plain values and stay
+     * readable, so a test can still assert on what the Atom did.
      */
     public function shutdown(): void
     {
@@ -358,10 +392,28 @@ final class AtomHarness
         $this->shutdown();
     }
 
+    /**
+     * `booting` counts as booted here. Configuration is read during boot, so a
+     * `with*()` call made from inside the boot sequence would be accepted and
+     * then ignored — which is exactly the silence this refuses.
+     */
     private function assertNotBooted(): void
     {
-        if ($this->booted) {
+        if ($this->booted || $this->booting) {
             throw new \LogicException('AtomHarness is already booted; call withMethods()/withMigrations()/withConfig() before first use (boot(), invoke(), db(), atom(), connect()...).');
+        }
+    }
+
+    /**
+     * `shutdown()` deletes the temp directory the database lives in, so every
+     * operation that needs a live Atom is served over nothing afterwards.
+     * Note that it does not clear `booted`: that flag means "configuration is
+     * frozen", which shutting down does not undo.
+     */
+    private function assertNotShutDown(): void
+    {
+        if ($this->shutDown) {
+            throw new \LogicException('AtomHarness has been shut down; its temporary directory and database are gone. Build a fresh harness with AtomHarness::for().');
         }
     }
 
