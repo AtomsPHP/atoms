@@ -122,6 +122,35 @@ try {
 	run('node', [join(target, 'scripts', 'bundle-from-cli.mjs'), bundle, manifestPath, workerBundle]);
 	assert.ok(existsSync(workerBundle), 'a release-matched bundle should stage');
 
+	// The scaffolded worker must actually build. Asserting that a list of paths
+	// exists cannot catch a module that is imported by shipped code but was
+	// never packaged — that is how a package whose every `wrangler dev` died at
+	// "Could not resolve ./derive.js" shipped green. Bundle the real scaffold
+	// with the same tool wrangler uses and fail on any unresolved import.
+	const esbuild = join(workerRoot, 'node_modules', '.bin', 'esbuild');
+	assert.ok(existsSync(esbuild), 'the resolution gate needs esbuild: run `npm ci` in cloudflare/worker');
+	// `npm ci` runs prepare-runtime.mjs, which stages the php-wasm artifact from
+	// npm into .php-wasm/. Stub it: this gate measures the package's own module
+	// graph, and the staged runtime is neither packaged nor redistributable.
+	mkdirSync(join(target, '.php-wasm', '8_3_32'), { recursive: true });
+	writeFileSync(join(target, '.php-wasm', 'php_8_3.js'), 'export const dependencyFilename = null;\n');
+	writeFileSync(join(target, '.php-wasm', '8_3_32', 'php_8_3.wasm'), '');
+	const resolution = run(esbuild, [
+		join(target, 'src', 'index.js'),
+		'--bundle',
+		'--format=esm',
+		'--platform=neutral',
+		'--packages=external',
+		'--loader:.wasm=binary',
+		`--outfile=${join(temporaryRoot, 'resolution-check.js')}`,
+	], { expectFailure: true });
+	assert.equal(
+		resolution.status,
+		0,
+		`the scaffolded worker's module graph does not resolve — a module imported by shipped `
+			+ `code is missing from the package:\n${resolution.stderr}`,
+	);
+
 	rmSync(workerBundle);
 	writeFileSync(
 		manifestPath,
