@@ -32,13 +32,13 @@ final class MigrationEntry
      * upholds the invariant by construction; a loader outside this package that
      * builds entries directly owns it instead.
      *
-     * Neither set is the case that costs something, because nothing downstream
-     * reports it: {@see migration()} returns null when $phpFile is, and
+     * The neither-set case is the costly one, because nothing downstream
+     * reports it: {@see migration()} returns null when $phpFile is null, and
      * {@see Migrator::apply()} bumps `PRAGMA user_version` and commits whether
      * or not a payload ran. Such an entry marks its version applied having
      * done nothing, and the next run reads it as already applied.
      *
-     * @param string $sha256 of the migration file's contents
+     * @param string $sha256 hex sha256 of the migration file's contents
      * @param string|null $sql the migration's SQL, for a `NNN_name.sql` entry
      * @param string|null $phpFile path to a `NNN_name.php` file returning a
      *                             {@see Migration}, for a PHP entry
