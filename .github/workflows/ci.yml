@@ -338,10 +338,6 @@ jobs:
       # bearers are accepted" cannot pass by accident.
       - name: Auth, rotation and deny-list checks with bearer auth required
         uses: ./.github/actions/worker-posture
-        env:
-          ATOMS_REQUIRE_TICKET_CHECKS: '1'
-          ATOMS_REQUIRE_ROTATION_CHECKS: '1'
-          ATOMS_REQUIRE_DENY_CHECKS: '1'
         with:
           name: bearer-required
           worker-port: ${{ env.WORKER_PORT }}
@@ -351,7 +347,17 @@ jobs:
             ATOMS_SHARED_SECRET_PREVIOUS=$RUN_SECRET
             ATOMS_CALLBACK_URL=http://127.0.0.1:${{ env.ATOMS_CALLBACK_PORT }}/atoms/callback
             ATOMS_CONFIG_ENV_KEYS=ATOMS_SHARED_SECRET,ATOMS_SHARED_SECRET_PREVIOUS,ATOMS_DEBUG_ENDPOINTS
+          step-env: |
+            ATOMS_SHARED_SECRET=${{ env.RUN_SECRET_NEXT }}
+            ATOMS_SHARED_SECRET_PREVIOUS=${{ env.RUN_SECRET }}
           checks: '2,32,33,34,35,36,37,38,39,40,42'
+          extra-env: ''
+          # Every REQUIRE_ flag this posture can satisfy is set, so a broken
+          # setup fails instead of silently deleting checks.
+        env:
+          ATOMS_REQUIRE_TICKET_CHECKS: '1'
+          ATOMS_REQUIRE_ROTATION_CHECKS: '1'
+          ATOMS_REQUIRE_DENY_CHECKS: '1'
 
       # Posture 3 — no shared secret at all. The Worker still serves
       # /healthz; every other route answers the wire code `misconfigured`, so

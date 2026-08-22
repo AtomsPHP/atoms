@@ -83,12 +83,24 @@ fi
 
 # --- Run the requested slice of the suite ----------------------------------
 
+# POSTURE_STEP_ENV pairs are exported into this script's own environment
+# first: the suite derives the posture's bearer from ATOMS_SHARED_SECRET /
+# ATOMS_SHARED_SECRET_PREVIOUS when bearer auth is required, so those must be
+# real exported env for npm test, not arguments to env.
+while IFS= read -r pair; do
+  [[ -z "$pair" ]] && continue
+  export "${pair%%=*}=${pair#*=}"
+done < <(printf '%s\n' "$POSTURE_STEP_ENV")
+
 extra_env_args=()
 while IFS= read -r pair; do
   [[ -z "$pair" ]] && continue
   extra_env_args+=("${pair%%=*}=${pair#*=}")
 done < <(printf '%s\n' "$POSTURE_EXTRA_ENV")
 
+# The suite itself may need the posture's secrets as step env (the
+# bearer-required run derives the bearer from them). POSTURE_STEP_ENV pairs
+# are exported here, into this invocation only.
 env \
   ATOMS_BASE_URL="http://127.0.0.1:${WORKER_PORT}" \
   ATOMS_ONLY="$POSTURE_CHECKS" \
