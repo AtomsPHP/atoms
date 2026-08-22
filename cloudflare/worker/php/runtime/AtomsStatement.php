@@ -69,6 +69,13 @@ class AtomsStatement extends \PDOStatement
      *     chronology). Measured against real PDO: rebinding an already-bound
      *     param does NOT move it — first-bind position wins — so this never
      *     removes a key once added.
+     *
+     *     First-bind detection (audit F24, 2026-08-16) is map membership
+     *     BEFORE the bind methods mutate — never a strict in_array() against
+     *     THIS list: strict comparison treats int 1 and '1' as distinct
+     *     while PHP's array-key coercion aliases them in the maps, which let
+     *     a rebound param append a second entry here and dump twice in
+     *     debugDumpParams().
      */
     private $boundOrder = [];
 
@@ -342,12 +349,26 @@ class AtomsStatement extends \PDOStatement
             );
         }
 
+        // Audit F24 (2026-08-16): first-bind detection must respect PHP's own
+        // array-key coercion — a param bound as int 1 and REBOUND as '1' is
+        // ONE key in boundValues/boundRefs ('1' coerces onto the int key),
+        // but strict in_array() against boundOrder treated the two forms as
+        // distinct and appended a SECOND boundOrder entry, making
+        // debugDumpParams() list the param twice. Membership in the maps IS
+        // the authoritative "have I seen this key" test (the maps alias
+        // int/string keys identically), so consult them BEFORE this call's
+        // own mutations. Equivalent to the old in_array() for every key the
+        // maps can hold: a boundOrder entry always has its key live in one
+        // of the two maps (bindValue()/bindParam() move a key BETWEEN the
+        // maps atomically), and a key cannot reach a map except through one
+        // of those two methods.
+        if (!array_key_exists($param, $this->boundValues) && !array_key_exists($param, $this->boundRefs)) {
+            $this->boundOrder[] = $param;
+        }
+
         unset($this->boundRefs[$param]);
         $this->boundValues[$param] = $value;
         $this->boundTypes[$param] = $type;
-        if (!in_array($param, $this->boundOrder, true)) {
-            $this->boundOrder[] = $param;
-        }
 
         return true;
     }
@@ -382,12 +403,17 @@ class AtomsStatement extends \PDOStatement
             );
         }
 
+        // Audit F24 (2026-08-16): same first-bind rule as bindValue() above —
+        // map membership BEFORE this call's mutations, not a strict
+        // in_array() against boundOrder, so an int/string key alias ('1'
+        // rebinding int 1) cannot append a second boundOrder entry.
+        if (!array_key_exists($param, $this->boundValues) && !array_key_exists($param, $this->boundRefs)) {
+            $this->boundOrder[] = $param;
+        }
+
         unset($this->boundValues[$param]);
         $this->boundRefs[$param] =& $var;
         $this->boundTypes[$param] = $type;
-        if (!in_array($param, $this->boundOrder, true)) {
-            $this->boundOrder[] = $param;
-        }
 
         return true;
     }
