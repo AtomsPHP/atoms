@@ -610,11 +610,14 @@ export class CallbackChannel {
 	signingKey() {
 		if (!this.keyPromise) {
 			this.keyPromise = (async () => {
-				const secret = this.config.sharedSecretBytes;
-				if (secret === null) {
+				// Byte-identical with the other internal throws (index.js
+				// checkAuth, tickets.js ticketKeys): unreachable past the
+				// configuration gate, kept as a typed failure rather than a
+				// cast.
+				if (!this.config.sharedSecret.ok) {
 					throw new AtomsError('internal', 'ATOMS_SHARED_SECRET is not configured');
 				}
-				return deriveCallbackKey(secret);
+				return deriveCallbackKey(this.config.sharedSecret.bytes);
 			})();
 		}
 		return this.keyPromise;

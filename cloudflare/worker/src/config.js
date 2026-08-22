@@ -15,11 +15,23 @@ import { AtomsError } from './errors.js';
 /** @typedef {Record<string, unknown>} Env */
 
 /**
+ * The shared-secret half of the configuration, as one discriminated union
+ * rather than four correlated fields. Either the Worker holds a usable root —
+ * `ok: true`, with the decoded bytes of `ATOMS_SHARED_SECRET` and, during a
+ * rotation overlap, of `ATOMS_SHARED_SECRET_PREVIOUS` — or it does not:
+ * `ok: false`, with the human-readable reason naming the variable and the
+ * rule. The union is what makes the old impossible states unrepresentable:
+ * "configured" alongside null bytes cannot be built, because the `ok: true`
+ * branch has nowhere to put a null `bytes`, and a misleading split between
+ * which variable an error describes and which secret the bytes hold cannot
+ * arise, because the two never travel apart.
+ *
+ * @typedef {{ok: true, bytes: Uint8Array, previousBytes: Uint8Array|null}|{ok: false, error: string}} SharedSecretConfig
+ */
+
+/**
  * @typedef {object} AtomsConfig
- * @property {'configured'|'missing'|'invalid'} sharedSecretState  `ATOMS_SHARED_SECRET` (and, when set, `ATOMS_SHARED_SECRET_PREVIOUS`). Anything but `'configured'` makes every route except `GET /healthz` answer `misconfigured`.
- * @property {string|null} sharedSecretError  Human-readable reason when sharedSecretState is not 'configured'; names the variable and the rule.
- * @property {Uint8Array|null} sharedSecretBytes          The decoded 32 raw bytes of `ATOMS_SHARED_SECRET` — the IKM every derived key comes from. Null unless sharedSecretState is 'configured'.
- * @property {Uint8Array|null} sharedSecretPreviousBytes  The decoded 32 raw bytes of `ATOMS_SHARED_SECRET_PREVIOUS`, the optional rotation overlap. Null when no overlap is configured.
+ * @property {SharedSecretConfig} sharedSecret  The decoded `ATOMS_SHARED_SECRET` (and, when set, `ATOMS_SHARED_SECRET_PREVIOUS`), or the reason it is unusable. `ok: false` makes every route except `GET /healthz` answer `misconfigured`.
  * @property {'required'|'disabled'} bearerAuth  `ATOMS_BEARER_AUTH`. `'disabled'` turns off the bearer comparison ONLY (for an authenticating proxy such as Cloudflare Access); the secret stays mandatory, tickets stay signed, callbacks stay signed.
  * @property {boolean}  debugEndpoints        Enable `GET /debug/:type/:id/info`.
  * @property {number}   maxRequestBytes       Reject invoke bodies larger than this.
@@ -52,7 +64,7 @@ import { AtomsError } from './errors.js';
  * @property {number}   callbackMaxRequestBytes  Reject an app()/dispatch() request body larger than this.
  * @property {number}   callbackMaxResponseBytes Reject an app() response body larger than this (it is copied into guest memory).
  * @property {number}   maxDispatchesPerTurn  dispatch() calls allowed in one turn before `dispatch_limit`.
- * @property {'configured'|'unconfigured'|'misconfigured'} callbackState  Derived from callbackUrl and sharedSecretState.
+ * @property {'configured'|'unconfigured'|'misconfigured'} callbackState  Derived from callbackUrl and whether the CURRENT shared secret is usable.
  * @property {string|null} callbackConfigError Human-readable reason when callbackState is 'misconfigured'.
  * @property {number}   wsMaxTagsPerConnection  Platform hard limit on tags per hibernatable socket (measured: 10).
  * @property {number}   wsMaxTagBytes           Platform hard limit on one tag's byte length (measured: 256).
@@ -340,10 +352,10 @@ function validateCallbackUrl(raw) {
  * `app()`/`dispatch()` is actually used.
  *
  * @param {string} callbackUrl
- * @param {'configured'|'missing'|'invalid'} sharedSecretState
+ * @param {boolean} sharedSecretConfigured whether the CURRENT `ATOMS_SHARED_SECRET` decoded
  * @returns {{state: 'configured'|'unconfigured'|'misconfigured', error: string|null}}
  */
-function classifyCallbackChannel(callbackUrl, sharedSecretState) {
+function classifyCallbackChannel(callbackUrl, sharedSecretConfigured) {
 	if (callbackUrl === '') {
 		return { state: 'unconfigured', error: null };
 	}
@@ -353,7 +365,7 @@ function classifyCallbackChannel(callbackUrl, sharedSecretState) {
 		return { state: 'misconfigured', error: urlError };
 	}
 
-	if (sharedSecretState !== 'configured') {
+	if (!sharedSecretConfigured) {
 		return {
 			state: 'misconfigured',
 			error:
@@ -383,13 +395,20 @@ export function loadConfig(env) {
 	const secretBroken = current.state !== 'configured' ? current : previous.state === 'invalid' ? previous : null;
 
 	const callbackUrl = str(env, 'ATOMS_CALLBACK_URL', '');
-	const callback = classifyCallbackChannel(callbackUrl, current.state);
+	const callback = classifyCallbackChannel(callbackUrl, current.state === 'configured');
+
+	// One discriminated value, not four correlated fields: the `ok` branch
+	// always carries decoded bytes and no error, the `!ok` branch an error and
+	// no bytes, so "configured alongside null bytes" — representable in the
+	// old flat shape — can no longer be built, let alone leak past a missed
+	// check at a call site.
+	/** @type {SharedSecretConfig} */
+	const sharedSecret = secretBroken
+		? { ok: false, error: secretBroken.error ?? 'the shared secret is unusable' }
+		: { ok: true, bytes: current.bytes, previousBytes: previous.bytes };
 
 	const config = {
-		sharedSecretState: secretBroken ? secretBroken.state : 'configured',
-		sharedSecretError: secretBroken ? secretBroken.error : null,
-		sharedSecretBytes: current.bytes,
-		sharedSecretPreviousBytes: previous.bytes,
+		sharedSecret,
 		bearerAuth: bearerAuthPosture(env),
 		debugEndpoints: bool(env, 'ATOMS_DEBUG_ENDPOINTS', false),
 
