@@ -25,24 +25,19 @@ it.
 
 ### Creating the API token
 
-In the Cloudflare dashboard: **My Profile → API Tokens → Create Token → Create
-Custom Token**.
+**[`docs/cloudflare-toolchain.md` §Getting a token][getting-a-token]** covers
+which permissions to grant, how to scope the token, where to find the account
+id, and how rotation works. Two things are specific to CI:
 
-- **Workers Scripts: Edit** — required; this is what publishes the Worker.
-- **Account Settings: Read** — some Wrangler operations (account lookup,
-  certain `wrangler deploy` paths) need it. Add it if Wrangler reports an
-  authorisation failure.
-- Under **Account Resources**, scope the token to the **specific account** you
-  deploy into, not "All accounts".
+- **Store the token as a repository (or environment) secret**, and pass it as
+  `cloudflare-api-token`. A GitHub Environment scopes it further, so pull
+  requests from forks cannot reach it without approval — see the staging
+  example below.
+- **The account id** can live in a repository variable
+  (`vars.CLOUDFLARE_ACCOUNT_ID`). The action passes it the same way as the
+  token, through the step environment.
 
-Store it as a repository (or environment) secret, e.g. `CLOUDFLARE_API_TOKEN`.
-
-### Finding the account id
-
-Cloudflare dashboard → **Workers & Pages** → the overview page shows **Account
-ID** in the right-hand column. It is not a secret, so a repository variable
-(`vars.CLOUDFLARE_ACCOUNT_ID`) is a fine place for it — but the action passes it
-the same way as the token, through the step environment.
+[getting-a-token]: ../docs/cloudflare-toolchain.md#getting-a-token
 
 ## Usage
 
