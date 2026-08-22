@@ -2222,6 +2222,32 @@ final class Cases
                 }
             ),
             self::c(
+                'stmt.debug_dump_params.rebind_int_string_alias',
+                $g,
+                'PDOStatement::debugDumpParams()',
+                'debugDumpParams() after a positional param bound by int and rebound by its equal string key, exact captured-output byte comparison (audit F24)',
+                static function (\PDO $p) {
+                    $stmt = $p->prepare('SELECT * FROM probe_rows WHERE i = ?');
+                    // Audit F24: int 1 and string '1' are ONE parameter —
+                    // rebinding through the other spelling must REPLACE the
+                    // binding, not register a second param. Before the fix
+                    // our side dumped this param twice; native pdo_sqlite
+                    // has always listed it once.
+                    $stmt->bindValue(1, 'a', \PDO::PARAM_STR);
+                    $stmt->bindValue('1', 'b', \PDO::PARAM_STR);
+                    ob_start();
+                    try {
+                        $stmt->debugDumpParams();
+
+                        return ob_get_clean();
+                    } catch (\Throwable $e) {
+                        ob_end_clean();
+
+                        throw $e;
+                    }
+                }
+            ),
+            self::c(
                 'stmt.sqlite_create_function',
                 $g,
                 'PDO::sqliteCreateFunction()',
