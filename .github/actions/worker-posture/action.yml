@@ -1,0 +1,60 @@
+# One reusable unit for the conformance job's Worker "postures": tear down
+# whatever Worker the previous posture left running, boot wrangler dev with
+# this posture's --var set, wait for /healthz, run the requested slice of the
+# conformance suite, and leave the Worker's log behind for the always-run
+# diagnostics step.
+#
+# Exists because the same ~50 lines of kill/wait/boot/poll choreography had
+# been pasted once per posture; a fifth posture should be ten lines of inputs,
+# not another copy. The bash lives here, in one place, as a real script.
+name: 'Worker posture'
+description: 'Boot wrangler dev in one configuration and run part of the conformance suite against it'
+inputs:
+  name:
+    description: 'Posture name, used in log messages and the log file name'
+    required: true
+  vars:
+    description: |
+      Newline-separated NAME=VALUE pairs passed to `wrangler dev` as --var.
+      A pair whose value is literally `-` is skipped, so a posture can omit a
+      variable rather than pass it empty.
+    required: false
+    default: ''
+  checks:
+    description: 'ATOMS_ONLY list for the suite run (e.g. "2,32-42")'
+    required: true
+  extra-env:
+    description: |
+      Newline-separated NAME=VALUE pairs exported for the npm test invocation
+      only (assertion-mode flags like ATOMS_EXPECT_MISCONFIGURED).
+    required: false
+    default: ''
+  step-env:
+    description: |
+      Newline-separated NAME=VALUE pairs exported for this whole step — both
+      the wrangler boot and the suite run (e.g. ATOMS_BEARER_AUTH=disabled).
+      Empty-valued pairs export the variable as empty, which is how a REQUIRE_
+      flag gets explicitly cleared.
+    required: false
+    default: ''
+  worker-port:
+    description: 'Port wrangler dev serves on'
+    required: true
+  run-secret:
+    description: 'Value substituted for $RUN_SECRET inside vars (kept out of the yml)'
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        POSTURE_NAME: ${{ inputs.name }}
+        POSTURE_VARS: ${{ inputs.vars }}
+        POSTURE_CHECKS: ${{ inputs.checks }}
+        POSTURE_EXTRA_ENV: ${{ inputs.extra-env }}
+        POSTURE_STEP_ENV: ${{ inputs.step-env }}
+        WORKER_PORT: ${{ inputs.worker-port }}
+        RUN_SECRET: ${{ inputs.run-secret }}
+      run: |
+        bash "$GITHUB_ACTION_PATH/posture.sh"
