@@ -25,26 +25,17 @@ it.
 
 ### Creating the API token
 
-**[`docs/cloudflare-toolchain.md` §Getting a token][getting-a-token]** is the
-source of truth for which permissions to grant, how to scope the token, where
-to find the account id, and how rotation works. It applies unchanged here — the
-action needs the same token a developer deploying from a laptop needs, because
-it runs the same CLI against the same API.
-
-Two things are specific to CI:
+**[`docs/cloudflare-toolchain.md` §Getting a token][getting-a-token]** covers
+which permissions to grant, how to scope the token, where to find the account
+id, and how rotation works. Two things are specific to CI:
 
 - **Store the token as a repository (or environment) secret**, and pass it as
   `cloudflare-api-token`. A GitHub Environment scopes it further, so pull
   requests from forks cannot reach it without approval — see the staging
   example below.
-- **The account id is not a secret**, so a repository variable
-  (`vars.CLOUDFLARE_ACCOUNT_ID`) is a fine place for it. The action passes it
-  the same way as the token regardless, through the step environment.
-
-The workstation guidance in that section — keep the token out of shell rc
-files, prefer a secret manager or a gitignored per-project `.env` — is about
-where the value lives *before* it reaches a runner. On a runner, the secret
-store is that answer.
+- **The account id** can live in a repository variable
+  (`vars.CLOUDFLARE_ACCOUNT_ID`). The action passes it the same way as the
+  token, through the step environment.
 
 [getting-a-token]: ../docs/cloudflare-toolchain.md#getting-a-token
 

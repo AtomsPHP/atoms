@@ -22,11 +22,11 @@ use Symfony\Component\Console\Output\OutputInterface;
 /**
  * `atoms dev` — build, stage, and run the Worker locally under `wrangler dev`.
  *
- * No Cloudflare credentials are required. `wrangler dev` runs workerd on this
- * machine, so a developer with no Cloudflare account can still work — which is
+ * No Cloudflare credentials are required: `wrangler dev` runs workerd on this
+ * machine, so a developer with no Cloudflare account can still work. This is
  * why {@see CloudflareTarget::resolve()} is called with `requireCredentials`
- * false here, as it is in `atoms token`, which likewise reaches Cloudflare
- * not at all. Every other caller takes the default and fails up front.
+ * false here (and in `atoms token`); every other caller takes the default and
+ * fails up front.
  *
  * ## The dev secret
  *
