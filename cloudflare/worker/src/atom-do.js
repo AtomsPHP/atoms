@@ -251,80 +251,74 @@ export class AtomDurableObject extends DurableObject {
 		const params = typeof call.params === 'object' && call.params !== null ? call.params : {};
 		const channels = Array.isArray(call.channels) ? call.channels.map(String) : [];
 
-		const collector = this.callbacks.newCollector();
-		const run = this.enqueue(async () => {
-			// Step A3: the SAME activation gate fetch() uses for an
-			// invoke. If it throws, nothing below runs and nothing has been
-			// accepted.
-			await this.ensureActive(type, id);
-
-			// Step A4: host-minted identity. Nothing here is derived from guest
-			// memory — id and channels are the whole attachment.
-			const connId = crypto.randomUUID();
-			const attachment = buildAttachment(connId, channels);
-			if (attachmentByteLength(attachment) > this.config.wsMaxAttachmentBytes) {
-				throw new AtomsError(
-					'invalid_request',
-					`this connection's channel list makes its attachment exceed ` +
-						`ATOMS_WS_MAX_ATTACHMENT_BYTES (${this.config.wsMaxAttachmentBytes})`
-				);
-			}
-
-			// Step A5: accept, THEN attach, THEN memoize — in that order, so a
-			// frame arriving the instant after accept still finds a readable
-			// attachment (a frame sent between acceptWebSocket() and the 101
-			// response still reaches the client; the same ordering argument
-			// applies to reads).
-			const pair = new WebSocketPair();
-			const server = pair[1];
-			const client = pair[0];
-			const tags = [
-				this.config.wsConnTagPrefix + connId,
-				...channels.map((c) => this.config.wsChannelTagPrefix + c),
-			];
-			this.ctx.acceptWebSocket(server, tags);
-			server.serializeAttachment(attachment);
-			this.ws.noteSocket(connId, server);
-
-			this.wsConnectsThisResidency++;
-			this.wsTurnsThisResidency++;
-			this.beginWindow(collector);
-
-			const conn = { id: connId, channels };
-			try {
-				// Step A6: onConnect fires from exactly this one place
-				// — no wake path can ever reach ws.connect.
-				const result = await this.runTurn({ ok: true, kind: 'ws.connect', conn, params });
-				if (result.ok !== true) {
-					// An ok:false envelope (onConnect threw, caught by run_ws_turn())
-					// is logged and the connection is KEPT.
-					this.log('warning', {
-						msg: 'atoms.ws.connect_turn_failed',
-						conn: connId,
-						code: /** @type {any} */ (result).error?.code,
-						error: /** @type {any} */ (result).error?.message,
-					});
-				}
-			} catch (e) {
-				// A THROW means the residency was poisoned mid-onConnect: a
-				// connection whose onConnect never ran must not exist.
-				try {
-					server.close(1011, 'atoms: onConnect failed to run');
-				} catch {
-					/* best effort */
-				}
-				this.ws.forgetSocket(connId);
-				throw e;
-			}
-
-			return client;
-		});
-
 		try {
-			// Outside the mutex, exactly like invoke(): the next turn may start
-			// while this ws.connect turn's dispatch() deliveries are in flight,
-			// but the 101 does not go out until they have settled.
-			const client = await run.finally(() => this.settlePostTurn(collector));
+			const client = await this.withCallbackWindow(
+				{ type, id },
+				() => {
+					// Step A4: host-minted identity. Nothing here is derived from guest
+					// memory — id and channels are the whole attachment.
+					const connId = crypto.randomUUID();
+					const attachment = buildAttachment(connId, channels);
+					if (attachmentByteLength(attachment) > this.config.wsMaxAttachmentBytes) {
+						throw new AtomsError(
+							'invalid_request',
+							`this connection's channel list makes its attachment exceed ` +
+								`ATOMS_WS_MAX_ATTACHMENT_BYTES (${this.config.wsMaxAttachmentBytes})`
+						);
+					}
+
+					// Step A5: accept, THEN attach, THEN memoize — in that order, so a
+					// frame arriving the instant after accept still finds a readable
+					// attachment (a frame sent between acceptWebSocket() and the 101
+					// response still reaches the client; the same ordering argument
+					// applies to reads).
+					const pair = new WebSocketPair();
+					const server = pair[1];
+					const clientSide = pair[0];
+					const tags = [
+						this.config.wsConnTagPrefix + connId,
+						...channels.map((c) => this.config.wsChannelTagPrefix + c),
+					];
+					this.ctx.acceptWebSocket(server, tags);
+					server.serializeAttachment(attachment);
+					this.ws.noteSocket(connId, server);
+
+					this.wsConnectsThisResidency++;
+					this.wsTurnsThisResidency++;
+					return { server, clientSide, connId };
+				},
+				async ({ server, clientSide, connId }) => {
+					const conn = { id: connId, channels };
+					try {
+						// Step A6: onConnect fires from exactly this one place
+						// — no wake path can ever reach ws.connect.
+						const result = await this.runTurn({ ok: true, kind: 'ws.connect', conn, params });
+						if (result.ok !== true) {
+							// An ok:false envelope (onConnect threw, caught by run_ws_turn())
+							// is logged and the connection is KEPT.
+							this.log('warning', {
+								msg: 'atoms.ws.connect_turn_failed',
+								conn: connId,
+								code: /** @type {any} */ (result).error?.code,
+								error: /** @type {any} */ (result).error?.message,
+							});
+						}
+					} catch (e) {
+						// A THROW means the residency was poisoned mid-onConnect: a
+						// connection whose onConnect never ran must not exist.
+						try {
+							server.close(1011, 'atoms: onConnect failed to run');
+						} catch {
+							/* best effort */
+						}
+						this.ws.forgetSocket(connId);
+						throw e;
+					}
+
+					return clientSide;
+				},
+				(collector) => this.settlePostTurn(collector)
+			);
 			// Step A7.
 			return new Response(null, { status: 101, webSocket: client });
 		} catch (e) {
@@ -466,20 +460,19 @@ export class AtomDurableObject extends DurableObject {
 
 		this.ws.noteSocket(att.id, ws);
 		const conn = { id: att.id, channels: att.ch };
-		const collector = this.callbacks.newCollector();
-
-		const run = this.enqueue(async () => {
-			await this.ensureActive(identity.type, identity.id);
-			this.wsTurnsThisResidency++;
-			this.beginWindow(collector);
-			return this.runTurn(buildEnvelope(conn));
-		});
 
 		try {
 			// Outside the mutex, exactly like invoke()/handleWsUpgrade(): the next
 			// event may start while this turn's dispatch() deliveries are still
 			// in flight.
-			await run.finally(() => this.settlePostTurn(collector));
+			await this.withCallbackWindow(
+				identity,
+				() => {
+					this.wsTurnsThisResidency++;
+				},
+				() => this.runTurn(buildEnvelope(conn)),
+				(collector) => this.settlePostTurn(collector)
+			);
 		} catch (e) {
 			// The turn loop never throws out of here: the only way this catches
 			// is the same protocol-level failure that would poison an invoke, and
@@ -531,6 +524,51 @@ export class AtomDurableObject extends DurableObject {
 	// ------------------------------------------------------------------ turns
 
 	/**
+	 * The one place that mints a turn's delivery collector, takes the turn
+	 * mutex, opens the callback window and settles the collector afterwards —
+	 * the sequence every turn entry point used to hand-roll ([Audit F22]):
+	 *
+	 *   newCollector → enqueue(ensureActive → [mid] → beginWindow → turn)
+	 *   → run.finally(settle).
+	 *
+	 * `ensureActive` here is Step A3: the SAME activation gate fetch() uses
+	 * for an invoke — if it throws, nothing below runs and nothing has been
+	 * accepted.
+	 *
+	 * Two things are deliberately parameters, not baked in:
+	 *
+	 * - `mid` is the site-specific work between activation and the window
+	 *   opening (`handleWsUpgrade()`'s accept sequence, `wsEvent()`'s turn
+	 *   counter). It runs synchronously inside the enqueued turn exactly where
+	 *   each former copy ran it, so anything it throws still lands before the
+	 *   window opens and before any guest code runs.
+	 * - `settle` differs by entry point and MUST keep differing: timer turns
+	 *   settle deliveries only (`settleDeliveries`), while invoke/ws turns run
+	 *   the fuller `settlePostTurn` (deliveries + alarm re-arm). Collapsing
+	 *   that asymmetry would reintroduce the lost-alarm race conformance
+	 *   checks 23/24 exist to catch.
+	 *
+	 * @template T
+	 * @param {{type: string, id: string}} identity
+	 * @param {(() => any) | null} mid
+	 * @param {(mid: any) => Promise<T>} turn
+	 * @param {(collector: import('./callbacks.js').TurnCollector) => Promise<void>} settle
+	 * @returns {Promise<T>}
+	 */
+	withCallbackWindow(identity, mid, turn, settle) {
+		const collector = this.callbacks.newCollector();
+		const run = this.enqueue(async () => {
+			await this.ensureActive(identity.type, identity.id);
+			const pre = mid ? mid() : undefined;
+			this.beginWindow(collector);
+			return turn(pre);
+		});
+		// Outside the mutex, exactly like every former copy: the next turn may
+		// start while this turn's dispatch() deliveries are in flight.
+		return /** @type {Promise<T>} */ (run.finally(() => settle(collector)));
+	}
+
+	/**
 	 * One turn, serialized against every other turn in this residency.
 	 *
 	 * @param {string} type
@@ -540,17 +578,15 @@ export class AtomDurableObject extends DurableObject {
 	 * @returns {Promise<any>} the PHP turn-result envelope, plus `atom`
 	 */
 	invoke(type, id, method, args) {
-		const collector = this.callbacks.newCollector();
-		const run = this.enqueue(async () => {
-			await this.ensureActive(type, id);
-			this.beginWindow(collector);
-			const result = await this.runTurn({ ok: true, kind: 'invoke', method, args });
-			return { ...result, atom: { type, id } };
-		});
-		// Outside the mutex, inside the DO event: the next turn may start while
-		// this turn's dispatch() deliveries are in flight, but this turn's
-		// response does not go out until they have settled.
-		return run.finally(() => this.settlePostTurn(collector));
+		return this.withCallbackWindow(
+			{ type, id },
+			null,
+			async () => {
+				const result = await this.runTurn({ ok: true, kind: 'invoke', method, args });
+				return { ...result, atom: { type, id } };
+			},
+			(collector) => this.settlePostTurn(collector)
+		);
 	}
 
 	/**
@@ -1270,13 +1306,15 @@ export class AtomDurableObject extends DurableObject {
 	 * @returns {Promise<any>}
 	 */
 	async runTimerTurn(identity, timerName) {
-		const collector = this.callbacks.newCollector();
-		const run = this.enqueue(async () => {
-			await this.ensureActive(identity.type, identity.id);
-			this.beginWindow(collector);
-			return this.runTurn({ ok: true, kind: 'timer', name: timerName });
-		});
-		return run.finally(() => this.settleDeliveries(collector));
+		// settleDeliveries-only, NOT settlePostTurn: there is no HTTP response
+		// to hold, and re-arming belongs to runAlarm()'s single post-drain
+		// rearmForAlarm(). Do not "fix" this asymmetry — see the helper.
+		return this.withCallbackWindow(
+			identity,
+			null,
+			() => this.runTurn({ ok: true, kind: 'timer', name: timerName }),
+			(collector) => this.settleDeliveries(collector)
+		);
 	}
 
 	/**
