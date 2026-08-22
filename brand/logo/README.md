@@ -1,7 +1,7 @@
 # Atoms logo — official mark
 
-A molecule/arrangement mark: monolith → atom → clients, reading PHP-purple
-meeting Cloudflare-orange.
+A molecule/arrangement mark: monolith → atom → clients, in purple and
+orange — evoking the two platforms Atoms bridges, PHP and Cloudflare.
 
 ## Files
 
