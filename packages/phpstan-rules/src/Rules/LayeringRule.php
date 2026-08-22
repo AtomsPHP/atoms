@@ -96,7 +96,7 @@ final class LayeringRule implements Rule
 
         foreach ($zones as $zone) {
             foreach ($collector->symbols as $reference) {
-                if ($this->isForbidden($reference['symbol'], $zone['forbid'], $zone['allow'])) {
+                if ($zone->isForbidden($reference['symbol'])) {
                     $this->addReport(
                         $reports,
                         $reference['symbol'],
@@ -109,14 +109,14 @@ final class LayeringRule implements Rule
 
             foreach ($collector->strings as $reference) {
                 $symbol = ltrim($reference['value'], '\\');
-                if ($this->isForbidden($symbol, $zone['forbid'], $zone['allow'])) {
+                if ($zone->isForbidden($symbol)) {
                     $this->addReport($reports, $symbol, $reference['line'], 'atoms.layering.string', $relativeFile);
                 }
             }
 
             foreach ($collector->docComments as $reference) {
-                foreach ($this->symbolsMentionedIn($reference['text'], $zone['forbid']) as $symbol) {
-                    if ($this->isForbidden($symbol, $zone['forbid'], $zone['allow'])) {
+                foreach ($zone->symbolsMentionedIn($reference['text']) as $symbol) {
+                    if ($zone->isForbidden($symbol)) {
                         $this->addReport(
                             $reports,
                             $symbol,
@@ -129,12 +129,9 @@ final class LayeringRule implements Rule
             }
 
             // The global helper functions in $forbiddenFunctions (config(),
-            // app(), ...) are Illuminate/Laravel's own — the function-call
-            // sugar for the same framework its FQCNs belong to. A zone that
-            // doesn't forbid the framework by namespace (e.g. atoms/laravel
-            // itself, which legitimately calls response()/app()) has no
-            // reason to forbid its global-helper spelling either.
-            if ($this->zoneForbidsFrameworkGlobals($zone['forbid'])) {
+            // app(), ...) only apply to a zone that forbids the framework
+            // they belong to — see Zone::forbidsFrameworkGlobals().
+            if ($zone->forbidsFrameworkGlobals()) {
                 foreach ($collector->funcCalls as $reference) {
                     if ($this->isForbiddenFunction($reference['name'])) {
                         $this->addReport(
@@ -152,34 +149,6 @@ final class LayeringRule implements Rule
         return array_values($reports);
     }
 
-    /**
-     * @param list<string> $forbid
-     * @param list<string> $allow
-     */
-    private function isForbidden(string $symbol, array $forbid, array $allow): bool
-    {
-        $symbol = ltrim($symbol, '\\');
-
-        foreach ($this->prefixesWithTrailingSeparator($allow) as $prefix) {
-            if (str_starts_with($symbol, $prefix)) {
-                return false;
-            }
-        }
-
-        foreach ($this->prefixesWithTrailingSeparator($forbid) as $prefix) {
-            // Require something after the separator: a symbol that IS just
-            // "Prefix\" with nothing following isn't a reference to the
-            // namespace, it's namespace-prefix *data* (e.g. a classifier's
-            // own list of framework prefixes to check other code against —
-            // packages/cli/src/Build/SymbolClassifier.php has exactly this).
-            if (str_starts_with($symbol, $prefix) && strlen($symbol) > strlen($prefix)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private function isForbiddenFunction(string $name): bool
     {
         $name = strtolower(ltrim($name, '\\'));
@@ -191,82 +160,6 @@ final class LayeringRule implements Rule
         }
 
         return false;
-    }
-
-    /**
-     * @param list<string> $forbid
-     */
-    private function zoneForbidsFrameworkGlobals(array $forbid): bool
-    {
-        foreach ($forbid as $prefix) {
-            $prefix = trim($prefix, '\\');
-            if ($prefix === 'Illuminate' || $prefix === 'Laravel') {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Every prefix, trimmed of stray backslashes and given exactly one
-     * trailing backslash, so "does $symbol start with $prefix" already
-     * encodes "...followed by a backslash" — a bare namespace prefix like
-     * "Laravel" must never match prose that merely contains "Laravel" as a
-     * substring (e.g. "Laravel/Symfony" in a docblock, where the separator
-     * is a forward slash, not a backslash).
-     *
-     * @param list<string> $prefixes
-     * @return list<string>
-     */
-    private function prefixesWithTrailingSeparator(array $prefixes): array
-    {
-        $result = [];
-        foreach ($prefixes as $prefix) {
-            $prefix = trim($prefix, '\\');
-            if ($prefix === '') {
-                continue;
-            }
-            $result[] = $prefix . '\\';
-        }
-
-        return $result;
-    }
-
-    /**
-     * Scans free-form doc-comment text for occurrences of a forbidden
-     * namespace prefix immediately followed by a backslash (never a forward
-     * slash — see {@see prefixesWithTrailingSeparator}), returning the full
-     * namespaced symbol found at each occurrence so it can still be
-     * exempted by an `allow` prefix like any other reference.
-     *
-     * @param list<string> $forbid
-     * @return list<string>
-     */
-    private function symbolsMentionedIn(string $text, array $forbid): array
-    {
-        $alternation = [];
-        foreach ($forbid as $prefix) {
-            $prefix = trim($prefix, '\\');
-            if ($prefix !== '') {
-                $alternation[] = preg_quote($prefix, '/');
-            }
-        }
-
-        if ($alternation === []) {
-            return [];
-        }
-
-        $pattern = '/\\\\?((?:' . implode('|', $alternation) . ')(?:\\\\[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*)+)/';
-
-        if (preg_match_all($pattern, $text, $matches) === false || $matches[1] === []) {
-            return [];
-        }
-
-        /** @var list<string> $symbols */
-        $symbols = array_values(array_unique($matches[1]));
-
-        return $symbols;
     }
 
     /**
