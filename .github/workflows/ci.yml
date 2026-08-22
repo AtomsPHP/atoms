@@ -245,12 +245,13 @@ jobs:
       # secret: tickets are signed and callbacks are signed in every posture,
       # so only the bearer comparison is off.
       #
-      # Backgrounded with its output on disk, so the log survives the step and
-      # can be printed whatever happens later. dev:callback (not `wrangler dev`
-      # directly) so the Worker starts with the run's secret and a loopback
-      # ATOMS_CALLBACK_URL wired in, and records the secret and the listener
-      # port in test/.dev-secret.json — see scripts/dev-with-callback.mjs. No
-      # Cloudflare account, token or network involved.
+      # Posture 1 boots through dev:callback (not `wrangler dev` directly),
+      # unlike every other posture: its env is not the subject, and
+      # dev-with-callback.mjs additionally wires a loopback ATOMS_CALLBACK_URL
+      # and records the run's secret + listener port in test/.dev-secret.json
+      # for checks 13-17. The other postures' env IS the subject, so they boot
+      # wrangler directly with explicit --vars via the worker-posture action.
+      # No Cloudflare account, token or network involved in either path.
       - name: Start wrangler dev
         env:
           ATOMS_SHARED_SECRET: ${{ env.RUN_SECRET }}
@@ -336,60 +337,21 @@ jobs:
       # secret posture 1 ran with: two genuinely different values, so "both
       # bearers are accepted" cannot pass by accident.
       - name: Auth, rotation and deny-list checks with bearer auth required
+        uses: ./.github/actions/worker-posture
         env:
-          ATOMS_SHARED_SECRET: ${{ env.RUN_SECRET_NEXT }}
-          ATOMS_SHARED_SECRET_PREVIOUS: ${{ env.RUN_SECRET }}
-        run: |
-          # wrangler.pid is the `npm run` wrapper; killing it alone orphans
-          # the wrangler/workerd children, which keep the port and would make
-          # this step test posture 1's server. Take down the whole tree, then
-          # require the port to actually go quiet before starting this
-          # posture's server — a still-answering /healthz here is the old
-          # server, not a head start.
-          kill "$(cat wrangler.pid)" 2>/dev/null || true
-          pkill -f 'wrangler-dist/cli.js dev' 2>/dev/null || true
-          pkill -f 'workerd serve' 2>/dev/null || true
-          freed=0
-          for i in $(seq 1 15); do
-            if ! curl -fsS "http://127.0.0.1:${WORKER_PORT}/healthz" > /dev/null 2>&1; then freed=1; break; fi
-            sleep 1
-          done
-          if [ "$freed" != "1" ]; then
-            echo "::error::posture 1's worker is still answering on port ${WORKER_PORT}; refusing to run the bearer-required checks against it"
-            exit 1
-          fi
-          npx wrangler dev --port "$WORKER_PORT" --ip 127.0.0.1 \
-            --var "ATOMS_SHARED_SECRET:${ATOMS_SHARED_SECRET}" \
-            --var "ATOMS_SHARED_SECRET_PREVIOUS:${ATOMS_SHARED_SECRET_PREVIOUS}" \
-            --var "ATOMS_CALLBACK_URL:http://127.0.0.1:${ATOMS_CALLBACK_PORT}/atoms/callback" \
-            --var "ATOMS_CONFIG_ENV_KEYS:ATOMS_SHARED_SECRET,ATOMS_SHARED_SECRET_PREVIOUS,ATOMS_DEBUG_ENDPOINTS" \
-            > wrangler-auth.log 2>&1 &
-          echo $! > wrangler.pid
-          up=0
-          for i in $(seq 1 60); do
-            if curl -fsS "http://127.0.0.1:${WORKER_PORT}/healthz" > /dev/null 2>&1; then
-              echo "bearer-required worker answered /healthz after ~$((i * 2))s"
-              up=1
-              break
-            fi
-            if ! kill -0 "$(cat wrangler.pid)" 2>/dev/null; then
-              echo "::error::wrangler dev (bearer required) exited before serving /healthz"
-              cat wrangler-auth.log
-              exit 1
-            fi
-            sleep 2
-          done
-          if [ "$up" != "1" ]; then
-            echo "::error::the bearer-required worker never served /healthz within 120s"
-            cat wrangler-auth.log
-            exit 1
-          fi
-          ATOMS_BASE_URL="http://127.0.0.1:${WORKER_PORT}" \
-            ATOMS_ONLY=2,32,33,34,35,36,37,38,39,40,42 \
-            ATOMS_REQUIRE_TICKET_CHECKS=1 \
-            ATOMS_REQUIRE_ROTATION_CHECKS=1 \
-            ATOMS_REQUIRE_DENY_CHECKS=1 \
-            npm test
+          ATOMS_REQUIRE_TICKET_CHECKS: '1'
+          ATOMS_REQUIRE_ROTATION_CHECKS: '1'
+          ATOMS_REQUIRE_DENY_CHECKS: '1'
+        with:
+          name: bearer-required
+          worker-port: ${{ env.WORKER_PORT }}
+          run-secret: ${{ env.RUN_SECRET }}
+          vars: |
+            ATOMS_SHARED_SECRET=$RUN_SECRET_NEXT
+            ATOMS_SHARED_SECRET_PREVIOUS=$RUN_SECRET
+            ATOMS_CALLBACK_URL=http://127.0.0.1:${{ env.ATOMS_CALLBACK_PORT }}/atoms/callback
+            ATOMS_CONFIG_ENV_KEYS=ATOMS_SHARED_SECRET,ATOMS_SHARED_SECRET_PREVIOUS,ATOMS_DEBUG_ENDPOINTS
+          checks: '2,32,33,34,35,36,37,38,39,40,42'
 
       # Posture 3 — no shared secret at all. The Worker still serves
       # /healthz; every other route answers the wire code `misconfigured`, so
@@ -398,48 +360,16 @@ jobs:
       # dev secret file posture 1 wrote is removed, so the runner arrives with
       # no credential either — the shape an operator hits.
       - name: Misconfigured Worker posture
+        uses: ./.github/actions/worker-posture
         env:
           ATOMS_REQUIRE_CALLBACK_CHECKS: ''
           ATOMS_REQUIRE_BEARER_VECTOR: ''
-        run: |
-          kill "$(cat wrangler.pid)" 2>/dev/null || true
-          pkill -f 'wrangler-dist/cli.js dev' 2>/dev/null || true
-          pkill -f 'workerd serve' 2>/dev/null || true
-          freed=0
-          for i in $(seq 1 15); do
-            if ! curl -fsS "http://127.0.0.1:${WORKER_PORT}/healthz" > /dev/null 2>&1; then freed=1; break; fi
-            sleep 1
-          done
-          if [ "$freed" != "1" ]; then
-            echo "::error::posture 2's worker is still answering on port ${WORKER_PORT}; refusing to run the misconfigured check against it"
-            exit 1
-          fi
-          rm -f test/.dev-secret.json
-          npx wrangler dev --port "$WORKER_PORT" --ip 127.0.0.1 > wrangler-misconfigured.log 2>&1 &
-          echo $! > wrangler.pid
-          up=0
-          for i in $(seq 1 60); do
-            if curl -fsS "http://127.0.0.1:${WORKER_PORT}/healthz" > /dev/null 2>&1; then
-              echo "misconfigured worker answered /healthz after ~$((i * 2))s"
-              up=1
-              break
-            fi
-            if ! kill -0 "$(cat wrangler.pid)" 2>/dev/null; then
-              echo "::error::wrangler dev (no secret) exited before serving /healthz"
-              cat wrangler-misconfigured.log
-              exit 1
-            fi
-            sleep 2
-          done
-          if [ "$up" != "1" ]; then
-            echo "::error::the misconfigured worker never served /healthz within 120s"
-            cat wrangler-misconfigured.log
-            exit 1
-          fi
-          ATOMS_BASE_URL="http://127.0.0.1:${WORKER_PORT}" \
-            ATOMS_ONLY=41 \
-            ATOMS_EXPECT_MISCONFIGURED=1 \
-            npm test
+        with:
+          name: misconfigured
+          worker-port: ${{ env.WORKER_PORT }}
+          checks: '41'
+          extra-env: |
+            ATOMS_EXPECT_MISCONFIGURED=1
 
       # Posture 4 — a malformed rotation overlap. The rotation rule cuts both
       # ways: ATOMS_SHARED_SECRET_PREVIOUS may be absent or a valid secret,
@@ -450,59 +380,30 @@ jobs:
       # refusal can only be about the overlap. One check, no eviction waits,
       # seconds. The runner carries no credential — check 44 needs none.
       - name: Malformed-previous-secret posture
+        uses: ./.github/actions/worker-posture
         env:
           ATOMS_REQUIRE_CALLBACK_CHECKS: ''
           ATOMS_REQUIRE_BEARER_VECTOR: ''
-        run: |
-          kill "$(cat wrangler.pid)" 2>/dev/null || true
-          pkill -f 'wrangler-dist/cli.js dev' 2>/dev/null || true
-          pkill -f 'workerd serve' 2>/dev/null || true
-          freed=0
-          for i in $(seq 1 15); do
-            if ! curl -fsS "http://127.0.0.1:${WORKER_PORT}/healthz" > /dev/null 2>&1; then freed=1; break; fi
-            sleep 1
-          done
-          if [ "$freed" != "1" ]; then
-            echo "::error::posture 3's worker is still answering on port ${WORKER_PORT}; refusing to run the malformed-previous check against it"
-            exit 1
-          fi
-          rm -f test/.dev-secret.json
-          npx wrangler dev --port "$WORKER_PORT" --ip 127.0.0.1 \
-            --var "ATOMS_SHARED_SECRET:${RUN_SECRET}" \
-            --var "ATOMS_SHARED_SECRET_PREVIOUS:this-was-never-base64" \
-            > wrangler-malformed-previous.log 2>&1 &
-          echo $! > wrangler.pid
-          up=0
-          for i in $(seq 1 60); do
-            if curl -fsS "http://127.0.0.1:${WORKER_PORT}/healthz" > /dev/null 2>&1; then
-              echo "malformed-previous worker answered /healthz after ~$((i * 2))s"
-              up=1
-              break
-            fi
-            if ! kill -0 "$(cat wrangler.pid)" 2>/dev/null; then
-              echo "::error::wrangler dev (malformed previous) exited before serving /healthz"
-              cat wrangler-malformed-previous.log
-              exit 1
-            fi
-            sleep 2
-          done
-          if [ "$up" != "1" ]; then
-            echo "::error::the malformed-previous worker never served /healthz within 120s"
-            cat wrangler-malformed-previous.log
-            exit 1
-          fi
-          ATOMS_BASE_URL="http://127.0.0.1:${WORKER_PORT}" \
-            ATOMS_ONLY=44 \
-            ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1 \
-            npm test
+        with:
+          name: malformed-previous
+          worker-port: ${{ env.WORKER_PORT }}
+          run-secret: ${{ env.RUN_SECRET }}
+          vars: |
+            ATOMS_SHARED_SECRET=$RUN_SECRET
+            ATOMS_SHARED_SECRET_PREVIOUS=this-was-never-base64
+          checks: '44'
+          extra-env: |
+            ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1
 
       # Unconditional: when a check fails, the interesting half of the story is
       # on the worker's side of the connection, and the runner is gone after
-      # the job ends.
+      # the job ends. Each posture names its own log wrangler-<posture>.log.
       - name: Wrangler log
         if: always()
         run: |
           cat wrangler.log || true
-          cat wrangler-auth.log 2>/dev/null || true
-          cat wrangler-misconfigured.log 2>/dev/null || true
-          cat wrangler-malformed-previous.log 2>/dev/null || true
+          for f in wrangler-*.log; do
+            [ -e "$f" ] || continue
+            echo "=== $f ==="
+            cat "$f"
+          done
