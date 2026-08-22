@@ -113,8 +113,8 @@ async function route(request, env) {
 	// says which variable and which rule (ATOMS-E105). `loadConfig()` stays
 	// total, so /healthz still answers and the deployment is observably up and
 	// observably broken.
-	if (config.sharedSecretState !== 'configured') {
-		return errorResponse('misconfigured', config.sharedSecretError ?? 'ATOMS_SHARED_SECRET is not usable');
+	if (!config.sharedSecret.ok) {
+		return errorResponse('misconfigured', config.sharedSecret.error ?? 'ATOMS_SHARED_SECRET is not usable');
 	}
 
 	const authFailure = await checkAuth(request, config);
@@ -180,7 +180,7 @@ async function route(request, env) {
  * chosen by an attacker-controlled header.
  *
  * @param {Request} request
- * @param {import('./config.js').AtomsConfig} config with `sharedSecretState === 'configured'`
+ * @param {import('./config.js').AtomsConfig} config with `sharedSecret.ok`
  * @returns {Promise<Response|null>}
  */
 async function checkAuth(request, config) {
@@ -191,10 +191,15 @@ async function checkAuth(request, config) {
 	if (!m) return errorResponse('unauthenticated', 'missing or invalid bearer token');
 	const presented = m[1];
 
-	const secret = /** @type {Uint8Array} */ (config.sharedSecretBytes);
-	if (timingSafeEqual(presented, await deriveBearer(secret))) return null;
+	// Unreachable past the configuration gate — the union's `ok: false` branch
+	// never gets here — but a typed internal failure rather than a cast that
+	// would derive from nothing.
+	if (!config.sharedSecret.ok) {
+		throw new AtomsError('internal', 'ATOMS_SHARED_SECRET is not configured');
+	}
+	if (timingSafeEqual(presented, await deriveBearer(config.sharedSecret.bytes))) return null;
 
-	const previous = config.sharedSecretPreviousBytes;
+	const previous = config.sharedSecret.previousBytes;
 	if (previous !== null && timingSafeEqual(presented, await deriveBearer(previous))) return null;
 
 	return errorResponse('unauthenticated', 'missing or invalid bearer token');
