@@ -441,6 +441,61 @@ jobs:
             ATOMS_EXPECT_MISCONFIGURED=1 \
             npm test
 
+      # Posture 4 — a malformed rotation overlap. The rotation rule cuts both
+      # ways: ATOMS_SHARED_SECRET_PREVIOUS may be absent or a valid secret,
+      # never a half-set string, because mid-rotation it is what the bearer
+      # and ticket checks fall back to (spec §"The shared secret"). Check 41
+      # pins the missing-current leg; this posture pins the malformed-previous
+      # leg against a Worker whose CURRENT secret is genuinely valid, so the
+      # refusal can only be about the overlap. One check, no eviction waits,
+      # seconds. The runner carries no credential — check 44 needs none.
+      - name: Malformed-previous-secret posture
+        env:
+          ATOMS_REQUIRE_CALLBACK_CHECKS: ''
+          ATOMS_REQUIRE_BEARER_VECTOR: ''
+        run: |
+          kill "$(cat wrangler.pid)" 2>/dev/null || true
+          pkill -f 'wrangler-dist/cli.js dev' 2>/dev/null || true
+          pkill -f 'workerd serve' 2>/dev/null || true
+          freed=0
+          for i in $(seq 1 15); do
+            if ! curl -fsS "http://127.0.0.1:${WORKER_PORT}/healthz" > /dev/null 2>&1; then freed=1; break; fi
+            sleep 1
+          done
+          if [ "$freed" != "1" ]; then
+            echo "::error::posture 3's worker is still answering on port ${WORKER_PORT}; refusing to run the malformed-previous check against it"
+            exit 1
+          fi
+          rm -f test/.dev-secret.json
+          npx wrangler dev --port "$WORKER_PORT" --ip 127.0.0.1 \
+            --var "ATOMS_SHARED_SECRET:${RUN_SECRET}" \
+            --var "ATOMS_SHARED_SECRET_PREVIOUS:this-was-never-base64" \
+            > wrangler-malformed-previous.log 2>&1 &
+          echo $! > wrangler.pid
+          up=0
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${WORKER_PORT}/healthz" > /dev/null 2>&1; then
+              echo "malformed-previous worker answered /healthz after ~$((i * 2))s"
+              up=1
+              break
+            fi
+            if ! kill -0 "$(cat wrangler.pid)" 2>/dev/null; then
+              echo "::error::wrangler dev (malformed previous) exited before serving /healthz"
+              cat wrangler-malformed-previous.log
+              exit 1
+            fi
+            sleep 2
+          done
+          if [ "$up" != "1" ]; then
+            echo "::error::the malformed-previous worker never served /healthz within 120s"
+            cat wrangler-malformed-previous.log
+            exit 1
+          fi
+          ATOMS_BASE_URL="http://127.0.0.1:${WORKER_PORT}" \
+            ATOMS_ONLY=44 \
+            ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1 \
+            npm test
+
       # Unconditional: when a check fails, the interesting half of the story is
       # on the worker's side of the connection, and the runner is gone after
       # the job ends.
@@ -450,3 +505,4 @@ jobs:
           cat wrangler.log || true
           cat wrangler-auth.log 2>/dev/null || true
           cat wrangler-misconfigured.log 2>/dev/null || true
+          cat wrangler-malformed-previous.log 2>/dev/null || true
