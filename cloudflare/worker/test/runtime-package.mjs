@@ -79,6 +79,7 @@ try {
 		'package/template/release/supported-core',
 		'package/template/scripts/prepare-runtime.mjs',
 		'package/template/scripts/bundle-from-cli.mjs',
+		'package/template/scripts/lib/bundle-module.mjs',
 		'package/template/src/index.js',
 		'package/template/wrangler.jsonc',
 		'package/LICENSE',

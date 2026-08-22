@@ -38,6 +38,8 @@ import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
+import { runtimeFiles, sortedFiles, writeBundleModule } from './lib/bundle-module.mjs';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const SUPPORTED_CORE_PATH = path.join(PROJECT_ROOT, 'release', 'supported-core');
@@ -129,56 +131,6 @@ function readTar(buf) {
 		files.set(prefix ? `${prefix}/${name}` : name, buf.subarray(start, start + size).toString('utf-8'));
 
 		offset = start + Math.ceil(size / BLOCK) * BLOCK;
-	}
-
-	return files;
-}
-
-/**
- * Recursively read a directory into {guestPath: contents}.
- *
- * @param {string} dir
- * @param {string} prefix
- * @returns {Record<string, string>}
- */
-function walkDir(dir, prefix = '') {
-	const files = {};
-	if (!fs.existsSync(dir)) return files;
-
-	for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-		const full = path.join(dir, entry.name);
-		const guest = path.posix.join(prefix, entry.name);
-		if (entry.isDirectory()) Object.assign(files, walkDir(full, guest));
-		else if (entry.isFile()) files[guest] = fs.readFileSync(full, 'utf-8');
-	}
-
-	return files;
-}
-
-/**
- * The runtime half of the bundle: the `Atoms\Cf` prelude and the verbatim
- * `atoms/core` sources.
- *
- * The `resources/` split is load-bearing, exactly as in build-bundle.mjs:
- * `Atoms\Errors\ErrorCatalog` resolves its catalog as
- * `__DIR__ . '/../../resources/errors.json'`, i.e. from `/atoms/core/src/Errors`
- * up to `/atoms/core/resources`. See php/README.md §1.
- *
- * @returns {Record<string, string>}
- */
-function runtimeFiles() {
-	const files = {};
-
-	const runtimeDir = path.join(PROJECT_ROOT, 'php', 'runtime');
-	if (!fs.existsSync(runtimeDir)) throw new Error(`php/runtime/ not found at ${runtimeDir}`);
-	Object.assign(files, walkDir(runtimeDir, '/atoms/runtime'));
-
-	const coreDir = path.join(PROJECT_ROOT, 'php', 'atoms-core');
-	if (!fs.existsSync(coreDir)) throw new Error(`php/atoms-core/ not found at ${coreDir}`);
-	for (const [rel, contents] of Object.entries(walkDir(coreDir, '/'))) {
-		if (!/\.(php|json)$/.test(rel)) continue; // VENDORED-FROM.md et al.
-		const stripped = rel.replace(/^\//, '');
-		files[stripped.startsWith('resources/') ? `/atoms/core/${stripped}` : `/atoms/core/src/${stripped}`] = contents;
 	}
 
 	return files;
@@ -326,23 +278,10 @@ function main() {
 		}
 	}
 
-	const all = { ...appFiles, ...runtimeFiles() };
-	const files = {};
-	for (const key of Object.keys(all).sort()) files[key] = all[key];
+	const all = { ...appFiles, ...runtimeFiles(PROJECT_ROOT) };
+	const files = sortedFiles(all);
 
-	const output = `/**
- * Auto-generated bundle by bundle-from-cli.mjs
- * Do not edit manually.
- */
-
-export default {
-  manifest: ${JSON.stringify(manifest, null, 2)},
-  files: ${JSON.stringify(files, null, 2)},
-};
-`;
-
-	fs.mkdirSync(path.dirname(outputFile), { recursive: true });
-	fs.writeFileSync(outputFile, output, 'utf-8');
+	writeBundleModule('bundle-from-cli.mjs', manifest, files, outputFile);
 
 	console.error('Bundle generated successfully');
 	console.error(`Files included: ${Object.keys(files).length}`);
