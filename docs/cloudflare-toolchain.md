@@ -178,7 +178,50 @@ exists to keep the rule true in a log, not to weaken it.
 **There is no `--api-token` option, deliberately.** A credential passed as a
 command-line argument sits in the CLI's own argv, readable by every other
 process on the machine, and usually in shell history too — which would make the
-sentence above false at the very first hop. The environment is the only inlet.
+sentence above false at the very first hop. The environment is the only inlet
+Atoms itself has.
+
+**A token is not required, though — Wrangler's own login session works.**
+When `CLOUDFLARE_API_TOKEN` is absent the CLI injects nothing and lets Wrangler
+resolve credentials the way it does for `npx wrangler deploy`: from the OAuth
+session `wrangler login` maintains. That is not a relaxation of the rule above
+but the strongest possible form of it — on that path no credential passes
+through the Atoms process at all, and the developer who is most Cloudflare-
+native stops being the one pushed toward `export`ing a long-lived token into a
+shell rc file. Atoms never stores, reads or refreshes that session; Wrangler
+owns it entirely.
+
+The consequence is that "no credentials" is Wrangler's question to answer, not
+one the CLI can pre-empt: only Wrangler knows whether a login session exists.
+So the CLI hands off, and reads the answer back out of the failure —
+`WranglerResult::isCredentialFailure()` recognises Wrangler's own
+no-credentials messages and raises **ATOMS-E072**, whose fix line names both
+inlets. That match is deliberately narrow: a credential Cloudflare *rejected*
+is a different failure and stays **ATOMS-E074**, whose fix line already names
+the permission to check, so E072 keeps meaning what its title says. Matching
+Wrangler's wording at all is a deliberate drift risk with a harmless failure
+mode: unrecognised phrasing simply lands on E074, which points the reader at
+the Wrangler output printed immediately above it.
+
+Nothing about this can hang a headless run. `ProcessWrangler::childEnv()` sets
+`CI=true` when the ambient environment has not, so a Wrangler with neither
+token nor session errors out immediately instead of waiting on a browser
+handoff it could not complete.
+
+`CLOUDFLARE_ACCOUNT_ID` follows the same rule, for the same reason. Credentials
+that reach exactly one account resolve it without being told, and how many they
+reach is Wrangler's knowledge, not ours — so an absent account id is no longer a
+precondition either. Where it genuinely is ambiguous, Wrangler says so and that
+becomes **ATOMS-E075**, with its own listing of the accounts it can see printed
+above. Setting `account_id` in `atoms.json` is still the recommendation: it
+makes the deploy target explicit in the repository rather than dependent on
+whose login is running, and it is the only way to be sure a multi-account
+login deploys where you meant. It is simply no longer demanded up front.
+
+Both codes now arrive from the same seam, and neither pre-empts Wrangler on a
+question only Wrangler can answer. The cost is that a run missing both fails
+after the build and stage rather than before them; the benefit is that it fails
+only when it genuinely could not have worked.
 
 `atoms dev` requires neither: `wrangler dev` runs workerd locally, so a
 developer with no Cloudflare account can still work.
@@ -213,13 +256,15 @@ value there wins over `CLOUDFLARE_ACCOUNT_ID` in the environment
 (`CloudflareTarget::resolve()`).
 
 **Which commands need it.** `deploy`, `rollback`, `status`, `secrets:list`,
-`secrets:set`, `shared-secret:set` and `shared-secret:unset` resolve
-credentials before contacting Cloudflare, failing with **ATOMS-E072** (no
-token) or **ATOMS-E075** (no account id) up front rather than part-way through.
-(The two commands that take a secret value read it first, so a piped value is
-consumed before the credential check reports.) `build`, `init`, `token` and
-`dev` need neither — among others — so the whole write-build-run loop is
-reachable without a Cloudflare account at all.
+`secrets:set`, `shared-secret:set` and `shared-secret:unset` contact
+Cloudflare through Wrangler, which resolves credentials itself — from
+`CLOUDFLARE_API_TOKEN` if set, otherwise from its own login session. A
+missing or ambiguous credential surfaces as **ATOMS-E072** (no credentials)
+or **ATOMS-E075** (no account id) from Wrangler's own output. (The two
+commands that take a secret value read it first, so a piped value is
+consumed before the deploy begins.) `build`, `init`, `token` and `dev` need
+neither — among others — so the whole write-build-run loop is reachable
+without a Cloudflare account at all.
 
 **Where to keep the token on a workstation.** Roughly in order of preference:
 
@@ -572,8 +617,9 @@ atoms deploy --env production
 
 1. Load `atoms.json`; resolve the environment.
 2. Resolve the Cloudflare target: worker name, account id, API token, worker
-   directory. Missing credentials fail here — E072 (token), E075 (account) —
-   before anything runs.
+   directory. No credential check happens here any more — a missing token may
+   be a `wrangler login` session, and a missing account id may be the only
+   account that session reaches. Both are knowable only at step 5.
 3. `atoms build` → `.atoms/build/bundle-{sha}.tar.gz` + `manifest.json`.
    Deterministic; executes no customer code. (`--bundle` skips this and deploys
    a prebuilt one.)
@@ -581,9 +627,13 @@ atoms deploy --env production
    `node scripts/bundle-from-cli.mjs <bundle> <manifest> src/bundle.generated.js`
    inside it. The translator refuses a manifest paired with the wrong bundle,
    and refuses a manifest naming a file the bundle does not contain.
-5. `wrangler deploy --name {worker}` in that directory, with the credentials in
-   its environment and Wrangler's own output passed through unedited.
-6. Non-zero exit ⇒ **ATOMS-E074**, with Wrangler's diagnosis already printed.
+5. `wrangler deploy --name {worker}` in that directory, with whatever
+   credentials this process resolved in its environment — possibly none, in
+   which case Wrangler uses its own login session — and Wrangler's own output
+   passed through unedited.
+6. Non-zero exit ⇒ **ATOMS-E074**, with Wrangler's diagnosis already printed;
+   or **ATOMS-E072** when that diagnosis is that it had no credentials at all,
+   or **ATOMS-E075** when it could not choose between several accounts.
 
 Nothing in this sequence contacts a service operated by Atoms.
 

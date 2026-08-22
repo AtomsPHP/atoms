@@ -218,9 +218,9 @@ jobs:
 
 | Code | Means | Do |
 |------|-------|----|
-| `ATOMS-E072` | Deploy credentials missing | Supply `cloudflare-api-token`; check the secret exists in this repository/environment. |
+| `ATOMS-E072` | Wrangler found no credentials at all | Supply `cloudflare-api-token`; check the secret exists in this repository/environment. A runner has no `wrangler login` session to fall back on, so the token is the only inlet here. |
 | `ATOMS-E073` | Wrangler not found | Restore the default runtime scaffold, or ensure a custom Worker contains its locked Wrangler install. |
 | `ATOMS-E074` | Wrangler command failed | Read Wrangler's own output; it reports Cloudflare's rejection verbatim. Usually a token missing **Workers Scripts:Edit** on that account. |
-| `ATOMS-E075` | Cloudflare account not configured | Supply `cloudflare-account-id`, or set `account_id` for the environment in `atoms.json`. |
+| `ATOMS-E075` | Wrangler could not choose between several accounts | Supply `cloudflare-account-id`, or set `account_id` for the environment in `atoms.json`. Only raised when the token reaches more than one account. |
 | `ATOMS-E105` | Shared secret missing or malformed | The `shared-secret` input is not 32 bytes of base64. Regenerate with `openssl rand -base64 32`. |
 | `ATOMS-E076` | Worker directory missing or incomplete | Remove an incomplete default scaffold so the action can recreate it, or repair the caller-managed Worker directory. |
