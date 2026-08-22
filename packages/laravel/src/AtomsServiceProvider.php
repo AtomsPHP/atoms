@@ -172,16 +172,10 @@ final class AtomsServiceProvider extends ServiceProvider
 
             if ($fullPath !== null && is_file($fullPath)) {
                 try {
-                    $manifest = (new ManifestLoader())->load($fullPath);
-
-                    $typeMap = [];
-                    foreach ($manifest->atoms as $atom) {
-                        if ($atom->class !== '') {
-                            $typeMap[$atom->type !== '' ? $atom->type : $atom->class] = $atom->class;
-                        }
-                    }
-
-                    $resolver->registerTypeMap($typeMap);
+                    // Where the manifest lives is Laravel's question; what is
+                    // inside it is the manifest's own shape, so atoms/client
+                    // reads it (docs/integration-plan.md §11).
+                    $resolver->registerManifest((new ManifestLoader())->load($fullPath));
                 } catch (\Throwable) {
                     // Best-effort: an unreadable/invalid manifest just means the
                     // convention-based lookup in MethodsResolver::resolve() is
