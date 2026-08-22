@@ -20,7 +20,8 @@ npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
 ```
 
 Fill in the Cloudflare account id, Worker endpoint and callback URL in
-`atoms.json`. Export `CLOUDFLARE_API_TOKEN`, then deploy:
+`atoms.json`. Authenticate with Cloudflare — export `CLOUDFLARE_API_TOKEN`, or
+use the `wrangler login` session you already have — then deploy:
 
 ```sh
 vendor/bin/atoms deploy --env production

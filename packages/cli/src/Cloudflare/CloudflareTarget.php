@@ -24,6 +24,21 @@ use Atoms\Errors\ErrorCode;
  * make the invariant above false at the very first hop. `$apiToken` stays a
  * parameter for testing and for callers that already hold the value; the only
  * way a user supplies one is `CLOUDFLARE_API_TOKEN` in the environment.
+ *
+ * **No token is not an error here.** Wrangler resolves credentials itself, and
+ * an existing `wrangler login` OAuth session is one Atoms never sees: with no
+ * `CLOUDFLARE_API_TOKEN` set, nothing is injected and Wrangler uses its own.
+ * That is the invariant above at its strongest — no credential passes through
+ * this process at all — so the CLI hands off rather than pre-empting. When
+ * Wrangler has nothing either it says so, and {@see WranglerResult::assertOk()}
+ * reports that as ATOMS-E072.
+ *
+ * **No account id is not an error here either**, for the same reason: a login
+ * that can reach exactly one account needs no telling, and only Wrangler knows
+ * how many it can reach. A login that can reach several cannot be resolved
+ * silently — Wrangler says so, and that becomes ATOMS-E075. Setting
+ * `account_id` in atoms.json still makes the target explicit, and remains the
+ * recommendation; it is simply no longer a precondition.
  */
 final class CloudflareTarget
 {
@@ -61,37 +76,32 @@ final class CloudflareTarget
     /**
      * Resolve from atoms.json plus explicit overrides plus the environment.
      *
-     * `$requireCredentials` is false for commands that never talk to
-     * Cloudflare's API (`atoms dev` runs Wrangler entirely locally), so a
-     * developer without an account can still work.
+     * Nothing about credentials fails here any more. Neither half is Atoms'
+     * to adjudicate: the token may be a `wrangler login` session this process
+     * cannot see, and the account may be the only one that session can reach,
+     * in which case Wrangler selects it without being told. Both answers live
+     * in the child process, so both are read back out of its failure by
+     * {@see WranglerResult::assertOk()} — E072 and E075 respectively.
      *
-     * @throws AtomsError E070 (unknown environment), E072 (no API token),
-     *                    E075 (no account id), E076 (unusable Worker directory)
+     * There is consequently no `$requireCredentials` flag left to pass: the
+     * commands that never touch Cloudflare's API used it to opt out of checks
+     * that no longer exist.
+     *
+     * @throws AtomsError E070 (unknown environment),
+     *                    E076 (unusable Worker directory)
      */
     public static function resolve(
         AtomsJson $config,
         string $environment,
         ?string $apiToken = null,
         ?string $workerDir = null,
-        bool $requireCredentials = true,
     ): self {
         $env = $config->environment($environment);
 
+        // Absent is a legitimate answer for both: Wrangler resolves its own
+        // credentials, and its own account, when this process supplies none.
         $token = self::firstNonEmpty($apiToken, self::env('CLOUDFLARE_API_TOKEN'));
-        if ($requireCredentials && $token === null) {
-            throw new AtomsError(
-                ErrorCode::DeployCredentialsMissing,
-                ErrorCatalog::format(ErrorCode::DeployCredentialsMissing, ['environment' => $environment]),
-            );
-        }
-
         $accountId = self::firstNonEmpty($env['account_id'], self::env('CLOUDFLARE_ACCOUNT_ID')) ?? '';
-        if ($requireCredentials && $accountId === '') {
-            throw new AtomsError(
-                ErrorCode::CloudflareAccountMissing,
-                ErrorCatalog::format(ErrorCode::CloudflareAccountMissing, ['environment' => $environment]),
-            );
-        }
 
         $dir = self::firstNonEmpty($workerDir, $env['worker_dir']) ?? self::DEFAULT_WORKER_DIR;
 
@@ -150,6 +160,10 @@ final class CloudflareTarget
      * are the names Wrangler itself reads, deliberately: Atoms is a caller of
      * the user's own toolchain, not a broker sitting between them and
      * Cloudflare.
+     *
+     * An absent key is the whole mechanism behind the OAuth fallback: with no
+     * `CLOUDFLARE_API_TOKEN` here, Wrangler consults its own login session,
+     * which Atoms neither reads nor stores.
      *
      * @return array<string, string>
      */

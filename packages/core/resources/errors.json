@@ -324,8 +324,8 @@
         {
             "code": "ATOMS-E072",
             "title": "Deploy credentials missing",
-            "message": "No Cloudflare API token found for environment {environment}.",
-            "fix": "Export CLOUDFLARE_API_TOKEN. It is never accepted as a command-line option — a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`.",
+            "message": "`wrangler {command}` found no Cloudflare credentials to use.",
+            "fix": "Either export CLOUDFLARE_API_TOKEN with Workers Scripts:Edit on the target account, or run `wrangler login` in the Worker directory so Wrangler holds its own OAuth session — Atoms passes through whichever it finds, and injects nothing when there is no token. A token is never accepted as a command-line option: a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`; a runner has no login session to fall back on.",
             "severity": "error",
             "phase": "cli"
         },
@@ -348,8 +348,8 @@
         {
             "code": "ATOMS-E075",
             "title": "Cloudflare account not configured",
-            "message": "Environment {environment} has no Cloudflare account id.",
-            "fix": "Add \"account_id\" to that environment in atoms.json, or set CLOUDFLARE_ACCOUNT_ID. Find it on the Workers & Pages overview in the Cloudflare dashboard.",
+            "message": "`wrangler {command}` could not choose a Cloudflare account: no account id was configured, and the credentials reach more than one.",
+            "fix": "Add \"account_id\" to that environment in atoms.json (it is not a secret), or set CLOUDFLARE_ACCOUNT_ID. Wrangler's own output above lists the accounts it can see; the id is also on the Workers & Pages overview in the Cloudflare dashboard. An account id is only required when the credentials reach several accounts — Atoms no longer demands one up front.",
             "severity": "error",
             "phase": "cli"
         },

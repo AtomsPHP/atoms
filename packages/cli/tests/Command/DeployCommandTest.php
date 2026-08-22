@@ -173,9 +173,11 @@ final class DeployCommandTest extends TestCase
     public function testWranglerFailureMapsToE074AndShowsWranglerOutput(): void
     {
         $wrangler = new FakeWrangler();
+        // A Cloudflare rejection that is not about credentials: those are
+        // ATOMS-E072 now, and this test is about everything else.
         $wrangler->deployResult = FakeWrangler::failed(
             ['deploy'],
-            "✘ [ERROR] Authentication error [code: 10000]\n",
+            "✘ [ERROR] A request to the Cloudflare API failed.\n  Script size too large [code: 10027]\n",
         );
         $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
 
@@ -189,7 +191,7 @@ final class DeployCommandTest extends TestCase
         $display = $tester->getDisplay();
         self::assertSame(1, $exit);
         self::assertStringContainsString('ATOMS-E074', $display);
-        self::assertStringContainsString('Authentication error', $display, "wrangler's own diagnosis must survive");
+        self::assertStringContainsString('Script size too large', $display, "wrangler's own diagnosis must survive");
     }
 
     public function testStagingFailureMapsToE074AndNeverDeploys(): void
@@ -238,7 +240,7 @@ final class DeployCommandTest extends TestCase
         self::assertSame([], $wrangler->calls);
     }
 
-    public function testMissingApiTokenMapsToE072(): void
+    public function testMissingApiTokenDefersToWranglersOwnLoginSession(): void
     {
         putenv('CLOUDFLARE_API_TOKEN');
         $wrangler = new FakeWrangler();
@@ -248,34 +250,100 @@ final class DeployCommandTest extends TestCase
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
             '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
         ]);
 
-        self::assertSame(1, $exit);
-        self::assertStringContainsString('ATOMS-E072', $tester->getDisplay());
-        self::assertSame([], $wrangler->calls, 'nothing should run without credentials');
+        self::assertSame(0, $exit, $tester->getDisplay());
+        self::assertStringNotContainsString('ATOMS-E072', $tester->getDisplay());
+
+        $call = $wrangler->lastCall('deploy');
+        self::assertNotNull($call, 'a token-less deploy must still reach Wrangler');
+        // Nothing injected: the absence is what lets Wrangler use the OAuth
+        // session `wrangler login` maintains, which Atoms never sees.
+        self::assertArrayNotHasKey('CLOUDFLARE_API_TOKEN', $call['target']->credentialEnv());
     }
 
-    public function testMissingAccountIdMapsToE075(): void
+    public function testWranglerHavingNoCredentialsEitherMapsToE072(): void
+    {
+        putenv('CLOUDFLARE_API_TOKEN');
+        $wrangler = new FakeWrangler();
+        $wrangler->deployResult = FakeWrangler::failed(
+            ['deploy'],
+            "✘ [ERROR] In a non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN "
+            . "environment variable for wrangler to work.\n",
+        );
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E072', $display);
+        self::assertStringNotContainsString('ATOMS-E074', $display);
+        // Wrangler's own diagnosis is printed, not summarised away.
+        self::assertStringContainsString('non-interactive environment', $display);
+    }
+
+    public function testMissingAccountIdAlsoDefersToWrangler(): void
     {
         $wrangler = new FakeWrangler();
         $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
 
-        // A project whose atoms.json carries no account_id, with none in the
-        // environment either.
+        $exit = $tester->execute([
+            '--root' => $this->rootWithoutAccountId(),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        // A login that reaches exactly one account resolves it without being
+        // told, so an absent account id cannot be an error before Wrangler runs.
+        self::assertSame(0, $exit, $tester->getDisplay());
+        $call = $wrangler->lastCall('deploy');
+        self::assertNotNull($call);
+        self::assertArrayNotHasKey('CLOUDFLARE_ACCOUNT_ID', $call['target']->credentialEnv());
+    }
+
+    public function testWranglerUnableToChooseAnAccountMapsToE075(): void
+    {
+        $wrangler = new FakeWrangler();
+        $wrangler->deployResult = FakeWrangler::failed(
+            ['deploy'],
+            "✘ [ERROR] More than one account available but unable to select one in non-interactive mode.\n"
+            . "  Please set the appropriate `account_id` or assign it to the CLOUDFLARE_ACCOUNT_ID "
+            . "environment variable.\n",
+        );
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+
+        $exit = $tester->execute([
+            '--root' => $this->rootWithoutAccountId(),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        $display = $tester->getDisplay();
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E075', $display);
+        self::assertStringNotContainsString('ATOMS-E074', $display);
+        // Wrangler lists the accounts it can see; that list is the fix.
+        self::assertStringContainsString('More than one account available', $display);
+    }
+
+    /** A copy of the fixture whose atoms.json carries no account_id. */
+    private function rootWithoutAccountId(): string
+    {
         $root = $this->tempCopy('sample-app');
         $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
         unset($config['environments']['production']['account_id']);
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
 
-        $exit = $tester->execute([
-            '--root' => $root,
-            '--env' => 'production',
-            '--worker-dir' => $this->workerDir(),
-        ]);
-
-        self::assertSame(1, $exit);
-        self::assertStringContainsString('ATOMS-E075', $tester->getDisplay());
-        self::assertSame([], $wrangler->calls);
+        return $root;
     }
 
     public function testUnusableWorkerDirectoryMapsToE076(): void
