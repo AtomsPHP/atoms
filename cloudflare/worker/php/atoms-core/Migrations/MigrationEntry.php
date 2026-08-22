@@ -21,6 +21,28 @@ final class MigrationEntry
 {
     private ?Migration $loaded = null;
 
+    /**
+     * Exactly one of $sql and $phpFile must be non-null. The two are one
+     * payload in two shapes, not two optional fields, and {@see isSql()} reads
+     * $sql alone to tell the shapes apart — so a $phpFile entry must leave $sql
+     * null, or it will be applied as SQL and never loaded.
+     *
+     * The constructor does not enforce this. It is public ABI, and every
+     * in-repo entry comes from {@see MigrationSet::fromDirectory()}, which
+     * upholds the invariant by construction; a loader outside this package that
+     * builds entries directly owns it instead.
+     *
+     * The neither-set case is the costly one, because nothing downstream
+     * reports it: {@see migration()} returns null when $phpFile is null, and
+     * {@see Migrator::apply()} bumps `PRAGMA user_version` and commits whether
+     * or not a payload ran. Such an entry marks its version applied having
+     * done nothing, and the next run reads it as already applied.
+     *
+     * @param string $sha256 hex sha256 of the migration file's contents
+     * @param string|null $sql the migration's SQL, for a `NNN_name.sql` entry
+     * @param string|null $phpFile path to a `NNN_name.php` file returning a
+     *                             {@see Migration}, for a PHP entry
+     */
     public function __construct(
         public readonly int $version,
         public readonly string $name,
