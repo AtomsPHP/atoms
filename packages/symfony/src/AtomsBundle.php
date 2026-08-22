@@ -200,9 +200,12 @@ final class AtomsBundle extends AbstractBundle
         // throwaway container holding only this extension's own work, so
         // hasAlias() would read false in every case that matters. The passes'
         // compile-time resolution is what makes registration order irrelevant;
-        // the parameters are the price of it, and the two
+        // the parameters are the price of it. The two
         // testAnAppBound*AliasWinsOverTheConfiguredServiceId cases in
-        // AtomsBundleExtensionTest fail if that is ever undone.
+        // AtomsBundleExtensionTest pin the compile-time precedence: with an
+        // app alias bound before compile(), the parameter's service id wins
+        // over the config key. They do not simulate the load-time
+        // alternative; the ordering argument above is what rules it out.
         // (Audit F8, resolved as decline-and-document.)
         $container->setParameter(HttpClientPass::CONFIGURED_SERVICE_ID_PARAMETER, $config['http_client']);
         $container->setParameter(Psr17FactoryPass::CONFIGURED_SERVICE_ID_PARAMETER, $config['psr17_factory']);
