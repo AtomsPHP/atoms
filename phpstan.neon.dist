@@ -23,7 +23,7 @@ parameters:
             # namespace prefix, Doctrine's) to detect the same symbols when
             # OTHER packages reference them. That's not a dependency on the
             # framework, same as bare-prefix classifier data is already
-            # exempt elsewhere (see LayeringRule::isForbidden) — these are
+            # exempt elsewhere (see Zone::isForbidden) — these are
             # just full symbol names rather than bare prefixes, so they need
             # an explicit allow rather than the bare-prefix carve-out.
             - { paths: [packages/phpstan-rules/src], allow: ['Illuminate\Support\Facades', 'Illuminate\Database\Eloquent', 'Doctrine\ORM'], forbid: [Illuminate, Laravel, Symfony, Doctrine, GuzzleHttp, Monolog, Twig, 'Atoms\Client', 'Atoms\Laravel', 'Atoms\Symfony', 'Atoms\Cli', 'Atoms\Testing'] }
