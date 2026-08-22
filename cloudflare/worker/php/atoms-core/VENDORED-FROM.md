@@ -22,6 +22,7 @@ reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 | Re-verified | 2026-08-16, comment-pattern cleanup of `Websocket/{JsonFrame,Message}.php` — `JsonFrame::decode()`'s docblock reworded from constraint-as-identity phrasing ("is a frame") to a stated rule ("must decode to"), and from a "frame" reused mid-sentence for both the WebSocket-protocol sense and this library's structured-payload sense; `Message::json()`'s docblock, which duplicated that same explanation in full, now cross-references `{@see JsonFrame::decode()}` instead. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-16, on the duplicate-FQCN discovery fix — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E002 added: two files declaring the same class under the Atoms path, raised by the CLI's build-time discovery). Nothing in the guest raises it; the copy carries it because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-17, on the Wrangler credential handoff (`docs/cloudflare-toolchain.md` §Credentials) — `resources/errors.json` re-vendored (E072 and E075 reworded: the CLI no longer pre-empts a missing `CLOUDFLARE_API_TOKEN` or a missing account id, so both codes now name the inlets and are raised from Wrangler's own failure output). No code added or removed; still 24 files total, the other 23 digests are unchanged |
+| Re-verified | 2026-08-16, on the named-argument hydration primitive — `Serialization/Serializer.php` re-vendored (`denormalizeNamedArguments()` added: the one owner of the "bind wire args to a constructor by name" algebra the dispatched-job envelope and Payload hydration share; `denormalizePayload()` rewired onto it). Additive to the ABI, no existing signature changed. Still 24 files total, the other 23 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -108,7 +109,7 @@ e0f9f876e5365af6f73e37c07957b202f1f6aef138e2b7ab3fd3acb98b261e7f  Runtime/AtomCo
 bad340c4631a86b8b0d33df013854e5494f7e639917c71e103ce0635cb47dc41  Runtime/LifecycleInvoker.php
 b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/Payload.php
 1486ab89bf416b88929159b6014b2a268b081f2efd1d46a314fe4d86948d8bc8  Serialization/SerializationException.php
-0b3224c2173e0fcde24b433a9373a5a1268f72a7a94e232f214e1c6bb15ec1d4  Serialization/Serializer.php
+7e293792487fcd78e1d36ef6ea5c85665e39882313ddee58d610d390698c4655  Serialization/Serializer.php
 1fde1d8fa58f1bf741d746d8f82fd3dc847fb0ae44b04baa4c2eccd033df3295  Timers/Timers.php
 7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
 a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php

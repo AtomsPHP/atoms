@@ -40,6 +40,25 @@ final class Boundary
     }
 
     /**
+     * Round-trip a map of named arguments — the `args` half of a dispatched
+     * job's `{job, args}` wire shape — into the JSON-decoded form the runtime
+     * would hand a monolith, ready for
+     * {@see Serializer::denormalizeNamedArguments()} to bind by name.
+     *
+     * @param array<string, mixed> $args
+     * @return array<array-key, mixed>
+     */
+    public static function roundTripNamedArgs(array $args, Serializer $serializer): array
+    {
+        $json = json_encode($serializer->normalize($args), JSON_THROW_ON_ERROR);
+
+        /** @var array<array-key, mixed> $decoded */
+        $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+
+        return $decoded;
+    }
+
+    /**
      * Round-trip a return value against a declared return type. Class types
      * (Payload/DateTimeImmutable/BackedEnum) are denormalized back into that
      * type; scalars/array/mixed/void pass through the decoded JSON value.

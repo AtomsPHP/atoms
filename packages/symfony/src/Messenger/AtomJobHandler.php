@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace Atoms\Symfony\Messenger;
 
 use Atoms\AtomJob;
+use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCatalog;
+use Atoms\Errors\ErrorCode;
+use Atoms\Serialization\SerializationException;
 use Atoms\Serialization\Serializer;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 
@@ -34,61 +38,32 @@ final class AtomJobHandler
         }
     }
 
+    /**
+     * The binding algebra lives in the core Serializer (docs/conventions.md),
+     * so a Messenger-delivered job hydrates exactly as the callback kernel's
+     * does — an absent argument takes its default, then null when the
+     * parameter is nullable, and is a catalogued failure otherwise.
+     *
+     * @throws AtomsError            ATOMS-E033 when the class is not an AtomJob
+     * @throws SerializationException ATOMS-E024 when an argument is missing or
+     *                                of the wrong type
+     */
     private function reconstruct(AtomJobMessage $message): AtomJob
     {
         $class = $message->jobClass;
 
         if (!class_exists($class) || !is_subclass_of($class, AtomJob::class)) {
-            throw new \RuntimeException(sprintf(
-                'Cannot reconstruct AtomJob: "%s" is not a class extending %s.',
-                $class,
-                AtomJob::class,
+            throw new AtomsError(ErrorCode::NotAnAtomJob, ErrorCatalog::format(
+                ErrorCode::NotAnAtomJob,
+                ['atom' => 'The Messenger envelope', 'class' => $class === '' ? '(none)' : $class],
             ));
         }
 
         /** @var \ReflectionClass<AtomJob> $reflection */
         $reflection = new \ReflectionClass($class);
-        $constructor = $reflection->getConstructor();
 
-        if ($constructor === null) {
-            return $reflection->newInstance();
-        }
-
-        $args = [];
-        foreach ($constructor->getParameters() as $param) {
-            $name = $param->getName();
-
-            if (array_key_exists($name, $message->args)) {
-                $type = $this->parameterType($param);
-                $args[] = $type === 'mixed' ? $message->args[$name] : $this->serializer->denormalize($message->args[$name], $type);
-                continue;
-            }
-
-            if ($param->isDefaultValueAvailable()) {
-                $args[] = $param->getDefaultValue();
-                continue;
-            }
-
-            $args[] = null;
-        }
-
-        return $reflection->newInstanceArgs($args);
-    }
-
-    private function parameterType(\ReflectionParameter $param): string
-    {
-        $type = $param->getType();
-
-        if (!$type instanceof \ReflectionNamedType) {
-            return 'mixed';
-        }
-
-        $name = $type->getName();
-
-        if ($name === 'mixed') {
-            return 'mixed';
-        }
-
-        return ($type->allowsNull() && $name !== 'null') ? '?' . $name : $name;
+        return $reflection->newInstanceArgs(
+            $this->serializer->denormalizeNamedArguments($class, $message->args),
+        );
     }
 }

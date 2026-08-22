@@ -54,6 +54,15 @@ final class ChatRoom extends Atom
         ]);
     }
 
+    /**
+     * Dispatches the same job without every required argument, so the harness
+     * can prove reconstruction refuses it with the catalog code.
+     */
+    public function recordPartialScore(string $username): void
+    {
+        $this->dispatch(RecordResult::class, ['user' => $username]);
+    }
+
     public function badReturn(): object
     {
         return new \stdClass();
