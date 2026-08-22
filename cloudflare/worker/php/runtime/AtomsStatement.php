@@ -30,9 +30,10 @@
  * carries the SOURCE-ORDER column names, duplicates preserved, from
  * `cursor.columnNames` (bridge.js) — the one place the wire's true arity
  * survives, since the `{column: value}` row maps have already collapsed
- * duplicate names (last value wins). FETCH_NUM/FETCH_BOTH/FETCH_COLUMN and
- * FETCH_NAMED all consult it to refuse precisely, rather than silently
- * answering with the wrong arity, whenever it reports a duplicate.
+ * duplicate names (last value wins). Every mode that needs that true arity
+ * consults it through THE one guard — {@see \Atoms\Cf\FetchMode::refuseDuplicateColumns()}
+ * (audit F23) — refusing precisely, rather than silently answering with
+ * the wrong arity, whenever it reports a duplicate.
  *
  * No declare(strict_types=1) — see the note in host.php.
  */
@@ -553,7 +554,7 @@ class AtomsStatement extends \PDOStatement
             // duplicate column names the collapsed `$row` has fewer entries
             // than the true arity, so the callable would be invoked with too
             // few (and wrong) positional values instead of the true row.
-            $this->refuseDuplicateColumns('PDO::FETCH_FUNC');
+            FetchMode::refuseDuplicateColumns('PDO::FETCH_FUNC', $this->columns);
 
             $fn = $args[0];
             $remaining = array_slice($this->rows, $this->cursor);
@@ -588,7 +589,7 @@ class AtomsStatement extends \PDOStatement
             // into one key (last value wins), `array_values($row)` no longer
             // has two entries to pair, so refuse instead of pairing a
             // collapsed value with itself or with null.
-            $this->refuseDuplicateColumns('PDO::FETCH_KEY_PAIR');
+            FetchMode::refuseDuplicateColumns('PDO::FETCH_KEY_PAIR', $this->columns);
 
             $remaining = array_slice($this->rows, $this->cursor);
             $this->cursor = count($this->rows);
@@ -617,13 +618,11 @@ class AtomsStatement extends \PDOStatement
             }
             // M1 review round 2, R1: the grouping/unique KEY is
             // `$values[0]` — the FIRST column, always taken positionally —
-            // regardless of $base, including FETCH_ASSOC, which
-            // assertNoDuplicatesFor()'s narrower NUM/BOTH/COLUMN whitelist
-            // does not cover. A collapsed first column silently keys every
-            // group by the wrong (last-wins) value, so this refuses for
-            // EVERY base mode FETCH_GROUP/FETCH_UNIQUE can combine with,
-            // strictly more than assertNoDuplicatesFor() checks elsewhere.
-            $this->refuseDuplicateColumns($hasUnique ? 'PDO::FETCH_UNIQUE' : 'PDO::FETCH_GROUP');
+            // regardless of $base, including FETCH_ASSOC, so this refuses
+            // for EVERY base mode FETCH_GROUP/FETCH_UNIQUE can combine with,
+            // strictly more than the NEEDS_TRUE_ARITY table checks for the
+            // plain per-row modes elsewhere.
+            FetchMode::refuseDuplicateColumns($hasUnique ? 'PDO::FETCH_UNIQUE' : 'PDO::FETCH_GROUP', $this->columns);
 
             $remaining = array_slice($this->rows, $this->cursor);
             $this->cursor = count($this->rows);
@@ -710,7 +709,7 @@ class AtomsStatement extends \PDOStatement
                 // bound column is one of the duplicates — a later positional
                 // shift from an EARLIER duplicate would silently misalign
                 // every bound column after it.
-                $this->refuseDuplicateColumns('PDOStatement::bindColumn()/FETCH_BOUND');
+                FetchMode::refuseDuplicateColumns('PDOStatement::bindColumn()/FETCH_BOUND', $this->columns);
 
                 $values = array_values($row);
                 foreach ($this->boundColumns as $index => &$ref) {
@@ -727,13 +726,7 @@ class AtomsStatement extends \PDOStatement
                 // byte-identical to FETCH_ASSOC. With duplicates, the values
                 // that would need grouping are already gone from the wire
                 // (last-wins collapse) — refuse rather than answer wrong.
-                if ($this->hasDuplicateColumns()) {
-                    throw new \PDOException(
-                        'SQLSTATE[HY000]: General error: PDO::FETCH_NAMED cannot group this result set\'s '
-                        . 'duplicate column names — the Atoms bridge has already collapsed them (last value '
-                        . 'wins) before this fetch mode could see the true arity.'
-                    );
-                }
+                FetchMode::refuseDuplicateColumns('PDO::FETCH_NAMED', $this->columns);
 
                 return $row;
 
@@ -747,7 +740,7 @@ class AtomsStatement extends \PDOStatement
                 // fragility as FETCH_BOUND above, specifically for the one
                 // column whose value picks WHICH CLASS gets instantiated.
                 if ($classType) {
-                    $this->refuseDuplicateColumns('PDO::FETCH_CLASSTYPE');
+                    FetchMode::refuseDuplicateColumns('PDO::FETCH_CLASSTYPE', $this->columns);
                 }
 
                 return $this->hydrateObject($row, $args[0] ?? 'stdClass', $args[1] ?? null, $propsLate, $classType);
@@ -763,81 +756,16 @@ class AtomsStatement extends \PDOStatement
                 return $this->hydrateInto($row, $args[0]);
 
             case \PDO::FETCH_COLUMN:
-                $this->assertNoDuplicatesFor($base);
+                FetchMode::refuseDuplicateColumns(\PDO::FETCH_COLUMN, $this->columns);
                 $index = $args[0] ?? 0;
                 $values = array_values($row);
 
                 return array_key_exists($index, $values) ? $values[$index] : null;
         }
 
-        $this->assertNoDuplicatesFor($base);
+        FetchMode::refuseDuplicateColumns($base, $this->columns);
 
         return FetchMode::shape($row, FetchMode::assertSupported($base, 'PDOStatement fetch mode'));
-    }
-
-    /**
-     * Refuse (rather than silently answer with the wrong arity) the modes
-     * that need the ORIGINAL column count — NUM, BOTH, COLUMN-by-index —
-     * when `$this->columns` (Branch A) reports duplicates (M1 design §2.7).
-     * ASSOC/OBJ are exempt: they collapse identically on both sides (a JS
-     * object and a PHP associative array both last-wins), so they stay a
-     * genuine match, not a refusal.
-     *
-     * @param int $base
-     */
-    private function assertNoDuplicatesFor($base)
-    {
-        if (!in_array($base, [\PDO::FETCH_NUM, \PDO::FETCH_BOTH, \PDO::FETCH_COLUMN], true)) {
-            return;
-        }
-
-        if ($this->hasDuplicateColumns()) {
-            throw new \PDOException(
-                'SQLSTATE[HY000]: General error: this result set has duplicate column names; the Atoms '
-                . 'bridge\'s wire has already collapsed them (last value wins) before this fetch mode could '
-                . 'see the true column arity. Use FETCH_ASSOC/FETCH_OBJ (which collapse identically to real '
-                . 'pdo_sqlite), or alias the columns distinctly.'
-            );
-        }
-    }
-
-    /**
-     * @return bool
-     */
-    private function hasDuplicateColumns()
-    {
-        return count($this->columns) !== count(array_unique($this->columns));
-    }
-
-    /**
-     * The general-purpose sibling of {@see assertNoDuplicatesFor()} (M1
-     * review round 2, R1): every OTHER positional consumer of a result set —
-     * FETCH_KEY_PAIR, FETCH_FUNC, FETCH_GROUP/FETCH_UNIQUE's grouping key
-     * (any base mode, not only NUM/BOTH/COLUMN), FETCH_BOUND (by-index AND
-     * by-name — a duplicate ANYWHERE in the row shifts every index after it,
-     * even the one bindColumn() correctly resolved), and FETCH_CLASSTYPE's
-     * classname column — reads `$this->columns`'/the wire row's original
-     * POSITIONS, which the wire's last-wins `{column: value}` collapse has
-     * already destroyed whenever a duplicate name exists anywhere in the
-     * result set. `assertNoDuplicatesFor()` stays narrowly scoped to
-     * NUM/BOTH/COLUMN (where ASSOC/OBJ staying exempt is the point); this one
-     * has no such exemption; the caller passes the right label for the
-     * message.
-     *
-     * @param string $what a short label for the mode being refused
-     */
-    private function refuseDuplicateColumns($what)
-    {
-        if (!$this->hasDuplicateColumns()) {
-            return;
-        }
-
-        throw new \PDOException(sprintf(
-            'SQLSTATE[HY000]: General error: %s cannot see this result set\'s true column positions — the '
-            . 'Atoms bridge\'s wire has already collapsed duplicate column names (last value wins) before '
-            . 'this fetch mode could recover them. Alias duplicate columns distinctly instead.',
-            $what
-        ));
     }
 
     /**
@@ -981,8 +909,11 @@ class AtomsStatement extends \PDOStatement
         // exactly like hydrateOneRow()'s FETCH_COLUMN case, but reached the
         // wire directly and skipped the duplicate-column guard — silently
         // answering the wrong column's value under duplicates instead of
-        // refusing like every other FETCH_COLUMN path.
-        $this->assertNoDuplicatesFor(\PDO::FETCH_COLUMN);
+        // refusing like every other FETCH_COLUMN path. The miss is exactly
+        // what audit F23's consolidation exists to prevent: the guard now
+        // lives in ONE place (FetchMode::refuseDuplicateColumns()), so an
+        // entry point can only skip it by never calling it at all.
+        FetchMode::refuseDuplicateColumns(\PDO::FETCH_COLUMN, $this->columns);
 
         if (!array_key_exists($this->cursor, $this->rows)) {
             return false;
