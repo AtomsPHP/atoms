@@ -256,6 +256,10 @@
     "value.float_integral": {
       "class": "deviation",
       "why": "A REAL literal holding a whole number (2.0) round-trips as PHP int(2) on our side (typeof still correctly reports 'real' — the storage class is not lost, only the PHP-level type PDO hands back); real pdo_sqlite returns float(2). Root cause: JSON has no int/float distinction for a whole-number token, and our wire's encodeInt64Deep() emits an integral JS number as a plain JSON numeral indistinguishable from an int, so json_decode() on this side always resolves it to PHP int. There is no workaround short of a schema-aware encoder change; do not rely on a computed REAL that happens to be whole staying a PHP float."
+    },
+    "stmt.debug_dump_params.rebind_int_string_alias": {
+      "class": "deviation",
+      "why": "bindValue(1, ...) then bindValue('1', ...) is ONE binding on our side — PHP array-key coercion aliases the int and string spellings onto a single map key (the F24 fix), so debugDumpParams() lists the param once, in its first-bind form (Position #0) carrying the rebind's value and type. Real pdo_sqlite registers the two calls as TWO DISTINCT parameters (positional #1 and a named :1, paramno=-1) and dumps both. Reproducing native here would require re-splitting the binding maps the fix consolidated: two dump entries reading one shared map slot, both reporting the rebind's type rather than each registration's own. Bind each placeholder consistently (all positional or all named) to stay clear of the corner."
     }
   }
 }
