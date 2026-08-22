@@ -213,11 +213,10 @@ that reach exactly one account resolve it without being told, and how many they
 reach is Wrangler's knowledge, not ours — so an absent account id is no longer a
 precondition either. Where it genuinely is ambiguous, Wrangler says so and that
 becomes **ATOMS-E075**, with its own listing of the accounts it can see printed
-above. Setting `account_id` in `atoms.json` is still the recommendation: it is
-not a secret, it makes the deploy target explicit in the repository rather than
-dependent on whose login is running, and it is the only way to be sure a
-multi-account login deploys where you meant. It is simply no longer demanded up
-front.
+above. Setting `account_id` in `atoms.json` is still the recommendation: it
+makes the deploy target explicit in the repository rather than dependent on
+whose login is running, and it is the only way to be sure a multi-account
+login deploys where you meant. It is simply no longer demanded up front.
 
 Both codes now arrive from the same seam, and neither pre-empts Wrangler on a
 question only Wrangler can answer. The cost is that a run missing both fails
@@ -257,13 +256,15 @@ value there wins over `CLOUDFLARE_ACCOUNT_ID` in the environment
 (`CloudflareTarget::resolve()`).
 
 **Which commands need it.** `deploy`, `rollback`, `status`, `secrets:list`,
-`secrets:set`, `shared-secret:set` and `shared-secret:unset` resolve
-credentials before contacting Cloudflare, failing with **ATOMS-E072** (no
-token) or **ATOMS-E075** (no account id) up front rather than part-way through.
-(The two commands that take a secret value read it first, so a piped value is
-consumed before the credential check reports.) `build`, `init`, `token` and
-`dev` need neither — among others — so the whole write-build-run loop is
-reachable without a Cloudflare account at all.
+`secrets:set`, `shared-secret:set` and `shared-secret:unset` contact
+Cloudflare through Wrangler, which resolves credentials itself — from
+`CLOUDFLARE_API_TOKEN` if set, otherwise from its own login session. A
+missing or ambiguous credential surfaces as **ATOMS-E072** (no credentials)
+or **ATOMS-E075** (no account id) from Wrangler's own output. (The two
+commands that take a secret value read it first, so a piped value is
+consumed before the deploy begins.) `build`, `init`, `token` and `dev` need
+neither — among others — so the whole write-build-run loop is reachable
+without a Cloudflare account at all.
 
 **Where to keep the token on a workstation.** Roughly in order of preference:
 
