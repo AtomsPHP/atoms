@@ -44,10 +44,15 @@ inputs:
     description: 'Value substituted for $RUN_SECRET inside vars (kept out of the yml)'
     required: false
     default: ''
+  working-directory:
+    description: 'Directory wrangler dev and npm test run in. Composite-action steps do not inherit the caller job''s defaults.run.working-directory, so this must be passed explicitly.'
+    required: false
+    default: cloudflare/worker
 runs:
   using: composite
   steps:
     - shell: bash
+      working-directory: ${{ inputs.working-directory }}
       env:
         POSTURE_NAME: ${{ inputs.name }}
         POSTURE_VARS: ${{ inputs.vars }}
