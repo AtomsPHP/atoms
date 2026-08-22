@@ -169,4 +169,22 @@ final class AtomsServiceProviderTest extends TestCase
 
         self::assertSame(GameRoom\Methods::class, $resolver->resolve(GameRoom::class));
     }
+
+    /**
+     * A manifest that exists but does not parse reaches the loader and throws,
+     * so it exercises the adapter's catch rather than the is_file() guard: the
+     * binding still resolves, and convention-based lookup still works. Only the
+     * manifest-derived wire types are lost.
+     */
+    public function testMethodsResolverDegradesGracefullyOnAnUnparseableManifest(): void
+    {
+        config(['atoms.manifest_path' => __DIR__ . '/Fixtures/unparseable-manifest.json']);
+        $this->app->forgetInstance(MethodsResolver::class);
+
+        $resolver = $this->app->make(MethodsResolver::class);
+
+        self::assertInstanceOf(MethodsResolver::class, $resolver);
+        self::assertSame(GameRoom\Methods::class, $resolver->resolve(GameRoom::class));
+        self::assertNull($resolver->resolve('GameRoom'));
+    }
 }

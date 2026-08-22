@@ -60,6 +60,40 @@ final readonly class Manifest
     }
 
     /**
+     * Wire type → Atom FQCN for every Atom the manifest declares, in the shape
+     * {@see \Atoms\Client\Callback\MethodsResolver::registerTypeMap()} accepts.
+     *
+     * The `atoms` section is the manifest's own shape, so reading it belongs
+     * here rather than in whichever adapter happens to hold the manifest path.
+     * A manifest is data an adapter loads best-effort, so an incomplete entry
+     * is dropped or degraded rather than raised:
+     *
+     *  - an empty `class` is skipped — there is no FQCN to resolve a type to;
+     *  - an empty `type` is keyed by its class instead, so the entry still
+     *    resolves when the wire type is the FQCN (or its basename, which
+     *    registerTypeMap() adds).
+     *
+     * @return array<string, class-string>
+     */
+    public function typeMap(): array
+    {
+        $map = [];
+
+        foreach ($this->atoms as $atom) {
+            if ($atom->class === '') {
+                continue;
+            }
+
+            /** @var class-string $class */
+            $class = $atom->class;
+
+            $map[$atom->type !== '' ? $atom->type : $class] = $class;
+        }
+
+        return $map;
+    }
+
+    /**
      * Recursively sort associative-array keys; preserve list order.
      */
     private static function canonicalize(mixed $value): mixed

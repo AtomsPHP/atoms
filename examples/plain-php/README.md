@@ -136,6 +136,18 @@ $resolver->registerMethodsClass(\App\Atoms\GameRoom\Methods::class); // one line
 lower-level escape hatch for a Methods class with no `#[MethodsFor]`
 attribute, or a wire type whose basename does not match the Atom class's own.
 
+If you already run `atoms build`, `registerManifest()` fills that same map
+from the manifest instead of a line per Atom — every Atom the manifest
+declares, in one call:
+
+```php
+$manifest = (new \Atoms\Client\Manifest\ManifestLoader())->load('.atoms/build/manifest.json');
+$resolver->registerManifest($manifest);
+```
+
+It only maps wire types to Atom classes; a Methods class that is not
+convention-named still needs its `#[MethodsFor]` (or a `map()` entry).
+
 ## Supply a real queue bridge
 
 `ArrayQueueBridge` (`src/ArrayQueueBridge.php`) is a demo: it appends
