@@ -342,6 +342,7 @@ jobs:
           name: bearer-required
           worker-port: ${{ env.WORKER_PORT }}
           run-secret: ${{ env.RUN_SECRET }}
+          run-secret-next: ${{ env.RUN_SECRET_NEXT }}
           vars: |
             ATOMS_SHARED_SECRET=$RUN_SECRET_NEXT
             ATOMS_SHARED_SECRET_PREVIOUS=$RUN_SECRET

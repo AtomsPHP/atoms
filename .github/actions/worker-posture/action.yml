@@ -44,6 +44,10 @@ inputs:
     description: 'Value substituted for $RUN_SECRET inside vars (kept out of the yml)'
     required: false
     default: ''
+  run-secret-next:
+    description: 'Value substituted for $RUN_SECRET_NEXT inside vars (kept out of the yml)'
+    required: false
+    default: ''
   working-directory:
     description: 'Directory wrangler dev and npm test run in. Composite-action steps do not inherit the caller job''s defaults.run.working-directory, so this must be passed explicitly.'
     required: false
@@ -61,5 +65,6 @@ runs:
         POSTURE_STEP_ENV: ${{ inputs.step-env }}
         WORKER_PORT: ${{ inputs.worker-port }}
         RUN_SECRET: ${{ inputs.run-secret }}
+        RUN_SECRET_NEXT: ${{ inputs.run-secret-next }}
       run: |
         bash "$GITHUB_ACTION_PATH/posture.sh"

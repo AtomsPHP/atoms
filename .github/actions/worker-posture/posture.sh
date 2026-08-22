@@ -46,7 +46,10 @@ while IFS= read -r pair; do
   # unset rather than pass it empty (an empty ATOMS_SHARED_SECRET is a
   # different configuration from an absent one).
   [[ "$value" == "-" ]] && continue
-  value="${value//\$RUN_SECRET/$RUN_SECRET}"
+  # Substitute $RUN_SECRET and $RUN_SECRET_NEXT. Word-boundary matters: the
+  # rotated secret must not match the prefix of $RUN_SECRET_NEXT.
+  value="${value//\$RUN_SECRET_NEXT/${RUN_SECRET_NEXT:-}}"
+  value="${value//\$RUN_SECRET/${RUN_SECRET:-}}"
   var_args+=("--var" "${name}:${value}")
 done < <(printf '%s\n' "$POSTURE_VARS")
 
