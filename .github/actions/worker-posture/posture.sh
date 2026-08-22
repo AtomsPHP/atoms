@@ -92,5 +92,5 @@ done < <(printf '%s\n' "$POSTURE_EXTRA_ENV")
 env \
   ATOMS_BASE_URL="http://127.0.0.1:${WORKER_PORT}" \
   ATOMS_ONLY="$POSTURE_CHECKS" \
-  $extra_env_args \
+  ${extra_env_args[@]+"${extra_env_args[@]}"} \
   npm test
