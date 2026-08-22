@@ -47,8 +47,8 @@ while IFS= read -r pair; do
   # different configuration from an absent one).
   [[ "$value" == "-" ]] && continue
   value="${value//\$RUN_SECRET/$RUN_SECRET}"
-  var_args+=(--var "${name}:${value}")
-done <<< "$POSTURE_VARS"
+  var_args+=("--var" "${name}:${value}")
+done < <(printf '%s\n' "$POSTURE_VARS")
 
 npx wrangler dev --port "$WORKER_PORT" --ip 127.0.0.1 "${var_args[@]}" > "$log_name" 2>&1 &
 echo $! > wrangler.pid
@@ -87,7 +87,7 @@ extra_env_args=()
 while IFS= read -r pair; do
   [[ -z "$pair" ]] && continue
   extra_env_args+=("${pair%%=*}=${pair#*=}")
-done <<< "$POSTURE_EXTRA_ENV"
+done < <(printf '%s\n' "$POSTURE_EXTRA_ENV")
 
 env \
   ATOMS_BASE_URL="http://127.0.0.1:${WORKER_PORT}" \
