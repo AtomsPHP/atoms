@@ -81,6 +81,7 @@ final class Cases
             self::idsAndCounts(),
             self::binding(),
             self::fetchModes(),
+            self::fetchModeDefaults(),
             self::valuesAndRoundTrips(),
             self::errors(),
             self::duplicateColumns(),
@@ -1485,6 +1486,142 @@ final class Cases
                     $stmt->setFetchMode(\PDO::FETCH_INTO, $obj);
 
                     return $stmt->fetch();
+                }
+            ),
+        ];
+    }
+
+    // -------------------------------------------------- fetch-mode defaults
+
+    /**
+     * Audit F23's second half, MEASURED (issue #39): `FetchMode::supported()`
+     * lists 6 modes while `setFetchMode()` accepts 9, and they disagree on
+     * FETCH_KEY_PAIR (connection-level default OK, statement-level default
+     * refused) and its reverse siblings (FETCH_BOUND/FETCH_NAMED/FETCH_CLASS/
+     * FETCH_INTO accepted at statement level, refused as a connection-level
+     * default). These cases measure that unmeasured corner against native
+     * pdo_sqlite BEFORE any behavior change is considered — each case runs
+     * the identical closure on both sides and the matrix classifies whatever
+     * each side does. Until a measured alignment is deliberately landed, the
+     * disagreements stay exactly as they are: these cases only pin what IS.
+     *
+     * Cases that mutate the connection's ATTR_DEFAULT_FETCH_MODE restore
+     * FETCH_BOTH in a `finally` — the one connection in Differential::run()
+     * is shared by every case in this group on each side, and the comparator
+     * contract requires the untouched default (see Comparator::build()).
+     */
+    private static function fetchModeDefaults(): array
+    {
+        $g = 'Fetch-mode defaults';
+
+        $pairSql = "SELECT k, i FROM probe_rows WHERE k = 'a'";
+
+        return [
+            self::c(
+                'mode.conn.default_key_pair',
+                $g,
+                'PDO::setAttribute()',
+                'FETCH_KEY_PAIR as the connection-level default fetch mode',
+                static function (\PDO $p) use ($pairSql) {
+                    try {
+                        return [
+                            $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_KEY_PAIR),
+                            $p->query($pairSql)->fetchAll(),
+                        ];
+                    } finally {
+                        try {
+                            $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_BOTH);
+                        } catch (\Throwable $ignored) {
+                            // restoring must never mask the case's own outcome
+                        }
+                    }
+                }
+            ),
+            self::c(
+                'mode.stmt.default_key_pair',
+                $g,
+                'PDOStatement::setFetchMode()',
+                'FETCH_KEY_PAIR as the statement-level default fetch mode',
+                static function (\PDO $p) use ($pairSql) {
+                    $stmt = $p->query($pairSql);
+                    $ok = $stmt->setFetchMode(\PDO::FETCH_KEY_PAIR);
+
+                    return [$ok, $stmt->fetchAll()];
+                }
+            ),
+            self::c(
+                'mode.query.key_pair',
+                $g,
+                'PDO::query()',
+                'FETCH_KEY_PAIR as query()\'s explicit per-statement mode',
+                static fn (\PDO $p) => $p->query($pairSql, \PDO::FETCH_KEY_PAIR)->fetchAll()
+            ),
+            self::c(
+                'mode.conn.default_named',
+                $g,
+                'PDO::setAttribute()',
+                'FETCH_NAMED as the connection-level default fetch mode',
+                static function (\PDO $p) {
+                    try {
+                        return $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_NAMED);
+                    } finally {
+                        try {
+                            $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_BOTH);
+                        } catch (\Throwable $ignored) {
+                            // restoring must never mask the case's own outcome
+                        }
+                    }
+                }
+            ),
+            self::c(
+                'mode.conn.default_bound',
+                $g,
+                'PDO::setAttribute()',
+                'FETCH_BOUND as the connection-level default fetch mode',
+                static function (\PDO $p) {
+                    try {
+                        return $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_BOUND);
+                    } finally {
+                        try {
+                            $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_BOTH);
+                        } catch (\Throwable $ignored) {
+                            // restoring must never mask the case's own outcome
+                        }
+                    }
+                }
+            ),
+            self::c(
+                'mode.conn.default_class',
+                $g,
+                'PDO::setAttribute()',
+                'FETCH_CLASS (no class-name argument) as the connection-level default fetch mode',
+                static function (\PDO $p) {
+                    try {
+                        return $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_CLASS);
+                    } finally {
+                        try {
+                            $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_BOTH);
+                        } catch (\Throwable $ignored) {
+                            // restoring must never mask the case's own outcome
+                        }
+                    }
+                }
+            ),
+            self::c(
+                'mode.conn.default_into',
+                $g,
+                'PDO::setAttribute()',
+                'FETCH_INTO (no object argument) as the connection-level default fetch mode',
+                static function (\PDO $p) {
+                    try {
+                        return $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_INTO);
+                    } finally {
+                        try {
+                            $p->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_BOTH);
+                        } catch (\Throwable $ignored) {
+                            // restoring must never mask the case's own outcome
+                        }
+                    }
                 }
             ),
         ];
