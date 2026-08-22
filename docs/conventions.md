@@ -150,7 +150,15 @@ Supporting types in core (exact FQCNs — other packages reference these):
 - `Atoms\Serialization\Serializer` — `normalize(mixed): mixed` (JSON-safe
   tree) and `denormalize(mixed $data, string $type): mixed`. Implements the
   type algebra below. Throws `Atoms\Serialization\SerializationException`
-  (which carries an `Atoms\Errors\ErrorCode`).
+  (which carries an `Atoms\Errors\ErrorCode`). Two argument-binding helpers sit
+  on the same class: `denormalizeArguments(array $args, \ReflectionFunctionAbstract $fn): list<mixed>`
+  for positional RPC arguments, and — added 2026-08-16 —
+  `denormalizeNamedArguments(string $class, array $wireArgs): list<mixed>`,
+  which binds a `{"job": FQCN, "args": {...}}` argument map to a constructor by
+  parameter name (wire value, else declared default, else null when nullable,
+  else ATOMS-E024). It owns that algebra: code rehydrating a dispatched job —
+  in `atoms/client`, `atoms/laravel`, `atoms/symfony`, `atoms/testing` or an
+  adapter of your own — binds through it rather than reimplementing the loop.
 - `Atoms\Migrations\Migrator` — applies ordered migrations to a `Database`
   using SQLite's `user_version` pragma; `apply(Database $db, MigrationSet $set): int`.
 - `Atoms\Migrations\MigrationSet` — ordered collection loaded from a directory

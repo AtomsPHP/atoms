@@ -236,6 +236,34 @@ final class CallbackKernelTest extends TestCase
         self::assertFalse($this->bridge->jobs[0]->vip);
     }
 
+    public function testJobKindMissingRequiredArgRejected422E024(): void
+    {
+        $request = $this->signedRequest('job', [
+            'job' => SendWelcomeJob::class,
+            'args' => ['roomSize' => 2],
+        ]);
+
+        $response = $this->kernel()->handle($request);
+
+        self::assertSame(422, $response->getStatusCode());
+        self::assertSame('ATOMS-E024', $this->decode($response)['error']['code']);
+        self::assertCount(0, $this->bridge->jobs);
+    }
+
+    public function testJobKindArgOfWrongTypeRejected422E024(): void
+    {
+        $request = $this->signedRequest('job', [
+            'job' => SendWelcomeJob::class,
+            'args' => ['playerId' => 'p-1', 'roomSize' => 'two'],
+        ]);
+
+        $response = $this->kernel()->handle($request);
+
+        self::assertSame(422, $response->getStatusCode());
+        self::assertSame('ATOMS-E024', $this->decode($response)['error']['code']);
+        self::assertCount(0, $this->bridge->jobs);
+    }
+
     public function testNonAtomJobRejected422E033(): void
     {
         $request = $this->signedRequest('job', [
