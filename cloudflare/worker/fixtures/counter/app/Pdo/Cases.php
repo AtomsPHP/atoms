@@ -2228,11 +2228,11 @@ final class Cases
                 'debugDumpParams() after a positional param bound by int and rebound by its equal string key, exact captured-output byte comparison (audit F24)',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT * FROM probe_rows WHERE i = ?');
-                    // Audit F24: int 1 and string '1' are ONE parameter —
-                    // rebinding through the other spelling must REPLACE the
-                    // binding, not register a second param. Before the fix
-                    // our side dumped this param twice; native pdo_sqlite
-                    // has always listed it once.
+                    // Audit F24: PHP array-key coercion aliases int 1 and
+                    // string '1' onto ONE map key, so our side lists one
+                    // param (first-bind form, rebind's value). Native
+                    // pdo_sqlite registers the two calls as two distinct
+                    // params and lists both — see the pinned deviation.
                     $stmt->bindValue(1, 'a', \PDO::PARAM_STR);
                     $stmt->bindValue('1', 'b', \PDO::PARAM_STR);
                     ob_start();
