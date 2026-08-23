@@ -17,10 +17,16 @@ part in the coordinated release flow. It ships when its content ships.
   strings support the inline-markdown subset in `src/lib/inline-md.ts`
   (`` `code` ``, `**bold**`, `*em*`). The schema lives in
   `src/content.config.ts`.
-- `src/pages/index.astro` — page structure only: the designed section shells
-  and the code samples. The samples stay here as design artifacts — they are
-  hand-highlighted with the brand token classes and carry the anchor ids the
-  annotation-alignment script depends on.
+- `src/pages/index.astro` — page structure only: the designed section shells.
+- `src/samples.ts` — the code samples, as hand-highlighted HTML (brand token
+  classes, anchor ids for the annotation rail). Single source for both
+  renditions: index.astro renders the HTML, and the markdown endpoint derives
+  plain code from the same strings.
+- `src/pages/index.md.ts` — the homepage as markdown for agents, built to
+  `/index.md` from the same content collection and samples.
+- `functions/_middleware.js` — Cloudflare Pages middleware: a request for `/`
+  with `Accept: text/markdown` is answered with `/index.md` (`Vary: Accept`).
+  Deploying anywhere other than Pages needs an equivalent at that edge.
 - `src/styles/global.css` — the design system: paper/ink tokens as CSS custom
   properties on `:root`, type scale, and every component style. Modern vanilla
   CSS only — no Tailwind, no preprocessor.
@@ -39,8 +45,10 @@ part in the coordinated release flow. It ships when its content ships.
 - **Messaging describes the open-source project**: deploy to your own
   Cloudflare account, no hosted service. Never invent pricing, usage tooling,
   or cost figures.
-- Keep `is:raw` on every `<pre>` — Astro otherwise parses the braces in code
-  samples as template expressions.
+- Code samples live only in `src/samples.ts` — edit them there, never inline
+  in a template, so the HTML and markdown renditions cannot drift. A `<pre>`
+  authored inline in a template needs `is:raw`, or Astro parses the braces as
+  template expressions.
 - The page scripts are `is:inline` on purpose: they are plain browser JS,
   exempt from `astro check`'s TS pass.
 - Respect `prefers-reduced-motion` in any animation work.
