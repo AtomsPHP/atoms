@@ -349,19 +349,12 @@ class AtomsStatement extends \PDOStatement
             );
         }
 
-        // Audit F24 (2026-08-16): first-bind detection must respect PHP's own
-        // array-key coercion — a param bound as int 1 and REBOUND as '1' is
-        // ONE key in boundValues/boundRefs ('1' coerces onto the int key),
-        // but strict in_array() against boundOrder treated the two forms as
-        // distinct and appended a SECOND boundOrder entry, making
-        // debugDumpParams() list the param twice. Membership in the maps IS
-        // the authoritative "have I seen this key" test (the maps alias
-        // int/string keys identically), so consult them BEFORE this call's
-        // own mutations. Equivalent to the old in_array() for every key the
-        // maps can hold: a boundOrder entry always has its key live in one
-        // of the two maps (bindValue()/bindParam() move a key BETWEEN the
-        // maps atomically), and a key cannot reach a map except through one
-        // of those two methods.
+        // Audit F24 (2026-08-16): first-bind detection is map membership
+        // BEFORE this call's mutations — never a strict in_array() against
+        // boundOrder. PHP array-key coercion aliases int 1 and '1' onto one
+        // map key, so strict comparison would treat a rebind through the
+        // other spelling as new and append a second entry, dumping the param
+        // twice in debugDumpParams().
         if (!array_key_exists($param, $this->boundValues) && !array_key_exists($param, $this->boundRefs)) {
             $this->boundOrder[] = $param;
         }
