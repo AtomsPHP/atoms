@@ -69,6 +69,11 @@ class AtomsStatement extends \PDOStatement
      *     chronology). Measured against real PDO: rebinding an already-bound
      *     param does NOT move it — first-bind position wins — so this never
      *     removes a key once added.
+     *
+     *     A key counts as bound if it is present in either map (audit F24:
+     *     PHP coerces '1' and 1 to the same array key, so a strict in_array()
+     *     against THIS list would double-count a rebind through the other
+     *     spelling).
      */
     private $boundOrder = [];
 
@@ -342,12 +347,18 @@ class AtomsStatement extends \PDOStatement
             );
         }
 
+        // A param already present in either map is a rebind, not a new
+        // binding: PHP coerces '1' and 1 to the same array key, so checking
+        // the maps (not a strict in_array against boundOrder) is what makes
+        // a rebind through the other spelling update in place rather than
+        // dump twice (audit F24).
+        if (!array_key_exists($param, $this->boundValues) && !array_key_exists($param, $this->boundRefs)) {
+            $this->boundOrder[] = $param;
+        }
+
         unset($this->boundRefs[$param]);
         $this->boundValues[$param] = $value;
         $this->boundTypes[$param] = $type;
-        if (!in_array($param, $this->boundOrder, true)) {
-            $this->boundOrder[] = $param;
-        }
 
         return true;
     }
@@ -382,12 +393,14 @@ class AtomsStatement extends \PDOStatement
             );
         }
 
+        // Same rebind rule as bindValue() above.
+        if (!array_key_exists($param, $this->boundValues) && !array_key_exists($param, $this->boundRefs)) {
+            $this->boundOrder[] = $param;
+        }
+
         unset($this->boundValues[$param]);
         $this->boundRefs[$param] =& $var;
         $this->boundTypes[$param] = $type;
-        if (!in_array($param, $this->boundOrder, true)) {
-            $this->boundOrder[] = $param;
-        }
 
         return true;
     }

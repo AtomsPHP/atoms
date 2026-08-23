@@ -2222,6 +2222,31 @@ final class Cases
                 }
             ),
             self::c(
+                'stmt.debug_dump_params.rebind_int_string_alias',
+                $g,
+                'PDOStatement::debugDumpParams()',
+                'debugDumpParams() after a positional param bound by int and rebound by its equal string key, exact captured-output byte comparison (audit F24)',
+                static function (\PDO $p) {
+                    $stmt = $p->prepare('SELECT * FROM probe_rows WHERE i = ?');
+                    // Our shim treats int 1 and string '1' as the same
+                    // parameter (PHP coerces them to one array key), so this
+                    // dumps ONE param. Native pdo_sqlite registers two and
+                    // dumps both — see the pinned deviation below.
+                    $stmt->bindValue(1, 'a', \PDO::PARAM_STR);
+                    $stmt->bindValue('1', 'b', \PDO::PARAM_STR);
+                    ob_start();
+                    try {
+                        $stmt->debugDumpParams();
+
+                        return ob_get_clean();
+                    } catch (\Throwable $e) {
+                        ob_end_clean();
+
+                        throw $e;
+                    }
+                }
+            ),
+            self::c(
                 'stmt.sqlite_create_function',
                 $g,
                 'PDO::sqliteCreateFunction()',
