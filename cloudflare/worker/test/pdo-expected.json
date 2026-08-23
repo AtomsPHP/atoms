@@ -263,7 +263,7 @@
     },
     "mode.stmt.default_key_pair": {
       "class": "refused_by_us",
-      "why": "Audit F23 / issue #39 measurement: native pdo_sqlite accepts FETCH_KEY_PAIR via PDOStatement::setFetchMode() and answers the true pair from a two-column result. Our setFetchMode() switch does not list FETCH_KEY_PAIR — it is accepted only as a connection-level default (see mode.conn.default_key_pair, which MATCHES native) — so a statement-level default is refused loudly rather than half-served. Alignment is measured here first and deliberately NOT bundled with the guard consolidation; changing setFetchMode() is a follow-up behavior change."
+      "why": "Native accepts FETCH_KEY_PAIR via setFetchMode(). Ours lists it only as a connection-level default, so a statement-level one is refused rather than half-served. Aligning is a follow-up behavior change."
     },
     "mode.query.key_pair": {
       "class": "refused_by_us",
@@ -271,19 +271,19 @@
     },
     "mode.conn.default_named": {
       "class": "refused_by_us",
-      "why": "Audit F23 / issue #39 measurement: native pdo_sqlite accepts FETCH_NAMED as ATTR_DEFAULT_FETCH_MODE at setAttribute() time (returns true; this case measures acceptance only). FetchMode::supported() does not list FETCH_NAMED, so AtomsPDO refuses the connection-level default rather than accepting one whose every reachable path it has not committed to serve. Statement-level FETCH_NAMED itself is filled and matches (fetch.set_fetch_mode group); aligning supported() is a deliberate follow-up, not bundled with the F23 guard consolidation."
+      "why": "Native accepts this mode as a connection-level default; our shim does not list it in FetchMode::supported() and refuses the default loudly. The statement-level path is implemented and matches native. Widening supported() is a deliberate follow-up."
     },
     "mode.conn.default_bound": {
       "class": "refused_by_us",
-      "why": "Audit F23 / issue #39 measurement: native pdo_sqlite accepts FETCH_BOUND as ATTR_DEFAULT_FETCH_MODE at setAttribute() time (returns true; acceptance only). FetchMode::supported() does not list FETCH_BOUND, so the connection-level default is refused loudly. Statement-level FETCH_BOUND is filled (bindColumn paths match); aligning supported() is a deliberate follow-up to this measurement, not part of the guard consolidation."
+      "why": "Native accepts this mode as a connection-level default; our shim does not list it in FetchMode::supported() and refuses the default loudly. The statement-level path is implemented and matches native. Widening supported() is a deliberate follow-up."
     },
     "mode.conn.default_class": {
       "class": "refused_by_us",
-      "why": "Audit F23 / issue #39 measurement: native pdo_sqlite accepts even FETCH_CLASS WITHOUT a class-name argument as ATTR_DEFAULT_FETCH_MODE at setAttribute() time (returns true; what a later fetch would do was not probed here). FetchMode::supported() does not list FETCH_CLASS, so the connection-level default is refused loudly. Statement-level FETCH_CLASS is filled and matches; aligning supported() is a deliberate follow-up to this measurement."
+      "why": "Native accepts this mode as a connection-level default; our shim does not list it in FetchMode::supported() and refuses the default loudly. The statement-level path is implemented and matches native. Widening supported() is a deliberate follow-up. Native's acceptance says nothing about what a later fetch would do; that was not probed."
     },
     "mode.conn.default_into": {
       "class": "refused_by_us",
-      "why": "Audit F23 / issue #39 measurement: native pdo_sqlite accepts even FETCH_INTO WITHOUT an object argument as ATTR_DEFAULT_FETCH_MODE at setAttribute() time (returns true; acceptance only). FetchMode::supported() does not list FETCH_INTO, so the connection-level default is refused loudly. Statement-level FETCH_INTO is filled and matches; aligning supported() is a deliberate follow-up to this measurement."
+      "why": "Native accepts this mode as a connection-level default; our shim does not list it in FetchMode::supported() and refuses the default loudly. The statement-level path is implemented and matches native. Widening supported() is a deliberate follow-up."
     }
   }
 }
