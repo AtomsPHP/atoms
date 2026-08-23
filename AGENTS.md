@@ -22,6 +22,7 @@ parked inside a SQLite-backed Durable Object.
 | `docs/` | Framework docs: `conventions.md`, `cloudflare-toolchain.md`, `integration-plan.md`, `two-worlds.md`, `errors.md`, `platform/api-contract.md` (retired) | — |
 | `action/` | The deploy GitHub Action (composite) | `action/README.md` |
 | `tests/` | Cross-package integration tests (`Atoms\Tests\Integration\`) | `docs/conventions.md` |
+| `site/` | The public marketing site (Astro; content in `src/pages/index.astro`, tokens in `src/styles/global.css`) | `site/AGENTS.md` |
 
 Assembled 2026-08-08 from two predecessor repositories, under deliberately
 different rules. The framework half was imported **with** its full history.
