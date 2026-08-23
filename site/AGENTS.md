@@ -10,8 +10,17 @@ part in the coordinated release flow. It ships when its content ships.
 
 ## Layout
 
-- `src/pages/index.astro` — **all page content**: hero copy, every section's
-  prose, and the code samples. Content edits happen here.
+- `src/content/home/*.md` — **all page copy**, one markdown file per section
+  (`hero`, `code`, `live`, `auth`, `how`, `why`, `trust`, `status`, `start`).
+  Prose is the markdown body; repeated structured copy (annotation rail,
+  "why" cards, trust items, pipeline stations, CTAs) is frontmatter, whose
+  strings support the inline-markdown subset in `src/lib/inline-md.ts`
+  (`` `code` ``, `**bold**`, `*em*`). The schema lives in
+  `src/content.config.ts`.
+- `src/pages/index.astro` — page structure only: the designed section shells
+  and the code samples. The samples stay here as design artifacts — they are
+  hand-highlighted with the brand token classes and carry the anchor ids the
+  annotation-alignment script depends on.
 - `src/styles/global.css` — the design system: paper/ink tokens as CSS custom
   properties on `:root`, type scale, and every component style. Modern vanilla
   CSS only — no Tailwind, no preprocessor.

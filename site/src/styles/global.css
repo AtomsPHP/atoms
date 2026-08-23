@@ -76,6 +76,7 @@ a:hover{ text-decoration-color:var(--orange); }
   font-size:1.06rem; line-height:1.68; color:var(--ink-soft);
   max-width:34rem; margin:1.3rem 0 2rem;
 }
+.hero .sub p{ margin:0; }
 .ctas{ display:flex; gap:.9rem; align-items:center; }
 .btn{
   font-family:'Science Gothic', 'Arial Narrow', Arial, sans-serif;

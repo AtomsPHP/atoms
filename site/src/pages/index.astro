@@ -1,18 +1,45 @@
 ---
 import Base from '../layouts/Base.astro';
 import AtomDiagram from '../components/AtomDiagram.astro';
+import { getCollection, render } from 'astro:content';
+import { inlineMd } from '../lib/inline-md';
+
+// All copy lives in src/content/home/*.md — this file is structure only.
+const entries = await getCollection('home');
+const byId = Object.fromEntries(entries.map((e) => [e.id, e]));
+const need = (id: string) => {
+  const e = byId[id];
+  if (!e) throw new Error(`missing src/content/home/${id}.md`);
+  return e;
+};
+
+const hero = need('hero');
+const code = need('code');
+const live = need('live');
+const auth = need('auth');
+const how = need('how');
+const why = need('why');
+const trust = need('trust');
+const status = need('status');
+const start = need('start');
+
+const { Content: HeroSub } = await render(hero);
+const { Content: CodeProse } = await render(code);
+const { Content: LiveProse } = await render(live);
+const { Content: AuthProse } = await render(auth);
+const { Content: HowProse } = await render(how);
+const { Content: StatusProse } = await render(status);
 ---
 <Base>
   <!-- ============================ hero ============================ -->
   <header class="hero">
     <div>
-      <h1>Persistent <em>PHP objects</em>, inside Cloudflare <em class="o">Durable&nbsp;Objects</em>.</h1>
-      <p class="sub">An Atom is a PHP class with its own SQLite database, running in a
-        Durable Object on your Cloudflare account. Your Laravel or Symfony app calls it
-        like a local object, and browsers can hold a WebSocket directly to it.</p>
+      <h1 set:html={hero.data.title_html} />
+      <div class="sub"><HeroSub /></div>
       <div class="ctas">
-        <a class="btn solid" href="https://github.com/AtomsPHP/atoms#install">Get started</a>
-        <a class="btn ghost" href="https://github.com/AtomsPHP/atoms">GitHub</a>
+        {hero.data.ctas?.map((c) => (
+          <a class={`btn ${c.style}`} href={c.href}>{c.label}</a>
+        ))}
       </div>
     </div>
     <AtomDiagram />
@@ -22,31 +49,15 @@ import AtomDiagram from '../components/AtomDiagram.astro';
   <section id="code">
     <div class="cols">
       <div>
-        <h2>This is an Atom</h2>
-        <div class="prose" style="margin-top:1.1rem">
-          <p>You write an ordinary PHP class and give it a database schema. You create
-            one Atom per entity — a game room, a document, a tenant — each addressable
-            by id, each handling one call at a time on data that lives in the same
-            object.</p>
-        </div>
+        <h2>{code.data.title}</h2>
+        <div class="prose" style="margin-top:1.1rem"><CodeProse /></div>
         <div class="annos">
-          <div class="anno app" data-for="a-join">
-            <p class="anno-m">join()</p>
-            <p>Your app calls this like any method. The seat check and the insert share
-              a transaction, and because the Atom takes one call at a time, the count
-              it read is still true when it writes.</p>
-          </div>
-          <div class="anno cli" data-for="a-onconnect">
-            <p class="anno-m">onConnect()</p>
-            <p>A player's browser opened its WebSocket. The connection gets tied to
-              their seat, and the current board goes straight back down the wire.</p>
-          </div>
-          <div class="anno cli" data-for="a-onmessage">
-            <p class="anno-m">onMessage()</p>
-            <p>A move arrives over the socket. The UPDATE's WHERE clause is the
-              referee — it matches only a piece the mover owns — and a move that
-              landed is broadcast to everyone watching.</p>
-          </div>
+          {code.data.annotations?.map((a) => (
+            <div class={`anno ${a.kind}`} data-for={a.anchor}>
+              <p class="anno-m">{a.method}</p>
+              <p set:html={inlineMd(a.text)} />
+            </div>
+          ))}
         </div>
       </div>
       <div>
@@ -114,9 +125,7 @@ import AtomDiagram from '../components/AtomDiagram.astro';
           <p class="code-title">anywhere in your app</p>
           <pre is:raw>$seat = Atoms::get(GameRoom::class, <span class="tok-s">'room-42'</span>)-&gt;join(<span class="tok-s">'ada'</span>);</pre>
         </div>
-        <p class="cap">That's the Laravel facade. Symfony and plain PHP use the same
-          client without it — inject <code>AtomsClient</code> and call
-          <code>get()</code> the same way.</p>
+        <p class="cap" set:html={inlineMd(code.data.caption ?? '')} />
       </div>
     </div>
   </section>
@@ -125,15 +134,8 @@ import AtomDiagram from '../components/AtomDiagram.astro';
   <section id="live">
     <div class="cols">
       <div>
-        <h2>Browsers connect to the same object</h2>
-        <div class="prose" style="margin-top:1.1rem">
-          <p>An Atom can hold WebSocket connections itself. Every browser watching
-            <code>room-42</code> is connected to the one object that owns room 42's
-            state, so when it calls <code>broadcast()</code>, everyone sees the change —
-            the sockets and the data live in the same place, so they always agree.</p>
-          <p>Your app mints a short-lived ticket and hands the browser a URL; the
-            browser just opens it.</p>
-        </div>
+        <h2>{live.data.title}</h2>
+        <div class="prose" style="margin-top:1.1rem"><LiveProse /></div>
       </div>
       <div>
         <div class="code-card">
@@ -143,8 +145,7 @@ import AtomDiagram from '../components/AtomDiagram.astro';
 <span class="tok-k">const</span> ws = <span class="tok-k">new</span> WebSocket(url);
 ws.onmessage = (e) =&gt; render(JSON.parse(e.data));</pre>
         </div>
-        <p class="cap">The URL comes from <code>Atoms::wsUrl()</code>, ticket
-          included.</p>
+        <p class="cap" set:html={inlineMd(live.data.caption ?? '')} />
       </div>
     </div>
   </section>
@@ -153,13 +154,8 @@ ws.onmessage = (e) =&gt; render(JSON.parse(e.data));</pre>
   <section id="auth">
     <div class="cols">
       <div>
-        <h2>Who gets a socket</h2>
-        <div class="prose" style="margin-top:1.1rem">
-          <p>A browser gets a socket only with a short-lived ticket, minted by your app
-            in a normal authenticated route — and the ticket's job ends at the
-            handshake. After that, messages flow straight between browser and Atom;
-            your app is back in the loop only if the connection drops.</p>
-        </div>
+        <h2>{auth.data.title}</h2>
+        <div class="prose" style="margin-top:1.1rem"><AuthProse /></div>
       </div>
       <div>
         <div class="code-card">
@@ -173,109 +169,62 @@ ws.onmessage = (e) =&gt; render(JSON.parse(e.data));</pre>
     ])];
 });</pre>
         </div>
-        <p class="cap">Ticket claims override the URL's query string, so
-          <code>$params['client_id']</code> in <code>onConnect</code> is the identity
-          your server asserted — the browser can't forge it.</p>
+        <p class="cap" set:html={inlineMd(auth.data.caption ?? '')} />
       </div>
     </div>
   </section>
 
   <!-- ============================ 3. how it works ============================ -->
   <section id="how">
-    <h2>How it works</h2>
-    <div class="prose" style="margin-top:1.1rem">
-      <p>Your Atom classes stay in your repository, next to the rest of your app. A
-        build step extracts them into a bundle, and a deploy ships that bundle to a
-        Worker in your Cloudflare account, where each Atom id gets its own Durable
-        Object running PHP 8.3 compiled to WebAssembly — with its SQLite database
-        stored durably beside it.</p>
-    </div>
+    <h2>{how.data.title}</h2>
+    <div class="prose" style="margin-top:1.1rem"><HowProse /></div>
     <div class="pipeline">
-      <div class="station">
-        <p class="code-title">your repo</p>
-        <p>Atom classes live in your app. <code>atoms build</code> extracts them into a
-          bundle — deterministically, without ever executing your code.</p>
-      </div>
-      <div class="pipe-arrow" aria-hidden="true">
-        <svg width="46" height="12" viewBox="0 0 46 12"><line x1="2" y1="6" x2="36" y2="6"></line><polygon points="36,1.5 44,6 36,10.5"></polygon></svg>
-      </div>
-      <div class="station">
-        <p class="code-title">atoms deploy</p>
-        <p>The CLI drives the Wrangler already pinned in your project. Your Cloudflare
-          credentials go to Wrangler and nowhere else.</p>
-      </div>
-      <div class="pipe-arrow" aria-hidden="true">
-        <svg width="46" height="12" viewBox="0 0 46 12"><line x1="2" y1="6" x2="36" y2="6"></line><polygon points="36,1.5 44,6 36,10.5"></polygon></svg>
-      </div>
-      <div class="station">
-        <p class="code-title">your cloudflare account</p>
-        <p>One Durable Object per Atom id: PHP in WebAssembly, SQLite stored durably
-          beside it, WebSockets and timers handled by the platform.</p>
-      </div>
+      {how.data.stations?.map((s, i) => (
+        <>
+          {i > 0 && (
+            <div class="pipe-arrow" aria-hidden="true">
+              <svg width="46" height="12" viewBox="0 0 46 12"><line x1="2" y1="6" x2="36" y2="6"></line><polygon points="36,1.5 44,6 36,10.5"></polygon></svg>
+            </div>
+          )}
+          <div class="station">
+            <p class="code-title">{s.label}</p>
+            <p set:html={inlineMd(s.text)} />
+          </div>
+        </>
+      ))}
     </div>
-    <p class="cap" style="margin-top:1.4rem">Local development is
-      <code>atoms dev</code> — the same runtime on your machine, no Cloudflare account
-      required.</p>
+    <p class="cap" style="margin-top:1.4rem" set:html={inlineMd(how.data.note ?? '')} />
   </section>
 
   <!-- ============================ 4. why ============================ -->
   <section id="why">
-    <h2>Why you'd reach for it</h2>
+    <h2>{why.data.title}</h2>
     <div class="quads">
-      <div class="quad">
-        <h3>Wired into your app, both directions</h3>
-        <p>Your controllers call an Atom's methods the way they'd call any object's,
-          and an Atom talks back the same way — it can invoke methods in your app and
-          queue jobs on your app's queue. The whole bridge between monolith and
-          Durable Object comes built, and it speaks PHP at both ends.</p>
-      </div>
-      <div class="quad">
-        <h3>Real-time, without leaving PHP</h3>
-        <p>Multiplayer, presence, live dashboards — the features that usually mean
-          bolting a Node service or a hosted pub/sub onto your monolith. An Atom holds
-          the sockets and the state in one place, in the language your team already
-          writes.</p>
-      </div>
-      <div class="quad">
-        <h3>State that can't race</h3>
-        <p>Some entities are fights waiting to happen — a seat map, an auction, a
-          shared cart. Give each one an Atom and consistency comes built in: one
-          object, one call at a time, its own SQLite database.</p>
-      </div>
-      <div class="quad">
-        <h3>Scale that runs itself</h3>
-        <p>Every entity gets its own object with its own database, so a thousand rooms
-          are a thousand small databases, each carrying only its own load. Idle Atoms
-          hibernate, and Cloudflare handles placement and wake-up for you.</p>
-      </div>
+      {why.data.quads?.map((q) => (
+        <div class="quad">
+          <h3>{q.title}</h3>
+          <p set:html={inlineMd(q.text)} />
+        </div>
+      ))}
     </div>
   </section>
 
   <!-- ============================ 5. trust ============================ -->
   <section id="trust">
-    <h2>Built carefully, in the open</h2>
+    <h2>{trust.data.title}</h2>
     <ul class="trust">
-      <li><b>It's yours.</b> MIT-licensed, and deployed to your own Cloudflare account —
-        no Atoms-run service sits in any path, and your credentials never pass through
-        anything we operate.</li>
-      <li><b>Builds you can audit.</b> The same tree always produces the same bundle,
-        and building never executes your code.</li>
-      <li><b>A runtime held to a spec.</b> Every change to the Worker has to clear a
-        conformance suite of 43 checks before it lands.</li>
-      <li><b>Errors that tell you what to do.</b> Every failure in every package
-        carries a stable code and a fix line, kept in one catalog.</li>
+      {trust.data.items?.map((t) => (
+        <li><b>{t.lead}</b> <Fragment set:html={inlineMd(t.text)} /></li>
+      ))}
     </ul>
   </section>
 
   <!-- ============================ status aside ============================ -->
-  <div class="status">
-    <p>Atoms is new. The API your code sits on is stable and only grows, but the rest
-      is still settling on the way to 1.0.</p>
-  </div>
+  <div class="status"><StatusProse /></div>
 
   <!-- ============================ 6. get started ============================ -->
   <section id="start" class="start">
-    <h2>Get started</h2>
+    <h2>{start.data.title}</h2>
     <div class="code-card">
       <pre is:raw><span class="tok-c">$</span> composer require atoms/laravel
 <span class="tok-c">$</span> php artisan atoms:install
@@ -286,8 +235,9 @@ ws.onmessage = (e) =&gt; render(JSON.parse(e.data));</pre>
 <span class="tok-c">$</span> vendor/bin/atoms deploy   <span class="tok-c"># to your own account</span></pre>
     </div>
     <div class="ctas">
-      <a class="btn solid" href="https://github.com/AtomsPHP/atoms#install">Read the guide</a>
-      <a class="btn ghost" href="https://github.com/AtomsPHP/atoms">Star on GitHub</a>
+      {start.data.ctas?.map((c) => (
+        <a class={`btn ${c.style}`} href={c.href}>{c.label}</a>
+      ))}
     </div>
   </section>
 </Base>
