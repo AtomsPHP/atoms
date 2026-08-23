@@ -397,14 +397,9 @@ export function loadConfig(env) {
 	const callbackUrl = str(env, 'ATOMS_CALLBACK_URL', '');
 	const callback = classifyCallbackChannel(callbackUrl, current.state === 'configured');
 
-	// One discriminated value, not four correlated fields: the `ok` branch
-	// always carries decoded bytes and no error, the `!ok` branch an error and
-	// no bytes, so "configured alongside null bytes" — representable in the
-	// old flat shape — can no longer be built, let alone leak past a missed
-	// check at a call site.
 	/** @type {SharedSecretConfig} */
 	const sharedSecret = secretBroken
-		? { ok: false, error: secretBroken.error ?? 'the shared secret is unusable' }
+		? { ok: false, error: secretBroken.error }
 		: { ok: true, bytes: current.bytes, previousBytes: previous.bytes };
 
 	const config = {

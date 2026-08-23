@@ -101,9 +101,8 @@ function base64UrlDecode(s) {
  * @returns {Promise<CryptoKey[]>} non-extractable HMAC-SHA256 keys, current first
  */
 async function ticketKeys(config) {
-	// Byte-identical with the other internal throws (index.js checkAuth,
-	// callbacks.js signingKey): unreachable past the configuration gate, kept
-	// as a typed failure rather than a cast.
+	// Unreachable past the configuration gate; byte-identical with the other
+	// internal throws (index.js checkAuth, callbacks.js signingKey).
 	if (!config.sharedSecret.ok) {
 		throw new AtomsError('internal', 'ATOMS_SHARED_SECRET is not configured');
 	}

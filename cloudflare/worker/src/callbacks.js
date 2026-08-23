@@ -611,9 +611,7 @@ export class CallbackChannel {
 		if (!this.keyPromise) {
 			this.keyPromise = (async () => {
 				// Byte-identical with the other internal throws (index.js
-				// checkAuth, tickets.js ticketKeys): unreachable past the
-				// configuration gate, kept as a typed failure rather than a
-				// cast.
+				// checkAuth, tickets.js ticketKeys); unreachable past the gate.
 				if (!this.config.sharedSecret.ok) {
 					throw new AtomsError('internal', 'ATOMS_SHARED_SECRET is not configured');
 				}
