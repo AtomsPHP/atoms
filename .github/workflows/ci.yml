@@ -106,8 +106,8 @@ jobs:
   worker:
     runs-on: ubuntu-latest
     # Check 12 waits out a real Durable Object eviction (~12.5s), so the suite
-    # is minutes, not seconds, and the job starts three Workers (one per
-    # posture). Twelve minutes leaves room for a slow runner while still
+    # is minutes, not seconds, and the job restarts the Worker several times (one
+    # per configuration). Twelve minutes leaves room for a slow runner while still
     # failing a wedged `wrangler dev` instead of burning an hour on it.
     timeout-minutes: 12
     defaults:
@@ -221,7 +221,7 @@ jobs:
       # (docs/shared-secret.md): 32 random bytes, base64, from which the
       # bearer, the ticket-signing key and the callback key are all
       # HKDF-derived. The second secret is the rotation overlap the
-      # bearer-required posture exercises.
+      # bearer-required run (run 2) exercises.
       #
       # Each value is masked the instant it exists and before any use.
       # `::add-mask::` has no non-echoing form, so registering a value for
@@ -230,7 +230,7 @@ jobs:
       # (including a wrangler argv dump) free of the secret.
       # The two values are carried under names outside the ATOMS_ namespace so
       # each step names the secret it wants explicitly, and no step inherits a
-      # credential the posture under test is not supposed to have.
+      # credential the configuration under test is not supposed to have.
       - name: Mint the per-run shared secrets
         run: |
           secret="$(openssl rand -base64 32)"
@@ -240,17 +240,18 @@ jobs:
           echo "RUN_SECRET=$secret" >> "$GITHUB_ENV"
           echo "RUN_SECRET_NEXT=$rotated" >> "$GITHUB_ENV"
 
-      # Posture 1 — the full suite, bearer auth explicitly disabled (the
-      # authenticating-proxy posture). The Worker still holds the shared
-      # secret: tickets are signed and callbacks are signed in every posture,
+      # Run 1 of 4: the full suite against a Worker with a working secret,
+      # bearer auth explicitly disabled. The Worker still holds the shared
+      # secret — tickets are signed and callbacks are signed in every run —
       # so only the bearer comparison is off.
       #
-      # Posture 1 boots through dev:callback (not `wrangler dev` directly),
-      # unlike every other posture: its env is not the subject, and
+      # This first run boots through dev:callback (not `wrangler dev`
+      # directly): its configuration is not what is being tested, and
       # dev-with-callback.mjs additionally wires a loopback ATOMS_CALLBACK_URL
       # and records the run's secret + listener port in test/.dev-secret.json
-      # for checks 13-17. The other postures' env IS the subject, so they boot
-      # wrangler directly with explicit --vars via the worker-posture action.
+      # for checks 13-17. The later runs test specific secret configurations,
+      # so they boot wrangler directly with explicit --vars via the
+      # conformance-worker action.
       # No Cloudflare account, token or network involved in either path.
       - name: Start wrangler dev
         env:
@@ -289,7 +290,7 @@ jobs:
           cat wrangler.log
           exit 1
 
-      # The runner is told the posture it is running against
+      # The runner is told how this Worker is configured for bearer auth
       # (ATOMS_BEARER_AUTH=disabled, so it presents no bearer) and holds the
       # same root the Worker does, which is what lets it verify every callback
       # HMAC and forge test tickets. ATOMS_DEBUG_ENDPOINTS=1, which checks
@@ -309,22 +310,22 @@ jobs:
           ATOMS_SHARED_SECRET: ${{ env.RUN_SECRET }}
           ATOMS_BEARER_AUTH: disabled
 
-      # Posture 2 — bearer auth required (the default), with the rotation
-      # overlap and the config allowlist wired in. A full second suite run
-      # would re-pay the eviction waits (checks 12/21/24/25 — minutes) for
-      # zero new coverage, so ATOMS_ONLY scopes it to the auth-shaped checks:
+      # Run 2 of 4: bearer auth required (the default), with a rotated secret
+      # pair and the config allowlist wired in. Re-running the whole suite
+      # would re-pay the eviction waits (checks 12/21/24/25 — minutes) for no
+      # new coverage, so ATOMS_ONLY scopes this run to the auth-shaped checks:
       # 2 as a bearer smoke test, 32-38 (tickets under a live bearer, and the
       # removed mint route proved absent WITH a credential in hand), 39
       # (derivation + cross-language issuance), 40 (rotation) and 42 (the deny
-      # list). Every REQUIRE_ flag this posture can satisfy is set, so a broken
+      # list). Every REQUIRE_ flag this run can satisfy is set, so a broken
       # setup fails instead of silently deleting checks.
       #
       # The Worker is started with wrangler directly rather than through
-      # dev:callback, because this posture's env is the subject: the current
-      # and previous secrets, and an ATOMS_CONFIG_ENV_KEYS that names both
-      # secret variables — which is what makes check 42's deny-list assertion
-      # meaningful, with ATOMS_DEBUG_ENDPOINTS on the same list as the control
-      # that proves the allowlist is live. ATOMS_CALLBACK_URL points at the
+      # dev:callback, because what is under test IS this run's configuration:
+      # the current and previous secrets, and an ATOMS_CONFIG_ENV_KEYS that
+      # names both secret variables — which is what makes check 42's deny-list
+      # assertion meaningful, with ATOMS_DEBUG_ENDPOINTS on the same list as
+      # the control that proves the allowlist is live. ATOMS_CALLBACK_URL points at the
       # suite's own loopback listener so check 40 can verify a callback under
       # the current key.
       #
@@ -334,10 +335,10 @@ jobs:
       # from.
       #
       # The current secret here is the ROTATED one and the previous is the
-      # secret posture 1 ran with: two genuinely different values, so "both
+      # secret run 1 ran with: two genuinely different values, so "both
       # bearers are accepted" cannot pass by accident.
       - name: Auth, rotation and deny-list checks with bearer auth required
-        uses: ./.github/actions/worker-posture
+        uses: ./.github/actions/conformance-worker
         with:
           name: bearer-required
           worker-port: ${{ env.WORKER_PORT }}
@@ -347,7 +348,6 @@ jobs:
             ATOMS_CALLBACK_URL=http://127.0.0.1:${{ env.ATOMS_CALLBACK_PORT }}/atoms/callback
             ATOMS_CONFIG_ENV_KEYS=ATOMS_SHARED_SECRET,ATOMS_SHARED_SECRET_PREVIOUS,ATOMS_DEBUG_ENDPOINTS
           checks: '2,32,33,34,35,36,37,38,39,40,42'
-          # The suite derives this posture's bearer from the two secrets.
           suite-env: |
             ATOMS_SHARED_SECRET=${{ env.RUN_SECRET_NEXT }}
             ATOMS_SHARED_SECRET_PREVIOUS=${{ env.RUN_SECRET }}
@@ -355,14 +355,14 @@ jobs:
             ATOMS_REQUIRE_ROTATION_CHECKS=1
             ATOMS_REQUIRE_DENY_CHECKS=1
 
-      # Posture 3 — no shared secret at all. The Worker still serves
-      # /healthz; every other route answers the wire code `misconfigured`, so
-      # a fumbled secret is loudly broken rather than quietly open. One check,
-      # no eviction waits, seconds. No step env names a secret here, and the
-      # dev secret file posture 1 wrote is removed, so the runner arrives with
-      # no credential either — the shape an operator hits.
-      - name: Misconfigured Worker posture
-        uses: ./.github/actions/worker-posture
+      # Run 3 of 4: a Worker with no shared secret at all. It must fail
+      # loudly rather than quietly open: /healthz still answers, every other
+      # route answers `misconfigured`. One check, no eviction waits, seconds.
+      # No step env names a secret here, and the dev secret file run 1 wrote
+      # is removed first, so the runner has no credential either — the shape
+      # an operator who never configured a secret actually hits.
+      - name: Run the suite against a Worker with no secret
+        uses: ./.github/actions/conformance-worker
         with:
           name: misconfigured
           worker-port: ${{ env.WORKER_PORT }}
@@ -372,16 +372,16 @@ jobs:
             ATOMS_REQUIRE_CALLBACK_CHECKS=
             ATOMS_REQUIRE_BEARER_VECTOR=
 
-      # Posture 4 — a malformed rotation overlap. The rotation rule cuts both
-      # ways: ATOMS_SHARED_SECRET_PREVIOUS may be absent or a valid secret,
-      # never a half-set string, because mid-rotation it is what the bearer
-      # and ticket checks fall back to (spec §"The shared secret"). Check 41
-      # pins the missing-current leg; this posture pins the malformed-previous
-      # leg against a Worker whose CURRENT secret is genuinely valid, so the
-      # refusal can only be about the overlap. One check, no eviction waits,
-      # seconds. The runner carries no credential — check 44 needs none.
-      - name: Malformed-previous-secret posture
-        uses: ./.github/actions/worker-posture
+      # Run 4 of 4: a Worker holding a perfectly good CURRENT secret but a
+      # garbage PREVIOUS one (the rotation-overlap variable). The spec says
+      # ATOMS_SHARED_SECRET_PREVIOUS may be absent or a valid secret, never a
+      # half-set string, because mid-rotation it is what the bearer and ticket
+      # checks fall back to (spec §"The shared secret"). Check 41 covers a
+      # missing current secret; only this run can prove a malformed PREVIOUS
+      # is rejected for being the overlap variable specifically. One check,
+      # seconds, and the runner carries no credential.
+      - name: Run the suite against a Worker whose previous secret is malformed
+        uses: ./.github/actions/conformance-worker
         with:
           name: malformed-previous
           worker-port: ${{ env.WORKER_PORT }}
@@ -396,7 +396,7 @@ jobs:
 
       # Unconditional: when a check fails, the interesting half of the story is
       # on the worker's side of the connection, and the runner is gone after
-      # the job ends. Each posture names its own log wrangler-<posture>.log.
+      # the job ends. Each run names its own log wrangler-<name>.log.
       - name: Wrangler log
         if: always()
         run: |

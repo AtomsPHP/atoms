@@ -1,0 +1,71 @@
+# Reusable CI step for the conformance job.
+#
+# The conformance suite runs against a real Worker several times in one job,
+# each time with a different secret configuration (a working secret, a
+# rotated pair, no secret, a malformed one). Each run needs the same four
+# things done in order:
+#
+#   1. Stop whichever Worker the previous run left behind, and wait until it
+#      has really released the port — a half-dead Worker would silently
+#      answer the new run's requests and produce misleading results.
+#   2. Start `wrangler dev` with this run's configuration.
+#   3. Wait for /healthz to answer (Worker startup takes ~10-120s; polling
+#      catches crashes early instead of waiting out a fixed timeout).
+#   4. Run part of the conformance suite against it.
+#
+# This action packages those four steps so each configuration is ~15 lines of
+# inputs in ci.yml instead of ~50 lines of copied shell script. Before this
+# action existed, that shell had been pasted three times and had already
+# drifted apart between copies.
+#
+# Inputs:
+#   name           Used in log messages and the log file name.
+#   vars           Newline-separated NAME=VALUE pairs given to `wrangler dev`
+#                  as --var flags: this run's secret configuration.
+#   checks         Which numbered conformance checks to run (ATOMS_ONLY).
+#   suite-env      Extra environment variables for the test process only,
+#                  NAME=VALUE per line. An empty value sets the variable to
+#                  empty — used to turn optional check groups off.
+name: 'Run conformance suite against one Worker'
+description: 'Restart wrangler dev with a given secret configuration, wait for it, run part of the conformance suite'
+inputs:
+  name:
+    description: 'Run name, used in log messages and the log file name'
+    required: true
+  vars:
+    description: |
+      Newline-separated NAME=VALUE pairs passed to `wrangler dev` as --var.
+      A pair whose value is literally `-` is skipped, so a run can omit a
+      variable rather than pass it empty.
+    required: false
+    default: ''
+  checks:
+    description: 'ATOMS_ONLY list for the suite run (e.g. "2,32-42")'
+    required: true
+  suite-env:
+    description: |
+      Newline-separated NAME=VALUE pairs set as environment variables for the
+      npm test invocation only. Empty-valued pairs set the variable to empty,
+      which is how optional check groups get explicitly turned off.
+    required: false
+    default: ''
+  worker-port:
+    description: 'Port wrangler dev serves on'
+    required: true
+  working-directory:
+    description: 'Directory wrangler dev and npm test run in. Composite-action steps do not inherit the caller job''s defaults.run.working-directory, so this must be passed explicitly.'
+    required: false
+    default: cloudflare/worker
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RUN_NAME: ${{ inputs.name }}
+        RUN_VARS: ${{ inputs.vars }}
+        RUN_CHECKS: ${{ inputs.checks }}
+        RUN_SUITE_ENV: ${{ inputs.suite-env }}
+        WORKER_PORT: ${{ inputs.worker-port }}
+      run: |
+        bash "$GITHUB_ACTION_PATH/run.sh"

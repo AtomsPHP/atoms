@@ -4277,13 +4277,20 @@ checks.push(async () => {
     }
 });
 
-// Shared route battery for the misconfiguration postures (checks 41 and 44):
-// /healthz must answer while invoke/tickets/debug/ws all refuse with
-// `misconfigured`. The configuration gate runs ahead of routing — even the
-// removed mint route refuses — so a deployment missing its secret can never
-// leak which routes it has. `messageMustName`, when given, additionally
-// requires each refusal to name that variable (check 44 uses this to prove
-// the gate tripped on PREVIOUS, not on a bad current secret).
+// Checks 41 and 44 both test a Worker whose shared-secret setup is broken,
+// and both make the same assertions, so the assertions live here:
+//
+//   - /healthz still answers 200. A broken secret makes the Worker refuse
+//     real work, but it must not disappear.
+//   - Every other route (invoke, tickets, debug, websocket) answers 500 with
+//     error code `misconfigured`. This includes routes that don't exist, on
+//     purpose: the secret check happens before URL routing, so an attacker
+//     can't discover valid URLs by watching which ones answer differently.
+//
+// The third argument is optional. Check 41 only cares that the error code is
+// `misconfigured`. Check 44 additionally requires every error message to name
+// ATOMS_SHARED_SECRET_PREVIOUS — that's how it proves the Worker rejected the
+// malformed *previous* secret specifically, rather than a bad current one.
 async function assertAllRoutesMisconfigured(problems, atomIdSuffix, messageMustName) {
     const id = atomId(atomIdSuffix);
 
