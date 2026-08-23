@@ -28,11 +28,11 @@ final class BundleWriter
 
         $entries = [];
         foreach ($files->files as $file) {
-            $contents = @file_get_contents($file['absolute']);
-            if ($contents === false) {
-                throw new \RuntimeException("Could not read bundle file {$file['absolute']}");
-            }
-            $entries[] = ['name' => $file['relative'], 'contents' => $contents];
+            // Memoized bytes from validation time: the archive contents, the
+            // manifest's content_hash and its scoper_prefix all describe the
+            // same snapshot of the tree, even if a file changes on disk while
+            // the build runs.
+            $entries[] = ['name' => $file['relative'], 'contents' => $files->contentsOf($file)];
         }
 
         $tar = TarWriter::build($entries);
