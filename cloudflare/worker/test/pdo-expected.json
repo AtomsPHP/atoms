@@ -259,7 +259,7 @@
     },
     "stmt.debug_dump_params.rebind_int_string_alias": {
       "class": "deviation",
-      "why": "bindValue(1, ...) then bindValue('1', ...) is ONE binding on our side — PHP array-key coercion aliases the int and string spellings onto a single map key (the F24 fix), so debugDumpParams() lists the param once, in its first-bind form (Position #0) carrying the rebind's value and type. Real pdo_sqlite registers the two calls as TWO DISTINCT parameters (positional #1 and a named :1, paramno=-1) and dumps both. Reproducing native here would require making the binding maps key-spelling-preserving — separate slots per spelling, each reporting its own registration's type rather than sharing one — purely so a debug dump can list both forms of what our semantics hold to be one binding. Bind each placeholder consistently (all positional or all named) to stay clear of the corner."
+      "why": "Our shim treats bindValue(1, ...) and bindValue('1', ...) as one binding: PHP coerces both to the same array key, so debugDumpParams() lists a single param in its first-bind form (Position #0) with the rebind's value and type. Real pdo_sqlite registers two distinct parameters (positional #1 and a named :1, paramno=-1) and dumps both. Matching native would mean keeping separate slots per key spelling throughout the binding maps — for a debug-only corner. Workaround: bind each placeholder consistently (all positional or all named)."
     }
   }
 }

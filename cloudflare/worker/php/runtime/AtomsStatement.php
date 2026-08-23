@@ -70,12 +70,10 @@ class AtomsStatement extends \PDOStatement
      *     param does NOT move it — first-bind position wins — so this never
      *     removes a key once added.
      *
-     *     First-bind detection (audit F24, 2026-08-16) is map membership
-     *     BEFORE the bind methods mutate — never a strict in_array() against
-     *     THIS list: strict comparison treats int 1 and '1' as distinct
-     *     while PHP's array-key coercion aliases them in the maps, which let
-     *     a rebound param append a second entry here and dump twice in
-     *     debugDumpParams().
+     *     A key counts as bound if it is present in either map (audit F24:
+     *     PHP coerces '1' and 1 to the same array key, so a strict in_array()
+     *     against THIS list would double-count a rebind through the other
+     *     spelling).
      */
     private $boundOrder = [];
 
@@ -349,12 +347,11 @@ class AtomsStatement extends \PDOStatement
             );
         }
 
-        // Audit F24 (2026-08-16): first-bind detection is map membership
-        // BEFORE this call's mutations — never a strict in_array() against
-        // boundOrder. PHP array-key coercion aliases int 1 and '1' onto one
-        // map key, so strict comparison would treat a rebind through the
-        // other spelling as new and append a second entry, dumping the param
-        // twice in debugDumpParams().
+        // A param already present in either map is a rebind, not a new
+        // binding: PHP coerces '1' and 1 to the same array key, so checking
+        // the maps (not a strict in_array against boundOrder) is what makes
+        // a rebind through the other spelling update in place rather than
+        // dump twice (audit F24).
         if (!array_key_exists($param, $this->boundValues) && !array_key_exists($param, $this->boundRefs)) {
             $this->boundOrder[] = $param;
         }
@@ -396,10 +393,7 @@ class AtomsStatement extends \PDOStatement
             );
         }
 
-        // Audit F24 (2026-08-16): same first-bind rule as bindValue() above —
-        // map membership BEFORE this call's mutations, not a strict
-        // in_array() against boundOrder, so an int/string key alias ('1'
-        // rebinding int 1) cannot append a second boundOrder entry.
+        // Same rebind rule as bindValue() above.
         if (!array_key_exists($param, $this->boundValues) && !array_key_exists($param, $this->boundRefs)) {
             $this->boundOrder[] = $param;
         }
