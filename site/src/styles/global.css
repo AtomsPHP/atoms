@@ -206,13 +206,13 @@ footer a:hover{ color:var(--ink); }
 footer svg{ height:22px; width:auto; display:block; }
 
 @media (max-width: 860px){
-  .hero{ grid-template-columns:1fr; gap:2rem; padding:2.6rem 0 3rem; }
-  .cols{ grid-template-columns:1fr; gap:1.8rem; }
-  .pipeline{ grid-template-columns:1fr; }
+  .hero{ grid-template-columns:minmax(0, 1fr); gap:2rem; padding:2.6rem 0 3rem; }
+  .cols{ grid-template-columns:minmax(0, 1fr); gap:1.8rem; }
+  .pipeline{ grid-template-columns:minmax(0, 1fr); }
   .pipe-arrow{ justify-self:center; transform:rotate(90deg); }
 }
 @media (max-width: 700px){
-  .quads{ grid-template-columns:1fr; gap:1.8rem; }
+  .quads{ grid-template-columns:minmax(0, 1fr); gap:1.8rem; }
   .dlabel{ font-size:13px; }
   section{ padding:3rem 0; }
 }
