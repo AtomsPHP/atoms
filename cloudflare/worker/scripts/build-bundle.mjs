@@ -10,40 +10,17 @@
  * Default: node build-bundle.mjs fixtures/counter src/bundle.generated.js
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+
+import { runtimeFiles, sortedFiles, walkDir, writeBundleModule } from './lib/bundle-module.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 const fixtureDir = path.resolve(PROJECT_ROOT, process.argv[2] || 'fixtures/counter');
 const outputFile = path.resolve(PROJECT_ROOT, process.argv[3] || 'src/bundle.generated.js');
-
-/** Recursively read all files in a directory. */
-function walkDir(dir, prefix = '') {
-    const files = {};
-    if (!fs.existsSync(dir)) {
-        return files;
-    }
-
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    const sorted = entries.sort((a, b) => a.name.localeCompare(b.name));
-
-    for (const entry of sorted) {
-        const fullPath = path.join(dir, entry.name);
-        const guestPath = path.join(prefix, entry.name);
-
-        if (entry.isDirectory()) {
-            Object.assign(files, walkDir(fullPath, guestPath));
-        } else if (entry.isFile()) {
-            const content = fs.readFileSync(fullPath, 'utf-8');
-            files[guestPath] = content;
-        }
-    }
-
-    return files;
-}
 
 /** Read and parse manifest.json from fixture. */
 function readManifest(dir) {
@@ -70,39 +47,13 @@ async function buildBundle() {
         Object.assign(allFiles, walkDir(appDir, '/app'));
     }
 
-    // 2. Include php/runtime/* as /atoms/runtime/...
-    const runtimeDir = path.join(PROJECT_ROOT, 'php', 'runtime');
-    if (fs.existsSync(runtimeDir)) {
-        Object.assign(allFiles, walkDir(runtimeDir, '/atoms/runtime'));
-    } else {
-        console.warn(`php/runtime/ not found; will be missing from bundle`);
-    }
-
-    // 3. Include php/atoms-core/* as /atoms/core/src/... — except resources/,
-    //    which must land at /atoms/core/resources/. That layout is load-bearing:
-    //    Atoms\Errors\ErrorCatalog resolves its catalog as
-    //    __DIR__ . '/../../resources/errors.json', i.e. from /atoms/core/src/Errors
-    //    up to /atoms/core/resources. See php/README.md §1.
-    const atomsCoreDir = path.join(PROJECT_ROOT, 'php', 'atoms-core');
-    if (fs.existsSync(atomsCoreDir)) {
-        const core = walkDir(atomsCoreDir, '/');
-        for (const [rel, contents] of Object.entries(core)) {
-            if (!/\.(php|json)$/.test(rel)) continue; // VENDORED-FROM.md et al.
-            const stripped = rel.replace(/^\//, '');
-            const guestPath = stripped.startsWith('resources/')
-                ? `/atoms/core/${stripped}`
-                : `/atoms/core/src/${stripped}`;
-            allFiles[guestPath] = contents;
-        }
-    } else {
-        console.warn(`php/atoms-core/ not found; will be missing from bundle`);
-    }
+    // 2 & 3. The runtime half — php/runtime/* as /atoms/runtime/... and the
+    // vendored php/atoms-core/* under /atoms/core/. Fail-loud on a missing
+    // tree: both are committed repository source (see runtimeFiles()).
+    Object.assign(allFiles, runtimeFiles(PROJECT_ROOT));
 
     // Sort keys for deterministic output
-    const sortedFiles = {};
-    for (const key of Object.keys(allFiles).sort()) {
-        sortedFiles[key] = allFiles[key];
-    }
+    const sorted = sortedFiles(allFiles);
 
     // Rewrite file paths in manifest to be guest paths
     const rewrittenAtoms = {};
@@ -122,27 +73,9 @@ async function buildBundle() {
         atoms: rewrittenAtoms,
     };
 
-    // Generate the output file
-    const output = `/**
- * Auto-generated bundle by build-bundle.mjs
- * Do not edit manually.
- */
-
-export default {
-  manifest: ${JSON.stringify(outputManifest, null, 2)},
-  files: ${JSON.stringify(sortedFiles, null, 2)},
-};
-`;
-
-    // Ensure output directory exists
-    const outputDir = path.dirname(outputFile);
-    if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
-    }
-
-    fs.writeFileSync(outputFile, output, 'utf-8');
+    writeBundleModule('build-bundle.mjs', outputManifest, sorted, outputFile);
     console.error(`Bundle generated successfully`);
-    console.error(`Files included: ${Object.keys(sortedFiles).length}`);
+    console.error(`Files included: ${Object.keys(sorted).length}`);
     console.error(`Atoms defined: ${Object.keys(rewrittenAtoms).length}`);
 }
 
