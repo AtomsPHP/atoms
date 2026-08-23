@@ -53,8 +53,8 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 
 ### Postures
 
-The suite runs against a Worker in one of the postures below; the runner is
-told which one through `ATOMS_BEARER_AUTH` (the two misconfigured postures are
+The suite runs against a Worker in one of the configurations below; the runner is
+told which one through `ATOMS_BEARER_AUTH` (the two misconfigured runs are
 named by their `ATOMS_EXPECT_MISCONFIGURED*` flag instead):
 
 | posture | Worker env | what it exercises |

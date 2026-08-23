@@ -1782,8 +1782,8 @@ Worker has no current secret at all, so it cannot make that distinction).
 This is the spec §"The shared secret" requirement "set but malformed →
 misconfigured", previously untested: check 40 exercises only a well-formed
 overlap and check 41 only a missing current secret. It runs only under
-`ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1`, which is the whole of its short
-posture's run (`ATOMS_ONLY=44`).
+`ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1`, and that one check is the whole
+of that run (`ATOMS_ONLY=44`).
 
 Remote-only additions: measure cold activation, warm turn, and
 post-hibernation wake latencies; record them in `test/results/remote.json`.

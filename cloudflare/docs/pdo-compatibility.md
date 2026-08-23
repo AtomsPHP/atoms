@@ -174,15 +174,24 @@
 
 ## Fetch-mode defaults
 
+Measured during audit F23 / issue #39. Native pdo_sqlite accepts several
+fetch modes as a connection-level default (`PDO::setAttribute()`) that our
+shim does not list in `FetchMode::supported()`, so those defaults are
+refused loudly. The statement-level paths for every mode below are
+implemented and match native; only the connection-default entry point is
+closed. Widening `supported()` is a deliberate follow-up to this
+measurement, not bundled with the F23 guard work.
+
 | Member | Case | Status | Notes |
 |---|---|---|---|
-| `PDO::setAttribute()` | FETCH_BOUND as the connection-level default fetch mode | refused | Audit F23 / issue #39 measurement: native pdo_sqlite accepts FETCH_BOUND as ATTR_DEFAULT_FETCH_MODE at setAttribute() time (returns true; acceptance only). FetchMode::supported() does not list FETCH_BOUND, so the connection-level default is refused loudly. Statement-level FETCH_BOUND is filled (bindColumn paths match); aligning supported() is a deliberate follow-up to this measurement, not part of the guard consolidation. |
-| `PDO::setAttribute()` | FETCH_CLASS (no class-name argument) as the connection-level default fetch mode | refused | Audit F23 / issue #39 measurement: native pdo_sqlite accepts even FETCH_CLASS WITHOUT a class-name argument as ATTR_DEFAULT_FETCH_MODE at setAttribute() time (returns true; what a later fetch would do was not probed here). FetchMode::supported() does not list FETCH_CLASS, so the connection-level default is refused loudly. Statement-level FETCH_CLASS is filled and matches; aligning supported() is a deliberate follow-up to this measurement. |
-| `PDO::setAttribute()` | FETCH_INTO (no object argument) as the connection-level default fetch mode | refused | Audit F23 / issue #39 measurement: native pdo_sqlite accepts even FETCH_INTO WITHOUT an object argument as ATTR_DEFAULT_FETCH_MODE at setAttribute() time (returns true; acceptance only). FetchMode::supported() does not list FETCH_INTO, so the connection-level default is refused loudly. Statement-level FETCH_INTO is filled and matches; aligning supported() is a deliberate follow-up to this measurement. |
+
+| `PDO::setAttribute()` | FETCH_BOUND as the connection-level default fetch mode | refused | Native accepts it at setAttribute() time. Statement-level FETCH_BOUND is filled (bindColumn paths match). |
+| `PDO::setAttribute()` | FETCH_CLASS (no class-name argument) as the connection-level default fetch mode | refused | Native accepts it (what a later fetch would do was not probed). Statement-level FETCH_CLASS is filled and matches. |
+| `PDO::setAttribute()` | FETCH_INTO (no object argument) as the connection-level default fetch mode | refused | Native accepts it. Statement-level FETCH_INTO is filled and matches. |
 | `PDO::setAttribute()` | FETCH_KEY_PAIR as the connection-level default fetch mode | supported |  |
-| `PDO::setAttribute()` | FETCH_NAMED as the connection-level default fetch mode | refused | Audit F23 / issue #39 measurement: native pdo_sqlite accepts FETCH_NAMED as ATTR_DEFAULT_FETCH_MODE at setAttribute() time (returns true; this case measures acceptance only). FetchMode::supported() does not list FETCH_NAMED, so AtomsPDO refuses the connection-level default rather than accepting one whose every reachable path it has not committed to serve. Statement-level FETCH_NAMED itself is filled and matches (fetch.set_fetch_mode group); aligning supported() is a deliberate follow-up, not bundled with the F23 guard consolidation. |
+| `PDO::setAttribute()` | FETCH_NAMED as the connection-level default fetch mode | refused | Native accepts it. Statement-level FETCH_NAMED is filled and matches. |
 | `PDO::query()` | FETCH_KEY_PAIR as query()'s explicit per-statement mode | refused | Same corner as mode.stmt.default_key_pair, via PDO::query($sql, FETCH_KEY_PAIR): query() routes its fetch-mode arguments through setFetchMode() (design F-14), so it inherits the same statement-level refusal. Measured: native pdo_sqlite answers the true pair. Follow-up alignment with mode.stmt.default_key_pair. |
-| `PDOStatement::setFetchMode()` | FETCH_KEY_PAIR as the statement-level default fetch mode | refused | Audit F23 / issue #39 measurement: native pdo_sqlite accepts FETCH_KEY_PAIR via PDOStatement::setFetchMode() and answers the true pair from a two-column result. Our setFetchMode() switch does not list FETCH_KEY_PAIR — it is accepted only as a connection-level default (see mode.conn.default_key_pair, which MATCHES native) — so a statement-level default is refused loudly rather than half-served. Alignment is measured here first and deliberately NOT bundled with the guard consolidation; changing setFetchMode() is a follow-up behavior change. |
+| `PDOStatement::setFetchMode()` | FETCH_KEY_PAIR as the statement-level default fetch mode | refused | Native accepts it via setFetchMode(). Ours accepts FETCH_KEY_PAIR only as a connection-level default, so a statement-level one is refused rather than half-served. Aligning is a follow-up behavior change. |
 
 ## Values and round-trips
 
