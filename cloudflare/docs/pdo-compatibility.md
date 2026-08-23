@@ -174,24 +174,15 @@
 
 ## Fetch-mode defaults
 
-Measured against native pdo_sqlite (issue #39). Native accepts several
-fetch modes as a connection-level default (`PDO::setAttribute()`) that our
-shim does not list in `FetchMode::supported()`, so those defaults are
-refused loudly. The statement-level paths for every mode below are
-implemented and match native; only the connection-default entry point is
-closed. Widening `supported()` is a deliberate follow-up, not bundled with
-the duplicate-column guard work it was measured alongside.
-
 | Member | Case | Status | Notes |
 |---|---|---|---|
-
-| `PDO::setAttribute()` | FETCH_BOUND as the connection-level default fetch mode | refused | Native accepts it at setAttribute() time. Statement-level FETCH_BOUND is filled (bindColumn paths match). |
-| `PDO::setAttribute()` | FETCH_CLASS (no class-name argument) as the connection-level default fetch mode | refused | Native accepts it (what a later fetch would do was not probed). Statement-level FETCH_CLASS is filled and matches. |
-| `PDO::setAttribute()` | FETCH_INTO (no object argument) as the connection-level default fetch mode | refused | Native accepts it. Statement-level FETCH_INTO is filled and matches. |
+| `PDO::setAttribute()` | FETCH_BOUND as the connection-level default fetch mode | refused | Native accepts this mode as a connection-level default; our shim does not list it in FetchMode::supported() and refuses the default loudly. The statement-level path is implemented and matches native. Widening supported() is a deliberate follow-up. |
+| `PDO::setAttribute()` | FETCH_CLASS (no class-name argument) as the connection-level default fetch mode | refused | Native accepts this mode as a connection-level default; our shim does not list it in FetchMode::supported() and refuses the default loudly. The statement-level path is implemented and matches native. Widening supported() is a deliberate follow-up. Native's acceptance says nothing about what a later fetch would do; that was not probed. |
+| `PDO::setAttribute()` | FETCH_INTO (no object argument) as the connection-level default fetch mode | refused | Native accepts this mode as a connection-level default; our shim does not list it in FetchMode::supported() and refuses the default loudly. The statement-level path is implemented and matches native. Widening supported() is a deliberate follow-up. |
 | `PDO::setAttribute()` | FETCH_KEY_PAIR as the connection-level default fetch mode | supported |  |
-| `PDO::setAttribute()` | FETCH_NAMED as the connection-level default fetch mode | refused | Native accepts it. Statement-level FETCH_NAMED is filled and matches. |
+| `PDO::setAttribute()` | FETCH_NAMED as the connection-level default fetch mode | refused | Native accepts this mode as a connection-level default; our shim does not list it in FetchMode::supported() and refuses the default loudly. The statement-level path is implemented and matches native. Widening supported() is a deliberate follow-up. |
 | `PDO::query()` | FETCH_KEY_PAIR as query()'s explicit per-statement mode | refused | Same corner as mode.stmt.default_key_pair, via PDO::query($sql, FETCH_KEY_PAIR): query() routes its fetch-mode arguments through setFetchMode() (design F-14), so it inherits the same statement-level refusal. Measured: native pdo_sqlite answers the true pair. Follow-up alignment with mode.stmt.default_key_pair. |
-| `PDOStatement::setFetchMode()` | FETCH_KEY_PAIR as the statement-level default fetch mode | refused | Native accepts it via setFetchMode(). Ours accepts FETCH_KEY_PAIR only as a connection-level default, so a statement-level one is refused rather than half-served. Aligning is a follow-up behavior change. |
+| `PDOStatement::setFetchMode()` | FETCH_KEY_PAIR as the statement-level default fetch mode | refused | Native accepts FETCH_KEY_PAIR via setFetchMode(). Ours lists it only as a connection-level default, so a statement-level one is refused rather than half-served. Aligning is a follow-up behavior change. |
 
 ## Values and round-trips
 
@@ -258,7 +249,6 @@ the duplicate-column guard work it was measured alongside.
 | `PDOStatement::debugDumpParams()` | debugDumpParams() with a bound named param and a bound positional param, exact captured-output byte comparison | supported |  |
 | `PDOStatement::debugDumpParams()` | debugDumpParams() with nothing bound, exact captured-output byte comparison | supported |  |
 | `PDOStatement::debugDumpParams()` | debugDumpParams() with two bound positional params, exact captured-output byte comparison | supported |  |
-| `PDOStatement::debugDumpParams()` | debugDumpParams() after a positional param bound by int and rebound by its equal string key, exact captured-output byte comparison | differs | Our shim treats bindValue(1, ...) and bindValue('1', ...) as one binding: PHP coerces both to the same array key, so debugDumpParams() lists a single param in its first-bind form (Position #0) with the rebind's value and type. Real pdo_sqlite registers two distinct parameters (positional #1 and a named :1, paramno=-1) and dumps both. Matching native would mean keeping separate slots per key spelling throughout the binding maps — for a debug-only corner. Workaround: bind each placeholder consistently (all positional or all named). |
 | `PDOStatement::debugDumpParams()` | debugDumpParams() after params supplied via execute() (named array), exact captured-output byte comparison | supported |  |
 | `PDOStatement::debugDumpParams()` | debugDumpParams() after params supplied via execute() (positional array), exact captured-output byte comparison | supported |  |
 | `PDOStatement::getAttribute()` | getAttribute(ATTR_CURSOR) on a prepared statement | refused by both | Both sides refuse PDOStatement::getAttribute() with the SAME SQLSTATE now (design §3 F-23: AtomsNotSupported's third constructor arg carries 'IM001', matching real pdo_sqlite's measured SQLSTATE[IM001] exactly — there is no driver-owned statement handle to read from on either side). A tightened implementation, not a loosened comparison — refused_by_both with a matching triple, not merely a matching family. |
