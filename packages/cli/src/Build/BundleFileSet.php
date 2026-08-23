@@ -11,10 +11,23 @@ use Atoms\Cli\Config\AtomsJson;
  * source file, every migration, and atoms-composer.json — sorted by their
  * repo-relative path.
  *
+ * The set owns its bytes: each file is read from disk exactly once, on first
+ * use, and memoized for every later consumer (the manifest's scoper_prefix via
+ * treeHash()/scoperPrefix() and the archive contents written by BundleWriter).
+ * Every fingerprint and every emitted byte therefore describes one single
+ * snapshot of the tree — a build is a pure function of the repo at validation
+ * time, not of whatever the filesystem happens to return at each read.
+ *
+ * A file that cannot be read is a hard error (an exception naming the path),
+ * never a silent empty contribution to the hash.
+ *
  * @phpstan-type BundleFile array{relative: string, absolute: string}
  */
 final class BundleFileSet
 {
+    /** @var array<string, string> absolute path => file bytes, read once */
+    private array $bytes = [];
+
     /**
      * @param list<BundleFile> $files
      */
@@ -86,14 +99,36 @@ final class BundleFileSet
     {
         $ctx = hash_init('sha256');
         foreach ($this->files as $file) {
-            $contents = @file_get_contents($file['absolute']);
-            if ($contents === false) {
-                $contents = '';
-            }
-            hash_update($ctx, $file['relative'] . "\0" . $contents . "\0");
+            hash_update($ctx, $file['relative'] . "\0" . $this->contentsOf($file) . "\0");
         }
 
         return hash_final($ctx);
+    }
+
+    /**
+     * The bytes of one bundled file, read from disk at most once per file set
+     * and memoized for every later reader. Throws when the file cannot be
+     * read: an unreadable bundle file must abort the build, not quietly hash
+     * (or ship) as empty.
+     *
+     * @param BundleFile $file
+     */
+    public function contentsOf(array $file): string
+    {
+        return $this->bytes[$file['absolute']] ??= self::readOrFail($file);
+    }
+
+    /**
+     * @param BundleFile $file
+     */
+    private static function readOrFail(array $file): string
+    {
+        $contents = @file_get_contents($file['absolute']);
+        if ($contents === false) {
+            throw new \RuntimeException("Could not read bundle file {$file['absolute']}");
+        }
+
+        return $contents;
     }
 
     public function scoperPrefix(): string
