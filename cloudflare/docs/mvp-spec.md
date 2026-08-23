@@ -722,7 +722,11 @@ the normative contract where this section and it disagree, is
 of base64, or `ATOMS_SHARED_SECRET_PREVIOUS` set but malformed → every route
 except `GET /healthz` answers the wire code `misconfigured` (HTTP 500,
 `retryable: false`), with a message naming the variable and the rule
-(**ATOMS-E105**). `loadConfig()` stays total, so `/healthz` still answers: a
+(**ATOMS-E105**; the missing-current leg is pinned by conformance check 41,
+the malformed-previous leg by check 44 — which runs against a Worker whose
+current secret is valid, so its refusals name `ATOMS_SHARED_SECRET_PREVIOUS`
+and cannot be confused with 41's).
+`loadConfig()` stays total, so `/healthz` still answers: a
 misconfigured Worker is observably up and observably broken, never silently
 open.
 
@@ -1489,6 +1493,9 @@ tells the runner which:
   so only the bearer-gated checks skip.
 - **misconfigured** — no `ATOMS_SHARED_SECRET`. Check 41 is the whole run
   (`ATOMS_ONLY=41 ATOMS_EXPECT_MISCONFIGURED=1`).
+- **malformed previous** — a valid `ATOMS_SHARED_SECRET` and a malformed
+  `ATOMS_SHARED_SECRET_PREVIOUS`. Check 44 is the whole run
+  (`ATOMS_ONLY=44 ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1`).
 
 Credentials reach the runner one of two ways. `ATOMS_SHARED_SECRET` is the
 full-capability form: it derives the bearer it presents, forges test tickets,
@@ -1765,6 +1772,18 @@ makes the two nulls meaningful rather than vacuous, and its absence is what
 the check skips on, with `ATOMS_REQUIRE_DENY_CHECKS=1` turning that skip into
 a failure. The built-in deny list wins over the operator's allowlist, because
 a guest that could read the secret would hold the root of everything.
+**44.** the malformed rotation overlap, new: a Worker booted with a **valid**
+current secret and a malformed `ATOMS_SHARED_SECRET_PREVIOUS` is as loudly
+broken as check 41's — `/healthz` answers 200 `{ok:true}`, `/invoke`,
+`/tickets`, `/debug` and `/ws` all answer HTTP 500 `misconfigured` — and each
+refusal message must name `ATOMS_SHARED_SECRET_PREVIOUS`, which is what pins
+that the gate tripped on the overlap and not on the current secret (41's
+Worker has no current secret at all, so it cannot make that distinction).
+This is the spec §"The shared secret" requirement "set but malformed →
+misconfigured", previously untested: check 40 exercises only a well-formed
+overlap and check 41 only a missing current secret. It runs only under
+`ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1`, which is the whole of its short
+posture's run (`ATOMS_ONLY=44`).
 
 Remote-only additions: measure cold activation, warm turn, and
 post-hibernation wake latencies; record them in `test/results/remote.json`.

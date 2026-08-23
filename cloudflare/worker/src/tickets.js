@@ -97,17 +97,18 @@ function base64UrlDecode(s) {
  * `derive.js` memoizes each derivation per secret for the life of the isolate,
  * and keeps a slot per secret precisely so an overlap costs no re-derivation.
  *
- * @param {import('./config.js').AtomsConfig} config with `sharedSecretState === 'configured'`
+ * @param {import('./config.js').AtomsConfig} config with `sharedSecret.ok`
  * @returns {Promise<CryptoKey[]>} non-extractable HMAC-SHA256 keys, current first
  */
 async function ticketKeys(config) {
-	const secret = config.sharedSecretBytes;
-	if (secret === null) {
+	// Unreachable past the configuration gate; byte-identical with the other
+	// internal throws (index.js checkAuth, callbacks.js signingKey).
+	if (!config.sharedSecret.ok) {
 		throw new AtomsError('internal', 'ATOMS_SHARED_SECRET is not configured');
 	}
 
-	const keys = [await deriveTicketKey(secret)];
-	const previous = config.sharedSecretPreviousBytes;
+	const keys = [await deriveTicketKey(config.sharedSecret.bytes)];
+	const previous = config.sharedSecret.previousBytes;
 	if (previous !== null) {
 		keys.push(await deriveTicketKey(previous));
 	}

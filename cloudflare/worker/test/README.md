@@ -4,7 +4,7 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 
 ## Tests
 
-`conformance.mjs` runs 43 checks against a live worker URL:
+`conformance.mjs` runs 44 checks against a live worker URL:
 
 1. **healthz** — `/healthz` endpoint responds
 2. **invoke + result envelope** — HTTP interface returns correct shape
@@ -49,17 +49,20 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 41. **misconfigured Worker** — booted with no shared secret, `GET /healthz` still answers 200 `{ok:true}` and `/invoke`, `/tickets`, `/debug` and `/ws` all answer HTTP 500 with the wire code `misconfigured` — including `/tickets`, which pins that the configuration gate precedes routing even for a route that no longer exists
 42. **config deny list** — with the Worker's `ATOMS_CONFIG_ENV_KEYS` naming `ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS`, a guest `$this->config()` of either name resolves `null`; an allowlisted control key on the same list resolves, which is what makes the two nulls meaningful rather than vacuous
 43. **structured WebSocket frames** — `Connection::sendJson()` puts a payload on the wire **bare**, with no `kind:"broadcast"` envelope, slashes unescaped and an integer past 2^53-1 intact; `Message::json()` round-trips an object and preserves a nested list; a nested empty map still encodes as `[]` (only the top level is forced to an object, deliberately); and a top-level list and malformed JSON both reach the Atom as one `\JsonException`. Every frame is compared as a raw string — `JSON.parse` would round the int64 and hide the envelope
+44. **malformed rotation overlap** — booted with a **valid** current secret but a malformed `ATOMS_SHARED_SECRET_PREVIOUS`, the Worker is exactly as loudly broken as check 41's: `/healthz` answers 200 `{ok:true}` and `/invoke`, `/tickets`, `/debug` and `/ws` all answer HTTP 500 `misconfigured` — and each refusal message names `ATOMS_SHARED_SECRET_PREVIOUS`, which is what proves the gate tripped on the overlap and not on the current secret. Pins the spec's "set but malformed → misconfigured" requirement that checks 40 (valid overlap) and 41 (no current secret) cannot see
 
 ### Postures
 
-The suite runs against a Worker in one of three postures, and the runner is
-told which one through `ATOMS_BEARER_AUTH`:
+The suite runs against a Worker in one of the postures below; the runner is
+told which one through `ATOMS_BEARER_AUTH` (the two misconfigured postures are
+named by their `ATOMS_EXPECT_MISCONFIGURED*` flag instead):
 
 | posture | Worker env | what it exercises |
 |---|---|---|
 | bearer required (default) | `ATOMS_SHARED_SECRET` set, `ATOMS_BEARER_AUTH` unset or `required` | everything, including 35–38 and check 39's live leg |
 | bearer disabled | `ATOMS_SHARED_SECRET` set, `ATOMS_BEARER_AUTH=disabled` | everything except the bearer-gated checks; tickets are still signed and callbacks are still signed |
 | misconfigured | no `ATOMS_SHARED_SECRET` | check 41 only (`ATOMS_ONLY=41 ATOMS_EXPECT_MISCONFIGURED=1`) |
+| malformed previous | valid `ATOMS_SHARED_SECRET`, malformed `ATOMS_SHARED_SECRET_PREVIOUS` | check 44 only (`ATOMS_ONLY=44 ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1`) |
 
 Checks 31–34 run in either configured posture. 35–38 need bearer auth
 required and otherwise skip. Checks 31, 32, 34, 35, 36 and 37 also need
@@ -85,6 +88,7 @@ the posture can satisfy.
 | 39 (cross-language legs) | no `php` on PATH | `ATOMS_REQUIRE_BEARER_VECTOR=1` |
 | 40 | no `ATOMS_SHARED_SECRET_PREVIOUS` | `ATOMS_REQUIRE_ROTATION_CHECKS=1` |
 | 41 | `ATOMS_EXPECT_MISCONFIGURED` unset (the flag is the gate) | — |
+| 44 | `ATOMS_EXPECT_MISCONFIGURED_PREVIOUS` unset (the flag is the gate) | — |
 | 42 | the Worker's `ATOMS_CONFIG_ENV_KEYS` does not make the control key readable | `ATOMS_REQUIRE_DENY_CHECKS=1` |
 
 Checks 18–28 and 30 have no gate; they always run. Check 30 never skips — a
@@ -298,6 +302,7 @@ Environment variables:
 - `ATOMS_REQUIRE_ROTATION_CHECKS` (optional, `1`) — turn check 40's skip into a failure; set it on the run whose Worker carries `ATOMS_SHARED_SECRET_PREVIOUS`
 - `ATOMS_REQUIRE_DENY_CHECKS` (optional, `1`) — turn check 42's skip into a failure; set it on the run whose Worker lists the secret names in `ATOMS_CONFIG_ENV_KEYS`
 - `ATOMS_EXPECT_MISCONFIGURED` (optional, `1`) — the Worker under test was booted with no shared secret: run check 41 and expect `misconfigured` everywhere but `/healthz`
+- `ATOMS_EXPECT_MISCONFIGURED_PREVIOUS` (optional, `1`) — the Worker under test was booted with a valid current secret and a malformed `ATOMS_SHARED_SECRET_PREVIOUS`: run check 44 and expect `misconfigured` everywhere but `/healthz`, each refusal naming the previous variable
 - `ATOMS_SKIP` (optional) — comma-separated check numbers to skip, e.g. `10,11,12`
 - `ATOMS_ONLY` (optional) — comma-separated allowlist: run only these check numbers
 
