@@ -174,13 +174,13 @@
 
 ## Fetch-mode defaults
 
-Measured during audit F23 / issue #39. Native pdo_sqlite accepts several
+Measured against native pdo_sqlite (issue #39). Native accepts several
 fetch modes as a connection-level default (`PDO::setAttribute()`) that our
 shim does not list in `FetchMode::supported()`, so those defaults are
 refused loudly. The statement-level paths for every mode below are
 implemented and match native; only the connection-default entry point is
-closed. Widening `supported()` is a deliberate follow-up to this
-measurement, not bundled with the F23 guard work.
+closed. Widening `supported()` is a deliberate follow-up, not bundled with
+the duplicate-column guard work it was measured alongside.
 
 | Member | Case | Status | Notes |
 |---|---|---|---|
@@ -258,7 +258,7 @@ measurement, not bundled with the F23 guard work.
 | `PDOStatement::debugDumpParams()` | debugDumpParams() with a bound named param and a bound positional param, exact captured-output byte comparison | supported |  |
 | `PDOStatement::debugDumpParams()` | debugDumpParams() with nothing bound, exact captured-output byte comparison | supported |  |
 | `PDOStatement::debugDumpParams()` | debugDumpParams() with two bound positional params, exact captured-output byte comparison | supported |  |
-| `PDOStatement::debugDumpParams()` | debugDumpParams() after a positional param bound by int and rebound by its equal string key, exact captured-output byte comparison (audit F24) | differs | Our shim treats bindValue(1, ...) and bindValue('1', ...) as one binding: PHP coerces both to the same array key, so debugDumpParams() lists a single param in its first-bind form (Position #0) with the rebind's value and type. Real pdo_sqlite registers two distinct parameters (positional #1 and a named :1, paramno=-1) and dumps both. Matching native would mean keeping separate slots per key spelling throughout the binding maps — for a debug-only corner. Workaround: bind each placeholder consistently (all positional or all named). |
+| `PDOStatement::debugDumpParams()` | debugDumpParams() after a positional param bound by int and rebound by its equal string key, exact captured-output byte comparison | differs | Our shim treats bindValue(1, ...) and bindValue('1', ...) as one binding: PHP coerces both to the same array key, so debugDumpParams() lists a single param in its first-bind form (Position #0) with the rebind's value and type. Real pdo_sqlite registers two distinct parameters (positional #1 and a named :1, paramno=-1) and dumps both. Matching native would mean keeping separate slots per key spelling throughout the binding maps — for a debug-only corner. Workaround: bind each placeholder consistently (all positional or all named). |
 | `PDOStatement::debugDumpParams()` | debugDumpParams() after params supplied via execute() (named array), exact captured-output byte comparison | supported |  |
 | `PDOStatement::debugDumpParams()` | debugDumpParams() after params supplied via execute() (positional array), exact captured-output byte comparison | supported |  |
 | `PDOStatement::getAttribute()` | getAttribute(ATTR_CURSOR) on a prepared statement | refused by both | Both sides refuse PDOStatement::getAttribute() with the SAME SQLSTATE now (design §3 F-23: AtomsNotSupported's third constructor arg carries 'IM001', matching real pdo_sqlite's measured SQLSTATE[IM001] exactly — there is no driver-owned statement handle to read from on either side). A tightened implementation, not a loosened comparison — refused_by_both with a matching triple, not merely a matching family. |
