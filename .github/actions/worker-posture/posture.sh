@@ -46,10 +46,6 @@ while IFS= read -r pair; do
   # unset rather than pass it empty (an empty ATOMS_SHARED_SECRET is a
   # different configuration from an absent one).
   [[ "$value" == "-" ]] && continue
-  # Substitute $RUN_SECRET and $RUN_SECRET_NEXT. Word-boundary matters: the
-  # rotated secret must not match the prefix of $RUN_SECRET_NEXT.
-  value="${value//\$RUN_SECRET_NEXT/${RUN_SECRET_NEXT:-}}"
-  value="${value//\$RUN_SECRET/${RUN_SECRET:-}}"
   var_args+=("--var" "${name}:${value}")
 done < <(printf '%s\n' "$POSTURE_VARS")
 
@@ -86,26 +82,14 @@ fi
 
 # --- Run the requested slice of the suite ----------------------------------
 
-# POSTURE_STEP_ENV pairs are exported into this script's own environment
-# first: the suite derives the posture's bearer from ATOMS_SHARED_SECRET /
-# ATOMS_SHARED_SECRET_PREVIOUS when bearer auth is required, so those must be
-# real exported env for npm test, not arguments to env.
+suite_env_args=()
 while IFS= read -r pair; do
   [[ -z "$pair" ]] && continue
-  export "${pair%%=*}=${pair#*=}"
-done < <(printf '%s\n' "$POSTURE_STEP_ENV")
+  suite_env_args+=("${pair%%=*}=${pair#*=}")
+done < <(printf '%s\n' "$POSTURE_SUITE_ENV")
 
-extra_env_args=()
-while IFS= read -r pair; do
-  [[ -z "$pair" ]] && continue
-  extra_env_args+=("${pair%%=*}=${pair#*=}")
-done < <(printf '%s\n' "$POSTURE_EXTRA_ENV")
-
-# The suite itself may need the posture's secrets as step env (the
-# bearer-required run derives the bearer from them). POSTURE_STEP_ENV pairs
-# are exported here, into this invocation only.
 env \
   ATOMS_BASE_URL="http://127.0.0.1:${WORKER_PORT}" \
   ATOMS_ONLY="$POSTURE_CHECKS" \
-  ${extra_env_args[@]+"${extra_env_args[@]}"} \
+  ${suite_env_args[@]+"${suite_env_args[@]}"} \
   npm test

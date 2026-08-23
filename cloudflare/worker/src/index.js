@@ -114,7 +114,7 @@ async function route(request, env) {
 	// total, so /healthz still answers and the deployment is observably up and
 	// observably broken.
 	if (!config.sharedSecret.ok) {
-		return errorResponse('misconfigured', config.sharedSecret.error ?? 'ATOMS_SHARED_SECRET is not usable');
+		return errorResponse('misconfigured', config.sharedSecret.error);
 	}
 
 	const authFailure = await checkAuth(request, config);

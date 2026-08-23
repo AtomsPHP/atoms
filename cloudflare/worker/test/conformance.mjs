@@ -121,13 +121,7 @@ const REQUIRE_DENY_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_
 // except /healthz answers `misconfigured`. Check 41 is the whole run in that
 // posture (ATOMS_ONLY=41); everything else expects a configured Worker.
 const EXPECT_MISCONFIGURED = /^(1|true|yes|on)$/i.test(process.env.ATOMS_EXPECT_MISCONFIGURED || '');
-// Same posture device as ATOMS_EXPECT_MISCONFIGURED, one step along the
-// rotation axis: the Worker holds a perfectly good CURRENT secret and a
-// MALFORMED previous one. The spec requires the same loud `misconfigured`
-// for both (the overlap is what the bearer and ticket checks fall back to,
-// so it has to be a secret or absent, never a half-set string), and check 41
-// cannot see that — its Worker has no current secret at all. Check 44 is the
-// whole run in this posture (ATOMS_ONLY=44).
+// Same posture device, one step along the rotation axis — see CHECK 44.
 const EXPECT_MISCONFIGURED_PREVIOUS = /^(1|true|yes|on)$/i.test(
     process.env.ATOMS_EXPECT_MISCONFIGURED_PREVIOUS || ''
 );
@@ -4283,6 +4277,40 @@ checks.push(async () => {
     }
 });
 
+// Shared route battery for the misconfiguration postures (checks 41 and 44):
+// /healthz must answer while invoke/tickets/debug/ws all refuse with
+// `misconfigured`. The configuration gate runs ahead of routing — even the
+// removed mint route refuses — so a deployment missing its secret can never
+// leak which routes it has. `messageMustName`, when given, additionally
+// requires each refusal to name that variable (check 44 uses this to prove
+// the gate tripped on PREVIOUS, not on a bad current secret).
+async function assertAllRoutesMisconfigured(problems, atomIdSuffix, messageMustName) {
+    const id = atomId(atomIdSuffix);
+
+    const health = await request('GET', '/healthz');
+    if (health.status !== 200 || health.data?.ok !== true) {
+        problems.push(`/healthz gave ${health.status}/${JSON.stringify(health.data)} (expected 200 {ok:true})`);
+    }
+
+    const routes = [
+        ['POST /invoke', await invoke('Counter', id, 'increment', [1])],
+        ['POST /tickets', await request('POST', `/tickets/Room/${id}`)],
+        ['GET /debug', await request('GET', `/debug/Counter/${id}/info`)],
+        ['GET /ws', await wsHandshakeAttempt(`/ws/Room/${id}?channels=lobby`, { auth: false })],
+    ];
+    for (const [label, r] of routes) {
+        const err = r.data?.error;
+        if (r.status !== 500 || err?.code !== 'misconfigured') {
+            problems.push(`${label} gave ${r.status}/${err?.code} (expected 500/misconfigured)`);
+        } else if (messageMustName && !String(err.message ?? '').includes(messageMustName)) {
+            problems.push(
+                `${label} answered misconfigured without naming ${messageMustName}: ` +
+                    JSON.stringify(err.message ?? '')
+            );
+        }
+    }
+}
+
 // CHECK 41: a Worker booted with no shared secret is loudly broken rather
 // than quietly open. `GET /healthz` still answers 200 — `loadConfig()` stays
 // total — and every other route answers the wire code `misconfigured` with
@@ -4302,28 +4330,7 @@ checks.push(async () => {
         return;
     }
     const problems = [];
-    const id = atomId('misconfigured');
-
-    const health = await request('GET', '/healthz');
-    if (health.status !== 200 || health.data?.ok !== true) {
-        problems.push(`/healthz gave ${health.status}/${JSON.stringify(health.data)} (expected 200 {ok:true})`);
-    }
-
-    const routes = [
-        ['POST /invoke', await invoke('Counter', id, 'increment', [1])],
-        // The removed mint route too: the configuration gate runs ahead of
-        // routing, so an unconfigured Worker answers `misconfigured` even for
-        // a path that no longer exists. That ordering is the assertion here —
-        // a deployment missing its secret must never leak which routes it has.
-        ['POST /tickets', await request('POST', `/tickets/Room/${id}`)],
-        ['GET /debug', await request('GET', `/debug/Counter/${id}/info`)],
-        ['GET /ws', await wsHandshakeAttempt(`/ws/Room/${id}?channels=lobby`, { auth: false })],
-    ];
-    for (const [label, r] of routes) {
-        if (r.status !== 500 || r.data?.error?.code !== 'misconfigured') {
-            problems.push(`${label} gave ${r.status}/${r.data?.error?.code} (expected 500/misconfigured)`);
-        }
-    }
+    await assertAllRoutesMisconfigured(problems, 'misconfigured');
 
     if (problems.length === 0) {
         pass(checkNum, name, '/healthz 200; invoke/tickets/debug/ws all 500 misconfigured before routing');
@@ -4472,35 +4479,10 @@ checks.push(async () => {
         return;
     }
     const problems = [];
-    const id = atomId('misconfigured-previous');
-
-    const health = await request('GET', '/healthz');
-    if (health.status !== 200 || health.data?.ok !== true) {
-        problems.push(`/healthz gave ${health.status}/${JSON.stringify(health.data)} (expected 200 {ok:true})`);
-    }
-
-    // Same battery as check 41 — the configuration gate runs ahead of routing
-    // here too — plus one sharper assertion: each refusal must NAME
-    // ATOMS_SHARED_SECRET_PREVIOUS. That is what separates this leg from
-    // check 41's: the message blaming the overlap variable proves the current
-    // secret was fine and the gate tripped on the malformed previous one.
-    const routes = [
-        ['POST /invoke', await invoke('Counter', id, 'increment', [1])],
-        ['POST /tickets', await request('POST', `/tickets/Room/${id}`)],
-        ['GET /debug', await request('GET', `/debug/Counter/${id}/info`)],
-        ['GET /ws', await wsHandshakeAttempt(`/ws/Room/${id}?channels=lobby`, { auth: false })],
-    ];
-    for (const [label, r] of routes) {
-        const err = r.data?.error;
-        if (r.status !== 500 || err?.code !== 'misconfigured') {
-            problems.push(`${label} gave ${r.status}/${err?.code} (expected 500/misconfigured)`);
-        } else if (!String(err.message ?? '').includes('ATOMS_SHARED_SECRET_PREVIOUS')) {
-            problems.push(
-                `${label} answered misconfigured without naming ATOMS_SHARED_SECRET_PREVIOUS: ` +
-                    JSON.stringify(err.message ?? '')
-            );
-        }
-    }
+    // The message-naming assertion is what separates this leg from check 41's:
+    // a refusal naming ATOMS_SHARED_SECRET_PREVIOUS proves the current secret
+    // was fine and the gate tripped on the malformed previous one.
+    await assertAllRoutesMisconfigured(problems, 'misconfigured-previous', 'ATOMS_SHARED_SECRET_PREVIOUS');
 
     if (problems.length === 0) {
         pass(checkNum, name, '/healthz 200; invoke/tickets/debug/ws all 500 misconfigured, each naming ATOMS_SHARED_SECRET_PREVIOUS');
