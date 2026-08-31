@@ -1,0 +1,185 @@
+---
+import Base from '../layouts/Base.astro';
+import AtomDiagram from '../components/AtomDiagram.astro';
+import { getCollection, render } from 'astro:content';
+import { inlineMd } from '../lib/inline-md';
+import { samples } from '../samples';
+
+// All copy lives in src/content/home/*.md — this file is structure only.
+const entries = await getCollection('home');
+const byId = Object.fromEntries(entries.map((e) => [e.id, e]));
+const need = (id: string) => {
+  const e = byId[id];
+  if (!e) throw new Error(`missing src/content/home/${id}.md`);
+  return e;
+};
+
+const hero = need('hero');
+const code = need('code');
+const live = need('live');
+const auth = need('auth');
+const how = need('how');
+const why = need('why');
+const faq = need('faq');
+const start = need('start');
+
+const { Content: HeroSub } = await render(hero);
+const { Content: CodeProse } = await render(code);
+const { Content: LiveProse } = await render(live);
+const { Content: AuthProse } = await render(auth);
+const { Content: HowProse } = await render(how);
+const { Content: FaqProse } = await render(faq);
+---
+<Base>
+  <!-- ============================ hero ============================ -->
+  <header class="hero">
+    <div>
+      <h1 set:html={hero.data.title_html} />
+      <div class="sub"><HeroSub /></div>
+      <div class="ctas">
+        {hero.data.ctas?.map((c) => (
+          <a class={`btn ${c.style}`} href={c.href}>{c.label}</a>
+        ))}
+      </div>
+    </div>
+    <AtomDiagram />
+  </header>
+
+  <!-- ============================ 1. the code ============================ -->
+  <section id="code">
+    <div class="cols">
+      <div>
+        <h2>{code.data.title}</h2>
+        <div class="prose" style="margin-top:1.1rem"><CodeProse /></div>
+        <div class="annos">
+          {code.data.annotations?.map((a) => (
+            <div class={`anno ${a.kind}`} data-for={a.anchor}>
+              <p class="anno-m">{a.method}</p>
+              <p set:html={inlineMd(a.text)} />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div>
+        <div class="code-card">
+          <p class="code-title">{samples.gameRoom.title}</p>
+          <pre set:html={samples.gameRoom.html} />
+        </div>
+        <div class="code-card">
+          <p class="code-title">{samples.callSite.title}</p>
+          <pre set:html={samples.callSite.html} />
+        </div>
+        <p class="cap" set:html={inlineMd(code.data.caption ?? '')} />
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 2. live ============================ -->
+  <section id="live">
+    <div class="cols">
+      <div>
+        <h2>{live.data.title}</h2>
+        <div class="prose" style="margin-top:1.1rem"><LiveProse /></div>
+      </div>
+      <div>
+        <div class="code-card">
+          <p class="code-title">{samples.browser.title}</p>
+          <pre set:html={samples.browser.html} />
+        </div>
+        <p class="cap" set:html={inlineMd(live.data.caption ?? '')} />
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 2b. auth ============================ -->
+  <section id="auth">
+    <div class="cols">
+      <div>
+        <h2>{auth.data.title}</h2>
+        <div class="prose" style="margin-top:1.1rem"><AuthProse /></div>
+      </div>
+      <div>
+        <div class="code-card">
+          <p class="code-title">{samples.route.title}</p>
+          <pre set:html={samples.route.html} />
+        </div>
+        <p class="cap" set:html={inlineMd(auth.data.caption ?? '')} />
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 3. how it works ============================ -->
+  <section id="how">
+    <h2>{how.data.title}</h2>
+    <div class="prose" style="margin-top:1.1rem"><HowProse /></div>
+    <div class="pipeline">
+      {how.data.stations?.map((s, i) => (
+        <>
+          {i > 0 && (
+            <div class="pipe-arrow" aria-hidden="true">
+              <svg width="46" height="12" viewBox="0 0 46 12"><line x1="2" y1="6" x2="36" y2="6"></line><polygon points="36,1.5 44,6 36,10.5"></polygon></svg>
+            </div>
+          )}
+          <div class="station">
+            <p class="code-title">{s.label}</p>
+            <p set:html={inlineMd(s.text)} />
+          </div>
+        </>
+      ))}
+    </div>
+    <p class="cap" style="margin-top:1.4rem" set:html={inlineMd(how.data.note ?? '')} />
+  </section>
+
+  <!-- ============================ 4. why ============================ -->
+  <section id="why">
+    <h2>{why.data.title}</h2>
+    <div class="quads">
+      {why.data.quads?.map((q) => (
+        <div class="quad">
+          <h3>{q.title}</h3>
+          <p set:html={inlineMd(q.text)} />
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <!-- ============================ 5. faq ============================ -->
+  <section id="faq">
+    <h2>{faq.data.title}</h2>
+    <div class="faq"><FaqProse /></div>
+  </section>
+
+  <!-- ============================ 6. get started ============================ -->
+  <section id="start" class="start">
+    <h2>{start.data.title}</h2>
+    <div class="code-card">
+      <pre set:html={samples.install.html} />
+    </div>
+    <div class="ctas">
+      {start.data.ctas?.map((c) => (
+        <a class={`btn ${c.style}`} href={c.href}>{c.label}</a>
+      ))}
+    </div>
+  </section>
+</Base>
+
+<script is:inline>
+// Line each annotation up with its method in the code card.
+(function(){
+  'use strict';
+  function align(){
+    var annos = document.querySelectorAll('.anno[data-for]');
+    annos.forEach(function(a){ a.style.marginTop = ''; });
+    if (window.innerWidth <= 860) return;
+    annos.forEach(function(a){
+      var anchor = document.getElementById(a.getAttribute('data-for'));
+      if (!anchor) return;
+      var delta = anchor.getBoundingClientRect().top - a.getBoundingClientRect().top;
+      if (delta > 0) a.style.marginTop = delta + 'px';
+    });
+  }
+  window.addEventListener('resize', align);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(align);
+  align();
+})();
+</script>

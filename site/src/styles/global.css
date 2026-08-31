@@ -1,0 +1,227 @@
+/* Atoms — ink-on-paper design system. Single (light) theme by intent. */
+:root{
+  --paper:      #F3F1EB;
+  --paper-card: #FBFAF6;
+  --ink:        #15161B;
+  --ink-soft:   #4B4C55;
+  --rule:       #D9D5CA;
+  --purple:     #7C3AED;
+  --orange:     #EA580C;
+  --charcoal:   #44444B;
+  --bond:       #9A9DA5;
+  --grid:       rgba(21, 22, 27, .055);
+}
+
+*, *::before, *::after{ box-sizing:border-box; }
+
+html{ background:var(--paper); }
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:'Spectral', Georgia, 'Times New Roman', serif;
+  line-height:1.65;
+  margin:0;
+}
+
+.grain{
+  position:fixed; inset:0; z-index:40; pointer-events:none;
+  opacity:.05; mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.wrap{ max-width:1060px; margin:0 auto; padding:0 1.5rem; }
+
+/* ---------- type ---------- */
+h1, h2{
+  font-family:'Science Gothic', 'Arial Narrow', Arial, sans-serif;
+  font-weight:350; text-wrap:balance; margin:0;
+}
+h1{ font-size:clamp(2.1rem, 4.4vw, 3.3rem); line-height:1.13; letter-spacing:.002em; }
+h2{ font-size:clamp(1.45rem, 2.6vw, 1.9rem); line-height:1.25; }
+p{ margin:0 0 1rem; }
+.prose{ max-width:62ch; color:var(--ink-soft); font-size:1.02rem; }
+.prose b, .prose strong, .faq b, .faq strong{ color:var(--ink); font-weight:500; }
+.prose code, .cap code, .faq code{
+  font-family:'IBM Plex Mono', ui-monospace, monospace;
+  font-size:.85em; background:rgba(21, 22, 27, .055);
+  padding:.08em .3em; border-radius:3px;
+}
+a{ color:var(--ink); text-decoration-color:var(--bond); text-underline-offset:3px; }
+a:hover{ text-decoration-color:var(--orange); }
+.btn:focus-visible, a:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
+
+/* ---------- nav ---------- */
+.nav{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:1.5rem 0;
+}
+.nav svg{ height:30px; width:auto; display:block; }
+.nav-links{
+  font-family:'IBM Plex Mono', ui-monospace, monospace;
+  font-size:.78rem; letter-spacing:.06em;
+  display:flex; gap:1.8rem;
+}
+.nav-links a{ color:var(--ink-soft); text-decoration:none; }
+.nav-links a:hover{ color:var(--ink); }
+
+/* ---------- hero ---------- */
+.hero{
+  display:grid; grid-template-columns:minmax(0, 10fr) minmax(0, 9fr);
+  gap:3rem; align-items:center;
+  padding:4.2rem 0 4.6rem;
+}
+.hero h1 em{ font-style:normal; color:var(--purple); }
+.hero h1 em.o{ color:var(--orange); }
+.hero .sub{
+  font-size:1.06rem; line-height:1.68; color:var(--ink-soft);
+  max-width:34rem; margin:1.3rem 0 2rem;
+}
+.hero .sub p{ margin:0; }
+.ctas{ display:flex; gap:.9rem; align-items:center; }
+.btn{
+  font-family:'Science Gothic', 'Arial Narrow', Arial, sans-serif;
+  font-weight:480; font-size:.95rem; letter-spacing:.03em;
+  padding:.68rem 1.35rem .62rem; border-radius:4px;
+  border:1px solid var(--ink); text-decoration:none; display:inline-block;
+}
+.btn.solid{ background:var(--ink); color:var(--paper); }
+.btn.ghost{ background:transparent; color:var(--ink); }
+.diagram-patch{
+  border:1px solid var(--rule); border-radius:6px;
+  background-color:var(--paper);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:26px 26px;
+  padding:.5rem;
+}
+.diagram-patch svg{ display:block; width:100%; height:auto; overflow:visible; }
+.dlabel{
+  font-family:'IBM Plex Mono', ui-monospace, monospace;
+  font-size:10.5px; letter-spacing:.08em; fill:var(--ink-soft);
+}
+
+/* ---------- sections ---------- */
+section{ border-top:1px solid var(--rule); padding:4rem 0; }
+.cols{
+  display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 3fr);
+  gap:3rem; align-items:start;
+}
+.cap{
+  font-size:.9rem; color:var(--ink-soft); font-style:italic;
+  margin-top:.8rem; max-width:52ch;
+}
+
+/* code annotations — the left rail's guided reading */
+.annos{ display:flex; flex-direction:column; gap:1.5rem; margin-top:1.9rem; }
+.anno{ border-left:2px solid var(--rule); padding-left:1.1rem; }
+.anno p{ margin:0; font-size:.95rem; color:var(--ink-soft); max-width:46ch; }
+.anno .anno-m{
+  font-family:'IBM Plex Mono', ui-monospace, monospace;
+  font-size:.78rem; letter-spacing:.02em; margin:0 0 .35rem;
+}
+.anno.app{ border-left-color:var(--purple); }
+.anno.app .anno-m{ color:var(--purple); }
+.anno.cli{ border-left-color:var(--charcoal); }
+.anno.cli .anno-m{ color:var(--charcoal); }
+
+/* code */
+.code-card{
+  background:var(--paper-card); border:1px solid var(--rule); border-radius:6px;
+  padding:1.15rem 1.35rem; overflow-x:auto;
+}
+.code-card + .code-card{ margin-top:.9rem; }
+.code-card pre{
+  margin:0; font-family:'IBM Plex Mono', ui-monospace, monospace;
+  font-size:.8rem; line-height:1.7;
+}
+.code-title{
+  font-family:'IBM Plex Mono', ui-monospace, monospace;
+  font-size:.68rem; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--bond); margin:0 0 .6rem;
+}
+.tok-k{ color:var(--purple); }
+.tok-s{ color:var(--orange); }
+.tok-c{ color:var(--bond); }
+.tok-f{ color:var(--ink); font-weight:500; }
+
+/* pipeline (how it works) */
+.pipeline{
+  display:grid; grid-template-columns:1fr auto 1fr auto 1fr;
+  gap:1rem; align-items:stretch; margin-top:2.4rem;
+}
+.station{
+  border:1px solid var(--rule); border-radius:6px; background:var(--paper-card);
+  padding:1.2rem 1.3rem;
+}
+.station .code-title{ color:var(--ink-soft); }
+.station p{ font-size:.92rem; color:var(--ink-soft); margin:0; }
+.station p code{
+  font-family:'IBM Plex Mono', ui-monospace, monospace; font-size:.85em;
+  background:rgba(21, 22, 27, .055); padding:.08em .3em; border-radius:3px;
+}
+.pipe-arrow{ align-self:center; }
+.pipe-arrow svg{ display:block; }
+.pipe-arrow line{ stroke:var(--bond); stroke-width:1.6; stroke-dasharray:4.5 5.5; }
+.pipe-arrow polygon{ fill:var(--bond); }
+
+/* why */
+.quads{
+  display:grid; grid-template-columns:1fr 1fr; gap:2.2rem 3rem; margin-top:2.2rem;
+}
+.quad h3{
+  font-family:'Science Gothic', 'Arial Narrow', Arial, sans-serif;
+  font-weight:430; font-size:1.02rem; margin:0 0 .4rem;
+}
+.quad p{ font-size:.97rem; color:var(--ink-soft); margin:0; }
+
+/* faq — the markdown body of src/content/home/faq.md, where an h3 is a
+   question and everything under it is that question's answer. */
+.faq{ margin:2rem 0 0; max-width:66ch; }
+.faq h3{
+  margin:1.4rem 0 0; padding-top:1.2rem; border-top:1px solid var(--rule);
+  font-family:'Science Gothic', 'Arial Narrow', Arial, sans-serif;
+  font-weight:430; font-size:1.02rem; color:var(--ink);
+}
+.faq h3:first-child{ margin-top:0; padding-top:0; border-top:none; }
+.faq p, .faq ul, .faq ol{
+  margin:.4rem 0 1.2rem; font-size:.97rem; color:var(--ink-soft);
+}
+.faq ul, .faq ol{ padding-left:1.15rem; }
+.faq li{ margin:.3rem 0; }
+.faq p:has(+ ul), .faq p:has(+ ol){ margin-bottom:.35rem; }
+.faq > :last-child{ margin-bottom:0; }
+
+/* get started */
+.start .code-card{ margin-top:1.6rem; max-width:46rem; }
+.start .ctas{ margin-top:1.8rem; }
+
+/* footer */
+footer{
+  border-top:1px solid var(--rule); padding:2.2rem 0 3rem;
+  display:flex; align-items:center; justify-content:space-between;
+  gap:1rem; flex-wrap:wrap;
+  font-family:'IBM Plex Mono', ui-monospace, monospace;
+  font-size:.75rem; letter-spacing:.05em; color:var(--ink-soft);
+}
+footer .marks{ display:flex; gap:1.6rem; }
+footer a{ color:var(--ink-soft); text-decoration:none; }
+footer a:hover{ color:var(--ink); }
+footer svg{ height:22px; width:auto; display:block; }
+
+@media (max-width: 860px){
+  .hero{ grid-template-columns:minmax(0, 1fr); gap:2rem; padding:2.6rem 0 3rem; }
+  .cols{ grid-template-columns:minmax(0, 1fr); gap:1.8rem; }
+  .pipeline{ grid-template-columns:minmax(0, 1fr); }
+  .pipe-arrow{ justify-self:center; transform:rotate(90deg); }
+}
+@media (max-width: 700px){
+  .quads{ grid-template-columns:minmax(0, 1fr); gap:1.8rem; }
+  .dlabel{ font-size:13px; }
+  section{ padding:3rem 0; }
+}
+@media (max-width: 520px){
+  .hero h1{ font-size:1.9rem; }
+  .nav-links{ gap:1rem; font-size:.72rem; }
+  .ctas{ flex-wrap:wrap; }
+}

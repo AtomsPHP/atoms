@@ -63,6 +63,7 @@ the consistency boundary.
 | [`docs/`](docs/) | Architecture and contracts: [`conventions.md`](docs/conventions.md) (normative), [`adapters.md`](docs/adapters.md) (the contracts each host adapter supplies and the conformance suite), [`cloudflare-toolchain.md`](docs/cloudflare-toolchain.md) (deploy, runtime auth, bundles), [`integration-plan.md`](docs/integration-plan.md), [`two-worlds.md`](docs/two-worlds.md), [`errors.md`](docs/errors.md) |
 | [`action/`](action/) | The deploy GitHub Action |
 | [`tests/`](tests/) | Cross-package integration tests |
+| [`site/`](site/) | The public marketing site (Astro) |
 
 | Package | Purpose |
 |---|---|
