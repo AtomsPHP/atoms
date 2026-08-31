@@ -56,9 +56,13 @@ ${links(hero.data.ctas)}
 
 ${body(code)}
 
-**${samples.gameRoom.title}**
+**${samples.gameRoomEloquent.title} — with Eloquent (\`atoms/database-illuminate\`)**
 
-${fence(samples.gameRoom)}
+${fence(samples.gameRoomEloquent)}
+
+**${samples.gameRoomSql.title} — with plain SQL**
+
+${fence(samples.gameRoomSql)}
 
 **${samples.callSite.title}**
 

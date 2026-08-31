@@ -2,6 +2,11 @@
 title: This is an Atom
 caption: >-
   Fetch or create an Atom from your monolith
+tabs:
+  - id: eloquent
+    label: Eloquent
+  - id: sql
+    label: Plain SQL
 annotations:
   - method: join()
     kind: app
@@ -19,4 +24,4 @@ annotations:
     text: >-
       Called when a message arrives from a connected client.
 ---
-An Atom is defined as a normal PHP class. It has its own database schema: each Atom instance has its own state separate from your app. An Atom can communicate with your app and directly with clients. Use an Atom to represent a game lobby, a document, a chat room, and more.
+An Atom is defined as a normal PHP class. It has its own database schema: each Atom instance has its own state separate from your app, and you query it with Eloquent models through `atoms/database-illuminate` or with plain SQL. An Atom can communicate with your app and directly with clients. Use an Atom to represent a game lobby, a document, a chat room, and more.

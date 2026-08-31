@@ -1,8 +1,8 @@
 /**
  * The homepage code samples — single source of truth for both renditions.
  *
- * `html` is the hand-highlighted markup (brand token classes, anchor ids for
- * the annotation rail) rendered into index.astro's <pre> blocks; the markdown
+ * `html` is the hand-highlighted markup (brand token classes, `data-a` anchors
+ * for the annotation rail) rendered into index.astro's <pre> blocks; the markdown
  * endpoint derives plain code from the same strings via plain(). Every sample
  * must use real atoms/* API surfaces — verify against packages/ when editing.
  */
@@ -14,7 +14,70 @@ export interface Sample {
 }
 
 export const samples = {
-  gameRoom: {
+  gameRoomEloquent: {
+    title: 'app/Atoms/GameRoom.php',
+    lang: 'php',
+    html: `<span class="tok-k">namespace</span> App\\Atoms;
+
+<span class="tok-k">use</span> Atoms\\Atom;
+<span class="tok-k">use</span> Atoms\\DatabaseIlluminate\\EloquentBridge;
+<span class="tok-k">use</span> Atoms\\Websocket\\Connection;
+<span class="tok-k">use</span> Atoms\\Websocket\\Message;
+
+<span class="tok-k">class</span> <span class="tok-f">GameRoom</span> <span class="tok-k">extends</span> Atom
+{
+    <span class="tok-k">public function</span> <span class="tok-f" data-a="a-join">join</span>(<span class="tok-k">string</span> $player): <span class="tok-k">int</span>
+    {
+        $db = EloquentBridge::boot($this-&gt;db());
+
+        $seat = $db-&gt;transaction(<span class="tok-k">function</span> () <span class="tok-k">use</span> ($player): <span class="tok-k">int</span> {
+            $taken = Player::query()-&gt;count();
+
+            <span class="tok-k">if</span> ($taken &gt;= 4) {
+                <span class="tok-k">throw new</span> \\DomainException(<span class="tok-s">'room_full'</span>);
+            }
+
+            Player::create([<span class="tok-s">'name'</span> =&gt; $player, <span class="tok-s">'seat'</span> =&gt; $taken + 1]);
+
+            <span class="tok-k">return</span> $taken + 1;
+        });
+
+        $this-&gt;broadcast(<span class="tok-s">'room'</span>, [<span class="tok-s">'kind'</span> =&gt; <span class="tok-s">'joined'</span>, <span class="tok-s">'player'</span> =&gt; $player, <span class="tok-s">'seat'</span> =&gt; $seat]);
+
+        <span class="tok-k">return</span> $seat;
+    }
+
+    <span class="tok-k">public function</span> <span class="tok-f" data-a="a-onconnect">onConnect</span>(Connection $conn, <span class="tok-k">array</span> $params): <span class="tok-k">void</span>
+    {
+        EloquentBridge::boot($this-&gt;db());
+
+        Player::where(<span class="tok-s">'name'</span>, $params[<span class="tok-s">'player'</span>])
+            -&gt;update([<span class="tok-s">'connection_id'</span> =&gt; $conn-&gt;id()]);
+
+        $conn-&gt;sendJson([
+            <span class="tok-s">'kind'</span>  =&gt; <span class="tok-s">'welcome'</span>,
+            <span class="tok-s">'board'</span> =&gt; Piece::all([<span class="tok-s">'piece'</span>, <span class="tok-s">'square'</span>, <span class="tok-s">'owner'</span>])-&gt;toArray(),
+        ]);
+    }
+
+    <span class="tok-k">public function</span> <span class="tok-f" data-a="a-onmessage">onMessage</span>(Connection $conn, Message $msg): <span class="tok-k">void</span>
+    {
+        EloquentBridge::boot($this-&gt;db());
+
+        $move  = $msg-&gt;json();
+        $mover = Player::where(<span class="tok-s">'connection_id'</span>, $conn-&gt;id())-&gt;first();
+
+        $moved = Piece::where(<span class="tok-s">'piece'</span>, $move[<span class="tok-s">'piece'</span>])
+            -&gt;where(<span class="tok-s">'owner'</span>, $mover?-&gt;name)
+            -&gt;update([<span class="tok-s">'square'</span> =&gt; $move[<span class="tok-s">'square'</span>]]);
+
+        <span class="tok-k">if</span> ($moved === 1) {
+            $this-&gt;broadcast(<span class="tok-s">'room'</span>, [<span class="tok-s">'kind'</span> =&gt; <span class="tok-s">'moved'</span>] + $move);
+        }
+    }
+}`,
+  },
+  gameRoomSql: {
     title: 'app/Atoms/GameRoom.php',
     lang: 'php',
     html: `<span class="tok-k">namespace</span> App\\Atoms;
@@ -26,7 +89,7 @@ export const samples = {
 
 <span class="tok-k">class</span> <span class="tok-f">GameRoom</span> <span class="tok-k">extends</span> Atom
 {
-    <span class="tok-k">public function</span> <span class="tok-f" id="a-join">join</span>(<span class="tok-k">string</span> $player): <span class="tok-k">int</span>
+    <span class="tok-k">public function</span> <span class="tok-f" data-a="a-join">join</span>(<span class="tok-k">string</span> $player): <span class="tok-k">int</span>
     {
         $seat = $this-&gt;db()-&gt;transaction(<span class="tok-k">function</span> (Database $db) <span class="tok-k">use</span> ($player): <span class="tok-k">int</span> {
             $taken = (<span class="tok-k">int</span>) $db-&gt;query(<span class="tok-s">'SELECT COUNT(*) c FROM players'</span>)[0][<span class="tok-s">'c'</span>];
@@ -45,7 +108,7 @@ export const samples = {
         <span class="tok-k">return</span> $seat;
     }
 
-    <span class="tok-k">public function</span> <span class="tok-f" id="a-onconnect">onConnect</span>(Connection $conn, <span class="tok-k">array</span> $params): <span class="tok-k">void</span>
+    <span class="tok-k">public function</span> <span class="tok-f" data-a="a-onconnect">onConnect</span>(Connection $conn, <span class="tok-k">array</span> $params): <span class="tok-k">void</span>
     {
         $this-&gt;db()-&gt;execute(
             <span class="tok-s">'UPDATE players SET connection_id = ? WHERE name = ?'</span>,
@@ -58,7 +121,7 @@ export const samples = {
         ]);
     }
 
-    <span class="tok-k">public function</span> <span class="tok-f" id="a-onmessage">onMessage</span>(Connection $conn, Message $msg): <span class="tok-k">void</span>
+    <span class="tok-k">public function</span> <span class="tok-f" data-a="a-onmessage">onMessage</span>(Connection $conn, Message $msg): <span class="tok-k">void</span>
     {
         $move = $msg-&gt;json();
 

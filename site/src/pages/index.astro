@@ -61,9 +61,28 @@ const { Content: FaqProse } = await render(faq);
         </div>
       </div>
       <div>
-        <div class="code-card">
-          <p class="code-title">{samples.gameRoom.title}</p>
-          <pre set:html={samples.gameRoom.html} />
+        <div class="code-tabs" role="tablist" aria-label="Database API">
+          {code.data.tabs?.map((t, i) => (
+            <button
+              role="tab"
+              id={`tab-${t.id}`}
+              aria-selected={i === 0 ? 'true' : 'false'}
+              aria-controls={`panel-${t.id}`}
+              tabindex={i === 0 ? 0 : -1}
+            >{t.label}</button>
+          ))}
+        </div>
+        <div class="tabpanel" id="panel-eloquent" role="tabpanel" aria-labelledby="tab-eloquent">
+          <div class="code-card">
+            <p class="code-title">{samples.gameRoomEloquent.title}</p>
+            <pre set:html={samples.gameRoomEloquent.html} />
+          </div>
+        </div>
+        <div class="tabpanel" id="panel-sql" role="tabpanel" aria-labelledby="tab-sql" hidden>
+          <div class="code-card">
+            <p class="code-title">{samples.gameRoomSql.title}</p>
+            <pre set:html={samples.gameRoomSql.html} />
+          </div>
         </div>
         <div class="code-card">
           <p class="code-title">{samples.callSite.title}</p>
@@ -164,7 +183,7 @@ const { Content: FaqProse } = await render(faq);
 </Base>
 
 <script is:inline>
-// Line each annotation up with its method in the code card.
+// Line each annotation up with its method in the visible code card.
 (function(){
   'use strict';
   function align(){
@@ -172,7 +191,9 @@ const { Content: FaqProse } = await render(faq);
     annos.forEach(function(a){ a.style.marginTop = ''; });
     if (window.innerWidth <= 860) return;
     annos.forEach(function(a){
-      var anchor = document.getElementById(a.getAttribute('data-for'));
+      var name = a.getAttribute('data-for');
+      var anchor = document.querySelector('.tabpanel:not([hidden]) [data-a="' + name + '"]') ||
+                   document.querySelector('[data-a="' + name + '"]');
       if (!anchor) return;
       var delta = anchor.getBoundingClientRect().top - a.getBoundingClientRect().top;
       if (delta > 0) a.style.marginTop = delta + 'px';
@@ -181,5 +202,27 @@ const { Content: FaqProse } = await render(faq);
   window.addEventListener('resize', align);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(align);
   align();
+
+  // The Eloquent / plain-SQL tabs on the code section.
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.code-tabs [role="tab"]'));
+  function select(tab){
+    tabs.forEach(function(t){
+      var selected = t === tab;
+      t.setAttribute('aria-selected', selected ? 'true' : 'false');
+      t.tabIndex = selected ? 0 : -1;
+      var panel = document.getElementById(t.getAttribute('aria-controls'));
+      if (panel) panel.hidden = !selected;
+    });
+    align();
+  }
+  tabs.forEach(function(t, i){
+    t.addEventListener('click', function(){ select(t); });
+    t.addEventListener('keydown', function(e){
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      var next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+      select(next);
+      next.focus();
+    });
+  });
 })();
 </script>
