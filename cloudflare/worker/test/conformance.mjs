@@ -49,7 +49,7 @@
  *   ATOMS_REQUIRE_TICKET_CHECKS=1 (turn the connection-ticket skips — checks
  *     31-38 — into failures. Set it on the bearer-required run; the
  *     anti-silent-deletion device from ATOMS_REQUIRE_CALLBACK_CHECKS.
- *     Since M5 the ticket checks issue their own tickets rather than minting
+ *     The ticket checks issue their own tickets rather than minting
  *     them over a route, so they need ATOMS_SHARED_SECRET and take no ticket
  *     TTL or skew settings — the issuer picks the lifetime, and check 36
  *     waits out a 1.5s one against the Worker's own clock)
@@ -84,7 +84,7 @@ const TURN_DEADLINE_MS = process.env.ATOMS_TURN_DEADLINE_MS ? parseInt(process.e
 const REQUIRE_CALLBACK_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_CALLBACK_CHECKS || '');
 // Must match the values the Worker was started with (never defaulted here,
 // same rule as ATOMS_TURN_DEADLINE_MS above) — check 29's result-set size
-// guard (M1 design §4.4). Both absent => check 29 skips.
+// guard (design §4.4). Both absent => check 29 skips.
 const SQL_MAX_ROWS = process.env.ATOMS_SQL_MAX_ROWS ? parseInt(process.env.ATOMS_SQL_MAX_ROWS, 10) : null;
 const SQL_MAX_RESULT_BYTES = process.env.ATOMS_SQL_MAX_RESULT_BYTES
     ? parseInt(process.env.ATOMS_SQL_MAX_RESULT_BYTES, 10)
@@ -284,7 +284,7 @@ function fail(checkNum, name, msg = '') {
  * harness is broken rather than the check inapplicable — so it fails instead.
  * Check 29 passes `REQUIRE_SQL_CAP_CHECKS` for its own, independent gate.
  *
- * `envVar` (M1 review round 2, R12) names the specific environment variable
+ * `envVar` names the specific environment variable
  * whose absence caused the skip, so a reader of the failure/skip line (or of
  * `results`) is told exactly what to set, rather than a generic "unavailable"
  * that leaves them re-reading this file's setup docs to find it. Optional:
@@ -570,7 +570,7 @@ function openSocket(path, sockOpts = {}) {
  *
  * This is the whole issuing side of the protocol, and it is five lines,
  * which is the point: the Worker never minted anything the caller could not
- * mint itself, and since M5 it does not offer to. `Atoms\Client\Tickets\
+ * mint itself, and it does not offer to. `Atoms\Client\Tickets\
  * TicketIssuer` is the reference implementation of these same bytes, and
  * check 39 pins the two against each other and against fixed vectors.
  *
@@ -872,7 +872,7 @@ let listener = null;
 
 /**
  * Set by CHECK 28, the merged PDO differential report (all groups, one
- * object) — {@see M1 design §5.4}. CHECK 30 re-uses this rather than
+ * object) — {@see design §5.4}. CHECK 30 re-uses this rather than
  * re-running the differential matrix a second time, the same way the
  * callback listener's records are reused across checks 13-17.
  * @type {{php: string, cases: Array<{id: string, group: string, member: string, title: string, class: string, ours: string, theirs: string, detail: string}>}|null}
@@ -2512,8 +2512,7 @@ checks.push(async () => {
 });
 
 // CHECK 23: timers fire, are consumed, are transactional, cancel works,
-// errors are contained (M2 wave 3 — Durable Object alarms behind the Timers
-// ABI).
+// errors are contained (Durable Object alarms behind the Timers ABI).
 checks.push(async () => {
     const checkNum = 23;
     const name = 'timers: fire, consume, transactional, cancel, errors contained';
@@ -2911,7 +2910,7 @@ checks.push(async () => {
     }
 });
 
-// CHECK 26: pdo surface tripwire (M1 design §1.7).
+// CHECK 26: pdo surface tripwire (design §1.7).
 //
 // Probe::surfaceAudit() reflects the RUNTIME \PDO / \PDOStatement and
 // asserts every public member is genuinely declared on Atoms\Cf\AtomsPDO /
@@ -2959,10 +2958,10 @@ checks.push(async () => {
     if (!(counts.pinned_fetch >= 24)) {
         problems.push(`counts.pinned_fetch=${counts.pinned_fetch} (expected >= 24)`);
     }
-    // M1 review F-18 (MINOR): R7's original floors covered methods and
-    // pinned fetch modes but not properties, interfaces, or statics — an
-    // audit that silently enumerated zero of any of those would still have
-    // passed. Additive floors, strengthening check 26 without touching an
+    // Floors for properties, interfaces, and statics too — floors covering
+    // only methods and pinned fetch modes would let an
+    // audit that silently enumerated zero of any of those still
+    // pass. Additive floors, strengthening check 26 without touching an
     // existing assertion.
     if (!(counts.properties >= 1)) {
         problems.push(`counts.properties=${counts.properties} (expected >= 1)`);
@@ -3012,7 +3011,7 @@ checks.push(async () => {
     }
 });
 
-// CHECK 27: pdo comparator integrity (M1 design §2.11).
+// CHECK 27: pdo comparator integrity (design §2.11).
 //
 // Probe::comparatorSanity() builds a fresh native in-guest
 // `new \PDO('sqlite::memory:')` and runs its five structural gates (S1-S5).
@@ -3056,7 +3055,7 @@ checks.push(async () => {
     }
 });
 
-// CHECK 28: pdo differential matrix (M1 design §2.11).
+// CHECK 28: pdo differential matrix (design §2.11).
 //
 // Orchestrator override on the design's report flow: Probe::differential()
 // runs ONE group per invoke (a single 160-case turn is too close to
@@ -3163,7 +3162,7 @@ checks.push(async () => {
         problems.push(`summary.total=${summary.total} (expected >= 90 — an anti-vacuous floor)`);
     }
 
-    // M1 review F-2 (BLOCKER): 'informational' bypasses the pin rules
+    // 'informational' bypasses the pin rules
     // entirely (pin rule 1 skips it outright), so unlike every other class it
     // is not bounded by anything unless this check bounds it. It must be a
     // closed set of exactly one case id — the one case whose non-comparison
@@ -3183,7 +3182,7 @@ checks.push(async () => {
         }
     }
 
-    // M1 review round 2, R8: case ids must be globally unique BEFORE any
+    // Case ids must be globally unique BEFORE any
     // pin rule runs. A duplicate id would let two DIFFERENT cases share one
     // pin-file entry — pin rule 1 could pass with one of the pair silently
     // unpinned, and pin rule 2 could pass while masking a stale pin, both
@@ -3298,7 +3297,7 @@ checks.push(async () => {
     }
 });
 
-// CHECK 29: sql result caps (M1 design §4.4).
+// CHECK 29: sql result caps (design §4.4).
 //
 // Same pattern as check 15: the Worker is started with small
 // ATOMS_SQL_MAX_ROWS/ATOMS_SQL_MAX_RESULT_BYTES values, and the runner is
@@ -3333,7 +3332,7 @@ checks.push(async () => {
         problems.push(`29a: result=${JSON.stringify(under.data?.result)} (expected ok:true, rowCount=${SQL_MAX_ROWS - 1})`);
     }
 
-    // 29a-boundary — M1 review F-15: EXACTLY maxRows rows must also SUCCEED
+    // 29a-boundary — EXACTLY maxRows rows must also SUCCEED
     // (not just maxRows-1). Verified against bridge.js's actual code before
     // writing this assertion: the cap check runs BEFORE push, at the START
     // of each loop iteration, so exactly `sqlMaxRows` successful pushes
@@ -3361,10 +3360,9 @@ checks.push(async () => {
         } else if (r.code !== 'sql_result_too_large') {
             problems.push(`29b: code=${JSON.stringify(r.code)} (expected sql_result_too_large)`);
         } else if (r.cap !== 'rows') {
-            // M1 review F-14 (MINOR, fixed): PRIMARY assertion — detail.cap,
+            // PRIMARY assertion — detail.cap,
             // read off BridgeSqlException::getDetail(), exactly as the spec
-            // and test/README document. This used to be unreachable from
-            // PHP at all (detail was dropped in SqlBridge::failure()).
+            // and test/README document.
             problems.push(`29b: cap=${JSON.stringify(r.cap)} (expected 'rows', from BridgeSqlException::getDetail())`);
         } else if (!/cap['":\s]+rows/i.test(r.message) && !r.message?.includes('ATOMS_SQL_MAX_ROWS')) {
             // SECONDARY assertion, kept: the message should still say so too.
@@ -3386,7 +3384,7 @@ checks.push(async () => {
         } else if (r.code !== 'sql_result_too_large') {
             problems.push(`29c: code=${JSON.stringify(r.code)} (expected sql_result_too_large)`);
         } else if (r.cap !== 'bytes') {
-            // M1 review F-14: PRIMARY assertion, see 29b's comment.
+            // PRIMARY assertion, see 29b's comment.
             problems.push(`29c: cap=${JSON.stringify(r.cap)} (expected 'bytes', from BridgeSqlException::getDetail())`);
         } else if (!/cap['":\s]+bytes/i.test(r.message) && !r.message?.includes('ATOMS_SQL_MAX_RESULT_BYTES')) {
             // SECONDARY assertion, kept: the message should still say so too.
@@ -3394,7 +3392,7 @@ checks.push(async () => {
         }
     }
 
-    // 29e — M1 review F-15: run mode (PDO::exec(), which discards rows) is
+    // 29e — run mode (PDO::exec(), which discards rows) is
     // NOT subject to either cap — a statement generating far more than the
     // row cap must still succeed, proving the caps apply to rows mode only.
     const runMode = await invoke('Probe', id, 'capProbeRunMode', [SQL_MAX_ROWS * 3]);
@@ -3423,7 +3421,7 @@ checks.push(async () => {
     }
 });
 
-// CHECK 30: pdo compatibility doc is current (M1 design §5.4).
+// CHECK 30: pdo compatibility doc is current (design §5.4).
 //
 // Re-uses check 28's already-fetched report (pdoMatrixReport, kept in a
 // module-level variable the way the callback listener's records are),
@@ -3496,9 +3494,9 @@ checks.push(async () => {
 // reserved `ticket` key never delivered, and the ticket excluded from the
 // param budgets.
 //
-// M5: the ticket is issued here rather than fetched from `POST /tickets`,
+// The ticket is issued here rather than fetched from `POST /tickets`,
 // which no longer exists. Every assertion about how `/ws` treats it is
-// unchanged; what the mint envelope used to prove about the bytes is now
+// unchanged; what the mint envelope used to prove about the bytes is
 // proved harder, against fixed vectors the PHP issuer asserts too.
 checks.push(async () => {
     const checkNum = 31;
@@ -3580,7 +3578,8 @@ checks.push(async () => {
 // CHECK 32: the mint route is GONE, and /ws is the only authority on whether
 // an atom can be connected to at all.
 //
-// M5 replaced this check's contents rather than weakening them. It used to
+// The tickets-route removal replaced this check's contents rather than
+// weakening them. It used to
 // assert `POST /tickets` validated claims and refused ineligible types; claim
 // validation moved to the issuer and is asserted in the PHP suite, so what is
 // left here is what only a live Worker can answer — that the route no longer
@@ -3669,7 +3668,7 @@ checks.push(async () => {
             );
         }
 
-        // The expiry boundary itself (M5). Expiry is absolute — expired once
+        // The expiry boundary itself. Expiry is absolute — expired once
         // the Worker's clock reaches `exp`, with no skew allowance — so a
         // ticket one millisecond past its `exp` is refused. Under the old
         // default skew this leg connected, which makes it the sharpest
@@ -3908,7 +3907,7 @@ checks.push(async () => {
     // forged past-`exp` ticket in check 33 cannot replace, because only this
     // one proves a ticket that WAS accepted stops being accepted.
     //
-    // M5: it needs no environment at all now. The issuer chooses the
+    // It needs no environment at all. The issuer chooses the
     // lifetime, so the check asks for a 1.5s one and waits it out; there is
     // no server TTL to shorten and no skew to know. It connects first, so a
     // later refusal cannot be mistaken for a ticket that was never good.
@@ -4091,7 +4090,7 @@ checks.push(async () => {
         );
     }
 
-    // (b2) The whole ticket, cross-language (M5). Deriving the same key only
+    // (b2) The whole ticket, cross-language. Deriving the same key only
     // proves the two agree about HKDF; the ticket adds a JSON encoder and a
     // base64url encoder to the agreement, which is where two implementations
     // actually drift — an escaped slash or an escaped non-ASCII character
@@ -4159,7 +4158,7 @@ checks.push(async () => {
 // check takes either bearer, its ticket check takes a ticket signed under
 // either, and callbacks keep arriving under the current key.
 //
-// M5 moved the ticket legs. Tickets used to get no overlap, on the reasoning
+// Tickets used to get no overlap, on the reasoning
 // that they were re-minted through the application within seconds of a flip.
 // That stopped being true when the application became the issuer: mid-rollout
 // an instance still holding the old secret signs with it, and re-issuing

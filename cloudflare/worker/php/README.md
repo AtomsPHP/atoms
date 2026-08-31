@@ -211,7 +211,7 @@ Load order matters and is encoded in `bootstrap.php`; this is what each file is.
 | `CfMessage.php` | `Atoms\Websocket\Message`: the decoded bytes + `isBinary()` of one inbound frame; `json()` decodes them through `JsonFrame`, throwing `\JsonException` for malformed input and for a top-level non-object |
 | `InvalidTimerName.php` / `TimerLimitExceeded.php` | ATOMS-E085 / ATOMS-E086 |
 | `CfTimers.php` | `Atoms\Timers\Timers`: `schedule()`/`cancel()`/`scheduledAt()` over `timer.schedule`/`timer.cancel`/`timer.get` |
-| `CfAtomContext.php` | `Atoms\Runtime\AtomContext`: `db()`, `config()`, `app()`, `dispatch()`, `broadcast()`, `timers()` — all real as of M2 |
+| `CfAtomContext.php` | `Atoms\Runtime\AtomContext`: `db()`, `config()`, `app()`, `dispatch()`, `broadcast()`, `timers()` — all real |
 | `bootstrap.php` | Activation + the parked turn loop (`run_turn()`/`run_ws_turn()`/`run_timer_turn()`); the only file the host requires by name |
 
 ### Documented leaks and limits
@@ -219,7 +219,7 @@ Load order matters and is encoded in `bootstrap.php`; this is what each file is.
 **The PDO shim (`db()->pdo()`).** Recorded here rather than hidden, because it
 is a hand-written subclass with no driver behind it — this is the one corner
 of the runtime surface that stays a permanent, typed restriction rather than a
-milestone stub. It used to be audited by hand; as of M1 it is audited by a
+temporary stub. It is audited by a
 reflection tripwire (conformance check 26) against the runtime `\PDO`/
 `\PDOStatement`, and measured member-by-member against a native in-guest
 `pdo_sqlite` by a differential harness (checks 27-28) whose result is
@@ -263,7 +263,7 @@ permanently refused, not the whole surface:
   under duplicates, because the column *names* (with duplicates preserved)
   survive separately, out of band from the row data.
 
-Everything else that was on this list before M1 — `bindParam()`,
+Everything else that was once on this list — `bindParam()`,
 `bindColumn()`/`FETCH_BOUND`, `fetchObject()`, `FETCH_CLASS`/`FETCH_INTO`/
 `FETCH_FUNC`/`FETCH_GROUP`/`FETCH_UNIQUE`, `debugDumpParams()`,
 `execute([])` keeping previously-bound values, `lastInsertId($name)`,
@@ -285,7 +285,7 @@ Other differences worth knowing, not omissions:
   connection: after a statement's `execute()` fails, that statement's
   `errorCode()`/`errorInfo()` report the failure and the connection's own
   triple is left UNCHANGED — matching real PDO, which does the same in both
-  directions (M1 review round 2, R4, measured): a statement's `execute()`,
+  directions (measured): a statement's `execute()`,
   whether it fails OR succeeds, never touches the connection's triple.
   `AtomsPDO`'s own triple changes only through its own direct operations —
   `exec()`/`query()`/`lastInsertId()`/`prepare()`/`quote()`/`getAttribute()`
@@ -314,19 +314,19 @@ Other differences worth knowing, not omissions:
 - `PDOStatement::rowCount()` reports `rows_written`, i.e. PDO's documented
   meaning (affected rows), not the size of a SELECT's result set.
 - **Parameter/return typing across the shim, in general.** `AtomsPDO::quote()`
-  was fixed (M1 review F-5) to declare the SAME parameter types real
+  declares the SAME parameter types real
   `\PDO::quote()` does (`string $string, int $type = PARAM_STR`), because a
-  looser signature there let a call that real PDO refuses at the argument
-  boundary (`declare(strict_types=1)`, a non-string `$string`) fall through
-  silently on our side instead. That was fixed as a targeted case, not as a
+  looser signature there would let a call that real PDO refuses at the
+  argument boundary (`declare(strict_types=1)`, a non-string `$string`) fall
+  through silently on our side instead. That is a targeted case, not a
   blanket audit: other members of `AtomsPDO`/`AtomsStatement` may still keep
   looser parameter or return types than the parent they subclass, so under a
   `strict_types` call site a `\TypeError` real PDO would raise may not be
   raised by Atoms for a member the differential matrix has not yet exercised
-  with a type-boundary-violating argument. Reviewed and accepted for M1: the
+  with a type-boundary-violating argument. Reviewed and accepted: the
   harness's `Cases.php` itself runs under `declare(strict_types=1)`, so this
   class of gap surfaces (and gets fixed, member by member, the way `quote()`
-  just was) as the matrix's cases come to exercise it, rather than needing a
+  was) as the matrix's cases come to exercise it, rather than needing a
   separate audit pass. **This declines the WEAK-typing axis almost entirely**
   — `Cases.php`'s own `strict_types=1` means a weak-mode call boundary is
   never exercised there, and that declining opened one measured, real
@@ -346,7 +346,7 @@ Other differences worth knowing, not omissions:
   such a column as `CAST(col AS TEXT)` (the fixture `Vault` does) — writing them
   is exact, only reading needs the cast. See the spec appendix.
 
-**The callback channel (`app()`/`dispatch()`, M2).**
+**The callback channel (`app()`/`dispatch()`).**
 
 - `app()->foo()` returns the decoded wire tree — scalars, lists,
   string-keyed maps — **not** hydrated back into `Payload` DTOs,
@@ -358,10 +358,10 @@ Other differences worth knowing, not omissions:
   one without becoming a blocking call. Initiation failures (bad channel
   config, an unencodable job) are the opposite — loud, thrown from
   `dispatch()` itself.
-- `manifest_hash` is omitted from the `methods` request body in M2 — see
+- `manifest_hash` is omitted from the `methods` request body — see
   `docs/conventions.md` §Callback signing.
 
-**WebSockets and `broadcast()` (M2).**
+**WebSockets and `broadcast()`.**
 
 - **A frame sent inside a transaction that later rolls back has already gone
   out.** `$conn->send()`/`close()`/`broadcast()` are sync ops, not gated by
@@ -380,7 +380,7 @@ Other differences worth knowing, not omissions:
   `Atoms\Cf` prelude has never carried `ATOMS-E###` codes, and neither does
   `AtomsNotSupported`.
 
-**Timers (M2).**
+**Timers.**
 
 - `dispatch()` from inside `onTimer()` and `broadcast()` from a timer turn
   both work identically to an invoke — a timer turn is an ordinary turn

@@ -1,7 +1,7 @@
 <?php
 
 /**
- * A \PDOException whose ->getCode() is the SQLSTATE string (M1 design §3
+ * A \PDOException whose ->getCode() is the SQLSTATE string (design §3
  * F-28).
  *
  * Measured: real PDO's own exceptions answer getCode() with the SQLSTATE
@@ -22,15 +22,15 @@ namespace Atoms\Cf;
 class BridgeSqlException extends \PDOException
 {
     /**
-     * M1 review F-14 (MINOR, fixed): the host's error reply for
+     * The host's error reply for
      * `sql_result_too_large` carries `detail.cap`/`detail.limit` all the
      * way to `SqlBridge::failure()` (spread into `reply.error` by
-     * `bridge.js`'s `fail()`) — but `failure()` used to read only
-     * `code`/`message`/`sqlstate` out of that object before building the
-     * exception, so `cap`/`limit` were silently dropped at the LAST step,
-     * never reaching PHP even though the wire carried them the whole way.
-     * This is an ADDITIVE third constructor argument (default `[]`, so every
-     * existing call site is unaffected) that preserves the raw error object
+     * `bridge.js`'s `fail()`) — reading only `code`/`message`/`sqlstate`
+     * out of that object before building the exception would silently drop
+     * `cap`/`limit` at the LAST step, never reaching PHP even though the
+     * wire carried them the whole way.
+     * This is an ADDITIVE third constructor argument (default `[]`, so a
+     * call site may omit it) that preserves the raw error object
      * so callers like {@see \App\Atoms\Probe::capProbe()} can read
      * `getDetail()['cap']` directly instead of parsing it back out of the
      * exception message.

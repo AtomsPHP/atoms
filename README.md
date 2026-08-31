@@ -45,7 +45,7 @@ the consistency boundary.
   against a real deployed Worker. It is not a managed service; you deploy it
   to your own account.
 - `app()`, `dispatch()`, `broadcast()`, WebSockets and timers/alarms are
-  implemented in the Worker runtime (M2). The one remaining typed
+  implemented in the Worker runtime. The one remaining typed
   `AtomsNotSupported` surface is the permanently-unsupported corner of the
   `db()->pdo()` shim (see `cloudflare/worker/php/README.md` §Documented leaks
   and limits) — a restriction, not a stub.

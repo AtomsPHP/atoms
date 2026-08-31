@@ -424,7 +424,7 @@ export function loadConfig(env) {
 		// Eight times ATOMS_MAX_REQUEST_BYTES's default, and a small fraction of
 		// the isolate's memory envelope — high enough that no legitimate page of
 		// rows trips it, low enough that a runaway SELECT * fails as a typed
-		// error instead of an OOM that kills the residency (M1 design §4.1).
+		// error instead of an OOM that kills the residency (design §4.1).
 		sqlMaxResultBytes: posInt(env, 'ATOMS_SQL_MAX_RESULT_BYTES', 8388608),
 		sqlMaxBindings: int(env, 'ATOMS_SQL_MAX_BINDINGS', 1000),
 

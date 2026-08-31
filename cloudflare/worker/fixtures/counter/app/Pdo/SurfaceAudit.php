@@ -10,7 +10,7 @@ use ReflectionMethod;
 use ReflectionProperty;
 
 /**
- * The reflection tripwire (M1 design §1): asserts every public member of
+ * The reflection tripwire (design §1): asserts every public member of
  * \PDO / \PDOStatement is genuinely declared on `Atoms\Cf\AtomsPDO` /
  * `Atoms\Cf\AtomsStatement`, rather than falling through to the inert
  * `sqlite::memory:` carrier connection — the bug class this whole file
@@ -25,7 +25,7 @@ use ReflectionProperty;
  * every pinned FETCH_* value through a REAL, live `AtomsStatement` (the
  * genuine `Atoms\Cf\` dispatcher a customer's `fetch()`/`fetchAll()` call
  * actually reaches, not an internal helper) and classifies the outcome,
- * which is the whole point of that rule (design §1.2, M1 review F-9).
+ * which is the whole point of that rule (design §1.2).
  */
 final class SurfaceAudit
 {
@@ -314,23 +314,23 @@ final class SurfaceAudit
     }
 
     /**
-     * R6 (behavioural constant check). M1 review F-9 (MAJOR, fixed): this
-     * used to run every pinned FETCH_* value through the small INTERNAL
-     * `Atoms\Cf\FetchMode` helper — which implements only a HARDCODED
-     * subset (ASSOC/NUM/BOTH/OBJ/COLUMN/KEY_PAIR) — rather than the REAL
-     * dispatcher a customer actually calls, `AtomsStatement::fetch()`/
-     * `fetchAll()`'s `hydrateOneRow()`, which handles many more modes
+     * R6 (behavioural constant check). Runs every pinned FETCH_* value
+     * through the REAL dispatcher a customer actually calls,
+     * `AtomsStatement::fetch()`/`fetchAll()`'s `hydrateOneRow()` — not the
+     * small INTERNAL `Atoms\Cf\FetchMode` helper, which implements only a
+     * HARDCODED subset (ASSOC/NUM/BOTH/OBJ/COLUMN/KEY_PAIR).
+     * `hydrateOneRow()` handles many more modes
      * directly (FETCH_BOUND, FETCH_NAMED, FETCH_CLASS, FETCH_INTO, the
      * FETCH_GROUP/FETCH_UNIQUE/FETCH_CLASSTYPE/FETCH_PROPS_LATE flags,
      * FETCH_FUNC) BEFORE ever falling through to FetchMode. Auditing
-     * FetchMode alone meant every one of those modes was invisible to R6:
-     * `FetchMode::assertSupported()` throws AtomsNotSupported for all of
-     * them, so the audit "passed" via the refusal branch even though
-     * AtomsStatement genuinely ANSWERS most of them — deleting the
-     * FETCH_CLASS arm from `hydrateOneRow()` would not have turned this
+     * FetchMode alone would leave every one of those modes invisible to
+     * R6: `FetchMode::assertSupported()` throws AtomsNotSupported for all
+     * of them, so the audit would "pass" via the refusal branch even
+     * though AtomsStatement genuinely ANSWERS most of them — deleting the
+     * FETCH_CLASS arm from `hydrateOneRow()` would not turn this
      * red.
      *
-     * Fixed: for every pinned FETCH_* value, execute a REAL fetch through a
+     * So: for every pinned FETCH_* value, execute a REAL fetch through a
      * live `AtomsStatement` obtained from the `$pdo` passed in (the SAME
      * connection {@see Probe::surfaceAudit()} hands this method — real
      * `db()->pdo()`, real `SqlBridge`, real Durable Object SQL, not a
@@ -402,7 +402,7 @@ final class SurfaceAudit
     /**
      * One exercise closure per pinned FETCH_* name, each driving a fresh
      * statement through that mode's OWN documented calling form (design
-     * §1.2 R6, M1 review F-9). Every closure either returns (answered,
+     * §1.2 R6). Every closure either returns (answered,
      * regardless of what it returns — only whether it threw matters here)
      * or throws; `AtomsNotSupported` is a legitimate refusal, anything else
      * is a violation, both handled by the caller.
@@ -602,16 +602,16 @@ final class SurfaceAudit
     }
 
     /**
-     * M1 review F-10 (MAJOR, fixed): this used to filter runtime constants
+     * Deliberately NOT a filter of runtime constants
      * DOWN to an allowlist of known prefixes (`FETCH_`, `ATTR_`, `PARAM_`,
-     * ...) before comparing against PinnedConstants — which meant a brand
-     * new NON-driver constant, in a namespace nobody had thought to list
-     * yet, was excluded from BOTH directions of the check and simply never
-     * seen. Inverted: every \PDO constant is included UNLESS it is
-     * driver-prefixed (the one exclusion this milestone's own design calls
+     * ...) before comparing against PinnedConstants — that would mean a
+     * brand new NON-driver constant, in a namespace nobody had thought to
+     * list yet, was excluded from BOTH directions of the check and simply
+     * never seen. Instead, every \PDO constant is included UNLESS it is
+     * driver-prefixed (the one exclusion the design calls
      * for — driver-loaded constants vary by extension, not by PHP version).
-     * `auditConstants()`'s existing both-directions name-set-and-value
-     * equality against PinnedConstants now does the real work: any new
+     * `auditConstants()`'s both-directions name-set-and-value
+     * equality against PinnedConstants does the real work: any new
      * non-driver constant this build adds shows up in `$runtime` but not in
      * `PinnedConstants`, and Direction 1 flags it as an R5 violation —
      * exactly the "a new member surfaces as RED, never as a silent hole"

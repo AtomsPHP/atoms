@@ -30,12 +30,12 @@ fix `packages/core/` and re-vendor.
 
 Read `cloudflare/docs/mvp-spec.md` before changing the Worker, in particular
 its appendix of *measured* platform deviations. `app()`, `dispatch()`,
-`broadcast()`, WebSockets and timers/alarms are implemented (M2) — see the
+`broadcast()`, WebSockets and timers/alarms are implemented — see the
 spec's §The callback channel, §The WebSocket seam and §Timers. The one
 surface that deliberately stays a typed `AtomsNotSupported` is the
 permanently-unsupported corner of the `db()->pdo()` shim
 (`cloudflare/worker/php/README.md` §Documented leaks and limits); that is a
-restriction, not a milestone stub. Extending the runtime surface further is a
+restriction, not a stub. Extending the runtime surface further is a
 spec change first and a diff second; a half-implementation in a pull request
 will be declined.
 

@@ -60,7 +60,7 @@ export { ok as okReply, fail as errorReply };
 /** Pragmas answered synthetically instead of being forwarded to the DO. */
 const SYNTHETIC_PRAGMAS = new Set(['journal_mode', 'synchronous', 'busy_timeout']);
 
-// Module scope, one instance: the result-set byte guard (M1 design §4.2)
+// Module scope, one instance: the result-set byte guard (design §4.2)
 // encodes every row in rows mode, so this is on the hot path.
 const ENC = new TextEncoder();
 
@@ -93,7 +93,7 @@ export class Bridge {
 
 	/**
 	 * Create the host-owned tables. Idempotent, safe in a constructor.
-	 * `__atoms_timers` lives here alongside `__atoms_meta` (M2 wave 3): one
+	 * `__atoms_timers` lives here alongside `__atoms_meta`: one
 	 * place creates every host-owned table, so the reserved-prefix guard
 	 * below only ever has to agree with itself.
 	 */
@@ -195,7 +195,7 @@ export class Bridge {
 			return this.ws.handleSync(msg.op, msg);
 		}
 
-		// Same delegation for the three timer.* ops (src/timers.js, M2 wave 3):
+		// Same delegation for the three timer.* ops (src/timers.js):
 		// its own try/catch-to-reply contract, identical to this one.
 		if (msg.op === 'timer.schedule' || msg.op === 'timer.cancel' || msg.op === 'timer.get') {
 			return this.timers.handleSync(msg.op, msg);
@@ -292,7 +292,7 @@ export class Bridge {
 			throw sqlError(e);
 		}
 
-		// Branch A (M1 design §2.7, measured on this wrangler/workerd build:
+		// Branch A (design §2.7, measured on this wrangler/workerd build:
 		// `cursor.columnNames` exists): captured now, before anything else
 		// touches `this.sql` and creates unrelated cursors, and before the
 		// cursor is drained. Source order, duplicates preserved — the wire's
@@ -302,18 +302,17 @@ export class Bridge {
 		// instead of guessing.
 		const columnNames = Array.isArray(cursor.columnNames) ? [...cursor.columnNames] : null;
 
-		// M1 review round 2, R13 (orchestrator-mandated, deploy-risk): rows
-		// mode is the ONLY mode that ships `columns` (see the reply below),
-		// and AtomsStatement's whole duplicate-column detection depends on
-		// that array surviving — silently falling back to `columns: []`
-		// here would DISARM every guard R1 added/strengthened without
-		// telling anyone: every fetch mode that should refuse under a
-		// detected duplicate would instead answer wrong, silently, the
-		// exact failure mode this milestone exists to eliminate. Fail
-		// loudly instead. No local conformance run can exercise this branch
-		// (`cursor.columnNames` exists on every workerd build measured for
-		// this milestone) — that is expected; this guards the DEPLOYED run
-		// against a future platform regression, not this one.
+		// Rows mode is the ONLY mode that ships `columns` (see the reply
+		// below), and AtomsStatement's whole duplicate-column detection
+		// depends on that array surviving — silently falling back to
+		// `columns: []` here would DISARM those guards without telling
+		// anyone: every fetch mode that should refuse under a detected
+		// duplicate would instead answer wrong, silently, the exact
+		// failure mode the guards exist to eliminate. Fail loudly instead.
+		// No local conformance run can exercise this branch
+		// (`cursor.columnNames` exists on every workerd build measured) —
+		// that is expected; this guards the DEPLOYED run against a future
+		// platform regression, not this one.
 		if (mode === 'rows' && columnNames === null) {
 			throw columnsUnavailable();
 		}
@@ -323,7 +322,7 @@ export class Bridge {
 		try {
 			if (mode === 'rows') {
 				// The row cap is checked BEFORE push and the byte cap AFTER adding
-				// and BEFORE push (M1 design §4.2), so peak memory here is bounded
+				// and BEFORE push (design §4.2), so peak memory here is bounded
 				// by `cap + one row` and a single oversized row also trips it.
 				// "Bytes" is the sum, over rows, of the UTF-8 byte length of that
 				// row's JSON.stringify() output — deliberately not String.length
@@ -358,7 +357,7 @@ export class Bridge {
 		// rowCount()/sqlite3_changes() means): it is a count of underlying
 		// storage b-tree writes, which is inflated by a row's own secondary
 		// index entries and by the AUTOINCREMENT bookkeeping table.
-		// MEASURED (temp instrumentation, see the M1 gap-fill report): a
+		// MEASURED (temp instrumentation): a
 		// single-row INSERT into a table with a UNIQUE column and an
 		// AUTOINCREMENT primary key reported rowsWritten=3 for a real
 		// 1-row change (1 table row + 1 UNIQUE index entry + 1
@@ -922,7 +921,7 @@ function sqlError(e) {
 
 /**
  * A `sql.exec` rows-mode result exceeded ATOMS_SQL_MAX_ROWS or
- * ATOMS_SQL_MAX_RESULT_BYTES (M1 design §4.3). A distinct code from
+ * ATOMS_SQL_MAX_RESULT_BYTES (design §4.3). A distinct code from
  * `sql_error`: "your query was wrong" and "your query returned too much"
  * call for opposite client responses. `detail.cap` is what lets a caller
  * (and conformance check 29) tell which cap fired.
@@ -940,8 +939,8 @@ function resultTooLarge(cap, limit) {
 }
 
 /**
- * `cursor.columnNames` is missing on this platform build (M1 review round 2,
- * R13). Named, not just message-worded, so it's distinguishable from an
+ * `cursor.columnNames` is missing on this platform build.
+ * Named, not just message-worded, so it's distinguishable from an
  * ordinary `sql_error` by every caller: AtomsStatement's duplicate-column
  * detection (Branch A, design §2.7) has no other source for the result
  * set's true column arity, so losing this capability silently would silently

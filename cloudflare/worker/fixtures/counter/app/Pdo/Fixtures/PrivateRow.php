@@ -6,7 +6,7 @@ namespace App\Pdo\Fixtures;
 
 /**
  * FETCH_CLASS target with private/protected declared properties plus an
- * unmatched column (M1 design §3 F-4, measured E13): real PDO writes
+ * unmatched column (design §3 F-4, measured E13): real PDO writes
  * private and protected declared properties directly, and a column with no
  * matching property becomes a dynamic public property (`$zz` here).
  *

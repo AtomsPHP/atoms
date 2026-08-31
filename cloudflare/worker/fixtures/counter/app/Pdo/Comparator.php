@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Pdo;
 
 /**
- * The differential harness's ground truth (M1 design §2.3): an in-guest
+ * The differential harness's ground truth (design §2.3): an in-guest
  * `new \PDO('sqlite::memory:')` — the SAME php-wasm PHP build as everything
  * under test, so no measured-on-8.4 value is ever an assertion target.
  *
@@ -27,12 +27,11 @@ final class Comparator
      * `pdo.attr.default_fetch_mode` measures AtomsPDO's real
      * `ATTR_DEFAULT_FETCH_MODE` default against real pdo_sqlite's own
      * unmodified default, with nothing on either side forcing them to agree.
-     * M1 review F-7 (fixed a stale claim here): AtomsPDO's default is
+     * AtomsPDO's default is
      * FETCH_BOTH (design §3 F-30, matching real pdo_sqlite's own measured
-     * default) — this docblock previously and incorrectly still said
-     * FETCH_ASSOC, a leftover from before F-30 landed. Probe::differential()
-     * no longer force-sets `ATTR_DEFAULT_FETCH_MODE` on `$ours` either (M1
-     * review F-7), so whatever divergence exists, if any, SURFACES in the
+     * default). Probe::differential()
+     * does not force-set `ATTR_DEFAULT_FETCH_MODE` on `$ours` either,
+     * so whatever divergence exists, if any, SURFACES in the
      * matrix and gets pinned, rather than being papered over on either side.
      */
     public static function build(): \PDO

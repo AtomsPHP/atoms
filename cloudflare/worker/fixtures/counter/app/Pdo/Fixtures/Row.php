@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Pdo\Fixtures;
 
 /**
- * FETCH_CLASS target for the plain and constructor-args cases (M1 design
+ * FETCH_CLASS target for the plain and constructor-args cases (design
  * §2.1, §3 F-3/F-4). Declared property order matches `probe_rows`' column
  * order so hydration order under reflection is unambiguous. `$tag` is
  * unrelated to any column, so `fetchAll(FETCH_CLASS, Row::class, [$tag])`

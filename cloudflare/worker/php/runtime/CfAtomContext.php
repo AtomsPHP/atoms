@@ -5,7 +5,7 @@
  * Atom is allowed to reach, and the exact boundary of what the MVP implements.
  *
  * `db()`, `config()`, `app()`, `dispatch()`, `broadcast()` and `timers()` are
- * all real (M2 waves 1-3).
+ * all real.
  *
  * No declare(strict_types=1) — see the note in host.php.
  */
@@ -196,7 +196,7 @@ final class CfAtomContext implements AtomContext
 
     /**
      * Named one-shot timers backed by the host's `__atoms_timers` table and
-     * a single multiplexed Durable Object alarm (M2 wave 3).
+     * a single multiplexed Durable Object alarm.
      */
     public function timers(): Timers
     {

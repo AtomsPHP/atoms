@@ -8,7 +8,7 @@ use Atoms\Atom;
 
 /**
  * Scheduler — a fixture Atom for Durable Object alarm conformance testing
- * (M2 wave 3 — conformance checks 23/24). Customer-style code on the frozen
+ * (conformance checks 23/24). Customer-style code on the frozen
  * ABI only: everything here goes through $this->timers(), never a host
  * internal (the one exception, readReservedTimers(), exists specifically to
  * prove a host internal is unreachable).

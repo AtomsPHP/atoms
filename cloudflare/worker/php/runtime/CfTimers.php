@@ -3,7 +3,7 @@
 /**
  * `Atoms\Timers\Timers` for the Cloudflare MVP: named one-shot timers backed
  * by the host's `__atoms_timers` table and a single multiplexed Durable
- * Object alarm (M2 wave 3). `schedule()`/`cancel()`/`scheduledAt()` each
+ * Object alarm. `schedule()`/`cancel()`/`scheduledAt()` each
  * cross exactly one sync op ('!' door) — none of this parks, so it works
  * identically from an invoke turn, a ws turn, or a timer turn itself (a
  * chained reschedule from inside `onTimer()` — see the fixture's Scheduler).

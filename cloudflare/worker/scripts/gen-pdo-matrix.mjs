@@ -2,7 +2,7 @@
 
 /**
  * Generates `cloudflare/docs/pdo-compatibility.md` from a conformance run's
- * PDO differential report (M1 design §5).
+ * PDO differential report (design §5).
  *
  * `renderMatrixDoc(report, pins)` is a PURE function — no filesystem, no
  * clock, no randomness — so `test/conformance.mjs`'s check 30 can import it
@@ -52,7 +52,7 @@ const LEGEND = [
 
 /**
  * Per-case-id explanations for the `informational` class (design §2.5),
- * committed here rather than measured. M1 review F-2 (BLOCKER): this MUST be
+ * committed here rather than measured. This MUST be
  * a per-id lookup, never a blanket constant applied to every case the runner
  * happens to observe as `informational` — that would let 'informational'
  * become an unbounded escape hatch from the pin rules (which skip it
@@ -77,7 +77,7 @@ function informationalNote(id) {
         throw new Error(
             `renderMatrixDoc: no informational note registered for case id ${JSON.stringify(id)} — ` +
                 "'informational' is not a blanket status; add a reviewed entry to INFORMATIONAL_NOTES " +
-                'or give the case a real classification (M1 review F-2).'
+                'or give the case a real classification.'
         );
     }
 

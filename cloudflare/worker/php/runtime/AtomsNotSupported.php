@@ -3,10 +3,10 @@
 /**
  * The MVP's one honest failure mode.
  *
- * As of M2 this is raised from exactly one place: the parts of the PDO surface
+ * This is raised from exactly one place: the parts of the PDO surface
  * a hand-written subclass over a Durable Object's SQLite cannot serve —
  * `AtomsPDO`/`AtomsStatement`'s attribute, cursor and driver-level members.
- * As of M1 that corner is machine-verified rather than hand-audited: a
+ * That corner is machine-verified rather than hand-audited: a
  * reflection tripwire (conformance check 26) asserts every public member of
  * the runtime's own `\PDO`/`\PDOStatement` is genuinely declared, and a
  * differential harness (checks 27-28) measures every fill against a native
@@ -37,14 +37,14 @@ class AtomsNotSupported extends \PDOException
     /**
      * @param string $feature the unsupported member or capability
      * @param string $why one sentence naming the MVP limitation
-     * @param string $sqlstate M1 design §3 F-23 (append-only, back-compatible):
+     * @param string $sqlstate design §3 F-23 (append-only, back-compatible):
      *     defaults to '0A000' ("feature not supported"), the honest answer
      *     for a corner nothing else refuses the same way. A handful of call
      *     sites pass the SQLSTATE real pdo_sqlite is MEASURED to answer with
      *     for the identical refusal (e.g. 'IM001' for PDOStatement-level
      *     attributes and nextRowset()) — tightening OUR implementation to
      *     match, rather than loosening the differential harness's
-     *     `sqlstate_strict` comparison, is the pattern M1 follows throughout.
+     *     `sqlstate_strict` comparison, is the pattern followed throughout.
      */
     public function __construct($feature, $why, $sqlstate = '0A000')
     {

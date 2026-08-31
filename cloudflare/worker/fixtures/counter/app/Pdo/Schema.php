@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Pdo;
 
 /**
- * Schema and seed parity for the differential harness (M1 design §2.2).
+ * Schema and seed parity for the differential harness (design §2.2).
  * There is exactly one copy of the DDL — the migration file — so drift
  * between the DO side (via the real `Atoms\Migrations\Migrator`, applied at
  * Probe's activation) and the comparator (via {@see applySchema}) is
@@ -82,14 +82,14 @@ final class Schema
      * has ever happened on this connection, so the very first reset() of a
      * fresh Probe residency legitimately has nothing to clear there.
      *
-     * M1 review F-19 (MINOR, fixed): the DELETE used to be wrapped in a
-     * blanket `catch (\Throwable)` that swallowed EVERYTHING, not just "the
-     * table doesn't exist yet" — a genuine failure (a locked table, a
-     * corrupted sqlite_sequence, a real bug in the DELETE) would have been
-     * silently absorbed too, leaving stale autoincrement state behind
-     * un-reported. Fixed to PROBE for the table's existence directly
-     * (`sqlite_master`) and only skip the DELETE when it is genuinely
-     * absent; any other Throwable now propagates.
+     * The DELETE is deliberately NOT wrapped in a
+     * blanket `catch (\Throwable)`: that would swallow EVERYTHING, not
+     * just "the table doesn't exist yet" — a genuine failure (a locked
+     * table, a corrupted sqlite_sequence, a real bug in the DELETE) would
+     * be silently absorbed too, leaving stale autoincrement state behind
+     * un-reported. Instead this PROBEs for the table's existence directly
+     * (`sqlite_master`) and only skips the DELETE when it is genuinely
+     * absent; any other Throwable propagates.
      */
     public static function reset(\PDO $pdo): void
     {

@@ -592,8 +592,8 @@ export class AtomDurableObject extends DurableObject {
 	/**
 	 * Post-turn work that must happen after every ordinary turn, outside the
 	 * turn mutex: `dispatch()` delivery settlement and, when this turn
-	 * touched a timer, the Durable Object alarm re-arm (M2 wave 3's
-	 * "re-arm rule"). Both are safe to run concurrently with each other and
+	 * touched a timer, the Durable Object alarm re-arm (the "re-arm
+	 * rule"). Both are safe to run concurrently with each other and
 	 * with the next turn starting.
 	 *
 	 * Timer turns dispatched from `alarm()` do NOT call this — `runAlarm()`
@@ -1181,7 +1181,7 @@ export class AtomDurableObject extends DurableObject {
 	// ------------------------------------------------------------------ alarm
 
 	/**
-	 * The Durable Object alarm handler (M2 wave 3): the platform calls this
+	 * The Durable Object alarm handler: the platform calls this
 	 * when this residency's stored alarm time has passed, cold or warm,
 	 * evicted or not — this IS the mechanism that wakes an evicted residency
 	 * to fire a due timer without any HTTP request ever reaching it. Must

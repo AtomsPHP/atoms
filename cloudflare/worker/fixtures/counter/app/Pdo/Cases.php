@@ -10,7 +10,7 @@ use App\Pdo\Fixtures\Promoted;
 use App\Pdo\Fixtures\Row;
 
 /**
- * The differential harness's case matrix (M1 design §2.8).
+ * The differential harness's case matrix (design §2.8).
  *
  * Every case is ONE closure taking a single `\PDO $pdo` — the identical
  * closure runs against `Atoms\Cf\AtomsPDO` (via `db()->pdo()`) and a native
@@ -86,7 +86,7 @@ final class Cases
             self::errors(),
             self::duplicateColumns(),
             self::statementMisc(),
-            // M1 review round 2, R5: the one group whose case CLOSURES are
+            // The one group whose case CLOSURES are
             // defined in a file WITHOUT declare(strict_types=1) — see
             // CasesWeak's own docblock for why that is load-bearing rather
             // than incidental.
@@ -150,14 +150,14 @@ final class Cases
                 'PDO::exec()',
                 'exec() return value for a CREATE TABLE, self-contained with a known preceding INSERT',
                 static function (\PDO $p) {
-                    // M1 review F-12 (MINOR, fixed): the old closure used
-                    // `CREATE TABLE IF NOT EXISTS`, so its return value
-                    // depended on whether probe_tmp_ddl already existed from
-                    // a PRIOR run against this same connection — and, more
-                    // subtly, on whatever DML happened to run immediately
-                    // before this case elsewhere in its group, since
-                    // exec()'s return for a non-DML statement is sqlite's
-                    // own STALE sqlite3_changes(). Self-contained now: a
+                    // `CREATE TABLE IF NOT EXISTS` would make the return
+                    // value depend on whether probe_tmp_ddl already existed
+                    // from a PRIOR run against this same connection — and,
+                    // more subtly, on whatever DML happened to run
+                    // immediately before this case elsewhere in its group,
+                    // since exec()'s return for a non-DML statement is
+                    // sqlite's own STALE sqlite3_changes(). Self-contained
+                    // instead: a
                     // dedicated marker table is dropped/recreated/inserted
                     // into immediately beforehand (an INSERT affecting
                     // EXACTLY one row, deterministic regardless of run
@@ -424,7 +424,7 @@ final class Cases
                 'PDO::setAttribute()',
                 'ATTR_DEFAULT_FETCH_MODE round-trip through getAttribute(), then restored',
                 static function (\PDO $p) {
-                    // M1 review F-7: this connection is shared across every
+                    // This connection is shared across every
                     // group's cases (Probe::differential()), so a case that
                     // changes connection-level state must restore it itself
                     // — set -> read -> restore, identical on both sides —
@@ -432,8 +432,8 @@ final class Cases
                     // would also hide a regression in the DEFAULT this same
                     // attribute reports (see pdo.attr.default_fetch_mode).
                     //
-                    // M1 review round 2, R6: the restore is now in a
-                    // `finally` — before this, an exception between the set
+                    // The restore is in a
+                    // `finally` — otherwise an exception between the set
                     // and the restore (there is none TODAY, but a future
                     // regression could add one) would leave FETCH_NUM
                     // permanently in place for every later group sharing
@@ -650,8 +650,8 @@ final class Cases
                     $p->exec("INSERT INTO probe_rows (k, i, r, s, n) VALUES ('idtype', 100, 1.0, 'x', NULL)");
                     $id = $p->lastInsertId();
 
-                    // M1 review F-20 (NIT, fixed): this used to return only
-                    // [gettype($id), is_numeric($id)] — a SHAPE-only
+                    // Returning only
+                    // [gettype($id), is_numeric($id)] would be a SHAPE-only
                     // comparison that would pass even if the actual id value
                     // were wrong on one side. Returning $id itself makes the
                     // comparison include content, per design §2.5's "nothing
@@ -1017,8 +1017,8 @@ final class Cases
                 'PDOStatement::execute()',
                 'a named and a positional placeholder bound in the SAME statement',
                 static function (\PDO $p) {
-                    // M1 review round 2, R7 (orchestrator decision: do NOT
-                    // implement real PDO's ordinal model): real PDO executes
+                    // Real PDO's ordinal model is deliberately NOT
+                    // implemented here: real PDO executes
                     // this via SQLite's own shared ordinal sequence (:k is
                     // ordinal 1, the sole ? is ordinal 2 — the same fact
                     // debugDumpParams()'s docblock measures for NUMBERING
@@ -1899,8 +1899,8 @@ final class Cases
                 'PDO::errorCode()',
                 'PDO::errorCode() on the CONNECTION after a STATEMENT failure',
                 static function (\PDO $p) {
-                    // M1 review round 2, R4: made order-independent. prepare()
-                    // itself now resets this connection's error state to
+                    // Order-independent: prepare()
+                    // itself resets this connection's error state to
                     // clean (measured), so preparing the failing statement
                     // FIRST — before anything else touches the connection —
                     // means this case's starting point is deterministic
@@ -1923,7 +1923,7 @@ final class Cases
                 'PDO::errorCode()',
                 'a clean beginTransaction()/commit() does NOT reset a stale connection error state',
                 static function (\PDO $p) {
-                    // M1 review round 2, R4 (measured): unlike prepare()/
+                    // Measured: unlike prepare()/
                     // quote()/getAttribute()/a successful statement execute()
                     // (all of which DO reset), beginTransaction()/commit()/
                     // rollBack() leave a stale connection error state alone
@@ -2050,7 +2050,7 @@ final class Cases
 
         // Exactly two columns, both named "k" — FETCH_KEY_PAIR's own arity
         // requirement (exactly 2 columns) plus a duplicate name, so it
-        // exercises the KEY_PAIR-specific guard (M1 review round 2, R1)
+        // exercises the KEY_PAIR-specific guard
         // rather than the "wrong column count" guard already covered by
         // fetch.key_pair.three_columns.
         $dupKeyPairSql = "SELECT a.k AS k, b.k AS k FROM probe_rows a, probe_rows b WHERE a.k = 'a' AND b.k = 'b'";
@@ -2261,7 +2261,7 @@ final class Cases
                 'debugDumpParams() with a bound named param and a bound positional param, exact captured-output byte comparison',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT * FROM probe_rows WHERE k = :k AND i = ?');
-                    // M1 review F-4: the SOLE `?` is SQLite ordinal 2 (:k is
+                    // The SOLE `?` is SQLite ordinal 2 (:k is
                     // ordinal 1), so bindValue(2, ...) — not (1, ...) — is
                     // the placeholder's actual bind number.
                     $stmt->bindValue(':k', 'a', \PDO::PARAM_STR);
@@ -2417,10 +2417,10 @@ final class Cases
                 $g,
                 'PDOStatement::columnCount()',
                 'columnCount() on an intercepted PRAGMA result',
-                // M1 review round 3, R1 (FIX): the bridge's rows-mode PRAGMA
-                // replies previously omitted `columns` entirely, so
-                // columnCount() on `PRAGMA user_version` answered 0 where real
-                // pdo_sqlite answers 1. columnCount() only (not fetchColumn())
+                // The bridge's rows-mode PRAGMA replies carry `columns` —
+                // without them,
+                // columnCount() on `PRAGMA user_version` would answer 0 where
+                // real pdo_sqlite answers 1. columnCount() only (not fetchColumn())
                 // deliberately, so this case cannot flake on the VALUE — our
                 // user_version lives in __atoms_meta while the comparator has
                 // its own native user_version, and those need not agree.

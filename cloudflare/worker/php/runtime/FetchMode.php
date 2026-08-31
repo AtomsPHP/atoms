@@ -24,7 +24,7 @@ final class FetchMode
      * Maps each mode that reads a result row by its ORIGINAL positional
      * arity — and so cannot be answered faithfully once the wire's
      * last-wins `{column: value}` collapse has folded duplicate column
-     * names (M1 design §2.7) — to its label for {@see refuseDuplicateColumns}'s
+     * names (design §2.7) — to its label for {@see refuseDuplicateColumns}'s
      * message. ASSOC/OBJ are deliberately absent: they collapse identically
      * on both sides (a JS object and a PHP associative array both last-wins),
      * so they stay a genuine match, not a refusal.

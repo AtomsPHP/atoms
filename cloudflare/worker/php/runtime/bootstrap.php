@@ -111,7 +111,7 @@ function runtime_files()
         'ConnectionClosed.php',
         'CfConnection.php',
         'CfMessage.php',
-        // The timers seam (M2 wave 3): the two typed exceptions before the
+        // The timers seam: the two typed exceptions before the
         // class that throws them, for the same "base before what references
         // it" reason as the callback classes above.
         'InvalidTimerName.php',
@@ -691,7 +691,7 @@ function run_ws_dispatch($atom, SqlBridge $bridge, array $identity, $kind, array
 }
 
 /**
- * `run_ws_turn()`'s sibling for the timer lifecycle hook (M2 wave 3). Same
+ * `run_ws_turn()`'s sibling for the timer lifecycle hook. Same
  * two-layer guard, same void success envelope: the host's alarm-driven
  * dispatch already deleted the due row before this turn was ever handed to
  * the guest (at-most-once — see atom-do.js's runAlarm()), so there is

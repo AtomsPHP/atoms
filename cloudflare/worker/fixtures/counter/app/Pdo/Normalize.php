@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Pdo;
 
 /**
- * The differential harness's normal form (M1 design §2.5): every value or
+ * The differential harness's normal form (design §2.5): every value or
  * throwable either side of a case produces is reduced to a tagged tree
  * compared with PHP `===` — recursive, type- and order-sensitive. Nothing is
  * compared shape-only anywhere; the only two exclusions from strict
@@ -74,7 +74,7 @@ final class Normalize
         }
 
         if ($v instanceof \Closure) {
-            // M1 review round 2, R11: a Closure is an object, so without this
+            // A Closure is an object, so without this
             // arm it would fall into self::object() below and normalize as
             // an (empty — Closures have no declared properties) object tree
             // instead of failing loudly. Nothing in the matrix should ever

@@ -55,7 +55,8 @@ const BUNDLE_FORMAT = 0;
 
 /**
  * Test an exact semantic version against the generated caret range stamped
- * into this runtime. M7 ships ^0.1; accepting the general caret form here
+ * into this runtime. The current stamp is ^0.1; accepting the general
+ * caret form here
  * keeps the check correct when a later release tool advances that stamp.
  */
 function supportsCore(version, range) {

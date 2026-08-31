@@ -1,5 +1,5 @@
 {
-  "$comment": "Pinned non-match/non-informational classifications for the PDO differential matrix (M1 design §2.9). Entries may only be REMOVED (a gap filled) or have their class changed by a deliberate edit reviewed alongside the code change. Adding an entry documents a limitation and requires `why` (>= 40 chars) to explain WHY it currently refuses/differs and, where applicable, what a customer should do instead. Populated from a real conformance run (check 28) against cloudflare/worker/fixtures/counter/app/Probe.php on php-wasm PHP 8.3.32 — see cloudflare/worker/scripts/gen-pdo-matrix.mjs (a later step) for how this becomes cloudflare/docs/pdo-compatibility.md.",
+  "$comment": "Pinned non-match/non-informational classifications for the PDO differential matrix. Entries may only be REMOVED (a gap filled) or have their class changed by a deliberate edit reviewed alongside the code change. Adding an entry documents a limitation and requires `why` (>= 40 chars) to explain WHY it currently refuses/differs and, where applicable, what a customer should do instead. Populated from a real conformance run (check 28) against cloudflare/worker/fixtures/counter/app/Probe.php on php-wasm PHP 8.3.32 — see cloudflare/worker/scripts/gen-pdo-matrix.mjs (a later step) for how this becomes cloudflare/docs/pdo-compatibility.md.",
   "cases": {
     "bind.execute_array.types": {
       "class": "deviation",
@@ -11,7 +11,7 @@
     },
     "bind.mixed_named_and_positional": {
       "class": "refused_by_us",
-      "why": "A statement binding both a named (:k) and a positional (?) placeholder throws SQLSTATE[HY093] on our side: NamedParams::rewrite() treats a bindings array containing ANY non-int key as entirely named, so the sole ? is never resolved and its bound value is reported as an unused named binding. Real pdo_sqlite executes this via SQLite's own shared ordinal sequence (named and positional placeholders share one ordinal, left to right in the SQL text) and answers a row. Orchestrator decision (M1 review round 2, R7): implementing that ordinal model is out of scope for this milestone; bind every placeholder in a statement the SAME way (all positional, or all named) to avoid this refusal."
+      "why": "A statement binding both a named (:k) and a positional (?) placeholder throws SQLSTATE[HY093] on our side: NamedParams::rewrite() treats a bindings array containing ANY non-int key as entirely named, so the sole ? is never resolved and its bound value is reported as an unused named binding. Real pdo_sqlite executes this via SQLite's own shared ordinal sequence (named and positional placeholders share one ordinal, left to right in the SQL text) and answers a row. Implementing that ordinal model is deliberately out of scope; bind every placeholder in a statement the SAME way (all positional, or all named) to avoid this refusal."
     },
     "bind.named.extra": {
       "class": "refused_by_both",
@@ -31,11 +31,11 @@
     },
     "bind.value.position_zero": {
       "class": "refused_by_both",
-      "why": "bindValue(0, ...) throws a \\ValueError on both sides ('must be greater than or equal to 1') — SQLite/PDO positions are 1-based, and this shim now validates the same range real PDO does (M1 review round 2, R3) rather than silently accepting a bogus position that would only surface as a confusing failure later."
+      "why": "bindValue(0, ...) throws a \\ValueError on both sides ('must be greater than or equal to 1') — SQLite/PDO positions are 1-based, and this shim validates the same range real PDO does rather than silently accepting a bogus position that would only surface as a confusing failure later."
     },
     "bind.value.wide_int_min": {
       "class": "refused_by_us",
-      "why": "M1 review F-11: the NEGATIVE end of the wide-int band was previously unexercised. Binding PHP_INT_MIN and reading it straight back (no CAST) hits the SAME int64_precision wall as bind.value.wide_int_param_int, just on the negative side of zero (mvp-spec.md Appendix item 1): workerd's SQL->JS conversion loses precision for any value in the ambiguous magnitude band regardless of sign. Bind the wide integer as a string instead (see bind.value.wide_int_param_str, which matches) and CAST(... AS TEXT) when reading it back."
+      "why": "Binding PHP_INT_MIN and reading it straight back (no CAST) hits the SAME int64_precision wall as bind.value.wide_int_param_int, just on the negative side of zero (mvp-spec.md Appendix item 1): workerd's SQL->JS conversion loses precision for any value in the ambiguous magnitude band regardless of sign. Bind the wide integer as a string instead (see bind.value.wide_int_param_str, which matches) and CAST(... AS TEXT) when reading it back."
     },
     "bind.value.wide_int_param_int": {
       "class": "refused_by_us",
@@ -47,31 +47,31 @@
     },
     "dup.bound_by_index": {
       "class": "refused_by_us",
-      "why": "FETCH_BOUND reads a bound column's value from the row positionally, by the 0-based index bindColumn() resolved against the true (duplicate-preserving) column list; once a duplicate name has collapsed two columns into one wire entry, that index no longer lines up with the collapsed row (M1 review round 2, R1). Measured: real pdo_sqlite answers bindColumn(3, $out) as true/'b' (the true 3rd column's own value) from the full 4-column arity, which our wire's last-wins collapse has already discarded. Alias duplicate columns distinctly instead."
+      "why": "FETCH_BOUND reads a bound column's value from the row positionally, by the 0-based index bindColumn() resolved against the true (duplicate-preserving) column list; once a duplicate name has collapsed two columns into one wire entry, that index no longer lines up with the collapsed row. Measured: real pdo_sqlite answers bindColumn(3, $out) as true/'b' (the true 3rd column's own value) from the full 4-column arity, which our wire's last-wins collapse has already discarded. Alias duplicate columns distinctly instead."
     },
     "dup.classtype": {
       "class": "refused_by_us",
-      "why": "FETCH_CLASS | FETCH_CLASSTYPE reads the class name from the FIRST column positionally (M1 review round 2, R1); when that column's own name is duplicated, this shim now refuses rather than risk answering from a value the wire's last-wins collapse may have silently substituted. Measured: real pdo_sqlite genuinely hydrates an App\\Pdo\\Fixtures\\Row instance from the first occurrence's value, with the object's own `classname` property left holding the SECOND occurrence's value ('bogus-classname') because property hydration collapses duplicate names the ordinary last-wins way, independent of the classtype resolution that reads column 0 positionally — refused_by_us records that ours declines to guess which occurrence a real driver would have honoured in general, rather than relying on this seed happening to name a resolvable class."
+      "why": "FETCH_CLASS | FETCH_CLASSTYPE reads the class name from the FIRST column positionally; when that column's own name is duplicated, this shim refuses rather than risk answering from a value the wire's last-wins collapse may have silently substituted. Measured: real pdo_sqlite genuinely hydrates an App\\Pdo\\Fixtures\\Row instance from the first occurrence's value, with the object's own `classname` property left holding the SECOND occurrence's value ('bogus-classname') because property hydration collapses duplicate names the ordinary last-wins way, independent of the classtype resolution that reads column 0 positionally — refused_by_us records that ours declines to guess which occurrence a real driver would have honoured in general, rather than relying on this seed happening to name a resolvable class."
     },
     "dup.fetch_column_index_1": {
       "class": "refused_by_us",
-      "why": "fetchColumn(1) over duplicate column names now throws (M1 review F-1, FIX: fetchColumn() reached the wire directly and skipped the same duplicate-column guard every other FETCH_COLUMN path uses, silently answering an unrecoverable collapsed value under duplicates). Real pdo_sqlite answers the SECOND COLUMN's (a.i) own original value — an ordinary int, 1 — from the true 4-value arity (measured); our wire's last-wins collapse has already discarded it before PHP could see it (M1 review round 2, R10: this note previously said 'second occurrence', which is imprecise — index 1 is unambiguously the second column regardless of naming). Alias duplicate columns distinctly (see dup.aliased, which matches) instead."
+      "why": "fetchColumn(1) over duplicate column names throws, through the same duplicate-column guard every other FETCH_COLUMN path uses. Real pdo_sqlite answers the SECOND COLUMN's (a.i) own original value — an ordinary int, 1 — from the true 4-value arity (measured); our wire's last-wins collapse has already discarded it before PHP could see it — index 1 is unambiguously the second column regardless of naming. Alias duplicate columns distinctly (see dup.aliased, which matches) instead."
     },
     "dup.fetch_column_method": {
       "class": "refused_by_us",
-      "why": "fetchColumn() with the default index (0) over duplicate column names now throws (M1 review F-1, FIX: fetchColumn() reached the wire directly and skipped the same duplicate-column guard every other FETCH_COLUMN path uses, silently answering column 0's collapsed value under duplicates). Real pdo_sqlite answers the FIRST occurrence's original value from the true 4-value arity (measured); our wire's last-wins collapse has already discarded it before PHP could see it. Alias duplicate columns distinctly (see dup.aliased, which matches) instead."
+      "why": "fetchColumn() with the default index (0) over duplicate column names throws, through the same duplicate-column guard every other FETCH_COLUMN path uses. Real pdo_sqlite answers the FIRST occurrence's original value from the true 4-value arity (measured); our wire's last-wins collapse has already discarded it before PHP could see it. Alias duplicate columns distinctly (see dup.aliased, which matches) instead."
     },
     "dup.fetch_func": {
       "class": "refused_by_us",
-      "why": "FETCH_FUNC calls the given callable with EVERY column as a positional arg (`...array_values($row)`); under duplicate column names the collapsed row has fewer entries than the true arity, so the callable would receive too few (and wrong) values (M1 review round 2, R1). Measured: real pdo_sqlite calls the callback with all 4 columns' true values from the full arity, which our wire's last-wins collapse has already discarded before this fetch mode could see them. Alias duplicate columns distinctly instead."
+      "why": "FETCH_FUNC calls the given callable with EVERY column as a positional arg (`...array_values($row)`); under duplicate column names the collapsed row has fewer entries than the true arity, so the callable would receive too few (and wrong) values. Measured: real pdo_sqlite calls the callback with all 4 columns' true values from the full arity, which our wire's last-wins collapse has already discarded before this fetch mode could see them. Alias duplicate columns distinctly instead."
     },
     "dup.group_assoc": {
       "class": "refused_by_us",
-      "why": "FETCH_GROUP/FETCH_UNIQUE key every group by the FIRST column's value, taken positionally, for EVERY base mode they combine with — not only NUM/BOTH/COLUMN, so this refusal is now unconditional on any duplicate rather than scoped to those three (M1 review round 2, R1, a strengthening over the prior narrower guard). Measured: real pdo_sqlite keys the group by the first column's TRUE original value ('a'), which our wire's last-wins collapse has already discarded before this fetch mode could see it. Alias duplicate columns distinctly instead."
+      "why": "FETCH_GROUP/FETCH_UNIQUE key every group by the FIRST column's value, taken positionally, for EVERY base mode they combine with — not only NUM/BOTH/COLUMN, so this refusal is unconditional on any duplicate rather than scoped to those three. Measured: real pdo_sqlite keys the group by the first column's TRUE original value ('a'), which our wire's last-wins collapse has already discarded before this fetch mode could see it. Alias duplicate columns distinctly instead."
     },
     "dup.key_pair": {
       "class": "refused_by_us",
-      "why": "FETCH_KEY_PAIR pairs a row's first value with its second, positionally; two DISTINCT columns sharing a name still pass the 'exactly 2 columns' arity check, but the wire's last-wins collapse folds them into ONE entry, leaving nothing to pair (M1 review round 2, R1). Measured: real pdo_sqlite answers the true 2-value pair {'a': 'b'} (first column's value keyed to the second's) from the uncollapsed row, which our side can no longer recover. Alias duplicate columns distinctly instead."
+      "why": "FETCH_KEY_PAIR pairs a row's first value with its second, positionally; two DISTINCT columns sharing a name still pass the 'exactly 2 columns' arity check, but the wire's last-wins collapse folds them into ONE entry, leaving nothing to pair. Measured: real pdo_sqlite answers the true 2-value pair {'a': 'b'} (first column's value keyed to the second's) from the uncollapsed row, which our side can no longer recover. Alias duplicate columns distinctly instead."
     },
     "dup.named": {
       "class": "refused_by_us",
@@ -147,7 +147,7 @@
     },
     "int.wide.negative_direct_read": {
       "class": "refused_by_us",
-      "why": "M1 review F-11: the NEGATIVE end of the wide-int band was previously unexercised. Reading a stored PHP_INT_MIN directly (no CAST) throws the SAME typed int64_precision PDOException as int.wide.direct_read, for the same reason and by the same mechanism, just below zero instead of above 2^53-1 (mvp-spec.md Appendix item 1). Real pdo_sqlite reads it exactly. Select the column as CAST(col AS TEXT) instead — see int.wide.negative_cast_read and int.wide.negative_write_exact, which both match."
+      "why": "Reading a stored PHP_INT_MIN directly (no CAST) throws the SAME typed int64_precision PDOException as int.wide.direct_read, for the same reason and by the same mechanism, just below zero instead of above 2^53-1 (mvp-spec.md Appendix item 1). Real pdo_sqlite reads it exactly. Select the column as CAST(col AS TEXT) instead — see int.wide.negative_cast_read and int.wide.negative_write_exact, which both match."
     },
     "pdo.attr.autocommit": {
       "class": "refused_by_both",
@@ -191,19 +191,19 @@
     },
     "pdo.quote.param_bool": {
       "class": "refused_by_both",
-      "why": "M1 review F-5 (RECLASSIFIED): AtomsPDO::quote() now declares the SAME parameter type real \\PDO::quote() does (`string $string, int $type = PARAM_STR`). Under Cases.php's declare(strict_types=1), passing the raw PHP bool `true` for that `string $string` parameter throws \\TypeError at the argument boundary on BOTH sides now — real's before its own $type-ignoring quote logic ever runs, ours before its always-quote body ever runs. Same mechanism, same family, on both sides: a genuine refused_by_both, not a comparator-only quirk. Coerce to string yourself (e.g. `$b ? '1' : '0'`) before calling quote() if you need a boolean quoted."
+      "why": "AtomsPDO::quote() declares the SAME parameter type real \\PDO::quote() does (`string $string, int $type = PARAM_STR`). Under Cases.php's declare(strict_types=1), passing the raw PHP bool `true` for that `string $string` parameter throws \\TypeError at the argument boundary on BOTH sides — real's before its own $type-ignoring quote logic ever runs, ours before its always-quote body ever runs. Same mechanism, same family, on both sides: a genuine refused_by_both, not a comparator-only quirk. Coerce to string yourself (e.g. `$b ? '1' : '0'`) before calling quote() if you need a boolean quoted."
     },
     "pdo.quote.param_null": {
       "class": "refused_by_both",
-      "why": "M1 review F-5 (RECLASSIFIED): same mechanism as pdo.quote.param_bool. AtomsPDO::quote() now declares `string $string` like real \\PDO::quote() does, so passing the raw PHP `null` for it throws \\TypeError at the argument boundary on BOTH sides under Cases.php's declare(strict_types=1) — a genuine refused_by_both. Coerce to an empty string yourself before calling quote() if you need a NULL-standing-in-for-empty value quoted."
+      "why": "Same mechanism as pdo.quote.param_bool: AtomsPDO::quote() declares `string $string` like real \\PDO::quote() does, so passing the raw PHP `null` for it throws \\TypeError at the argument boundary on BOTH sides under Cases.php's declare(strict_types=1) — a genuine refused_by_both. Coerce to an empty string yourself before calling quote() if you need a NULL-standing-in-for-empty value quoted."
     },
     "pdo.quote.weak_null": {
       "class": "refused_by_us",
-      "why": "Under WEAK typing (no declare(strict_types=1) — CasesWeak.php is the one case file without it, M1 review round 2, R5), quote(null) throws a \\TypeError on our side: AtomsPDO::quote()'s own `string $string` parameter (M1 review round 1, F-5) is a USERLAND signature, and userland functions never got PHP's legacy internal-function leniency for passing null to a non-nullable scalar parameter. Real (internal/C) \\PDO::quote() still coerces null to the empty string under weak typing (deprecated as of 8.1, but not an error) and returns \"''\". A userland-vs-internal-function typing gap, not a bridge limitation — pass an explicit '' instead of null."
+      "why": "Under WEAK typing (no declare(strict_types=1) — CasesWeak.php is the one case file without it), quote(null) throws a \\TypeError on our side: AtomsPDO::quote()'s own `string $string` parameter is a USERLAND signature, and userland functions never got PHP's legacy internal-function leniency for passing null to a non-nullable scalar parameter. Real (internal/C) \\PDO::quote() still coerces null to the empty string under weak typing (deprecated as of 8.1, but not an error) and returns \"''\". A userland-vs-internal-function typing gap, not a bridge limitation — pass an explicit '' instead of null."
     },
     "pdo.setattr.case_upper": {
       "class": "refused_by_us",
-      "why": "M1 review F-17 (stale why fixed to describe the CURRENT code): ATTR_CASE IS implemented (design §3 F-22) — setAttribute(ATTR_CASE, CASE_NATURAL) succeeds — but CASE_UPPER/CASE_LOWER are refused with AtomsNotSupported because column-name case folding on fetch is not implemented; fetched keys are always the query's own case. Real pdo_sqlite accepts CASE_UPPER and reshapes subsequent fetch() keys to upper-case, hence refused_by_us. This is a deliberate, permanent restriction, not an unfilled gap."
+      "why": "ATTR_CASE IS implemented — setAttribute(ATTR_CASE, CASE_NATURAL) succeeds — but CASE_UPPER/CASE_LOWER are refused with AtomsNotSupported because column-name case folding on fetch is not implemented; fetched keys are always the query's own case. Real pdo_sqlite accepts CASE_UPPER and reshapes subsequent fetch() keys to upper-case, hence refused_by_us. This is a deliberate, permanent restriction, not an unfilled gap."
     },
     "pdo.setattr.errmode_silent": {
       "class": "refused_by_us",

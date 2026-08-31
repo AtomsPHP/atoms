@@ -6,7 +6,7 @@ namespace App\Pdo;
 
 /**
  * Runs one group of {@see Cases}' matrix against both sides and classifies
- * every case (M1 design §2.4, §2.10). The comparison happens IN-GUEST —
+ * every case (design §2.4, §2.10). The comparison happens IN-GUEST —
  * only classifications and short renderings cross the turn boundary, so
  * int64 and float fidelity are never at the mercy of the wire under test.
  */
@@ -78,7 +78,7 @@ final class Differential
         $title = isset($case['title']) && is_string($case['title']) ? $case['title'] : '(malformed case: missing title)';
 
         try {
-            // M1 review F-3 (MAJOR, fixed): classify()/renderOutcome() now
+            // classify()/renderOutcome()
             // run INSIDE this try, alongside explicit shape validation, so
             // (a) a Normalize refusal (a value the normalizer can't render)
             // lands as 'error' instead of propagating out of runCase()
@@ -86,7 +86,7 @@ final class Differential
             // (b) a malformed case record (a missing key, a non-Closure
             // "run") is caught here rather than fataling on array access or
             // a call-time TypeError from capture()'s \Closure type-hint.
-            // capture() itself is UNCHANGED: a PDO call legitimately
+            // capture() itself is separate: a PDO call legitimately
             // throwing TypeError/ValueError/etc is still captured there as
             // an ordinary outcome, not treated as harness breakage.
             foreach (['id', 'group', 'member', 'title', 'run', 'sqlstate_strict', 'informational'] as $key) {
@@ -102,7 +102,7 @@ final class Differential
             $theirsOutcome = self::capture($case['run'], $comparator);
 
             if ($case['informational']) {
-                // M1 review F-2 (BLOCKER): 'informational' is a closed set
+                // 'informational' is a closed set
                 // of exactly one case id (design §2.5's
                 // rowCount()-after-SELECT exception) — never an open escape
                 // from the pin rules (which skip 'informational' outright)
@@ -112,7 +112,7 @@ final class Differential
                 // the harness-side half of that same guarantee.
                 if ($case['id'] !== 'count.rowcount.select') {
                     throw new \LogicException(sprintf(
-                        'case "%s" is marked informational, but only "count.rowcount.select" may be (M1 review F-2)',
+                        'case "%s" is marked informational, but only "count.rowcount.select" may be',
                         $case['id']
                     ));
                 }

@@ -47,8 +47,9 @@ convenient it looks.
 4. `docs/cloudflare-toolchain.md` — **normative** for how the two halves meet:
    the runtime auth decision (`atoms/client` calls the Worker's prefixless,
    single-tenant `/invoke/...`), how a PHP CLI drives a pinned Wrangler, and
-   the bundle bridge between `atoms build` and the Worker. M4 inherits all
-   three decisions, so read it before changing any of them.
+   the bundle bridge between `atoms build` and the Worker. Everything
+   downstream inherits all three decisions, so read it before changing any
+   of them.
 
 ## Hard rules — the PHP packages
 
@@ -103,21 +104,20 @@ convenient it looks.
   files cover Atoms-authored source; upstream packages carry their own
   metadata and notices.
 - **`app()`, `dispatch()`, `broadcast()`, WebSockets and timers/alarms are
-  implemented (M2)**, over a signed callback channel, the Hibernation API and
+  implemented**, over a signed callback channel, the Hibernation API and
   a multiplexed Durable Object alarm respectively — see
   `cloudflare/docs/mvp-spec.md` §The callback channel, §The WebSocket seam and
   §Timers. `AtomsNotSupported` (`worker/php/runtime/`) now legitimately
   remains only on the permanently-unsupported corner of the PDO shim
   (`AtomsPDO.php`/`AtomsStatement.php` — see `worker/php/README.md`
-  §Documented leaks and limits); that restriction is not a stub awaiting a
-  later milestone, and as of M1 it is machine-verified rather than
-  hand-audited: a reflection tripwire (conformance check 26) asserts every
+  §Documented leaks and limits); that restriction is not a stub, and it is
+  machine-verified rather than hand-audited: a reflection tripwire (conformance check 26) asserts every
   public member of the runtime's `\PDO`/`\PDOStatement` is genuinely declared,
   and a differential harness (checks 27-28) measures the remaining corner
   against a native in-guest `pdo_sqlite`, publishing the result as
   `cloudflare/docs/pdo-compatibility.md` (check 30). Adding to the runtime
-  surface beyond what M2 landed is still a spec change first — do not "fix" a
-  gap by inventing a half-implementation.
+  surface is a spec change first — do not "fix" a gap by inventing a
+  half-implementation.
 - **No capacity numbers in code.** Every TTL, cap, deadline, limit and poll
   interval comes from an environment variable with a default, resolved in
   `worker/src/config.js` and nowhere else.

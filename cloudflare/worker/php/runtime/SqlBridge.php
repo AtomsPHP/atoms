@@ -40,7 +40,7 @@ final class SqlBridge
     /**
      * Run one statement against the Durable Object's SQLite.
      *
-     * Deliberately holds no error-state memory of its own (M1 design §3
+     * Deliberately holds no error-state memory of its own (design §3
      * F-27): real PDO scopes `errorCode()`/`errorInfo()` to the HANDLE that
      * ran the failing operation — a statement's own failure does not leak
      * onto the connection's error state (measured: after a statement
@@ -81,7 +81,7 @@ final class SqlBridge
             $rows = int64_decode($reply['rows']);
         }
 
-        // Branch A (M1 design §2.7): source-order column names, duplicates
+        // Branch A (design §2.7): source-order column names, duplicates
         // preserved, from `cursor.columnNames` (bridge.js). Absent (an empty
         // list) for a non-"rows" reply. This is the only place the wire's
         // arity survives — the `{column: value}` row maps have already
@@ -116,7 +116,7 @@ final class SqlBridge
 
     /**
      * Tag EVERY int binding with the int64 wire tag, not only those outside
-     * JSON's safe range (M1 gap-fill report, host bug #2). MEASURED:
+     * JSON's safe range. MEASURED:
      * `ctx.storage.sql` binds a plain JS `number` — including an integral
      * one — with SQLite storage class REAL, never INTEGER (`typeof(?)` on a
      * bound `42` reported `'real'`). The int64 tag is already how a wide
@@ -228,12 +228,12 @@ final class SqlBridge
      * F-28) — the caller (AtomsPDO or AtomsStatement) is what decides
      * whether the triple becomes ITS cached error state (F-27).
      *
-     * M1 review F-14 (MINOR, fixed): the raw `$error` object — everything
+     * The raw `$error` object — everything
      * `bridge.js`'s `fail()` spread into `reply.error`, e.g. `cap`/`limit`
-     * for `sql_result_too_large` — is now passed through as the exception's
+     * for `sql_result_too_large` — is passed through as the exception's
      * `detail` ({@see BridgeSqlException::getDetail()}) instead of being
-     * discarded here after only `code`/`message`/`sqlstate` were read out of
-     * it. Nothing that already read those three changes.
+     * discarded here after only `code`/`message`/`sqlstate` are read out
+     * of it.
      *
      * @param array<string, mixed> $reply
      * @return BridgeSqlException

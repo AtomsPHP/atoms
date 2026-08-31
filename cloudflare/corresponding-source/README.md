@@ -15,9 +15,9 @@ recorded below on every build and refuses to proceed on a mismatch, so a
 silent swap of the interpreter underneath us fails the build rather than
 quietly invalidating this file.
 
-It is also groundwork for M5. An owned php-wasm build has to know what the
-current one contains and how upstream builds it; the survey below records
-that evidence.
+It is also groundwork for an owned php-wasm build, which has to know what
+the current one contains and how upstream builds it; the survey below
+records that evidence.
 
 ## Repository history
 
@@ -136,7 +136,7 @@ The answer is not the comfortable one, which is why it is written down.
 
 The archive contains Playground's own source and its build scripts. It does
 **not** contain the source of the code making up the bulk of the binary.
-That matters for M5 — an owned build cannot start from "reproduce what
+That matters for an owned build — it cannot start from "reproduce what
 Playground does" if what Playground does is fetch most of it from elsewhere
 at build time. Three separate things are going on.
 
@@ -306,7 +306,7 @@ archive alone.
 
 Closing the gap means pinning and hashing every fetched source — PHP 8.3.32
 first, since it is the largest single body of code in the binary. That work
-belongs with M5's generated SBOM. Note that `php.net` and
+belongs with the owned build's generated SBOM. Note that `php.net` and
 `gnu.org` were unreachable from the environment in which this directory
 was prepared (the egress proxy returns 403 on CONNECT for both), so the
 PHP and libiconv tarballs could not be mirrored here even as a first

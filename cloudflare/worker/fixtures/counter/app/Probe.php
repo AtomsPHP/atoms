@@ -13,7 +13,7 @@ use Atoms\Atom;
 
 /**
  * Probe — a fixture Atom whose whole purpose is auditing the `db()->pdo()`
- * surface (M1 "make the userland PDO surface honest").
+ * surface (making the userland PDO surface honest).
  *
  * This is a SEPARATE type rather than a method added to Vault, for the same
  * reason Room/Boot/Scheduler are: it writes and reads a lot of rows through
@@ -40,7 +40,7 @@ final class Probe extends Atom
     }
 
     /**
-     * The reflection tripwire (M1 §1): asserts every public member of \PDO
+     * The reflection tripwire (design §1): asserts every public member of \PDO
      * and \PDOStatement is genuinely declared on our subclasses, that the
      * pinned FETCH_* / ATTR_* / PARAM_* / ... constants match the runtime exactly,
      * and that every pinned FETCH_* value is refused or shaped correctly.
@@ -65,7 +65,7 @@ final class Probe extends Atom
 
     /**
      * The differential harness's answer to "the comparator could be your
-     * own shim" (M1 design §2.3): builds a fresh native in-guest
+     * own shim" (design §2.3): builds a fresh native in-guest
      * `new \PDO('sqlite::memory:')` and runs its five structural sanity
      * gates. Construction failure is reported as ok:false with every gate
      * false rather than propagating — "we could not verify our own
@@ -90,8 +90,8 @@ final class Probe extends Atom
 
     /**
      * The ordered group list the differential harness's case matrix is
-     * chunked into — one HTTP invoke per group (orchestrator override on M1
-     * design §2 report flow: a single 95+-case turn risks the CI turn
+     * chunked into — one HTTP invoke per group (a single 95+-case turn
+     * risks the CI turn
      * deadline). Derived from {@see Cases}, never duplicated here, so the
      * group list can never drift from what `differential()` actually runs.
      *
@@ -103,7 +103,7 @@ final class Probe extends Atom
     }
 
     /**
-     * Run ONE group of the differential matrix (M1 design §2) against both
+     * Run ONE group of the differential matrix (design §2) against both
      * `Atoms\Cf\AtomsPDO` (this residency's `db()->pdo()`) and a fresh
      * native comparator. The DO-side tables are cleared and reseeded first,
      * so every call — regardless of what a previous group's cases wrote —
@@ -120,15 +120,15 @@ final class Probe extends Atom
      * exceptions being on) keeps every group's starting state identical, the
      * same guarantee `Schema::reset()` already gives the DATA.
      *
-     * M1 review F-7 (MAJOR, fixed): this used to ALSO force-set
-     * `ATTR_DEFAULT_FETCH_MODE` to `FETCH_BOTH` before every group ran —
-     * which made `pdo.attr.default_fetch_mode` (which reads that very
+     * Deliberately does NOT force-set
+     * `ATTR_DEFAULT_FETCH_MODE` to `FETCH_BOTH` before a group runs —
+     * that would make `pdo.attr.default_fetch_mode` (which reads that very
      * attribute) pass by construction regardless of what AtomsPDO's
      * constructor actually defaults to, not because the default is
-     * genuinely FETCH_BOTH. That is gone: `ATTR_DEFAULT_FETCH_MODE` is left
+     * genuinely FETCH_BOTH. `ATTR_DEFAULT_FETCH_MODE` is left
      * exactly as the constructor set it, so `pdo.attr.default_fetch_mode`
      * measures the real default. The one case that legitimately CHANGES it
-     * (`pdo.setattr.default_fetch_mode`) now restores the prior value itself
+     * (`pdo.setattr.default_fetch_mode`) restores the prior value itself
      * before returning (design pattern: set → read → restore, identical on
      * both sides), so cross-group leakage is prevented at the case that
      * causes it rather than by a blanket reset that could paper over a
@@ -153,7 +153,7 @@ final class Probe extends Atom
     }
 
     /**
-     * Result-set size guard exercise (M1 design §4.4, conformance check 29).
+     * Result-set size guard exercise (design §4.4, conformance check 29).
      * Builds a result set of exactly `$rows` rows through a recursive CTE —
      * CPU cost only, no writes, so this never perturbs any table or the
      * residency's durable state. `$cap` selects the shape:
@@ -169,10 +169,10 @@ final class Probe extends Atom
      * {@see \Atoms\Cf\BridgeSqlException}), returns `{ok:false, code,
      * message, sqlstate, cap, limit}`, with `code` parsed out of the
      * message's `SQLSTATE[...] [code] ...` shape (kept as a SECONDARY
-     * assertion) and `cap`/`limit` (M1 review F-14, FIXED) read directly off
+     * assertion) and `cap`/`limit` read directly off
      * `BridgeSqlException::getDetail()` — the same raw `cap`/`limit` fields
-     * `bridge.js` put in the wire reply, which used to be discarded before
-     * ever reaching PHP. `code` is the Atoms error code, not the SQLSTATE
+     * `bridge.js` put in the wire reply.
+     * `code` is the Atoms error code, not the SQLSTATE
      * (see F-28 for `->getCode()`, which IS the SQLSTATE).
      *
      * @return array{ok: true, rowCount: int}|array{ok: false, code: ?string, message: string, sqlstate: ?string, cap: ?string, limit: ?int}
@@ -216,7 +216,7 @@ final class Probe extends Atom
     }
 
     /**
-     * M1 review F-15 (MINOR, fixed): a RUN-mode leg for check 29.
+     * A RUN-mode leg for check 29.
      * `PDO::exec()` drives `sql.exec` in MODE_RUN, and `bridge.js`'s
      * MODE_RUN branch (the `else` of the rows/run split) drains the cursor
      * and discards every row WITHOUT any cap check at all — verified
