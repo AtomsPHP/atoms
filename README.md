@@ -15,7 +15,7 @@ namespace App\Atoms;
 
 use Atoms\Atom;
 
-final class GameRoom extends Atom
+class GameRoom extends Atom
 {
     public function join(string $player): int
     {

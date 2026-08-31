@@ -13,7 +13,7 @@ use Atoms\Atom;
  * `examples/plain-php/README.md` something concrete to point at, and to give
  * the adapter conformance suite a real Methods-class resolution to drive.
  */
-final class GameRoom extends Atom
+class GameRoom extends Atom
 {
     public function greet(string $playerId): string
     {

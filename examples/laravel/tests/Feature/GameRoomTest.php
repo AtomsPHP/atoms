@@ -8,7 +8,7 @@ use App\Atoms\GameRoom;
 use Atoms\Laravel\Facades\Atoms;
 use Tests\TestCase;
 
-final class GameRoomTest extends TestCase
+class GameRoomTest extends TestCase
 {
     public function testTheRouteCallsTheAtomThroughTheLaravelFacade(): void
     {

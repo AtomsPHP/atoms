@@ -25,7 +25,7 @@ use Psr\Http\Message\StreamFactoryInterface;
  * is local computation, so there is nothing for a plain-PHP host to configure
  * beyond the shared secret it already has.
  */
-final class PlainPhpApp
+class PlainPhpApp
 {
     public function __construct(
         private readonly AtomsClient $client,

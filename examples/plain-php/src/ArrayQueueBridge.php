@@ -13,7 +13,7 @@ use Atoms\Client\Callback\QueueBridge;
  * for this demo and for tests; a production host should hand jobs to a real
  * queue (a database table it polls, a Redis list, whatever it already runs).
  */
-final class ArrayQueueBridge implements QueueBridge
+class ArrayQueueBridge implements QueueBridge
 {
     /** @var list<AtomJob> */
     private array $jobs = [];
