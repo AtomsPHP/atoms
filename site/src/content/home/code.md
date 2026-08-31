@@ -1,30 +1,22 @@
 ---
 title: This is an Atom
 caption: >-
-  That's the Laravel facade. Symfony and plain PHP use the same client without
-  it — inject `AtomsClient` and call `get()` the same way.
+  Fetch or create an Atom from your monolith
 annotations:
   - method: join()
     kind: app
     anchor: a-join
     text: >-
-      Your app calls this like any method. The seat check and the insert share
-      a transaction, and because the Atom takes one call at a time, the count
-      it read is still true when it writes.
+      Write any method and call it from your PHP monolith. In this example, the main app adds a new player to a game.
   - method: onConnect()
     kind: cli
     anchor: a-onconnect
     text: >-
-      A player's browser opened its WebSocket. The connection gets tied to
-      their seat, and the current board goes straight back down the wire.
+      Called when a client makes a WebSocket connection.
   - method: onMessage()
     kind: cli
     anchor: a-onmessage
     text: >-
-      A move arrives over the socket. The UPDATE's WHERE clause is the referee
-      — it matches only a piece the mover owns — and a move that landed is
-      broadcast to everyone watching.
+      Called when a message arrives from a connected client.
 ---
-You write an ordinary PHP class and give it a database schema. You create one
-Atom per entity — a game room, a document, a tenant — each addressable by id,
-each handling one call at a time on data that lives in the same object.
+An Atom is defined as a normal PHP class. It has its own database schema: each Atom instance has its own state separate from your app. An Atom can communicate with your app and directly with clients. Use an Atom to represent a game lobby, a document, a chat room, and more.

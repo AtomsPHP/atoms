@@ -43,10 +43,6 @@ const home = defineCollection({
     quads: z
       .array(z.object({ title: z.string(), text: z.string() }))
       .optional(),
-    /** Trust list items: bold lead, then the sentence. */
-    items: z
-      .array(z.object({ lead: z.string(), text: z.string() }))
-      .optional(),
   }),
 });
 

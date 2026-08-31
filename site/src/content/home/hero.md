@@ -1,9 +1,7 @@
 ---
-title_html: 'Persistent <em>PHP objects</em>, inside Cloudflare <em class="o">Durable&nbsp;Objects</em>.'
+title_html: 'Persistent <em>PHP objects</em>, inside Cloudflare <em class="o">Durable Objects</em>.'
 ctas:
   - { label: 'Get started', href: 'https://github.com/AtomsPHP/atoms#install', style: solid }
   - { label: 'GitHub', href: 'https://github.com/AtomsPHP/atoms', style: ghost }
 ---
-An Atom is a PHP class with its own SQLite database, running in a Durable
-Object on your Cloudflare account. Your Laravel or Symfony app calls it like a
-local object, and browsers can hold a WebSocket directly to it.
+An Atom is a long-lived PHP object running inside a Cloudflare Durable Object. Your PHP app calls it like a normal object - but each Atom controls its own SQLite database and talks directly with clients over websockets.

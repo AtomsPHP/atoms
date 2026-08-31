@@ -41,8 +41,7 @@ export const GET: APIRoute = async () => {
   const auth = need('auth');
   const how = need('how');
   const why = need('why');
-  const trust = need('trust');
-  const status = need('status');
+  const faq = need('faq');
   const start = need('start');
 
   const body = (e: { body?: string }) => (e.body ?? '').trim();
@@ -101,11 +100,9 @@ ${how.data.note ?? ''}
 
 ${(why.data.quads ?? []).map((q) => `- **${q.title}** — ${q.text}`).join('\n')}
 
-## ${trust.data.title}
+## ${faq.data.title}
 
-${(trust.data.items ?? []).map((t) => `- **${t.lead}** ${t.text}`).join('\n')}
-
-> ${body(status)}
+${body(faq)}
 
 ## ${start.data.title}
 

@@ -40,8 +40,8 @@ h1{ font-size:clamp(2.1rem, 4.4vw, 3.3rem); line-height:1.13; letter-spacing:.00
 h2{ font-size:clamp(1.45rem, 2.6vw, 1.9rem); line-height:1.25; }
 p{ margin:0 0 1rem; }
 .prose{ max-width:62ch; color:var(--ink-soft); font-size:1.02rem; }
-.prose b, .prose strong{ color:var(--ink); font-weight:500; }
-.prose code, .cap code{
+.prose b, .prose strong, .faq b, .faq strong{ color:var(--ink); font-weight:500; }
+.prose code, .cap code, .faq code{
   font-family:'IBM Plex Mono', ui-monospace, monospace;
   font-size:.85em; background:rgba(21, 22, 27, .055);
   padding:.08em .3em; border-radius:3px;
@@ -175,18 +175,22 @@ section{ border-top:1px solid var(--rule); padding:4rem 0; }
 }
 .quad p{ font-size:.97rem; color:var(--ink-soft); margin:0; }
 
-/* trust list */
-.trust{ margin:2rem 0 0; padding:0; list-style:none; max-width:66ch; }
-.trust li{
-  padding:1rem 0; border-top:1px solid var(--rule);
-  font-size:1rem; color:var(--ink-soft);
+/* faq — the markdown body of src/content/home/faq.md, where an h3 is a
+   question and everything under it is that question's answer. */
+.faq{ margin:2rem 0 0; max-width:66ch; }
+.faq h3{
+  margin:1.4rem 0 0; padding-top:1.2rem; border-top:1px solid var(--rule);
+  font-family:'Science Gothic', 'Arial Narrow', Arial, sans-serif;
+  font-weight:430; font-size:1.02rem; color:var(--ink);
 }
-.trust li:first-child{ border-top:none; padding-top:0; }
-.trust b{ color:var(--ink); font-weight:500; }
-
-/* status aside */
-.status{ border-top:1px solid var(--rule); padding:2.6rem 0; }
-.status p{ max-width:56ch; margin:0; font-size:1.05rem; color:var(--ink-soft); }
+.faq h3:first-child{ margin-top:0; padding-top:0; border-top:none; }
+.faq p, .faq ul, .faq ol{
+  margin:.4rem 0 1.2rem; font-size:.97rem; color:var(--ink-soft);
+}
+.faq ul, .faq ol{ padding-left:1.15rem; }
+.faq li{ margin:.3rem 0; }
+.faq p:has(+ ul), .faq p:has(+ ol){ margin-bottom:.35rem; }
+.faq > :last-child{ margin-bottom:0; }
 
 /* get started */
 .start .code-card{ margin-top:1.6rem; max-width:46rem; }

@@ -11,12 +11,14 @@ part in the coordinated release flow. It ships when its content ships.
 ## Layout
 
 - `src/content/home/*.md` — **all page copy**, one markdown file per section
-  (`hero`, `code`, `live`, `auth`, `how`, `why`, `trust`, `status`, `start`).
+  (`hero`, `code`, `live`, `auth`, `how`, `why`, `faq`, `start`).
   Prose is the markdown body; repeated structured copy (annotation rail,
-  "why" cards, trust items, pipeline stations, CTAs) is frontmatter, whose
-  strings support the inline-markdown subset in `src/lib/inline-md.ts`
-  (`` `code` ``, `**bold**`, `*em*`). The schema lives in
-  `src/content.config.ts`.
+  "why" cards, pipeline stations, CTAs) is frontmatter, whose strings support
+  the inline-markdown subset in `src/lib/inline-md.ts` (`` `code` ``,
+  `**bold**`, `*em*`, `[link](href)`) — no lists, no block elements. The
+  schema lives in `src/content.config.ts`. Copy that wants full markdown
+  belongs in a body: `faq.md` is written that way, one `###` per question
+  with the answer beneath it.
 - `src/pages/index.astro` — page structure only: the designed section shells.
 - `src/samples.ts` — the code samples, as hand-highlighted HTML (brand token
   classes, anchor ids for the annotation rail). Single source for both

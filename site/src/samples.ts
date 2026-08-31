@@ -24,7 +24,7 @@ export const samples = {
 <span class="tok-k">use</span> Atoms\\Websocket\\Connection;
 <span class="tok-k">use</span> Atoms\\Websocket\\Message;
 
-<span class="tok-k">final class</span> <span class="tok-f">GameRoom</span> <span class="tok-k">extends</span> Atom
+<span class="tok-k">class</span> <span class="tok-f">GameRoom</span> <span class="tok-k">extends</span> Atom
 {
     <span class="tok-k">public function</span> <span class="tok-f" id="a-join">join</span>(<span class="tok-k">string</span> $player): <span class="tok-k">int</span>
     {
@@ -49,7 +49,7 @@ export const samples = {
     {
         $this-&gt;db()-&gt;execute(
             <span class="tok-s">'UPDATE players SET connection_id = ? WHERE name = ?'</span>,
-            [$conn-&gt;id(), $params[<span class="tok-s">'client_id'</span>]]
+            [$conn-&gt;id(), $params[<span class="tok-s">'player'</span>]]
         );
 
         $conn-&gt;sendJson([
@@ -83,10 +83,14 @@ export const samples = {
   browser: {
     title: 'in the browser',
     lang: 'js',
-    html: `<span class="tok-k">const</span> { url } = <span class="tok-k">await</span> (<span class="tok-k">await</span> fetch(<span class="tok-s">'/api/rooms/room-42/socket'</span>, { method: <span class="tok-s">'POST'</span> })).json();
+    html: `<span class="tok-k">const</span> { url } = <span class="tok-k">await</span> fetch(<span class="tok-s">'/api/rooms/room-42/socket'</span>, { method: <span class="tok-s">'POST'</span> })
+  .then((res) =&gt; res.json());
 
 <span class="tok-k">const</span> ws = <span class="tok-k">new</span> WebSocket(url);
-ws.onmessage = (e) =&gt; render(JSON.parse(e.data));`,
+ws.onmessage = (e) =&gt; drawBoard(JSON.parse(e.data));
+
+<span class="tok-c">// a player moves a piece</span>
+ws.send(JSON.stringify({ piece: <span class="tok-s">'rook'</span>, square: <span class="tok-s">'d4'</span> }));`,
   },
   route: {
     title: 'routes/api.php — a normal authenticated route',
@@ -95,7 +99,7 @@ ws.onmessage = (e) =&gt; render(JSON.parse(e.data));`,
     <span class="tok-k">return</span> [<span class="tok-s">'url'</span> =&gt; Atoms::wsUrl(GameRoom::class, $room, [
         <span class="tok-s">'channels'</span> =&gt; [<span class="tok-s">'room'</span>],
         <span class="tok-s">'ticket'</span>   =&gt; (<span class="tok-k">string</span>) Atoms::ticket(GameRoom::class, $room, [
-            <span class="tok-s">'client_id'</span> =&gt; (<span class="tok-k">string</span>) auth()-&gt;id(),
+            <span class="tok-s">'player'</span> =&gt; auth()-&gt;user()-&gt;name,
         ]),
     ])];
 });`,
@@ -104,12 +108,17 @@ ws.onmessage = (e) =&gt; render(JSON.parse(e.data));`,
     title: '',
     lang: 'sh',
     html: `<span class="tok-c">$</span> composer require atoms/laravel
+<span class="tok-c">$ # If you're working in Laravel:</span>
 <span class="tok-c">$</span> php artisan atoms:install
+
+<span class="tok-c">$</span> <span class="tok-c"># Scaffold the Worker project:</span>
 <span class="tok-c">$</span> npm exec --yes --package=@atomsphp/runtime-cloudflare -- \\
     atoms-runtime-cloudflare init .atoms/worker
+<span class="tok-c">$</span> <span class="tok-c"># Install JavaScript dependencies:</span>
+<span class="tok-c">$</span> (cd .atoms/worker &amp;&amp; npm ci)
 
-<span class="tok-c">$</span> vendor/bin/atoms dev      <span class="tok-c"># local, no Cloudflare account needed</span>
-<span class="tok-c">$</span> vendor/bin/atoms deploy   <span class="tok-c"># to your own account</span>`,
+<span class="tok-c">$</span> vendor/bin/atoms dev
+<span class="tok-c">$</span> vendor/bin/atoms deploy`,
   },
 } satisfies Record<string, Sample>;
 

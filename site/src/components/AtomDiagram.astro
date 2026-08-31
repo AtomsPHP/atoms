@@ -3,7 +3,7 @@
 // Atoms 2 and 3 appear after load; traffic is mostly client-led.
 ---
 <div class="diagram-patch">
-  <svg id="diagram" viewBox="0 0 520 400" role="img" aria-label="Your app and connected devices, bonded to an Atom"></svg>
+  <svg id="diagram" viewBox="0 0 520 400" role="img" aria-label="Your Atoms, connected directly to your monolith and to clients"></svg>
 </div>
 
 <script is:inline>
@@ -75,11 +75,11 @@
   });
 
   var labApp  = el('text', { 'class':'dlabel', 'text-anchor':'middle' }, root);
-  labApp.textContent = 'YOUR LARAVEL / SYMFONY APP';
+  labApp.textContent = 'YOUR PHP APP';
   var labAtom = el('text', { 'class':'dlabel', 'text-anchor':'middle' }, root);
-  labAtom.textContent = 'AN ATOM · ITS OWN SQLITE DB';
+  labAtom.textContent = 'AN ATOM';
   var labCli  = el('text', { 'class':'dlabel', 'text-anchor':'end' }, root);
-  labCli.textContent = 'BROWSERS · LIVE WEBSOCKETS';
+  labCli.textContent = 'CLIENTS';
   var plural = false;
 
   function clamp01(k){ return k < 0 ? 0 : (k > 1 ? 1 : k); }
@@ -165,7 +165,7 @@
     });
 
     if (!plural && (reduced || t > atoms[1].born + 450)){
-      labAtom.textContent = 'ATOMS · EACH WITH ITS OWN SQLITE DB';
+      labAtom.textContent = 'ATOMS';
       plural = true;
     }
     labApp.setAttribute('x', pa.x);

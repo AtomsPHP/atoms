@@ -20,8 +20,7 @@ const live = need('live');
 const auth = need('auth');
 const how = need('how');
 const why = need('why');
-const trust = need('trust');
-const status = need('status');
+const faq = need('faq');
 const start = need('start');
 
 const { Content: HeroSub } = await render(hero);
@@ -29,7 +28,7 @@ const { Content: CodeProse } = await render(code);
 const { Content: LiveProse } = await render(live);
 const { Content: AuthProse } = await render(auth);
 const { Content: HowProse } = await render(how);
-const { Content: StatusProse } = await render(status);
+const { Content: FaqProse } = await render(faq);
 ---
 <Base>
   <!-- ============================ hero ============================ -->
@@ -144,18 +143,11 @@ const { Content: StatusProse } = await render(status);
     </div>
   </section>
 
-  <!-- ============================ 5. trust ============================ -->
-  <section id="trust">
-    <h2>{trust.data.title}</h2>
-    <ul class="trust">
-      {trust.data.items?.map((t) => (
-        <li><b>{t.lead}</b> <Fragment set:html={inlineMd(t.text)} /></li>
-      ))}
-    </ul>
+  <!-- ============================ 5. faq ============================ -->
+  <section id="faq">
+    <h2>{faq.data.title}</h2>
+    <div class="faq"><FaqProse /></div>
   </section>
-
-  <!-- ============================ status aside ============================ -->
-  <div class="status"><StatusProse /></div>
 
   <!-- ============================ 6. get started ============================ -->
   <section id="start" class="start">

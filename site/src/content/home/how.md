@@ -3,22 +3,14 @@ title: How it works
 stations:
   - label: your repo
     text: >-
-      Atom classes live in your app. `atoms build` extracts them into a bundle
-      — deterministically, without ever executing your code.
+      Atoms classes are defined in your PHP app. `atoms build` extracts them into a bundle.
   - label: atoms deploy
     text: >-
-      The CLI drives the Wrangler already pinned in your project. Your
-      Cloudflare credentials go to Wrangler and nowhere else.
+      Run `atoms deploy` (locally or in CI) to push your bundle to Cloudflare.
   - label: your cloudflare account
     text: >-
-      One Durable Object per Atom id: PHP in WebAssembly, SQLite stored
-      durably beside it, WebSockets and timers handled by the platform.
+      A Durable Object is created for an Atom instance as soon as your app calls a method on it or a client tries to connect.
 note: >-
-  Local development is `atoms dev` — the same runtime on your machine, no
-  Cloudflare account required.
+  Work locally using `atoms dev`, which runs your Atoms on Cloudflare's open-source workerd runtime.
 ---
-Your Atom classes stay in your repository, next to the rest of your app. A
-build step extracts them into a bundle, and a deploy ships that bundle to a
-Worker in your Cloudflare account, where each Atom id gets its own Durable
-Object running PHP 8.3 compiled to WebAssembly — with its SQLite database
-stored durably beside it.
+Write your Atoms alongisde the rest of your PHP app - but deploy them to Durable Objects.
