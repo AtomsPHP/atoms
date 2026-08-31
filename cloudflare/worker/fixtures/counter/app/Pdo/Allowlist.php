@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Pdo;
 
 /**
- * The reflection tripwire's allowlist (M1 design §1.3): the members that
+ * The reflection tripwire's allowlist: the members that
  * cannot be enumerated-and-declared like every other member of \PDO /
  * \PDOStatement, each with a written justification AND a runtime assertion
  * that SurfaceAudit actually runs.
@@ -45,8 +45,7 @@ final class Allowlist
                 'why' => 'It is the only public property on either parent (measured: \\PDO has none, '
                     . '\\PDOStatement has exactly one, non-readonly). PHP 8.3 has no property hooks, so a '
                     . 'subclass cannot intercept reads; the only available guarantee is that we assign it. '
-                    . 'M1 review F-16 (reconciled with AtomsStatement.php\'s docblock and php/README.md — all '
-                    . 'three previously told a different story): the CONSTRUCTOR\'s own first write, to a '
+                    . 'The CONSTRUCTOR\'s own first write, to a '
                     . 'property PHP has never seen written before, succeeds unconditionally. What was measured '
                     . 'on 8.4 desktop but is NOT what this build\'s own in-guest harness (Comparator, checks '
                     . '27-28) observes is a difference in POST-CONSTRUCTION EXTERNAL reassignment: on THIS '

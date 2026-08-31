@@ -13,7 +13,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * `atoms ai:install` — generate the four agent skills and the AGENTS.md section
- * from this project's manifest and error catalog (integration-plan §8.1).
+ * from this project's manifest and error catalog.
  * Regenerates only between the `atoms:generated` markers, preserving hand edits.
  */
 #[AsCommand(name: 'ai:install', description: 'Install/regenerate the Atoms agent skills')]

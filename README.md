@@ -15,7 +15,7 @@ namespace App\Atoms;
 
 use Atoms\Atom;
 
-final class GameRoom extends Atom
+class GameRoom extends Atom
 {
     public function join(string $player): int
     {
@@ -45,7 +45,7 @@ the consistency boundary.
   against a real deployed Worker. It is not a managed service; you deploy it
   to your own account.
 - `app()`, `dispatch()`, `broadcast()`, WebSockets and timers/alarms are
-  implemented in the Worker runtime (M2). The one remaining typed
+  implemented in the Worker runtime. The one remaining typed
   `AtomsNotSupported` surface is the permanently-unsupported corner of the
   `db()->pdo()` shim (see `cloudflare/worker/php/README.md` §Documented leaks
   and limits) — a restriction, not a stub.
@@ -60,7 +60,7 @@ the consistency boundary.
 |---|---|
 | [`packages/`](packages/) | The eight PHP packages — see the table below |
 | [`cloudflare/`](cloudflare/) | The Cloudflare Worker runtime: a PHP interpreter in WebAssembly parked inside a SQLite-backed Durable Object, plus its spec, conformance suite and licence files |
-| [`docs/`](docs/) | Architecture and contracts: [`conventions.md`](docs/conventions.md) (normative), [`adapters.md`](docs/adapters.md) (the contracts each host adapter supplies and the conformance suite), [`cloudflare-toolchain.md`](docs/cloudflare-toolchain.md) (deploy, runtime auth, bundles), [`integration-plan.md`](docs/integration-plan.md), [`two-worlds.md`](docs/two-worlds.md), [`errors.md`](docs/errors.md) |
+| [`docs/`](docs/) | Architecture and contracts: [`conventions.md`](docs/conventions.md) (normative), [`adapters.md`](docs/adapters.md) (the contracts each host adapter supplies and the conformance suite), [`cloudflare-toolchain.md`](docs/cloudflare-toolchain.md) (deploy, runtime auth, bundles), [`two-worlds.md`](docs/two-worlds.md), [`errors.md`](docs/errors.md) |
 | [`action/`](action/) | The deploy GitHub Action |
 | [`tests/`](tests/) | Cross-package integration tests |
 | [`site/`](site/) | The public marketing site (Astro) |

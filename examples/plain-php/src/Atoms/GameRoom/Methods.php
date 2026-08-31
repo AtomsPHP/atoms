@@ -16,7 +16,7 @@ use Atoms\Examples\PlainPhp\Atoms\GameRoom;
  * classes.
  */
 #[MethodsFor(GameRoom::class)]
-final class Methods extends AtomMethods
+class Methods extends AtomMethods
 {
     public function displayName(string $playerId): string
     {

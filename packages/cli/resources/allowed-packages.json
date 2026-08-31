@@ -1,5 +1,5 @@
 {
-    "$comment": "Beta allowlist for atoms-composer.json (integration-plan.md §10 Q2). Each entry maps a Composer package to the PSR-4 namespace prefixes it ships. The build classifier treats a symbol as vendor-approved only when its namespace matches a prefix here AND the package is declared in the project's atoms-composer.json require.",
+    "$comment": "Beta allowlist for atoms-composer.json. Each entry maps a Composer package to the PSR-4 namespace prefixes it ships. The build classifier treats a symbol as vendor-approved only when its namespace matches a prefix here AND the package is declared in the project's atoms-composer.json require.",
     "packages": [
         { "name": "illuminate/database", "namespaces": ["Illuminate\\Database\\"] },
         { "name": "illuminate/collections", "namespaces": ["Illuminate\\Support\\"] },

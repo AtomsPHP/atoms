@@ -20,8 +20,7 @@ use PHPUnit\Framework\Assert;
  * In-process test harness for an Atom: a real temp-file SQLite database with
  * migrations applied, a fake `app()` proxy that executes the real Methods
  * class in-process, and recorders for `dispatch()`/`broadcast()` with PHPUnit
- * assertion helpers. No network, no Docker — see
- * docs/integration-plan.md §6.3.
+ * assertion helpers. No network, no Docker.
  *
  * @template TAtom of Atom
  */

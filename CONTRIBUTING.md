@@ -19,23 +19,23 @@ The repository is two halves that meet at the `atoms/core` ABI.
 |---|---|
 | `packages/{core,client,laravel,symfony,testing,phpstan-rules,cli,database-illuminate}` | The eight PHP packages: the runtime ABI, the monolith-side SDK, the Laravel and Symfony adapters, the test harness, the PHPStan rules, the `atoms` CLI, the Illuminate database bridge. MIT. |
 | `action/` | The deploy GitHub Action. |
-| `docs/` | `conventions.md` (normative), `integration-plan.md` (rationale), `two-worlds.md`, `errors.md` (the error catalog), `platform/api-contract.md`. |
+| `docs/` | `conventions.md` (normative), `two-worlds.md`, `errors.md` (the error catalog). |
 | `tests/Integration/` | Cross-package tests that no single package owns. |
-| `cloudflare/` | The Worker runtime: a PHP 8.3 WebAssembly interpreter parked inside a SQLite-backed Durable Object, its binding spec in `cloudflare/docs/mvp-spec.md`, and the conformance suite. Atoms-authored source here is MIT; upstream components retain their own licenses. |
+| `cloudflare/` | The Worker runtime: a PHP 8.3 WebAssembly interpreter parked inside a SQLite-backed Durable Object, its binding spec in `cloudflare/docs/runtime-spec.md`, and the conformance suite. Atoms-authored source here is MIT; upstream components retain their own licenses. |
 
 The two halves have separate toolchains and separate test commands. A change
 to the ABI usually touches both — `cloudflare/worker/php/atoms-core/` is a
 verbatim, hash-recorded copy of `packages/core/src`. Never edit it in place:
 fix `packages/core/` and re-vendor.
 
-Read `cloudflare/docs/mvp-spec.md` before changing the Worker, in particular
+Read `cloudflare/docs/runtime-spec.md` before changing the Worker, in particular
 its appendix of *measured* platform deviations. `app()`, `dispatch()`,
-`broadcast()`, WebSockets and timers/alarms are implemented (M2) — see the
+`broadcast()`, WebSockets and timers/alarms are implemented — see the
 spec's §The callback channel, §The WebSocket seam and §Timers. The one
 surface that deliberately stays a typed `AtomsNotSupported` is the
 permanently-unsupported corner of the `db()->pdo()` shim
 (`cloudflare/worker/php/README.md` §Documented leaks and limits); that is a
-restriction, not a milestone stub. Extending the runtime surface further is a
+restriction, not a stub. Extending the runtime surface further is a
 spec change first and a diff second; a half-implementation in a pull request
 will be declined.
 

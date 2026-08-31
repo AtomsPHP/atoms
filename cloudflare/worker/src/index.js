@@ -1,7 +1,7 @@
 /**
  * Worker entry: routing, auth, and error-envelope mapping.
  *
- * Routes (MVP spec §"Routing and auth"):
+ * Routes (runtime spec §"Routing and auth"):
  *
  *   POST /invoke/:type/:id/:method   body {"args":[...]}
  *        -> 200 {"result":..., "atom":{"type":...,"id":...}}
@@ -12,11 +12,9 @@
  *                                       issued by the application (browsers
  *                                       cannot set an Authorization header)
  *
- * This is the invoke contract. `atoms/client` calls it directly; the
- * `/v1/{customer}` prefix it used to send is gone, because the Worker is
- * single-tenant and has no customer to disambiguate (M3, 2026-08-09 —
- * `docs/cloudflare-toolchain.md` §1). The retired platform's contract is
- * `docs/platform/api-contract.md`, kept as history only.
+ * This is the invoke contract. `atoms/client` calls it directly; routes
+ * carry no tenant prefix, because the Worker is single-tenant and has no
+ * customer to disambiguate (`docs/cloudflare-toolchain.md`).
  *
  * The int64 tag (`{"$atoms_int64":"..."}`) is the wire form at this boundary
  * too: argument and result payloads pass through untouched, so a client can

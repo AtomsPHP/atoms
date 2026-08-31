@@ -3,7 +3,7 @@
 /**
  * ATOMS-E086 — this Atom already has `ATOMS_TIMERS_MAX` scheduled timers.
  * Raised by {@see CfTimers::schedule()} when the host's `timer.schedule`
- * reply reports `timer_limit` (M2 wave 3).
+ * reply reports `timer_limit`.
  *
  * No declare(strict_types=1) — see the note in host.php.
  */

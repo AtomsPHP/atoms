@@ -5,9 +5,8 @@
  * in this Worker fails silently: unimplemented surfaces throw `AtomsError` with
  * `not_supported`, never a no-op answer.
  *
- * The public envelope mirrors `atoms-framework/docs/platform/api-contract.md`:
- * `{"error":{"code","message","retryable"}}`. The turn-result codes defined by
- * the MVP spec (`atom_exception`, `method_not_found`, `atom_not_found`,
+ * The public envelope is `{"error":{"code","message","retryable"}}`. The
+ * turn-result codes defined by the runtime spec (`atom_exception`, `method_not_found`, `atom_not_found`,
  * `internal`) are passed through verbatim so the client sees exactly what PHP
  * reported.
  */
@@ -69,15 +68,15 @@ const CODE_TABLE = {
 	payload_too_large: { status: 413, retryable: false },
 	not_supported: { status: 501, retryable: false },
 	sql_error: { status: 500, retryable: false },
-	// A result set hit ATOMS_SQL_MAX_ROWS or ATOMS_SQL_MAX_RESULT_BYTES (M1
-	// design §4.3). Deliberately distinct from sql_error: "your query was
+	// A result set hit ATOMS_SQL_MAX_ROWS or ATOMS_SQL_MAX_RESULT_BYTES.
+	// Deliberately distinct from sql_error: "your query was
 	// wrong" and "your query returned too much" call for opposite client
 	// responses, and detail.cap ('rows'|'bytes') says which cap fired.
 	sql_result_too_large: { status: 500, retryable: false },
-	// M1 review round 2, R13: rows-mode's `cursor.columnNames` is what lets
+	// rows-mode's `cursor.columnNames` is what lets
 	// AtomsStatement detect duplicate result-set column names and refuse the
 	// fetch modes that would otherwise silently answer wrong under them
-	// (Branch A, design §2.7). Measured present on every workerd build this
+	// (Branch A). Measured present on every workerd build this
 	// milestone has exercised, so no local conformance run can trigger this
 	// — it exists to fail loudly, not silently degrade to `columns: []`, on
 	// a future deployed build where the platform capability regresses.
@@ -111,9 +110,8 @@ const CODE_TABLE = {
 	// before any DO is addressed.
 	ticket_invalid: { status: 401, retryable: false },
 	ticket_expired: { status: 401, retryable: false },
-	// Matches the retired platform contract's table and what atoms/client
-	// already expects (AtomsClient.php maps this to TurnDeadlineExceeded and
-	// only retries when the call site opts in).
+	// Matches what atoms/client already expects (AtomsClient.php maps this
+	// to TurnDeadlineExceeded and only retries when the call site opts in).
 	turn_deadline_exceeded: { status: 504, retryable: true },
 	internal: { status: 500, retryable: true },
 };

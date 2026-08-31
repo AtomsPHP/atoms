@@ -4,8 +4,8 @@ This is an ordered, human-approved operation. Do not combine or reorder the
 steps: claiming the Composer vendor immediately after repository visibility
 changes is the only time-sensitive, difficult-to-recover action.
 
-1. Merge M7 with `release/manifest.json` set to `candidate` and pass the full
-   private CI and local package preflight.
+1. Merge the release packaging changes with `release/manifest.json` set to
+   `candidate` and pass the full private CI and local package preflight.
 2. Create the eight private mirrors, install the mirror-only release App, run
    the `seed-mirrors` workflow dispatch, verify the mirrors, and merge a
    standalone pull request changing release status to `ready`.

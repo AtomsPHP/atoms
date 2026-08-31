@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Pdo;
 
 /**
- * The differential harness's normal form (M1 design §2.5): every value or
+ * The differential harness's normal form: every value or
  * throwable either side of a case produces is reduced to a tagged tree
  * compared with PHP `===` — recursive, type- and order-sensitive. Nothing is
  * compared shape-only anywhere; the only two exclusions from strict
@@ -74,11 +74,11 @@ final class Normalize
         }
 
         if ($v instanceof \Closure) {
-            // M1 review round 2, R11: a Closure is an object, so without this
+            // A Closure is an object, so without this
             // arm it would fall into self::object() below and normalize as
             // an (empty — Closures have no declared properties) object tree
             // instead of failing loudly. Nothing in the matrix should ever
-            // produce one (design §2.4, the same rule resources/comment
+            // produce one (the same rule the resources/comment
             // below already states for the truly-unnormalizable fallthrough);
             // a case that returns one is a harness bug, not a value to
             // compare, so this throws to classify as 'error' the same way.
@@ -92,7 +92,7 @@ final class Normalize
         }
 
         // Resources, closures: nothing in the matrix should ever produce
-        // one (design §2.4). Throwing here — rather than coercing — is what
+        // one. Throwing here — rather than coercing — is what
         // makes a case that DOES produce one classify as 'error' (harness
         // breakage, never pinnable) instead of silently comparing garbage.
         throw new \RuntimeException(sprintf(
@@ -103,7 +103,7 @@ final class Normalize
 
     /**
      * Declared properties (including private/protected, read via reflection
-     * — real PDO writes them directly, design §3 F-4/measured E13) in
+     * — real PDO writes them directly, a measured behaviour) in
      * declaration order, then dynamic properties in insertion order.
      *
      * @return array{0: 'o', 1: class-string, 2: list<array{0: string, 1: mixed}>}
@@ -158,7 +158,7 @@ final class Normalize
     }
 
     /**
-     * The comparison unit for a refusal (design §2.4): messages are the
+     * The comparison unit for a refusal: messages are the
      * engine's own wording and version-specific, so family (+SQLSTATE when
      * flagged `sqlstate_strict`) carries the contract instead.
      */
@@ -185,7 +185,7 @@ final class Normalize
 
     /**
      * From `errorInfo[0]` when present, else a `SQLSTATE[...]` prefix on the
-     * message, else null (design §2.4).
+     * message, else null.
      */
     public static function sqlstate(\Throwable $e): ?string
     {
@@ -219,8 +219,7 @@ final class Normalize
 
     /**
      * JSON of the normalized tree, truncated to 512 characters — human
-     * evidence in a failure message, never the basis of the comparison
-     * (design §2.10).
+     * evidence in a failure message, never the basis of the comparison.
      */
     public static function render(mixed $tree): string
     {

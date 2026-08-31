@@ -4,7 +4,7 @@
  * ATOMS-E085 — `$this->timers()->schedule()` was given an invalid timer
  * name: empty, or over the runtime's `ATOMS_TIMER_NAME_MAX_BYTES` limit.
  * Raised by {@see CfTimers::schedule()} when the host's `timer.schedule`
- * reply reports `timer_invalid_name` (M2 wave 3).
+ * reply reports `timer_invalid_name`.
  *
  * `\RuntimeException`, not `\PDOException`: this is not a database failure,
  * and matches how the callback channel's typed failures (CallbackError and

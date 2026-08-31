@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Pdo;
 
 /**
- * Schema and seed parity for the differential harness (M1 design §2.2).
+ * Schema and seed parity for the differential harness.
  * There is exactly one copy of the DDL — the migration file — so drift
  * between the DO side (via the real `Atoms\Migrations\Migrator`, applied at
  * Probe's activation) and the comparator (via {@see applySchema}) is
@@ -24,7 +24,7 @@ final class Schema
      * statement. Used only by the comparator — the DO side already has this
      * schema via Probe's manifest-declared migration.
      *
-     * The naive splitter (design §2.2) cannot see across a full-line SQL
+     * The naive splitter cannot see across a full-line SQL
      * comment, and this file's OWN header comment contains a literal ';'
      * character (documenting the splitter itself) that would otherwise be
      * cut mid-line. Comment lines are stripped first so the split only ever
@@ -54,7 +54,7 @@ final class Schema
     }
 
     /**
-     * Fixed, deterministic seed rows (design §2.2). Executed through the
+     * Fixed, deterministic seed rows. Executed through the
      * passed-in \PDO, so seeding itself is exercised on both sides.
      *
      * probe_rows: 3 rows, k ordered a<b<c (== insertion/id order), covering
@@ -75,21 +75,21 @@ final class Schema
      * Clear the DO-side tables and their autoincrement counters, then
      * reseed — so every `Probe::differential($group)` call starts from
      * identical, reproducible state regardless of what a previous group's
-     * cases wrote (design §2.2). The comparator needs no equivalent: it is
+     * cases wrote. The comparator needs no equivalent: it is
      * a brand new `sqlite::memory:` connection every call.
      *
      * `sqlite_sequence` does not exist until the first AUTOINCREMENT insert
      * has ever happened on this connection, so the very first reset() of a
      * fresh Probe residency legitimately has nothing to clear there.
      *
-     * M1 review F-19 (MINOR, fixed): the DELETE used to be wrapped in a
-     * blanket `catch (\Throwable)` that swallowed EVERYTHING, not just "the
-     * table doesn't exist yet" — a genuine failure (a locked table, a
-     * corrupted sqlite_sequence, a real bug in the DELETE) would have been
-     * silently absorbed too, leaving stale autoincrement state behind
-     * un-reported. Fixed to PROBE for the table's existence directly
-     * (`sqlite_master`) and only skip the DELETE when it is genuinely
-     * absent; any other Throwable now propagates.
+     * The DELETE is deliberately NOT wrapped in a
+     * blanket `catch (\Throwable)`: that would swallow EVERYTHING, not
+     * just "the table doesn't exist yet" — a genuine failure (a locked
+     * table, a corrupted sqlite_sequence, a real bug in the DELETE) would
+     * be silently absorbed too, leaving stale autoincrement state behind
+     * un-reported. Instead this PROBEs for the table's existence directly
+     * (`sqlite_master`) and only skips the DELETE when it is genuinely
+     * absent; any other Throwable propagates.
      */
     public static function reset(\PDO $pdo): void
     {

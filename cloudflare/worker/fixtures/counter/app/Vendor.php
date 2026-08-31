@@ -7,7 +7,7 @@ namespace App\Atoms;
 use Atoms\Atom;
 
 /**
- * Vendor — the fixture Atom for the bundle's vendor tree (mvp-spec.md §Bundle
+ * Vendor — the fixture Atom for the bundle's vendor tree (runtime-spec.md §Bundle
  * format, the `vendor.autoload` manifest field; conformance check 45).
  *
  * A SEPARATE type, like Room/Boot/Scheduler/Probe before it, so the exact

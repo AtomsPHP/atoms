@@ -6,7 +6,7 @@ namespace Atoms\Cli\Build;
 
 /**
  * Compares two manifests and labels each change additive / contracting /
- * breaking (integration-plan §7.3), so deploy ordering can be enforced: additive
+ * breaking, so deploy ordering can be enforced: additive
  * Atom changes deploy Atoms-first; contractions deploy monolith-first.
  *
  * @phpstan-type Change array{label: string, detail: string}

@@ -1,9 +1,7 @@
 # Monorepo Conventions & Cross-Package Contracts
 
 This document pins every decision that more than one package depends on. If a
-package and this document disagree, the package is wrong. Read
-`docs/integration-plan.md` (the design rationale) and
-`docs/platform/api-contract.md` (the frozen platform HTTP contract) alongside it.
+package and this document disagree, the package is wrong.
 
 ## Decisions already made (do not reopen)
 
@@ -13,7 +11,6 @@ package and this document disagree, the package is wrong. Read
 - PHP baseline: **`^8.3`**. No 8.4-only features (no property hooks, no
   asymmetric visibility) anywhere — `atoms/core` executes inside the platform's
   PHP 8.3 runtime image.
-- Scope: full Phase 1 of the integration plan (§11).
 - All packages: `declare(strict_types=1);`, final classes unless the class is
   explicitly designed for extension (`Atom`, `AtomMethods`, `AtomJob`).
 - Monorepo package versions are pinned at `0.1.0` in each package's
@@ -40,7 +37,7 @@ directory mappings are registered in the **root** `composer.json`
 `autoload-dev` (package `autoload-dev` sections are ignored by the root
 install — keep them present anyway for standalone package installs).
 
-### Layering (the §11 discipline)
+### Layering
 
 ```
 core  ←  client  ←  laravel
@@ -225,8 +222,7 @@ Wire form of an AtomJob: `{"job": "FQCN", "args": {"param": value, ...}}`
 
 The Worker is single-tenant, so there is no customer prefix and no
 Atoms-operated service. `docs/cloudflare-toolchain.md` is normative for the
-decisions below; `docs/platform/api-contract.md` describes the retired Fly-era
-contract and is history only.
+decisions below.
 
 `atoms/client` calls the Worker:
 
@@ -237,7 +233,7 @@ contract and is history only.
   verifies against — no round trip. `docs/ws-ticket-protocol.md` is
   normative for the wire format, limits, expiry rule, and vectors; the
   Worker's `GET /ws/{type}/{id}` upgrade remains the strict, stateless
-  verifier, spec'd in `cloudflare/docs/mvp-spec.md` §Routing and auth.
+  verifier, spec'd in `cloudflare/docs/runtime-spec.md` §Routing and auth.
 - `Authorization: Bearer {bearer}`, where `{bearer}` is
   `HKDF(ATOMS_SHARED_SECRET, "atoms/bearer/v1")` — `AtomsConfig::$sharedSecret`
   is a required, validated string (`docs/shared-secret.md`), so the client
@@ -332,7 +328,7 @@ Methods resolution default: Atom class `App\Atoms\GameRoom` → Methods class
 
 The Cloudflare Worker is the production signer of this channel
 (`cloudflare/worker/src/callbacks.js`, HMAC-SHA256 WebCrypto — see
-`cloudflare/docs/mvp-spec.md` §The callback channel for headers and message
+`cloudflare/docs/runtime-spec.md` §The callback channel for headers and message
 construction, and `docs/shared-secret.md` for the key derivation). It omits
 `manifest_hash` from the `methods` body — a documented gap, safe today
 because `CallbackKernel::handleMethods()` never reads that key — and its
@@ -346,7 +342,7 @@ and declares no `ext-sodium` dependency.
 
 ## `atoms.json` (toolchain anchor) and `atoms-composer.json`
 
-Exactly as integration plan §1. The CLI must not assume `app/Atoms` — always
+The CLI must not assume `app/Atoms` — always
 read `paths.atoms` / `paths.shared` from `atoms.json`. `atoms-composer.json`
 is a normal composer.json restricted to `require` + `repositories`; the beta
 package allowlist lives in `packages/cli/resources/allowed-packages.json`.
@@ -365,7 +361,7 @@ scoper_prefix}`), `vendor` (optional, present only when the build shipped
 where `autoload` is the bundle-relative path of the build-generated vendor
 autoload file — see `docs/cloudflare-toolchain.md` §3), `content_hash`
 (sha256 of the bundle tarball, hex).
-`file` and `migrations.files[].path` are bundle-relative paths, added in M3:
+`file` and `migrations.files[].path` are bundle-relative paths:
 the Cloudflare Worker must `require` and migrate exactly those files, and
 `MigrationEntry::$name` keeps only the descriptive part of `NNN_name.sql`, so
 neither is reconstructable from the rest of the manifest.
@@ -407,10 +403,7 @@ runbooks, search boxes and support threads. So:
   a different kind of failure. Those break the promise.
 - **Updating the `message` or `fix` text of an existing code is allowed**, and
   is sometimes required: a code that is still thrown must describe the failure
-  as it is now. M3 rewrote E072's text when deploy credentials stopped being an
-  Atoms API key and became the user's own Cloudflare token — same failure, same
-  number, a credential that now exists. Leaving the old wording would have
-  pointed users at a service that no longer runs.
+  as it is now, under the same number.
 
 Through 0.x the bar for rewording stays low: the packages are published, but
 pre-release, and message text is not something a `^0.1` constraint promises. At

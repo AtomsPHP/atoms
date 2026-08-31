@@ -1,7 +1,7 @@
 <?php
 
 /**
- * `Atoms\Websocket\Message` for the Cloudflare MVP: the decoded bytes of one
+ * `Atoms\Websocket\Message` for the Cloudflare runtime: the decoded bytes of one
  * inbound frame, delivered to `Atom::onMessage()`.
  *
  * Immutable and host-constructed only — `turn_loop()` builds one per

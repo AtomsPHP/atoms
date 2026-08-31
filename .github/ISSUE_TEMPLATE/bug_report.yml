@@ -11,7 +11,7 @@ body:
 
         Two things that are not bugs: `app()`, `dispatch()`, `broadcast()`,
         WebSockets and alarms throw `AtomsNotSupported` in the Worker runtime
-        by design, and `cloudflare/docs/mvp-spec.md` has an appendix of
+        by design, and `cloudflare/docs/runtime-spec.md` has an appendix of
         measured platform deviations that may already explain what you are
         seeing.
 

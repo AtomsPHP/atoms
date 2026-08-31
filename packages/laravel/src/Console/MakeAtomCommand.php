@@ -6,7 +6,7 @@ namespace Atoms\Laravel\Console;
 
 /**
  * `php artisan make:atom` — thin wrapper over `atoms make:atom`, which
- * scaffolds the two-world layout (see docs/integration-plan.md §6.1).
+ * scaffolds the two-world layout (see docs/two-worlds.md).
  */
 final class MakeAtomCommand extends AtomsBinaryCommand
 {

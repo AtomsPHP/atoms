@@ -70,7 +70,7 @@ namespace App\Atoms\Shared;
 
 use Atoms\Serialization\Payload;
 
-final class PlayerSnapshot implements Payload
+class PlayerSnapshot implements Payload
 {
     public function __construct(
         public readonly string $id,

@@ -6,8 +6,7 @@ Atom, the real `atoms/core` ABI running unmodified inside the guest.
 
 | Path | What it is |
 |---|---|
-| [`docs/mvp-spec.md`](docs/mvp-spec.md) | The binding specification, including the appendix of measured platform deviations |
-| [`docs/mvp-summary.md`](docs/mvp-summary.md) | What was built, in brief |
+| [`docs/runtime-spec.md`](docs/runtime-spec.md) | The binding specification, including the appendix of measured platform deviations |
 | [`worker/`](worker/) | The Worker itself: host JavaScript, the `Atoms\Cf\` guest prelude, fixtures, and the conformance suite |
 | [`LICENSE-MIT`](LICENSE-MIT) | The MIT grant for Atoms-authored source in this tree |
 | [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | Components in the PHP/WebAssembly runtime and the evidence for each |
@@ -18,9 +17,7 @@ from WordPress Playground's npm package, and
 `worker/scripts/prepare-runtime.mjs` stages it into the gitignored
 `worker/.php-wasm/` directory after verifying its size and SHA-256.
 
-This is the Cloudflare track, and it is the only runtime Atoms targets. An
-earlier platform preceded it; that work is frozen and is not in this
-repository.
+This is the only runtime Atoms targets.
 
 ## Running it
 

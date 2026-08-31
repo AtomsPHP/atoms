@@ -18,8 +18,8 @@ parked inside a SQLite-backed Durable Object.
 | Directory | What it is | Guidance |
 |---|---|---|
 | `packages/` | The eight MIT PHP packages: `atoms/{core,client,laravel,symfony,testing,phpstan-rules,cli,database-illuminate}` | `docs/conventions.md` (normative) |
-| `cloudflare/` | The Worker runtime: `worker/` (host JS, `Atoms\Cf\` guest prelude, fixtures, conformance suite), `docs/` (MVP spec + summary), `corresponding-source/`, the licence files | `cloudflare/README.md`, `cloudflare/docs/mvp-spec.md` |
-| `docs/` | Framework docs: `conventions.md`, `cloudflare-toolchain.md`, `integration-plan.md`, `two-worlds.md`, `errors.md`, `platform/api-contract.md` (retired) | — |
+| `cloudflare/` | The Worker runtime: `worker/` (host JS, `Atoms\Cf\` guest prelude, fixtures, conformance suite), `docs/` (runtime spec + PDO matrix), `corresponding-source/`, the licence files | `cloudflare/README.md`, `cloudflare/docs/runtime-spec.md` |
+| `docs/` | Framework docs: `conventions.md`, `cloudflare-toolchain.md`, `two-worlds.md`, `errors.md` | — |
 | `action/` | The deploy GitHub Action (composite) | `action/README.md` |
 | `tests/` | Cross-package integration tests (`Atoms\Tests\Integration\`) | `docs/conventions.md` |
 | `site/` | The public marketing site (Astro; content in `src/pages/index.astro`, tokens in `src/styles/global.css`) | `site/AGENTS.md` |
@@ -32,32 +32,24 @@ and `git clone` delivers history rather than the tip, so inheriting it would
 have republished the binary. **Never graft that history on**, however
 convenient it looks.
 
-An earlier, differently-shaped platform preceded the Cloudflare runtime — an
-edge router, a central control plane, a durability bus, a process-per-Atom
-runtime. None of it is in this repository, and Cloudflare supplies most of what
-it existed to provide. Treat references to it in older documents as history,
-not direction.
-
 ## Read before non-trivial work
 
 1. `docs/conventions.md` — cross-package contracts, the frozen `atoms/core`
    ABI, error-catalog rules, layering. **Normative.** If code and this file
    disagree, the code is wrong.
-2. `docs/integration-plan.md` — the design rationale (why the packages are split, the
-   two-worlds model, the extraction pipeline).
-3. `cloudflare/docs/mvp-spec.md` — the binding spec for the Worker: PHP↔JS
+2. `docs/two-worlds.md` — the two-worlds model: which code ships to the
+   runtime, which stays in the monolith, and how the file layout makes the
+   difference unmistakable.
+3. `cloudflare/docs/runtime-spec.md` — the binding spec for the Worker: PHP↔JS
    wire protocol, DO lifecycle, routes, envelopes, bundle format, and an
    appendix of **measured** platform deviations. Read the appendix before
    assuming anything about workerd.
 4. `docs/cloudflare-toolchain.md` — **normative** for how the two halves meet:
    the runtime auth decision (`atoms/client` calls the Worker's prefixless,
    single-tenant `/invoke/...`), how a PHP CLI drives a pinned Wrangler, and
-   the bundle bridge between `atoms build` and the Worker. M4 inherits all
-   three decisions, so read it before changing any of them.
-5. `docs/platform/api-contract.md` — **retired**, history only. It is the
-   Fly-era platform HTTP contract v1 (`/v1/{customer}/invoke/...`, anycast
-   edge, Atoms-issued API keys). Nothing implements it since M3. Do not cite
-   it as the transport.
+   the bundle bridge between `atoms build` and the Worker. Everything
+   downstream inherits all three decisions, so read it before changing any
+   of them.
 
 ## Hard rules — the PHP packages
 
@@ -112,21 +104,20 @@ not direction.
   files cover Atoms-authored source; upstream packages carry their own
   metadata and notices.
 - **`app()`, `dispatch()`, `broadcast()`, WebSockets and timers/alarms are
-  implemented (M2)**, over a signed callback channel, the Hibernation API and
+  implemented**, over a signed callback channel, the Hibernation API and
   a multiplexed Durable Object alarm respectively — see
-  `cloudflare/docs/mvp-spec.md` §The callback channel, §The WebSocket seam and
+  `cloudflare/docs/runtime-spec.md` §The callback channel, §The WebSocket seam and
   §Timers. `AtomsNotSupported` (`worker/php/runtime/`) now legitimately
   remains only on the permanently-unsupported corner of the PDO shim
   (`AtomsPDO.php`/`AtomsStatement.php` — see `worker/php/README.md`
-  §Documented leaks and limits); that restriction is not a stub awaiting a
-  later milestone, and as of M1 it is machine-verified rather than
-  hand-audited: a reflection tripwire (conformance check 26) asserts every
+  §Documented leaks and limits); that restriction is not a stub, and it is
+  machine-verified rather than hand-audited: a reflection tripwire (conformance check 26) asserts every
   public member of the runtime's `\PDO`/`\PDOStatement` is genuinely declared,
   and a differential harness (checks 27-28) measures the remaining corner
   against a native in-guest `pdo_sqlite`, publishing the result as
   `cloudflare/docs/pdo-compatibility.md` (check 30). Adding to the runtime
-  surface beyond what M2 landed is still a spec change first — do not "fix" a
-  gap by inventing a half-implementation.
+  surface is a spec change first — do not "fix" a gap by inventing a
+  half-implementation.
 - **No capacity numbers in code.** Every TTL, cap, deadline, limit and poll
   interval comes from an environment variable with a default, resolved in
   `worker/src/config.js` and nowhere else.

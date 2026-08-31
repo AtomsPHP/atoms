@@ -3,7 +3,7 @@
 /**
  * Named→positional parameter rewriting, done in PHP.
  *
- * The `sql.exec` wire op carries positional bindings only (mvp-spec.md
+ * The `sql.exec` wire op carries positional bindings only (runtime-spec.md
  * §Sync ops), so `:name` placeholders are resolved on this side of the door —
  * shared by {@see BridgeDatabase} (Atoms\Database) and {@see AtomsStatement}
  * (the \PDO surface) so both accept exactly the same SQL.

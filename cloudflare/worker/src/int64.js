@@ -130,7 +130,7 @@ export function encodeInteger(v) {
  *
  * Accepts what `ctx.storage.sql` can return (number, bigint, string, null,
  * ArrayBuffer) plus arrays and plain objects. Binary column values are not
- * supported by the MVP wire format and throw rather than being silently
+ * supported by the wire format and throw rather than being silently
  * mangled by `JSON.stringify`.
  *
  * @param {unknown} value
@@ -188,7 +188,7 @@ export function encodeInt64Deep(value, opts = {}) {
 	if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
 		throw new AtomsError(
 			'unsupported_value',
-			'binary (BLOB) values are not supported by the MVP PHP<->JS wire format'
+			'binary (BLOB) values are not supported by the PHP<->JS wire format'
 		);
 	}
 
@@ -257,7 +257,7 @@ export function decodeInt64Deep(value) {
  * `bigint` outright — so a `bigint` here always goes on to `inlineWideIntegers()`
  * to fold into the statement text, regardless of its magnitude.
  *
- * MEASURED (temp instrumentation, see the M1 gap-fill report): binding a
+ * MEASURED (temp instrumentation): binding a
  * plain JS `number` — including an integral one, e.g. `42` — to
  * `ctx.storage.sql`, `typeof(?)` on the bound param reports `'real'`, never
  * `'integer'`. Workerd's binder has no way to tell "this JS number is an
@@ -319,7 +319,7 @@ export function inlineWideIntegers(sql, bindings) {
 
 	const positions = findPlaceholders(sql);
 	if (positions.length !== bindings.length) {
-		// M1 review F-21 (NIT, fixed): this path is reached whenever the
+		// This path is reached whenever the
 		// BINDINGS ARRAY happens to contain at least one wide integer — not
 		// only when the wide integer itself is what's mismatched. A plain
 		// arity mistake (wrong number of bindings for unrelated reasons)

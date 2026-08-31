@@ -163,7 +163,7 @@ PHP;
          * World A: ships to the platform and runs on the Atoms runtime. Only
          * atoms/core, Shared DTOs, and approved packages are legal in here.
          */
-        final class {$name} extends Atom
+        class {$name} extends Atom
         {
         {$body}}
 
@@ -185,7 +185,7 @@ PHP;
          * World B: stays in the monolith with full framework access. The Atom
          * reaches these via \$this->app(); their signatures are the contract.
          */
-        final class Methods extends AtomMethods
+        class Methods extends AtomMethods
         {
         }
 

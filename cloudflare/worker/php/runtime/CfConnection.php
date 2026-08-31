@@ -1,7 +1,7 @@
 <?php
 
 /**
- * `Atoms\Websocket\Connection` for the Cloudflare MVP.
+ * `Atoms\Websocket\Connection` for the Cloudflare runtime.
  *
  * Holds a STRING AND NOTHING ELSE — no host object, no index into a host
  * array, no residency-scoped handle. That is the guest-side half of the

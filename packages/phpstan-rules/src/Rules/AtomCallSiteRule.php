@@ -20,8 +20,7 @@ use PHPStan\Rules\RuleError;
 use PHPStan\Rules\RuleErrorBuilder;
 
 /**
- * Seeds the call-site inventory from docs/integration-plan.md §7.4: a
- * monolith calling a method the deployed Atom manifest lacks gets
+ * A monolith calling a method the deployed Atom manifest lacks gets
  * ATOMS-E041 at runtime. This rule catches the *statically obvious* subset
  * at build/CI time — direct chains of the shape:
  *

@@ -5,9 +5,7 @@
 /**
  * PHP-in-workerd host shim.
  *
- * Ported from the pre-MVP Durable-Object spike's host (proven mechanism), with
- * the JSPI engine dropped: JSPI cannot express either door (see below), and the
- * MVP ships Asyncify only.
+ * Runs the Asyncify build only: JSPI cannot express either door (see below).
  *
  * php-wasm ships exactly one PHP->JS door: the PHP function
  * `post_message_to_js(string): string`, implemented by the wasm import
@@ -204,7 +202,7 @@ export function guestMemoryBytes(php) {
  * The payload is a single JSON line inside a nowdoc, so nothing in it can
  * terminate the heredoc or be interpolated. `require`, never concatenate: every
  * verbatim atoms/core file opens with `declare(strict_types=1)`, which must be
- * the first statement of its own file, as the spike established.
+ * the first statement of its own file.
  *
  * @param {unknown} payload
  * @param {string} bootstrapPath guest path of the runtime bootstrap script

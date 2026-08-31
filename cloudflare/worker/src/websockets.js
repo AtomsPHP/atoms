@@ -7,7 +7,7 @@
  * Nothing here parses or re-encodes a broadcast frame — it is a string built
  * entirely by the PHP guest (`CfAtomContext::broadcast()`) and fanned out
  * opaquely, which is what keeps a wide integer inside it exact
- * (mvp-spec.md's int64 rule).
+ * (runtime-spec.md's int64 rule).
  */
 import { base64ToBytes } from './config.js';
 import { AtomsError, normalizeError } from './errors.js';
@@ -280,7 +280,7 @@ export class WebSocketHost {
 	/**
 	 * `{"op":"ws.broadcast","channel":string,"frame":string}` — `frame` is the
 	 * COMPLETE wire text, built and `json_encode()`d entirely by the guest.
-	 * This never parses or re-encodes it (mvp-spec.md's int64 rule): it is a
+	 * This never parses or re-encodes it (runtime-spec.md's int64 rule): it is a
 	 * string in, the same string out, to every socket on the channel.
 	 *
 	 * @param {any} msg

@@ -18,7 +18,7 @@ application's `composer.json`:
 use Atoms\Atom;
 use Atoms\DatabaseIlluminate\EloquentBridge;
 
-final class GameRoom extends Atom
+class GameRoom extends Atom
 {
     public function record(string $player, int $score): array
     {

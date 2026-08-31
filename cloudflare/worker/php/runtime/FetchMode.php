@@ -1,7 +1,7 @@
 <?php
 
 /**
- * The subset of PDO fetch modes the MVP shim serves, and the row reshaping for
+ * The subset of PDO fetch modes this shim serves, and the row reshaping for
  * each. Anything outside the subset raises {@see AtomsNotSupported} rather than
  * quietly degrading to associative rows.
  *
@@ -24,7 +24,7 @@ final class FetchMode
      * Maps each mode that reads a result row by its ORIGINAL positional
      * arity — and so cannot be answered faithfully once the wire's
      * last-wins `{column: value}` collapse has folded duplicate column
-     * names (M1 design §2.7) — to its label for {@see refuseDuplicateColumns}'s
+     * names — to its label for {@see refuseDuplicateColumns}'s
      * message. ASSOC/OBJ are deliberately absent: they collapse identically
      * on both sides (a JS object and a PHP associative array both last-wins),
      * so they stay a genuine match, not a refusal.
@@ -93,7 +93,7 @@ final class FetchMode
      * set positionally). Refuses (rather than silently answering with the
      * wrong arity) whenever `$columns` — the SOURCE-ORDER column names with
      * duplicates preserved, from `cursor.columnNames` via SqlBridge (Branch
-     * A, design §2.7) — reports a duplicate, for:
+     * A) — reports a duplicate, for:
      *
      * - a mode listed in {@see NEEDS_TRUE_ARITY} (FETCH_NUM/FETCH_BOTH/
      *   FETCH_COLUMN), where collapse changes what the caller gets; and
