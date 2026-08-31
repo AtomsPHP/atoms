@@ -35,8 +35,12 @@ Three deliberate differences from a stock Laravel connection, all inherited
 from the runtime the Atom executes in:
 
 - **Nested `transaction()` calls reuse the outer transaction** instead of
-  creating savepoints — the same semantics as `db()->transaction()`. An inner
-  rollback rolls back the whole transaction.
+  creating savepoints — the same semantics as `db()->transaction()`. Roll an
+  inner transaction back by **throwing**; a hand-called `rollBack()` inside a
+  nested `transaction()` discards the *entire* write set and the enclosing
+  wrappers then fail loudly on the already-closed transaction.
+  `afterCommit()`/`afterRollBack()` hooks are unsupported (no transactions
+  manager is installed; they throw).
 - **Schema work is refused** (`ATOMS-E106`): Atoms migrations own DDL.
 - **`getServerVersion()` answers from configuration** (the runtime cannot ask
   the engine), overridable via the `server_version` connection config key.

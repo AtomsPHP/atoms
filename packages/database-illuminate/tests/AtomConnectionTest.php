@@ -120,6 +120,52 @@ final class AtomConnectionTest extends TestCase
         self::assertSame(0, $conn->table('t')->count());
     }
 
+    /**
+     * Without performRollBack()'s override, this sequence commits all three
+     * writes: the inner rollBack() is a counter decrement, the inner wrapper
+     * then sees level 1 and physically commits mid-outer-callback, and the
+     * outer throw has nothing left to roll back.
+     */
+    public function testAnExplicitRollBackInsideANestedTransactionDiscardsEverythingLoudly(): void
+    {
+        $conn = $this->connection();
+        $conn->statement('CREATE TABLE t (v TEXT)');
+
+        try {
+            $conn->transaction(function (AtomConnection $c): void {
+                $c->table('t')->insert(['v' => 'outer-before']);
+                $c->transaction(function (AtomConnection $inner): void {
+                    $inner->table('t')->insert(['v' => 'inner']);
+                    $inner->rollBack();
+                });
+                $c->table('t')->insert(['v' => 'outer-after']);
+                throw new \RuntimeException('force outer failure');
+            });
+            self::fail('the desynchronized wrapper commit must fail loudly');
+        } catch (\PDOException $e) {
+            // The inner wrapper's commit finds the transaction already rolled
+            // back — loud, and before 'outer-after' ever runs.
+        }
+
+        self::assertSame(0, $conn->transactionLevel());
+        self::assertFalse($conn->getPdo()->inTransaction());
+        self::assertSame(0, $conn->table('t')->count(), 'no "rolled back" write may survive');
+    }
+
+    public function testAnExplicitRollBackAtLevelOneStillBehavesNormally(): void
+    {
+        $conn = $this->connection();
+        $conn->statement('CREATE TABLE t (v TEXT)');
+
+        $conn->beginTransaction();
+        $conn->table('t')->insert(['v' => 'doomed']);
+        $conn->rollBack();
+
+        self::assertSame(0, $conn->transactionLevel());
+        self::assertFalse($conn->getPdo()->inTransaction());
+        self::assertSame(0, $conn->table('t')->count());
+    }
+
     public function testTheGrammarReportsNoSavepointSupport(): void
     {
         self::assertFalse($this->connection()->getQueryGrammar()->supportsSavepoints());

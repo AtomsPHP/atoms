@@ -336,6 +336,89 @@ final class BundleBridgeTest extends TestCase
     }
 
     /**
+     * vendor.autoload controls what the guest requires and which subtree the
+     * bundle autoloader ignores, so the translator must refuse anything but
+     * a plain vendor/….php path. Unvalidated, `atoms-composer.json` was
+     * accepted — bootstrap then dropped the whole app from its autoloader
+     * and required a JSON file.
+     */
+    public function testTranslatorRefusesAVendorAutoloadOutsideTheVendorTree(): void
+    {
+        $repo = \dirname(__DIR__, 2);
+        $node = (new \Symfony\Component\Process\ExecutableFinder())->find('node');
+        if ($node === null) {
+            self::markTestSkipped('node is not on PATH.');
+        }
+
+        $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
+        $built = $this->buildSampleApp($repo, $outDir);
+
+        foreach (['atoms-composer.json', 'vendor/../app/Atoms/GameRoom.php', '/app/vendor/x.php', 'vendor/'] as $bad) {
+            /** @var array<string, mixed> $manifest */
+            $manifest = json_decode((string) file_get_contents($built->manifestPath), true, 512, JSON_THROW_ON_ERROR);
+            $manifest['vendor'] = ['autoload' => $bad, 'packages' => []];
+            $badPath = $outDir . '/manifest-bad.json';
+            file_put_contents($badPath, json_encode($manifest, JSON_THROW_ON_ERROR));
+
+            $process = new \Symfony\Component\Process\Process(
+                [$node, $repo . '/cloudflare/worker/scripts/bundle-from-cli.mjs', $built->bundlePath, $badPath, $outDir . '/bad.generated.js'],
+                $repo . '/cloudflare/worker',
+            );
+            $process->run();
+
+            self::assertNotSame(0, $process->getExitCode(), 'must refuse vendor.autoload ' . var_export($bad, true));
+            self::assertStringContainsString('vendor.autoload', $process->getErrorOutput());
+        }
+
+        self::rmrf($outDir);
+    }
+
+    /**
+     * Decoding bundle entries into JS strings must be lossless: a non-UTF-8
+     * PHP file passes content-hash verification (the hash is over raw bytes)
+     * and would otherwise deploy with replacement characters — code that
+     * differs from the artifact its content_hash names.
+     */
+    public function testTranslatorRefusesANonUtf8BundleEntry(): void
+    {
+        $repo = \dirname(__DIR__, 2);
+        $node = (new \Symfony\Component\Process\ExecutableFinder())->find('node');
+        if ($node === null) {
+            self::markTestSkipped('node is not on PATH.');
+        }
+
+        $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
+        mkdir($outDir, 0777, true);
+
+        // A perfectly valid, correctly hashed archive whose one entry holds a
+        // raw 0xFF byte — the hash gate must pass and the UTF-8 gate must trip.
+        $tar = \Atoms\Cli\Build\TarWriter::build([
+            ['name' => 'app/Latin1.php', 'contents' => "<?php // caf\xE9\n"],
+        ]);
+        $bundlePath = $outDir . '/bundle.tar.gz';
+        file_put_contents($bundlePath, gzencode($tar, 9));
+        $manifestPath = $outDir . '/manifest.json';
+        file_put_contents($manifestPath, json_encode([
+            'schema' => 1,
+            'project' => 'utf8-refusal-test',
+            'atoms' => [],
+            'toolchain' => ['core_version' => \Atoms\Cli\Release\RuntimeVersion::CORE_VERSION],
+            'content_hash' => hash('sha256', $tar),
+        ], JSON_THROW_ON_ERROR));
+
+        $process = new \Symfony\Component\Process\Process(
+            [$node, $repo . '/cloudflare/worker/scripts/bundle-from-cli.mjs', $bundlePath, $manifestPath, $outDir . '/bad.generated.js'],
+            $repo . '/cloudflare/worker',
+        );
+        $process->run();
+
+        self::assertNotSame(0, $process->getExitCode(), 'a non-UTF-8 entry must refuse, not mangle');
+        self::assertStringContainsString('not valid UTF-8', $process->getErrorOutput());
+
+        self::rmrf($outDir);
+    }
+
+    /**
      * sample-app declares a dependency, so --fast now refuses (ATOMS-E107)
      * and a real build runs the vendor stage: composer is the CannedComposer
      * fake, and the build runs against a throwaway copy of the fixture

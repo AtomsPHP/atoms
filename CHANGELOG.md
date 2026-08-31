@@ -27,6 +27,26 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   also names any pruned data-looking files (`.json`, `.txt`, `.csv`, …) in
   the build output, since the bundle ships vendor `.php` and LICENSE files
   only.
+- **Fixed (pre-release):** an explicit `rollBack()` inside a nested bridge
+  `transaction()` silently committed every "rolled back" write; it now rolls
+  back the whole transaction and the enclosing wrappers fail loudly.
+- **Fixed (pre-release):** path repositories in `atoms-composer.json` shipped
+  empty vendor trees (relative urls resolved against the wrong directory;
+  symlinked installs were invisible to the tree walk). Urls are now rebased
+  to the project root and installed as copies.
+- **Fixed (pre-release):** `vendor/composer/InstalledVersions.php` and
+  `installed.php` now ship — real classmaps reference them.
+- **Fixed (pre-release):** the vendor cache now verifies an integrity digest
+  and writes atomically; an altered or half-written cache re-resolves through
+  composer instead of shipping. A failed `atoms-composer.lock` write-back
+  refuses instead of claiming reproducibility.
+- **Fixed (pre-release):** non-UTF-8 bundle entries are refused at build and
+  at translation — decoding them would deploy code that differs from what the
+  content hash names. `vendor.autoload` must be a plain `vendor/….php` path,
+  checked by the translator and again by the guest.
+- **Fixed (pre-release):** rebooting a cached bridge connection now repoints
+  Eloquent's global resolver. The composer timeout reads
+  `ATOMS_COMPOSER_TIMEOUT` (default 600s).
 - **Added:** The Worker honours the manifest's `vendor.autoload` key: the
   vendor subtree is excluded from the line-scanning bundle autoloader and the
   declared classmap loader is required at activation (conformance check 45;

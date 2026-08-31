@@ -21,7 +21,12 @@ use Illuminate\Database\Eloquent\Model;
  *
  * Eloquent's resolver is process-global: booting bridges for two different
  * Database instances alternately (only possible in tests — a deployed guest
- * hosts one Atom) repoints Model queries at whichever booted last.
+ * hosts one Atom) repoints Model queries at whichever `boot()` ran last,
+ * cached or not.
+ *
+ * No transactions manager is installed: `afterCommit()` / `afterRollBack()`
+ * hooks throw Illuminate's own "Transactions Manager has not been set" —
+ * deliberately unsupported alongside savepoints and the schema builder.
  */
 final class EloquentBridge
 {
@@ -42,16 +47,15 @@ final class EloquentBridge
     {
         $key = spl_object_id($db);
 
-        if (isset(self::$connections[$key])) {
-            return self::$connections[$key];
-        }
-
-        $connection = new AtomConnection($db->pdo(), self::CONNECTION_NAME, '', $config + [
+        $connection = self::$connections[$key] ?? new AtomConnection($db->pdo(), self::CONNECTION_NAME, '', $config + [
             'driver' => 'sqlite',
             'name' => self::CONNECTION_NAME,
             'database' => self::CONNECTION_NAME,
         ]);
 
+        // Registered on every boot, cached or not: the resolver is
+        // process-global, and a cached connection returned without it would
+        // leave Model queries pointed at whichever database booted last.
         $resolver = new ConnectionResolver([self::CONNECTION_NAME => $connection]);
         $resolver->setDefaultConnection(self::CONNECTION_NAME);
         Model::setConnectionResolver($resolver);

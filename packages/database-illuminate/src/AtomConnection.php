@@ -56,6 +56,28 @@ class AtomConnection extends SQLiteConnection
         $this->getPdo()->beginTransaction();
     }
 
+    /**
+     * There are no savepoints here, so rolling back "to a level" rolls back
+     * the whole physical transaction. The parent's version is a pure counter
+     * decrement for $toLevel > 0, which desynchronizes the counter from the
+     * PDO: an explicit rollBack() inside a nested transaction() would let
+     * the inner wrapper commit every "rolled back" write.
+     *
+     * The inTransaction() guard keeps exception unwinding intact — outer
+     * levels find the transaction already closed and roll back as a no-op.
+     * An explicit inner rollBack() discards the whole write set, and the
+     * enclosing wrapper's commit then fails loudly on the closed
+     * transaction. Prefer throwing over calling rollBack() by hand.
+     */
+    protected function performRollBack($toLevel)
+    {
+        $pdo = $this->getPdo();
+
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+    }
+
     public function getSchemaBuilder(): never
     {
         throw self::schemaRefused(__FUNCTION__);

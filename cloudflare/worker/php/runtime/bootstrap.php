@@ -917,13 +917,27 @@ function activate(array $cfg)
     $vendorAutoload = null;
     if (isset($cfg['manifest']['vendor']['autoload']) && is_string($cfg['manifest']['vendor']['autoload'])) {
         $vendorAutoload = $cfg['manifest']['vendor']['autoload'];
+        // The value controls what gets required and which subtree the bundle
+        // autoloader ignores, so refuse a malformed one: it must be a .php
+        // file, with no traversal, whose directory does not contain the
+        // Atom's own source. The translator enforces the stricter
+        // vendor/-only shape; this is the guest's own check.
+        $vendorRoot = rtrim(dirname($vendorAutoload), '/') . '/';
+        if (substr($vendorAutoload, -4) !== '.php'
+            || strpos($vendorAutoload, '..') !== false
+            || strncmp($entry['file'], $vendorRoot, strlen($vendorRoot)) === 0
+        ) {
+            throw new BootstrapError(
+                'internal',
+                sprintf('The manifest declares vendor autoload %s, which is not an acceptable vendor autoload path.', $vendorAutoload)
+            );
+        }
         if (!is_file($vendorAutoload)) {
             throw new BootstrapError(
                 'internal',
                 sprintf('The manifest declares vendor autoload %s, which is missing from the guest filesystem.', $vendorAutoload)
             );
         }
-        $vendorRoot = rtrim(dirname($vendorAutoload), '/') . '/';
         $bundleFiles = array_values(array_filter(
             $bundleFiles,
             static function ($path) use ($vendorRoot) {

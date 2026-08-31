@@ -61,12 +61,8 @@ final class BuildCommand extends AbstractCommand
         $output->writeln('  vendor:        ' . $vendorLine);
         if ($result->vendor !== null && $result->vendor->prunedDataFiles !== []) {
             $output->writeln('  <comment>note: the bundle ships vendor .php and LICENSE files only; these data-looking files were pruned and will not exist in the guest:</comment>');
-            foreach (\array_slice($result->vendor->prunedDataFiles, 0, 10) as $pruned) {
+            foreach ($result->vendor->prunedDataFiles as $pruned) {
                 $output->writeln('    - ' . $pruned);
-            }
-            $remaining = \count($result->vendor->prunedDataFiles) - 10;
-            if ($remaining > 0) {
-                $output->writeln(sprintf('    … and %d more', $remaining));
             }
         }
         $output->writeln('  atom types:    ' . $atoms);

@@ -1385,7 +1385,15 @@ file — a classmap plus Composer-style eager function-file requires, with
 that file's directory from the line-scanning bundle autoloader (the classmap
 is exact; scanning a vendor tree at every activation would be pure boot
 cost), registers the bundle autoloader, then `require`s the declared file; a
-declared-but-missing file is an `internal` `BootstrapError`. A manifest
+declared-but-missing file is an `internal` `BootstrapError`. The value is
+**constrained before it is trusted** — it names a file the guest executes and
+a subtree it stops autoloading, so the translator refuses anything but a
+normalized, relative `vendor/….php` path, and the guest independently
+refuses a non-`.php` value, a traversal, or a directory that would swallow
+the Atom's own source. Relatedly, the translator refuses any bundle entry
+whose bytes are not valid UTF-8: the deploy module carries contents as
+strings, and a lossy decode would deploy code that differs from the
+content-addressed archive while keeping its `content_hash`. A manifest
 without the key changes nothing: `bundle_format` stays `0`. Conformance
 check 45 is the gate.
 

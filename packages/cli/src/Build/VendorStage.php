@@ -58,10 +58,20 @@ final class VendorStage
     private const DATA_EXTENSIONS = ['json', 'txt', 'csv', 'tsv', 'xml', 'yml', 'yaml', 'ini', 'dat'];
 
     /**
-     * Composer resolution may hit the network; generous by design, like the
-     * stager's own subprocess budget.
+     * Default subprocess budget for `composer install`, which may hit the
+     * network; override with the ATOMS_COMPOSER_TIMEOUT environment variable
+     * (seconds).
      */
-    private const COMPOSER_TIMEOUT_SECONDS = 600.0;
+    private const DEFAULT_COMPOSER_TIMEOUT_SECONDS = 600.0;
+
+    /**
+     * The two Composer runtime files a dependency may genuinely load at
+     * runtime (`Composer\InstalledVersions` is in every optimized classmap
+     * and reads installed.php beside itself). Everything else under
+     * vendor/composer/ is install-time machinery the generated autoloader
+     * replaces.
+     */
+    private const COMPOSER_RUNTIME_KEEP = ['composer/InstalledVersions.php', 'composer/installed.php'];
 
     public function __construct(private readonly ProcessRunner $runner)
     {
@@ -96,16 +106,16 @@ final class VendorStage
         }
 
         try {
-            file_put_contents($work . '/composer.json', $jsonBytes);
+            $this->writeOrFail($work . '/composer.json', self::stagedComposerJson($rootDir, $jsonBytes));
             if ($lockBytes !== null) {
-                file_put_contents($work . '/composer.lock', $lockBytes);
+                $this->writeOrFail($work . '/composer.lock', $lockBytes);
             }
 
             $install = $this->runner->run(
                 self::composerCommand(),
                 $work,
                 ['COMPOSER_ALLOW_SUPERUSER' => '1'],
-                self::COMPOSER_TIMEOUT_SECONDS,
+                self::composerTimeout(),
             );
             if (!$install->ok()) {
                 throw self::failure("`composer install` exited with status {$install->exitCode}: " . trim($install->stderr));
@@ -114,7 +124,7 @@ final class VendorStage
             $wroteLock = false;
             if ($lockBytes === null && is_file($work . '/composer.lock')) {
                 $lockBytes = $this->readOrFail($work . '/composer.lock');
-                file_put_contents($lockPath, $lockBytes);
+                $this->writeOrFail($lockPath, $lockBytes);
                 $wroteLock = true;
             }
 
@@ -133,6 +143,48 @@ final class VendorStage
         } finally {
             self::rmrf($work);
         }
+    }
+
+    /**
+     * The composer.json staged into the work directory. Path repositories
+     * need two rewrites to survive the move: a relative `url` is resolved
+     * against the project root (composer runs in a temp dir), and
+     * `options.symlink: false` is forced — a symlinked package install is
+     * invisible to the tree walk, so nothing would ship.
+     */
+    public static function stagedComposerJson(string $rootDir, string $jsonBytes): string
+    {
+        try {
+            $decoded = json_decode($jsonBytes, true, 16, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return $jsonBytes; // AtomsComposerJson already validated/refused upstream
+        }
+        if (!\is_array($decoded) || !\is_array($decoded['repositories'] ?? null)) {
+            return $jsonBytes;
+        }
+
+        foreach ($decoded['repositories'] as $i => $repo) {
+            if (!\is_array($repo) || ($repo['type'] ?? null) !== 'path' || !\is_string($repo['url'] ?? null)) {
+                continue;
+            }
+            $url = $repo['url'];
+            if (!str_starts_with($url, '/')) {
+                $url = $rootDir . '/' . $url;
+            }
+            $decoded['repositories'][$i]['url'] = $url;
+            $options = \is_array($repo['options'] ?? null) ? $repo['options'] : [];
+            $options['symlink'] = false;
+            $decoded['repositories'][$i]['options'] = $options;
+        }
+
+        return json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+    }
+
+    private static function composerTimeout(): float
+    {
+        $env = getenv('ATOMS_COMPOSER_TIMEOUT');
+
+        return \is_string($env) && is_numeric($env) ? (float) $env : self::DEFAULT_COMPOSER_TIMEOUT_SECONDS;
     }
 
     /**
@@ -175,8 +227,14 @@ final class VendorStage
             }
             $relative = substr($item->getPathname(), \strlen($vendorDir) + 1);
             // Composer's own runtime (vendor/composer/*, vendor/autoload.php,
-            // vendor/bin) is replaced by the generated autoload file below.
-            if (str_starts_with($relative, 'composer/') || str_starts_with($relative, 'bin/') || $relative === 'autoload.php') {
+            // vendor/bin) is replaced by the generated autoload file below —
+            // except InstalledVersions.php + installed.php, which real
+            // optimized classmaps reference and dependencies genuinely load.
+            if (str_starts_with($relative, 'composer/')) {
+                if (!\in_array($relative, self::COMPOSER_RUNTIME_KEEP, true)) {
+                    continue;
+                }
+            } elseif (str_starts_with($relative, 'bin/') || $relative === 'autoload.php') {
                 continue;
             }
             $base = basename($relative);
@@ -189,9 +247,15 @@ final class VendorStage
                 }
                 continue;
             }
+            $contents = $this->readOrFail($item->getPathname());
+            // The deploy translator decodes every entry as UTF-8, so refuse
+            // here rather than let it mangle the bytes later.
+            if (!mb_check_encoding($contents, 'UTF-8')) {
+                throw self::failure("vendor/{$relative} is not valid UTF-8; every bundle entry must be, because the deploy translator decodes entries as UTF-8");
+            }
             $entries[] = [
                 'name' => 'vendor/' . $relative,
-                'contents' => $this->readOrFail($item->getPathname()),
+                'contents' => $contents,
             ];
         }
 
@@ -314,6 +378,24 @@ final class VendorStage
         return $rootDir . '/.atoms/vendor-cache/' . $key;
     }
 
+    /**
+     * Digest over the cached entries, recorded in meta.json and recomputed on
+     * read. A mismatch (corruption, edits, a half-written cache) is a cache
+     * miss: composer runs again. The cache is only as trustworthy as the repo
+     * it lives in — meta.json itself is editable.
+     *
+     * @param list<array{name: string, contents: string}> $entries sorted
+     */
+    private static function entriesDigest(array $entries): string
+    {
+        $ctx = hash_init('sha256');
+        foreach ($entries as $entry) {
+            hash_update($ctx, $entry['name'] . "\0" . $entry['contents'] . "\0");
+        }
+
+        return hash_final($ctx);
+    }
+
     private function readCache(string $rootDir, string $key): ?VendorTree
     {
         $dir = $this->cacheDir($rootDir, $key);
@@ -327,7 +409,7 @@ final class VendorStage
         } catch (\JsonException) {
             return null; // a corrupt cache is a miss, not a failure
         }
-        if (!\is_array($meta) || !\is_array($meta['packages'] ?? null)) {
+        if (!\is_array($meta) || !\is_array($meta['packages'] ?? null) || !\is_string($meta['entries_hash'] ?? null)) {
             return null;
         }
 
@@ -351,6 +433,10 @@ final class VendorStage
         }
         usort($entries, static fn (array $a, array $b): int => strcmp($a['name'], $b['name']));
 
+        if (!hash_equals($meta['entries_hash'], self::entriesDigest($entries))) {
+            return null; // altered or incomplete cache: treat as a miss
+        }
+
         /** @var array<string, string> $packages */
         $packages = $meta['packages'];
         /** @var list<string> $prunedDataFiles */
@@ -364,25 +450,59 @@ final class VendorStage
     private function writeCache(string $rootDir, string $key, VendorTree $tree): void
     {
         $parent = $rootDir . '/.atoms/vendor-cache';
-        // One resolution is current at a time; siblings are stale keys.
-        if (is_dir($parent)) {
-            foreach (glob($parent . '/*', GLOB_NOSORT) ?: [] as $stale) {
-                self::rmrf($stale);
+
+        // Assemble in a dot-prefixed staging dir, then rename() into place.
+        // rename() is atomic, so readers never see a half-written cache; the
+        // sibling prune below uses glob(), which skips dotfiles, so a racing
+        // build cannot delete a stage mid-assembly.
+        $stage = $parent . '/.tmp-' . bin2hex(random_bytes(6));
+        foreach ($tree->entries as $entry) {
+            $path = $stage . '/files/' . $entry['name'];
+            if (!is_dir(\dirname($path)) && !@mkdir(\dirname($path), 0777, true) && !is_dir(\dirname($path))) {
+                self::rmrf($stage);
+
+                return; // cache is best-effort; the build already has its tree
             }
+            if (@file_put_contents($path, $entry['contents']) === false) {
+                self::rmrf($stage);
+
+                return;
+            }
+        }
+        if (@file_put_contents($stage . '/meta.json', json_encode(
+            [
+                'packages' => $tree->packages,
+                'pruned_data_files' => $tree->prunedDataFiles,
+                'entries_hash' => self::entriesDigest($tree->entries),
+            ],
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+        ) . "\n") === false) {
+            self::rmrf($stage);
+
+            return;
         }
 
         $dir = $this->cacheDir($rootDir, $key);
-        foreach ($tree->entries as $entry) {
-            $path = $dir . '/files/' . $entry['name'];
-            if (!is_dir(\dirname($path)) && !@mkdir(\dirname($path), 0777, true) && !is_dir(\dirname($path))) {
-                return; // cache is best-effort; the build already has its tree
-            }
-            file_put_contents($path, $entry['contents']);
+        self::rmrf($dir);
+        if (!@rename($stage, $dir)) {
+            self::rmrf($stage); // a concurrent build won the rename; theirs is as good as ours
+
+            return;
         }
-        file_put_contents($dir . '/meta.json', json_encode(
-            ['packages' => $tree->packages, 'pruned_data_files' => $tree->prunedDataFiles],
-            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
-        ) . "\n");
+
+        // One resolution is current at a time; non-dot siblings are stale keys.
+        foreach (glob($parent . '/*', GLOB_NOSORT) ?: [] as $sibling) {
+            if ($sibling !== $dir) {
+                self::rmrf($sibling);
+            }
+        }
+    }
+
+    private function writeOrFail(string $path, string $bytes): void
+    {
+        if (@file_put_contents($path, $bytes) === false) {
+            throw self::failure("could not write {$path}");
+        }
     }
 
     private function readOrFail(string $path): string

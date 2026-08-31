@@ -61,6 +61,26 @@ final class EloquentBridgeTest extends TestCase
         );
     }
 
+    public function testRebootingACachedDatabaseRepointsTheGlobalResolver(): void
+    {
+        $a = SqliteDatabase::open(':memory:');
+        $a->execute('CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, body TEXT)');
+        $b = SqliteDatabase::open(':memory:');
+        $b->execute('CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, body TEXT)');
+
+        EloquentBridge::boot($a);
+        Note::create(['title' => 'in-a']);
+        EloquentBridge::boot($b);
+        Note::create(['title' => 'in-b']);
+
+        // This boot returns A's cached connection and must also repoint
+        // the process-global resolver back at A.
+        $again = EloquentBridge::boot($a);
+
+        self::assertSame($a->pdo(), $again->getPdo());
+        self::assertSame(['in-a'], Note::query()->pluck('title')->all());
+    }
+
     public function testResetForgetsTheBootedConnection(): void
     {
         $db = SqliteDatabase::open(':memory:');

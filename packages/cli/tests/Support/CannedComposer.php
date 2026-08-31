@@ -42,9 +42,16 @@ final class CannedComposer
             );
             file_put_contents($v . '/acme/lib/LICENSE', "MIT\n");
             file_put_contents($v . '/acme/lib/readme.md', "not shipped\n");
+            // Real optimized classmaps include Composer\InstalledVersions,
+            // which points into vendor/composer/; the canned map mirrors that.
+            file_put_contents(
+                $v . '/composer/InstalledVersions.php',
+                "<?php\n\nnamespace Composer;\n\nfinal class InstalledVersions\n{\n}\n",
+            );
+            file_put_contents($v . '/composer/installed.php', "<?php\n\nreturn [];\n");
             file_put_contents(
                 $v . '/composer/autoload_classmap.php',
-                "<?php\n\n\$vendorDir = dirname(__DIR__);\n\$baseDir = dirname(\$vendorDir);\n\nreturn [\n    'Acme\\\\Lib\\\\Greeter' => \$vendorDir . '/acme/lib/src/Greeter.php',\n];\n",
+                "<?php\n\n\$vendorDir = dirname(__DIR__);\n\$baseDir = dirname(\$vendorDir);\n\nreturn [\n    'Acme\\\\Lib\\\\Greeter' => \$vendorDir . '/acme/lib/src/Greeter.php',\n    'Composer\\\\InstalledVersions' => \$vendorDir . '/composer/InstalledVersions.php',\n];\n",
             );
             file_put_contents(
                 $v . '/composer/autoload_files.php',
