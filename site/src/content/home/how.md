@@ -13,4 +13,4 @@ stations:
 note: >-
   Work locally using `atoms dev`, which runs your Atoms on Cloudflare's open-source workerd runtime.
 ---
-Write your Atoms alongisde the rest of your PHP app - but deploy them to Durable Objects.
+Write your Atoms alongside the rest of your PHP app - but deploy them to Durable Objects.
