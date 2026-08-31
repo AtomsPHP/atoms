@@ -114,8 +114,8 @@ abstract class Atom
     public function onDisconnect(Websocket\Connection $conn): void {}
 }
 
-abstract class AtomMethods {}   // World B base: callback methods, full framework access
-abstract class AtomJob {}       // World B base: constructor args are the contract;
+abstract class AtomMethods {}   // App-side base: callback methods, full framework access
+abstract class AtomJob {}       // App-side base: constructor args are the contract;
                                 // params MUST be promoted public properties with
                                 // serialization-algebra types. The class does NOT
                                 // ship, so Atom code dispatches it BY NAME:

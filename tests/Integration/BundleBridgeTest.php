@@ -91,7 +91,7 @@ final class BundleBridgeTest extends TestCase
         // Provenance: a deployed Worker can be traced back to its bundle.
         self::assertStringContainsString('"content_hash": "' . $built->contentHash . '"', $module);
 
-        // World B never ships: Methods classes run in the monolith.
+        // App-side code never ships: Methods classes run in the monolith.
         self::assertStringNotContainsString('/app/app/Atoms/GameRoom/Methods.php', $module);
 
         self::rmrf($outDir);

@@ -129,7 +129,7 @@ final class PlainPhpExampleFidelityTest extends TestCase
      * Boots the example's REAL {@see GameRoom} Atom — a real
      * temp-file SQLite database, real lifecycle hooks — via
      * {@see AtomHarness} and invokes its real `greet()` method, which
-     * reaches into World B through `$this->app()`. `AtomHarness` resolves
+     * reaches into the App side through `$this->app()`. `AtomHarness` resolves
      * that call to `GameRoom\Methods::displayName()` by the same
      * `<AtomClass>\Methods` convention it uses everywhere (no
      * `withMethods()` override here — this deliberately exercises the same

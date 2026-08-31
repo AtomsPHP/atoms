@@ -7,8 +7,8 @@ namespace Atoms\PHPStan\Rules;
 use Atoms\AtomJob;
 use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
-use Atoms\PHPStan\World;
-use Atoms\PHPStan\WorldClassifier;
+use Atoms\PHPStan\Side;
+use Atoms\PHPStan\SideClassifier;
 use PhpParser\Node;
 use PhpParser\Node\Arg;
 use PhpParser\Node\Expr\MethodCall;
@@ -23,7 +23,7 @@ use PHPStan\Rules\RuleError;
 use PHPStan\Rules\RuleErrorBuilder;
 
 /**
- * Flags `$this->dispatch(new SomeJob(...))` inside WORLD_A code (ATOMS-E104) —
+ * Flags `$this->dispatch(new SomeJob(...))` inside ATOM_SIDE code (ATOMS-E104) —
  * the editor-time twin of the build's own check. PHPStan already reports the
  * argument type, but only this names the fix.
  *
@@ -36,7 +36,7 @@ use PHPStan\Rules\RuleErrorBuilder;
 final class AtomJobConstructionRule implements Rule
 {
     public function __construct(
-        private readonly WorldClassifier $classifier,
+        private readonly SideClassifier $classifier,
         private readonly ReflectionProvider $reflectionProvider,
     ) {
     }
@@ -60,7 +60,7 @@ final class AtomJobConstructionRule implements Rule
         }
 
         $classReflection = $scope->getClassReflection();
-        if ($classReflection === null || $this->classifier->classify($classReflection, $scope) !== World::WorldA) {
+        if ($classReflection === null || $this->classifier->classify($classReflection, $scope) !== Side::AtomSide) {
             return [];
         }
 

@@ -8,7 +8,7 @@ use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 use Atoms\PHPStan\AtomsRulesConfig;
 use Atoms\PHPStan\Rules\AtomJobConstructionRule;
-use Atoms\PHPStan\WorldClassifier;
+use Atoms\PHPStan\SideClassifier;
 use PHPStan\Rules\Rule;
 use PHPStan\Testing\RuleTestCase;
 
@@ -24,7 +24,7 @@ final class AtomJobConstructionRuleTest extends RuleTestCase
             sharedPaths: ['tests/Fixtures/Shared'],
         );
 
-        return new AtomJobConstructionRule(new WorldClassifier($config), self::createReflectionProvider());
+        return new AtomJobConstructionRule(new SideClassifier($config), self::createReflectionProvider());
     }
 
     public function testFlagsOnlyTheConstructedDispatch(): void
@@ -40,7 +40,7 @@ final class AtomJobConstructionRuleTest extends RuleTestCase
         ]);
     }
 
-    public function testWorldBMayConstructJobsFreely(): void
+    public function testAppSideMayConstructJobsFreely(): void
     {
         $this->analyse([__DIR__ . '/../Fixtures/Dispatch/Methods.php'], []);
     }

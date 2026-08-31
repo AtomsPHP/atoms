@@ -6,7 +6,7 @@ route calls it through the normal Laravel facade.
 
 The application is deliberately ordinary Laravel. Atom source lives under
 `app/Atoms`, the adapter registers the signed callback route, and the Atoms CLI
-builds and deploys only World A code.
+builds and deploys only Atom-side code.
 
 ## Install
 

@@ -6,8 +6,8 @@ namespace Atoms\PHPStan\Rules;
 
 use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
-use Atoms\PHPStan\World;
-use Atoms\PHPStan\WorldClassifier;
+use Atoms\PHPStan\Side;
+use Atoms\PHPStan\SideClassifier;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Expr\ConstFetch;
@@ -26,7 +26,7 @@ use PHPStan\Rules\RuleError;
 use PHPStan\Rules\RuleErrorBuilder;
 
 /**
- * Flags loops inside WORLD_A code that wait for wall-clock time to pass
+ * Flags loops inside ATOM_SIDE code that wait for wall-clock time to pass
  * (ATOMS-E102).
  *
  * On deployed workerd the guest clock does not advance within a turn: a
@@ -62,7 +62,7 @@ use PHPStan\Rules\RuleErrorBuilder;
  * than compared by rendered name, for the same reason as
  * {@see AtomSleepCallRule}: PHP resolves an unqualified call to a
  * namespace-local function of the same name before falling back to the
- * global built-in, so a WORLD_A namespace that shadows time() and calls it
+ * global built-in, so an ATOM_SIDE namespace that shadows time() and calls it
  * unqualified must not be flagged. `new DateTime`/`new DateTimeImmutable`
  * needs no equivalent resolution step: unlike function calls, PHP resolves
  * an unqualified class name entirely at compile time — to the current
@@ -83,7 +83,7 @@ final class AtomTimeWaitLoopRule implements Rule
     private const CLOCK_CLASSES = ['datetime', 'datetimeimmutable'];
 
     public function __construct(
-        private readonly WorldClassifier $classifier,
+        private readonly SideClassifier $classifier,
         private readonly ReflectionProvider $reflectionProvider,
     ) {
     }
@@ -100,9 +100,9 @@ final class AtomTimeWaitLoopRule implements Rule
     public function processNode(Node $node, Scope $scope): array
     {
         $classReflection = $node->getClassReflection();
-        $world = $this->classifier->classify($classReflection, $scope);
+        $side = $this->classifier->classify($classReflection, $scope);
 
-        if ($world !== World::WorldA) {
+        if ($side !== Side::AtomSide) {
             return [];
         }
 

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Atoms;
 
 /**
- * World B base class for dispatched jobs. An Atom dispatches a job with
+ * App-side base class for dispatched jobs. An Atom dispatches a job with
  * {@see Atom::dispatch()}; the job's `handle()` runs in the monolith.
  *
  * The constructor parameters ARE the dispatch contract: they must be declared as

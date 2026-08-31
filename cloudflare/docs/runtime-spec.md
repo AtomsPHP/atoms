@@ -1030,7 +1030,7 @@ awaited event: the DO is never evicted mid-event, only between them.
   returns `json_decode($responseBody, true)['result']` — see the
   result-hydration gap in §The callback channel.
 - **`dispatch(string $job, array $args)`.** The form Atom code uses, and the
-  only one it can: an AtomJob's source is World B and never appears in a
+  only one it can: an AtomJob's source is App-side and never appears in a
   bundle, so the guest cannot construct one. `SomeJob::class` is resolved by the
   compiler, so naming the class neither loads it nor requires it to ship; the
   arguments arrive already keyed by constructor parameter name and are each

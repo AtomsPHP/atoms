@@ -8,7 +8,7 @@ use Atoms\AtomMethods;
 use Atoms\Testing\Tests\Fixtures\Score;
 
 /**
- * World B fixture. Named `Methods` at namespace `...Fixtures\ChatRoom` so the
+ * App-side fixture. Named `Methods` at namespace `...Fixtures\ChatRoom` so the
  * harness's default convention (`{AtomFQCN}\Methods`) resolves it for
  * `Atoms\Testing\Tests\Fixtures\ChatRoom` with no explicit withMethods() call.
  */

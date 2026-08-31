@@ -8,7 +8,7 @@ use Atoms\Serialization\Serializer;
 use Atoms\Testing\Internal\Boundary;
 
 /**
- * The harness's `app()` proxy: reverse-RPC into a real Methods (World B)
+ * The harness's `app()` proxy: reverse-RPC into a real Methods (App-side)
  * instance, in-process. Every call round-trips its arguments and return value
  * through {@see Serializer} exactly as the production callback path would, so
  * a Methods method that isn't boundary-safe fails the test the same way it

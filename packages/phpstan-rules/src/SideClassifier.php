@@ -13,32 +13,32 @@ use PHPStan\Analyser\Scope;
 use PHPStan\Reflection\ClassReflection;
 
 /**
- * Classifies a class into one of the four World buckets (see {@see World}),
+ * Classifies a class into one of the four Side buckets (see {@see Side}),
  * implementing the two-worlds rule of thumb (docs/two-worlds.md):
  * "If it extends Atom, it leaves. If it extends AtomMethods or AtomJob, it
  * stays. If it's in Shared/, it does both — so it must be pure data."
  */
-final class WorldClassifier
+final class SideClassifier
 {
     public function __construct(private readonly AtomsRulesConfig $config)
     {
     }
 
-    public function classify(ClassReflection $class, Scope $scope): World
+    public function classify(ClassReflection $class, Scope $scope): Side
     {
         if ($class->isSubclassOf(Atom::class)) {
-            return World::WorldA;
+            return Side::AtomSide;
         }
 
         if ($this->isShared($class, $scope)) {
-            return World::Shared;
+            return Side::Shared;
         }
 
         if ($class->isSubclassOf(AtomMethods::class) || $class->isSubclassOf(AtomJob::class)) {
-            return World::WorldB;
+            return Side::AppSide;
         }
 
-        return World::Other;
+        return Side::Other;
     }
 
     private function isShared(ClassReflection $class, Scope $scope): bool

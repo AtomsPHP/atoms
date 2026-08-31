@@ -16,7 +16,7 @@ use Atoms\PHPStan\Rules\BoundaryNewRule;
 use Atoms\PHPStan\Rules\BoundarySignatureRule;
 use Atoms\PHPStan\Rules\BoundaryStaticCallRule;
 use Atoms\PHPStan\Rules\PayloadHydratabilityRule;
-use Atoms\PHPStan\WorldClassifier;
+use Atoms\PHPStan\SideClassifier;
 use PHPStan\Rules\LazyRegistry;
 use PHPStan\Testing\PHPStanTestCase;
 
@@ -51,7 +51,7 @@ final class RulesNeonTest extends PHPStanTestCase
 
     public function testCollaboratorServicesResolve(): void
     {
-        self::assertInstanceOf(WorldClassifier::class, self::getContainer()->getByType(WorldClassifier::class));
+        self::assertInstanceOf(SideClassifier::class, self::getContainer()->getByType(SideClassifier::class));
         self::assertInstanceOf(
             BoundaryReferenceInspector::class,
             self::getContainer()->getByType(BoundaryReferenceInspector::class),

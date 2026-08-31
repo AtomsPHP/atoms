@@ -7,7 +7,7 @@ namespace Atoms\PHPStan\Tests\Fixtures\Clock;
 use Atoms\Atom;
 
 /**
- * WORLD_A Atom exercising every legal clock shape: a bounded loop that reads
+ * ATOM_SIDE Atom exercising every legal clock shape: a bounded loop that reads
  * the clock in its body, a private method that shadows the name "sleep",
  * an assignment-condition while loop, an unconditional loop whose body never
  * reads the clock, and a clock read entirely outside any loop. Asserted to

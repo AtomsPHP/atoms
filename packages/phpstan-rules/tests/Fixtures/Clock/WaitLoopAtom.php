@@ -7,7 +7,7 @@ namespace Atoms\PHPStan\Tests\Fixtures\Clock;
 use Atoms\Atom;
 
 /**
- * WORLD_A Atom exercising every ATOMS-E102 wait-loop shape. Asserted to
+ * ATOM_SIDE Atom exercising every ATOMS-E102 wait-loop shape. Asserted to
  * produce exactly five AtomTimeWaitLoopRule errors, one per loop below.
  * waitsOnFullyQualifiedCondition() proves a fully qualified \time() is
  * flagged even though — unlike an unqualified call — it can never be

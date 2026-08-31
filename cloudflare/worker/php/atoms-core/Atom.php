@@ -10,7 +10,7 @@ use Atoms\Websocket\Connection;
 use Atoms\Websocket\Message;
 
 /**
- * Base class for every Atom. This is the entire World A runtime surface: what an
+ * Base class for every Atom. This is the entire Atom-side runtime surface: what an
  * Atom class is allowed to see. Everything here is frozen ABI — a change to a
  * signature is a breaking change to every deployed customer bundle.
  *
@@ -37,7 +37,7 @@ abstract class Atom
     }
 
     /**
-     * The reverse-RPC proxy into this Atom's Methods class (World B).
+     * The reverse-RPC proxy into this Atom's Methods class (App-side).
      *
      * @return TApp
      */
