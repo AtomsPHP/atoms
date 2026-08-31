@@ -35,11 +35,11 @@
     },
     "bind.value.wide_int_min": {
       "class": "refused_by_us",
-      "why": "Binding PHP_INT_MIN and reading it straight back (no CAST) hits the SAME int64_precision wall as bind.value.wide_int_param_int, just on the negative side of zero (mvp-spec.md Appendix item 1): workerd's SQL->JS conversion loses precision for any value in the ambiguous magnitude band regardless of sign. Bind the wide integer as a string instead (see bind.value.wide_int_param_str, which matches) and CAST(... AS TEXT) when reading it back."
+      "why": "Binding PHP_INT_MIN and reading it straight back (no CAST) hits the SAME int64_precision wall as bind.value.wide_int_param_int, just on the negative side of zero (runtime-spec.md Appendix item 1): workerd's SQL->JS conversion loses precision for any value in the ambiguous magnitude band regardless of sign. Bind the wide integer as a string instead (see bind.value.wide_int_param_str, which matches) and CAST(... AS TEXT) when reading it back."
     },
     "bind.value.wide_int_param_int": {
       "class": "refused_by_us",
-      "why": "Binding PHP_INT_MAX and reading it straight back (no CAST) hits the same int64_precision wall a stored wide integer does (mvp-spec.md Appendix item 1): workerd's SQL->JS conversion loses precision for any value in the ambiguous band regardless of how it entered SQLite. Bind the wide integer as a string instead (see bind.value.wide_int_param_str, which matches) and CAST(... AS TEXT) when reading it back."
+      "why": "Binding PHP_INT_MAX and reading it straight back (no CAST) hits the same int64_precision wall a stored wide integer does (runtime-spec.md Appendix item 1): workerd's SQL->JS conversion loses precision for any value in the ambiguous band regardless of how it entered SQLite. Bind the wide integer as a string instead (see bind.value.wide_int_param_str, which matches) and CAST(... AS TEXT) when reading it back."
     },
     "dup.both": {
       "class": "refused_by_us",
@@ -143,11 +143,11 @@
     },
     "int.wide.direct_read": {
       "class": "refused_by_us",
-      "why": "Reading a stored >2^53-1 INTEGER directly (no CAST) throws a typed int64_precision PDOException on our side: workerd hands ctx.storage.sql INTEGER columns to JS as doubles, so the exact value is already lost before any Atoms code runs (mvp-spec.md Appendix item 1). Real pdo_sqlite reads it exactly. Select the column as CAST(col AS TEXT) instead — see int.wide.cast_read and int.wide.write_exact, which both match."
+      "why": "Reading a stored >2^53-1 INTEGER directly (no CAST) throws a typed int64_precision PDOException on our side: workerd hands ctx.storage.sql INTEGER columns to JS as doubles, so the exact value is already lost before any Atoms code runs (runtime-spec.md Appendix item 1). Real pdo_sqlite reads it exactly. Select the column as CAST(col AS TEXT) instead — see int.wide.cast_read and int.wide.write_exact, which both match."
     },
     "int.wide.negative_direct_read": {
       "class": "refused_by_us",
-      "why": "Reading a stored PHP_INT_MIN directly (no CAST) throws the SAME typed int64_precision PDOException as int.wide.direct_read, for the same reason and by the same mechanism, just below zero instead of above 2^53-1 (mvp-spec.md Appendix item 1). Real pdo_sqlite reads it exactly. Select the column as CAST(col AS TEXT) instead — see int.wide.negative_cast_read and int.wide.negative_write_exact, which both match."
+      "why": "Reading a stored PHP_INT_MIN directly (no CAST) throws the SAME typed int64_precision PDOException as int.wide.direct_read, for the same reason and by the same mechanism, just below zero instead of above 2^53-1 (runtime-spec.md Appendix item 1). Real pdo_sqlite reads it exactly. Select the column as CAST(col AS TEXT) instead — see int.wide.negative_cast_read and int.wide.negative_write_exact, which both match."
     },
     "pdo.attr.autocommit": {
       "class": "refused_by_both",

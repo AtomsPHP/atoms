@@ -1,7 +1,7 @@
 <?php
 
 /**
- * The subset of PDO fetch modes the MVP shim serves, and the row reshaping for
+ * The subset of PDO fetch modes this shim serves, and the row reshaping for
  * each. Anything outside the subset raises {@see AtomsNotSupported} rather than
  * quietly degrading to associative rows.
  *

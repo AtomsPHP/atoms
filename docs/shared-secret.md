@@ -2,7 +2,7 @@
 
 **Status: accepted, 2026-08-15.** This document is the decision record and
 the normative contract for the single symmetric root on the app ↔ Worker
-boundary. `cloudflare/docs/mvp-spec.md` §The callback channel, §Routing and
+boundary. `cloudflare/docs/runtime-spec.md` §The callback channel, §Routing and
 auth and `docs/cloudflare-toolchain.md` restate the parts each half
 implements; where a restatement and this document disagree, this document
 wins. `docs/ws-ticket-protocol.md` is normative for the WebSocket ticket wire

@@ -11,8 +11,7 @@
  * *inside* the transaction callback, runs its statements through the same
  * synchronous SQL door (read-your-own-writes on the same connection), and parks
  * again at commit/rollback so the callback can return (commit) or throw a
- * sentinel (rollback, discarding the write set). Ported from the spike's
- * `serviceParked()`.
+ * sentinel (rollback, discarding the write set).
  *
  * Nothing here throws out of the sync door: a throw would unwind through wasm.
  * Every failure becomes an `{"ok":false,"error":{...}}` reply, which the PHP
@@ -884,7 +883,7 @@ export function reservedTableScanResidue(sql) {
 /**
  * Reject customer SQL that names a host-owned table.
  *
- * Best-effort by design (MVP, documented in the spec) in that it is a lexical
+ * Best-effort by design (documented in the spec) in that it is a lexical
  * check and not a parse: it cannot tell a table name from a column alias that
  * happens to start with the prefix, and it errs towards refusing. What it is
  * NOT allowed to be is defeatable by ordinary SQL punctuation — see

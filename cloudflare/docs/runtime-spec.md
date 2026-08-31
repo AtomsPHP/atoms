@@ -1,31 +1,26 @@
-# Atoms-on-Cloudflare MVP specification
+# The Atoms Cloudflare runtime — specification
 
-**Status:** binding for the MVP implementation under `cloudflare/`.
-**Parent:** the pre-MVP Durable-Object spikes, which established the direction
-and the proven mechanism this implementation ports. Those are internal and are
-not in this repository.
+**Status:** binding for the implementation under `cloudflare/`.
 
 ## Scope
 
 In scope: one Worker hosting a generic `AtomDurableObject`; a persistent
 parked PHP loop per active DO; the real `atoms/core` PHP ABI running unmodified
 inside the guest; `db()` (query/execute/transaction + a documented-leaky
-`pdo()`), `config()`, migrations, lossless int64; a fixture app; a local
-conformance suite against `wrangler dev`; a real deploy + remote smoke. As of
-M2 (2026-08-12), also in scope and implemented: `app()`/`dispatch()` over a
-signed callback channel to the monolith, WebSockets (`onConnect`/`onMessage`/
-`onDisconnect`) over the Hibernation API, `broadcast()`, and named timers
-(`$this->timers()`) backed by a single multiplexed Durable Object alarm.
+`pdo()`), `config()`, migrations, lossless int64; `app()`/`dispatch()` over a
+signed callback channel to the monolith; WebSockets (`onConnect`/`onMessage`/
+`onDisconnect`) over the Hibernation API; `broadcast()`; named timers
+(`$this->timers()`) backed by a single multiplexed Durable Object alarm; a
+fixture app; a local conformance suite against `wrangler dev`; a real deploy +
+remote smoke.
 
-Out of scope (MVP): owned php-wasm build, native `pdo_atoms`, most of the
-`atoms` CLI/action (`deploy`/`dev`/`status`/`rollback`/`secrets:*` have
-shipped since M3 — see `docs/cloudflare-toolchain.md`; the rest is still
-outstanding). `AtomsPDO`/`AtomsStatement` still throw a typed
-`AtomsNotSupported` PDO-style exception for the unsupported corners of the PDO
-surface documented in `worker/php/README.md` §Documented leaks and limits —
-that is a permanent MVP restriction of the PDO shim, not a stub awaiting a
-later milestone. These remain explicit stubs/restrictions, never silent
-no-ops.
+Out of scope: an owned php-wasm build and a native `pdo_atoms`. The `atoms`
+CLI and the deploy Action are specified in `docs/cloudflare-toolchain.md`,
+not here. `AtomsPDO`/`AtomsStatement` throw a typed `AtomsNotSupported`
+PDO-style exception for the unsupported corners of the PDO surface documented
+in `worker/php/README.md` §Documented leaks and limits — a permanent
+restriction of the PDO shim, not a stub. These are explicit restrictions,
+never silent no-ops.
 
 ## Runtime artifact
 
@@ -35,13 +30,11 @@ installs `@php-wasm/web-8-3@3.1.48` and
 `worker/scripts/prepare-runtime.mjs` stages both files into a gitignored
 `worker/.php-wasm/`, verifying their upstream sizes and SHA-256 digests and
 applying the one required patch `Module['Asyncify'] = Asyncify;` to the glue.
-(The MVP as originally built carried them committed under `worker/vendor/`;
-that is what changed, not the artifact.) JSPI is not shipped — the transaction seam
+JSPI is not shipped — the transaction seam
 requires synchronous guest re-entry, which only Asyncify provides. Boot uses
 `@php-wasm/universal`'s `loadPHPRuntime` with an `instantiateWasm` hook that
 (a) hands Wrangler's precompiled wasm module to Emscripten and (b) replaces the
 `env.__asyncjs__js_module_onMessage` import with the tagged dispatcher below.
-Ported from the spike's host nearly verbatim.
 
 ## PHP↔JS protocol
 
@@ -70,12 +63,12 @@ prefix, JSON-decode the reply. Every reply is an object with `ok: true` or
   "rows_written":int,"last_insert_rowid":int64tag}`
   Bindings are positional, already int64-tagged. `columns` (rows mode only) is
   the SOURCE-ORDER column names, duplicates preserved — measured present on
-  `SqlStorageCursor` (appendix, M1 item), the one place a duplicate-column
+  `SqlStorageCursor` (§Appendix), the one place a duplicate-column
   result set's true arity survives once the `{col:val}` row maps have
   collapsed it (last value wins); rows mode fails loudly with
   `sql_columns_unavailable` rather than silently degrading to `columns: []`
-  if a future platform build ever stops exposing `cursor.columnNames` (M1
-  review round 2, R13). A result set exceeding `ATOMS_SQL_MAX_ROWS`
+  if a future platform build ever stops exposing
+  `cursor.columnNames`. A result set exceeding `ATOMS_SQL_MAX_ROWS`
   or `ATOMS_SQL_MAX_RESULT_BYTES` in rows mode fails with `sql_result_too_large`
   (`detail.cap` is `"rows"` or `"bytes"`, `detail.limit` the cap that fired);
   `run` mode, which buffers nothing, is unaffected by either cap. `mode:"rows"` returns all
@@ -90,8 +83,8 @@ prefix, JSON-decode the reply. Every reply is an object with `ok: true` or
   **Multi-statement `sql` text** (`sql.exec` runs every statement `this.sql.exec()`
   is given, `;`-separated): `rows_written` is `SELECT changes()` read ONCE, after
   the LAST statement finishes — `sqlite3_changes()` semantics, i.e. the affected
-  row count of that final statement alone, never a sum across the statements in
-  the string (M1 review F-13). `Schema::applySchema()`'s own migration-file
+  row count of that final statement alone, never a sum across the statements
+  in the string. `Schema::applySchema()`'s own migration-file
   splitter (`cloudflare/worker/fixtures/counter/app/Pdo/Schema.php`) exists
   precisely because of this: it runs the DO side's multi-statement DDL through
   one `sql.exec` call, and the comparator through one `PDO::exec()` per
@@ -106,7 +99,7 @@ prefix, JSON-decode the reply. Every reply is an object with `ok: true` or
 - `{"op":"log","level":string,"fields":{...}}` → `{"ok":true}` — structured
   log line emitted by JS `console.log` as JSON.
 - `{"op":"dispatch.enqueue","body":string,"job":string}` →
-  `{"ok":true,"buffered":bool}` — the sync half of `dispatch()` (M2). `body` is
+  `{"ok":true,"buffered":bool}` — the sync half of `dispatch()`. `body` is
   the complete `job` callback request body, already `json_encode()`d by the
   guest; `job` is a label only (the dispatched class's FQCN), never used to
   build the request. `buffered:true` means a database transaction is open and
@@ -168,7 +161,7 @@ WebSocket seam's transaction hazard, below).
 - `{"op":"tx.rollback"}` — parks; host throws a sentinel inside `cb` so
   Cloudflare discards the write set, catches it outside, resumes with
   `{"ok":true,"rolledBack":true}`.
-- `{"op":"app.call","body":string}` — the park half of `app()` (M2): see
+- `{"op":"app.call","body":string}` — the park half of `app()`: see
   §The callback channel for the full request/reply shape.
 
 While a transaction is open, `sql.exec` runs inside the callback's scope on
@@ -245,13 +238,16 @@ DO is addressed, so the client-facing failure names its cause.
 JSON numbers are exact only through 2^53−1. Any integer whose absolute value
 exceeds 2^53−1 crosses the boundary as
 `{"$atoms_int64":"<decimal string>"}` — in bindings, result rows,
-`last_insert_rowid`, method args, and method results. JS uses `BigInt`
-internally (`ctx.storage.sql` returns bigint for large ints); PHP decodes to
+`last_insert_rowid`, method args, and method results. The JS side handles a
+tagged value as `BigInt`, but no `BigInt` ever crosses `ctx.storage.sql`
+itself — the platform accepts none and returns none (§Appendix item 1), so
+the host inlines wide integer bindings into the statement text and refuses
+lossy reads; PHP decodes to
 native int (64-bit safe in this build). Encoding is applied recursively by a
 shared codec on each side. A value tagged this way that exceeds int64 range is
 an error, not a truncation.
 
-**The opaque-body invariant (M2).** `app.call` and `dispatch.enqueue` carry
+**The opaque-body invariant.** `app.call` and `dispatch.enqueue` carry
 their request/response as opaque JSON **strings** (`body`), not as structured
 values, and this wire deliberately does **not** use the int64 tag above. The
 `body` a guest hands the host is already `json_encode()`d — bare JSON numbers,
@@ -278,7 +274,7 @@ exactly as PHP wrote it.
 
 ## The callback channel
 
-`app()` and `dispatch()` (M2) both cross to the monolith over one HMAC-signed
+`app()` and `dispatch()` both cross to the monolith over one HMAC-signed
 HTTP channel, implemented in `src/callbacks.js`'s `CallbackChannel` — one
 instance per DO, alongside `Bridge` and `TransactionMachine`.
 
@@ -422,9 +418,10 @@ door's `writeReply()`, so unbounded is not an option.
   programming/configuration errors discoverable at the call site.
 - **The future upgrade.** An at-least-once outbox (`__atoms_outbox` rows
   written inside the turn's own transaction, drained by a re-arming alarm with
-  backoff) is the documented successor to this fire-and-forget delivery. M2
-  does not build it; naming it here is what should stop a future "fix" of this
-  gap from becoming an ad hoc retry loop bolted onto the fire-and-forget path.
+  backoff) is the documented successor to this fire-and-forget delivery. The
+  runtime does not build it; naming it here is what should stop a future "fix"
+  of this gap from becoming an ad hoc retry loop bolted onto the
+  fire-and-forget path.
 
 ### Exception surface
 
@@ -445,7 +442,7 @@ clean exception and no request ever leaves the Worker), and host-side when the
 `tx_state` reply is mapped by `CallbackChannel::exceptionFor()` (defence in
 depth against a prelude bug).
 
-### `manifest_hash` — omitted in M2
+### `manifest_hash` — deliberately absent
 
 The `methods` request body carries no `manifest_hash` field.
 `CallbackKernel::handleMethods()` never reads one, and nothing in `packages/`
@@ -467,7 +464,8 @@ unaffected; `\DateTimeImmutable` comes back as its RFC 3339 string and a
 backed enum as its backed value, both re-hydratable by the customer in one
 line. Closing this gap needs the manifest to carry `methods[].return` and the
 `shared` list (to decide which return types are hydratable in the guest
-bundle at all) into the host manifest — a design question, not part of M2.
+bundle at all) into the host manifest — a design question, not part of this
+channel.
 
 ## The turn deadline
 
@@ -636,8 +634,8 @@ turn continues normally if the exception is caught.
 
 ## Worker layout
 
-Plain ESM JavaScript with JSDoc types (no build step beyond Wrangler; TS
-migration is post-MVP). All operational values (timeouts, limits) come from
+Plain ESM JavaScript with JSDoc types (no build step beyond Wrangler). All
+operational values (timeouts, limits) come from
 env vars with defaults resolved in one `config.js` module — no capacity
 constants inline (workspace rule).
 
@@ -646,17 +644,17 @@ cloudflare/worker/
   src/
     index.js        # Worker entry: router, auth, error mapping, /ws upgrade
     atom-do.js      # AtomDurableObject class
-    php-host.js     # boot + tagged-door dispatcher (ported from spike)
+    php-host.js     # boot + tagged-door dispatcher
     bridge.js       # sql.exec/config.get/meta/log/dispatch.enqueue handlers,
                     #   tx state machine, delegates ws.*/timer.* to their modules
     callbacks.js     # CallbackChannel: app.call + dispatch.enqueue, HMAC
-                    #   signing, turn-deadline budget (M2)
+                    #   signing, turn-deadline budget
     derive.js       # HKDF-SHA256 key derivation from ATOMS_SHARED_SECRET:
                     #   bearer, ticket key, callback key
     websockets.js    # WebSocketHost: ws.send/ws.close/ws.broadcast, the
-                    #   {v,id,ch} attachment, connId -> socket memo (M2)
+                    #   {v,id,ch} attachment, connId -> socket memo
     timers.js        # TimersHost: timer.schedule/cancel/get, __atoms_timers,
-                    #   the multiplexed alarm re-arm rule (M2)
+                    #   the multiplexed alarm re-arm rule
     int64.js        # tagging codec (JS side)
     config.js       # env-derived settings with defaults
   php/
@@ -747,8 +745,8 @@ attempts the current key, then the previous, and accepts on the first match;
 a key id is never a trusted input. A verifier accepts both, a sender emits
 only the current value, so the Worker always signs callbacks with the
 current key, the monolith always sends `bearer(current)`, and an application
-issuing tickets always signs with its own current secret. Tickets joined
-this overlap in M5 (`docs/ws-ticket-protocol.md` §Rotation) — with issuance
+issuing tickets always signs with its own current secret. Tickets share
+this overlap (`docs/ws-ticket-protocol.md` §Rotation) — with issuance
 local to the application, an instance that has not yet been redeployed with
 the new secret keeps signing tickets with the old one for the whole rollout
 window, and re-issuing cannot help, because the same un-redeployed instance
@@ -776,9 +774,8 @@ them as plaintext `vars`.
   debug blocks described below). Enabled only when `ATOMS_DEBUG_ENDPOINTS=1`.
 - `GET /ws/:type/:id?channels=a,b,c&...` `Upgrade: websocket` → `101` carrying
   `webSocket`, or `4xx/5xx {"error":{...}}` in the same envelope shape as
-  `/invoke` (M2). Validated in this order, all of it in `src/index.js` before
-  any DO is addressed (steps renumbered in M4 when the ticket steps landed;
-  the M2 steps themselves are unchanged):
+  `/invoke`. Validated in this order, all of it in `src/index.js` before
+  any DO is addressed:
   0. Configuration gate. Without a usable `ATOMS_SHARED_SECRET` the route
      answers `misconfigured` (500) before any credential is examined — the
      same gate every route but `/healthz` sits behind.
@@ -790,9 +787,9 @@ them as plaintext `vars`.
      step 3, once the decoded segments are in hand); neither credential →
      `unauthenticated` (401). Under `ATOMS_BEARER_AUTH=disabled` no credential
      is required here, and a ticket that IS presented is fully verified in
-     step 3. (M4)
+     step 3.
   2. `request.method === 'GET'`, else `method_not_allowed`.
-  3. Ticket verification (M4, expiry and rotation reworked M5) — whenever a
+  3. Ticket verification — whenever a
      `ticket` key is present and step 1 did not accept a trusted bearer. Runs
      before anything else looks at the request, so a caller without a valid
      credential cannot probe which atom types are deployed. All stateless, at
@@ -818,13 +815,13 @@ them as plaintext `vars`.
      (501), naming the type; absent or `true` → allowed.
   8. Parse and validate `?channels=` and the rest of the query string (caps
      from `config.js`) — see §The WebSocket seam. `ticket` is a **reserved
-     query key** (M4): stripped before the param map is built, excluded from
+     query key**: stripped before the param map is built, excluded from
      the `ATOMS_WS_MAX_PARAMS` count and the `ATOMS_WS_MAX_PARAM_BYTES`
      total, never delivered to `onConnect`. A verified ticket's `claims` are
      then merged **over** the query params — server wins — to form the map
      `onConnect` receives; the merged map may exceed `ATOMS_WS_MAX_PARAMS`
      by up to `TicketIssuer::MAX_CLAIMS` (16), an issuer-side protocol
-     constant now (`docs/ws-ticket-protocol.md`), not re-checked here.
+     constant (`docs/ws-ticket-protocol.md`), not re-checked here.
   9. Forward to the DO: `index.js` cannot use the JSON envelope every other
      route uses (`callDurableObject()`) because an upgrade needs the real
      `Request`/`Response` pair for workerd to hand back a `webSocket`, so it
@@ -841,12 +838,7 @@ them as plaintext `vars`.
   server-to-server clients — no `Sec-WebSocket-Protocol` smuggling, and on
   every route except `/ws` still no query-parameter credential of any kind.
   A browser's `new WebSocket(url)` cannot set an `Authorization` header;
-  through M3 that was a **known gap**, not worked around, with
-  `Atoms\Client\Tickets\TicketClient` (`POST /tickets/{type}/{id}` → a
-  short-lived ticket) sketched in `packages/client/` as the designated
-  answer. M4 closed the gap with that mint route on the Worker; M5 moved
-  issuance off the Worker entirely (below) without changing anything about
-  how `/ws` verifies a ticket it is handed — seconds-lived, bound to one
+  the ticket is the browser's credential — seconds-lived, bound to one
   `{type, id}`, revoked wholesale by rotating `ATOMS_SHARED_SECRET`, and
   presented as `?ticket=` on the upgrade, the one deliberate exception to
   "no query-string credential". A ticket is deliberately **not** single-use:
@@ -866,13 +858,12 @@ Tickets are **issued by the application**, locally, with no HTTP call to the
 Worker: `Atoms\Client\Tickets\TicketIssuer::issue()`
 (`packages/client/src/Tickets/TicketIssuer.php`), using the ticket-signing
 key it derives from its own copy of `ATOMS_SHARED_SECRET` exactly as the
-Worker does. `POST /tickets/:type/:id` — the mint route M4 added, and the
-reason this section used to specify a request body — no longer exists: it,
-`TicketClient`, and the `TicketAcquisitionFailed` exception it threw are
-deleted outright, with no deprecation period and no fallback. On a configured Worker the path now falls through to the terminal
-`404 not_found`, the same as any other unrouted path; on an unconfigured
-Worker it still answers `500 misconfigured`, because the configuration gate
-runs before routing (conformance check 41). `docs/ws-ticket-protocol.md` is
+Worker does. The Worker has no mint route: `POST /tickets/:type/:id` is not
+a route, and `packages/client/` has no `TicketClient` and no
+`TicketAcquisitionFailed`. On a configured Worker that path falls through to
+the terminal `404 not_found`, the same as any other unrouted path; on an
+unconfigured Worker it answers `500 misconfigured`, because the
+configuration gate runs before routing (conformance check 41). `docs/ws-ticket-protocol.md` is
 the normative document for the wire format, the serialization rule, the
 limits, and the expiry rule — this section states only what `/ws` does with
 a ticket once it is presented.
@@ -909,8 +900,7 @@ in PHP against the manifest.
   instance, and let the next request re-activate from durable state.
 - Hibernation needs nothing for the invoke path: each completed turn is
   durable; `onActivation()` runs once per residency by construction. There is
-  still no deactivation hook on eviction (best-effort by contract) — nothing
-  in M2 changes that.
+  still no deactivation hook on eviction (best-effort by contract).
 - The activation gate opens a **callback window** before `php.run()` starts and
   settles it before returning, so `onActivation()` may use `app()`/`dispatch()`
   — see §The turn deadline. A throw from `onActivation()` still fails the
@@ -918,7 +908,7 @@ in PHP against the manifest.
   but the guest classifies it as `atom_exception` and names the customer class
   and message rather than unwinding `php.run()` as an unnamed fatal.
 
-**The WebSocket accept path (M2).** `AtomDurableObject.fetch()` branches on
+**The WebSocket accept path.** `AtomDurableObject.fetch()` branches on
 `url.pathname === '/ws'` before it ever reads a JSON body (an upgrade has
 none), and runs the whole accept as one unit on the turn mutex
 (`this.enqueue()`): run the **same** `ensureActive()` activation gate `fetch()`
@@ -932,7 +922,7 @@ reaches the client — measured, §Appendix). A throw here (residency poisoned
 mid-`onConnect`) closes the socket with `1011` and returns an error response:
 a connection whose `onConnect` never ran must not exist.
 
-**The wake path (M2).** `webSocketMessage`/`webSocketClose`/`webSocketError`
+**The wake path.** `webSocketMessage`/`webSocketClose`/`webSocketError`
 are gated by `blockConcurrencyWhile` exactly the way `fetch()` is (measured —
 §Appendix), so there is no WebSocket-specific "is this residency warm?" check
 anywhere. Each reads the socket's `{v,id,ch}` attachment; an unreadable
@@ -954,7 +944,7 @@ residency-local connId→socket memo but never closes a socket): poisoning is
 recoverable, and the next frame re-activates from durable state exactly like
 an invoke would.
 
-**The alarm wake path (M2).** `alarm()` is the mechanism that wakes an
+**The alarm wake path.** `alarm()` is the mechanism that wakes an
 evicted residency with **no HTTP request involved at all** — see §Timers.
 
 Durability of a WebSocket/timer turn's writes follows the same rule as an
@@ -974,8 +964,8 @@ awaited event: the DO is never evicted mid-event, only between them.
   unchanged.
 - Customer SQL touching `__atoms_*` tables is rejected (`reserved_table`),
   checked in the JS handler against the full request text (`sql.exec` runs
-  every statement in the string). The check is lexical, not a parse — that much
-  is acceptable for the MVP — but it must not be defeatable by ordinary SQL
+  every statement in the string). The check is deliberately lexical, not a
+  parse — but it must not be defeatable by ordinary SQL
   punctuation, so the text is scanned the way SQLite's own tokenizer reads it:
   string literals are blanked, comments are removed, and quoted/bracketed
   identifiers are kept so `"__atoms_meta"` is still caught. A single regex
@@ -983,7 +973,7 @@ awaited event: the DO is never evicted mid-event, only between them.
   comment desynchronises it from the parser and blanks the following statement
   out of the checked text. The consequence of a miss is not just disclosure: a
   write to `__atoms_meta.atom_type` makes every later activation 409 with
-  `identity_conflict`, and the MVP router has no reset route.
+  `identity_conflict`, and the router has no reset route.
 - SQL errors map to `{"ok":false,"error":{"code":"sql_error","message",
   "sqlstate"}}` and become `PDOException`s in PHP with a real
   `errorInfo()` triple.
@@ -997,8 +987,7 @@ awaited event: the DO is never evicted mid-event, only between them.
 - `transaction(callable)` mirrors `SqliteDatabase`'s nesting guard, then
   `tx.begin` → `$fn($this)` → `tx.commit`, catching to `tx.rollback` +
   rethrow.
-- `pdo()` returns `Atoms\Cf\AtomsPDO extends \PDO` (spike shim, hardened, then
-  measured and filled by M1's "make the userland PDO surface honest" pass).
+- `pdo()` returns `Atoms\Cf\AtomsPDO extends \PDO`.
   The surface is machine-verified rather than hand-audited: a
   reflection tripwire (conformance check 26) asserts every public member of
   the runtime's own `\PDO`/`\PDOStatement` is genuinely declared on the
@@ -1013,7 +1002,7 @@ awaited event: the DO is never evicted mid-event, only between them.
   carrier-database answer. The dummy carrier connection (`sqlite::memory:`)
   exists only to satisfy the `\PDO` constructor.
 
-### PHP-side `app()` and `dispatch()` (M2)
+### PHP-side `app()` and `dispatch()`
 
 `CfAtomContext::app()` returns a lazily-built `CallbackAppProxy`
 (`worker/php/runtime/CallbackAppProxy.php`); `dispatch()` is a plain method on
@@ -1073,7 +1062,7 @@ awaited event: the DO is never evicted mid-event, only between them.
 
 ## The WebSocket seam
 
-`Atom::onConnect/onMessage/onDisconnect` and `AtomContext::broadcast()` (M2),
+`Atom::onConnect/onMessage/onDisconnect` and `AtomContext::broadcast()`,
 implemented in `src/websockets.js`'s `WebSocketHost` (one instance per DO) plus
 the prelude's `CfConnection`/`CfMessage`.
 
@@ -1086,7 +1075,7 @@ never rewritten:
 {"v": 1, "id": "9f2c…-uuid", "ch": ["lobby", "room:7"]}
 ```
 
-- `v` — format version, `1` for M2 (`websockets.js`'s `WS_ATTACHMENT_VERSION`,
+- `v` — format version, currently `1` (`websockets.js`'s `WS_ATTACHMENT_VERSION`,
   a protocol constant, not env-tunable — the same category as `BOOT_PROTOCOL`).
 - `id` — the connection id, `crypto.randomUUID()`, minted **host-side** at
   accept. Exactly what `Connection::id()` returns to customer PHP.
@@ -1094,7 +1083,7 @@ never rewritten:
   already validated and de-duplicated.
 
 Nothing else — no `params`, no atom type/id, no timestamps, **no connection
-ticket and no ticket claims** (M4: the ticket authorizes the *handshake*; its
+ticket and no ticket claims** (the ticket authorizes the *handshake*; its
 claims are delivered once, in the `ws.connect` turn's params, and a
 hibernation wake neither re-verifies a ticket nor re-reads claims — ticket
 expiry never terminates an established connection), and the hard
@@ -1142,7 +1131,7 @@ attachment check as defence in depth — it is the side that actually calls
 Channels are **fixed at connect time** from one query parameter,
 `?channels=a,b,c` (comma-separated, validated and de-duplicated in
 `index.js`). The params map `onConnect` receives is every query key as sent —
-**except the reserved `ticket` key** (M4), which is stripped before the map is
+**except the reserved `ticket` key**, which is stripped before the map is
 built, excluded from both param budgets, and never delivered to PHP; a
 verified ticket's claims are merged over the map, server wins (§Routing and
 auth step 8). There is no join/leave API: the frozen `Connection` interface has
@@ -1303,7 +1292,7 @@ runs strictly between turns through `enqueue()` — so this hazard is about
 
 ## Timers
 
-`$this->timers()` (M2), backed by the `__atoms_timers` table
+`$this->timers()`, backed by the `__atoms_timers` table
 (`CREATE TABLE IF NOT EXISTS __atoms_timers (name TEXT PRIMARY KEY, due_at_ms
 INTEGER NOT NULL)`, created in `bridge.js`'s `ensureSchema()` alongside
 `__atoms_meta`) and **one multiplexed Durable Object alarm per residency**,
@@ -1357,7 +1346,7 @@ implemented in `src/timers.js`'s `TimersHost`.
   `timer_limit` sync-door codes. `cancel()`/`scheduledAt()` on a name with no
   pending timer are defined no-op successes, not errors.
 
-## Bundle format (MVP)
+## Bundle format
 
 `scripts/build-bundle.mjs` walks a fixture app directory and emits
 `src/bundle.generated.js`: `export default {manifest, files}` where `files`
@@ -1374,7 +1363,7 @@ and readers ignore unknown keys. Every consumer today is a targeted read —
 nothing validates the manifest against a closed schema, and that is by
 design.
 
-**`vendor.autoload` (optional, additive, 2026-08-30).** A bundle may carry an
+**`vendor.autoload` (optional, additive).** A bundle may carry an
 approved vendor tree (the `atoms build` vendor stage resolves
 `atoms-composer.json` and ships every vendor `.php` + LICENSE file under
 `vendor/`, which the translator mounts at `/app/vendor/...`). The manifest's
@@ -1396,12 +1385,11 @@ content-addressed archive while keeping its `content_hash`. A manifest
 without the key changes nothing: `bundle_format` stays `0`. Conformance
 check 45 is the gate.
 
-**`atoms build` integration (M3, 2026-08-09).** The module format above is
-unchanged and remains what the host loads — it is the *deploy* artifact.
-`atoms build`'s `bundle-{sha256}.tar.gz` + schema-1 `manifest.json` is the
-*portable* artifact, and `scripts/bundle-from-cli.mjs` translates the second
-into the first; `atoms deploy` runs it before `wrangler deploy`. Neither format
-moved, so nothing under `src/` or `php/` changed and this section describes
+**`atoms build` integration.** The module format above is what the host
+loads — the *deploy* artifact. `atoms build`'s `bundle-{sha256}.tar.gz` +
+schema-1 `manifest.json` is the *portable* artifact, and
+`scripts/bundle-from-cli.mjs` translates the second into the first;
+`atoms deploy` runs it before `wrangler deploy`. This section describes
 what the Worker loads. `build-bundle.mjs` builds the conformance fixture, and
 claims nothing beyond it. See `docs/cloudflare-toolchain.md` §3.
 
@@ -1428,7 +1416,7 @@ claims nothing beyond it. See `docs/cloudflare-toolchain.md` §3.
   and caught).
 - `Room` — a **separate** type from `Counter`/`Vault` (not new methods on
   either, so checks 3/11/12's exact `turnsThisResidency` assertions are
-  undisturbed by M2), manifest entry `"websocket": true`. `onConnect` records
+  undisturbed), manifest entry `"websocket": true`. `onConnect` records
   a `room_events` row and sends a `{"kind":"welcome",...}` frame;
   `onMessage`'s protocol is driven by the frame prefix (`echo:`, `bcast:`,
   `bcasttx:` — the same broadcast from inside a committed
@@ -1461,7 +1449,7 @@ claims nothing beyond it. See `docs/cloudflare-toolchain.md` §3.
   it is not mistaken for a bug: `Boot` is channel-required — with no callback
   channel configured it does not activate, and only check 16 (which skips
   without a listener) uses it.
-- `Probe` — a fixture for the M1 PDO surface work, a **separate** type for the
+- `Probe` — the fixture for the PDO surface checks, a **separate** type for the
   same reason `Room`/`Boot`/`Scheduler` are: it writes and reads a lot of rows
   through the reflection tripwire and the differential harness, and it must
   not perturb any other fixture's table contents or residency counters.
@@ -1493,32 +1481,27 @@ claims nothing beyond it. See `docs/cloudflare-toolchain.md` §3.
 
 `test/conformance.mjs` runs against any base URL (`ATOMS_BASE_URL`), so the
 same suite runs against `wrangler dev` and the deployed Worker. It is 45
-checks: the original 12 (1–12, untouched, not renumbered, not weakened) plus
-13 more added across M2's three waves and its review round, plus 5 more added
-by M1's PDO surface honesty pass, plus 8 more (31–38) added by M4's
-connection-ticket work, plus 4 more (39–42) for the shared secret
-(`docs/shared-secret.md`), plus 2 more (43–44) for structured WebSocket
-frames and the malformed rotation overlap, plus 1 more (45) for the bundled
-vendor tree (§Bundle format, `vendor.autoload`).
+checks: 1–12 cover activation, turns, warm residency, int64, transactions,
+migrations and eviction; 13–25 the callback channel, the turn deadline,
+WebSockets and timers; 26–30 the PDO surface; 31–38 connection tickets;
+39–42 the shared secret (`docs/shared-secret.md`); 43–44 structured
+WebSocket frames and the malformed rotation overlap; 45 the bundled vendor
+tree (§Bundle format, `vendor.autoload`).
 
-**M5's rework of 31–38 and 40.** Deleting the mint route (above) made a
-purely additive edit to the ticket checks impossible: check 31 used to spend
-its first legs minting through `POST /tickets`, and there is no such route to
-mint through anymore. The suite was **reworked**, not extended — say that
-plainly rather than claiming growth. Every verifier-side assertion the old
-suite made survives, on tickets the checks now issue locally with the same
-algorithm the PHP issuer uses: canonicality, tamper detection, scope, and
-reuse-until-expiry all still run, and the expiry boundary is *tighter* than
-before (§`/ws` step 3, above — the skew allowance is gone). Each removed
-*positive* assertion (mint succeeds, mint validates its input) was replaced
-by an explicit *negative* one proving the route is actually gone (`404
-not_found` with a credential, `401 unauthenticated` without one, and —
-uniquely revealing — `500 misconfigured` on an unconfigured Worker, because
-the configuration gate still runs before routing). Check 40's ticket legs
-flipped in the same spirit: rotation used to prove a previous-secret ticket
-was refused, and now proves the opposite, because local issuance is what
-made the old refusal the wrong answer (§The shared secret, Rotation). See
-the check-by-check list below for what each of 31–38 and 40 now asserts.
+**The mint route is proven absent (31–38 and 40).** There is no
+`POST /tickets` route, so the ticket checks issue their tickets locally,
+with the same algorithm the PHP issuer uses: canonicality, tamper
+detection, scope, and reuse-until-expiry all run against locally issued
+tickets, and the expiry boundary carries no skew allowance (§`/ws` step 3,
+above). Alongside those verifier-side assertions sit explicit *negative*
+ones proving the route is absent (`404 not_found` with a credential, `401
+unauthenticated` without one, and — uniquely revealing — `500 misconfigured`
+on an unconfigured Worker, because the configuration gate runs before
+routing). Check 40's ticket legs prove a previous-secret ticket **connects**
+during a rotation overlap — with issuance local to the application, refusing
+it would break every not-yet-redeployed instance (§The shared secret,
+Rotation). See the check-by-check list below for what each of 31–38 and 40
+asserts.
 
 The Worker under test runs one of three postures, and `ATOMS_BEARER_AUTH`
 tells the runner which:
@@ -1653,7 +1636,7 @@ timer, and quiet-disconnect paths respectively, and shortening the wait for
 any of them would make them assert nothing, for the same reason check 12 must
 not be shortened.
 
-**26–30 — the M1 PDO surface honesty pass.** **26.** the reflection tripwire
+**26–30 — the PDO surface.** **26.** the reflection tripwire
 (`Probe::surfaceAudit()`): every public member of the runtime's own `\PDO`/
 `\PDOStatement` is genuinely **declared** on `AtomsPDO`/`AtomsStatement`
 (`ReflectionMethod::getDeclaringClass()`, never a hardcoded member list), the
@@ -1702,7 +1685,7 @@ differing line and the regeneration command. If check 28 produced no report at
 all, this **fails rather than skips** — a stale doc is never excused by a
 missing run.
 
-**31–38 — connection tickets (M4; 31–37 and 40 reworked M5).** **31.**
+**31–38 — connection tickets.** **31.**
 "tickets: locally issued ticket, headerless connect, claims win, ticket
 stripped" — offline, the pinned protocol vectors from
 `docs/ws-ticket-protocol.md` reproduce byte-exactly and the reference secret
@@ -1713,41 +1696,39 @@ winning (server-asserted `client_id`, not the spoofed one) and **no `ticket`
 key at all**; a URL carrying exactly `ATOMS_WS_MAX_PARAMS` params *plus* the
 ticket still opens (the reserved key is outside the budgets). Needs
 `ATOMS_SHARED_SECRET` in the runner's own environment to issue with, else it
-skips. **32.** "tickets: the mint route is removed; /ws owns eligibility" —
+skips. **32.** "tickets: there is no mint route; /ws owns eligibility" —
 `POST /tickets/Room/:id` **with** a credential is `404 not_found`; a valid,
 correctly signed, locally issued ticket for a `websocket: false` type is
 `501 not_supported` and for an unknown type is `404 unknown_atom_type` —
 eligibility is refused at the upgrade, on tickets that are otherwise
-perfectly good. Its old claim-validation legs (non-string claim values, too
-many claims, reserved claim keys) moved to the PHP unit suite, where that
-validation now lives on `TicketIssuer`. **33.** edge refusals, asserted as
+perfectly good. Claim validation (non-string claim values, too many claims,
+reserved claim keys) lives on `TicketIssuer` and is covered by the PHP unit
+suite. **33.** edge refusals, asserted as
 the JSON error envelope on the refused upgrade: structural garbage →
 `ticket_invalid`; a ticket issued for atom A presented on atom B →
 `ticket_invalid`; a correctly signed ticket whose `exp` is already in the
 past → `ticket_expired`; a ticket **one millisecond past** its `exp` →
-`ticket_expired` — the sharpest statement of what M5 changed, since under
-the old default skew this connected; a ticket **5 seconds from expiry**
+`ticket_expired` — the sharpest statement of the no-skew expiry
+rule; a ticket **5 seconds from expiry**
 still connects, so the boundary leg is not vacuous; a `v1u.`-form string →
 `ticket_invalid`, in every posture. The forged legs need `ATOMS_SHARED_SECRET`
 in the runner's own environment, else they skip. **34.** reusable within
-TTL: unchanged in what it asserts — the same locally issued ticket opens a
+TTL: the same locally issued ticket opens a
 second connection both while the first socket is still open and after it
-has closed, the contract assertion that no single-use burn exists — but it
-now issues its own ticket, so it no longer needs a short server TTL.
-**35.** "mint route removed, issued ticket admits headerless upgrade": a
+has closed — the contract assertion that no single-use burn exists.
+**35.** "no mint route; an issued ticket admits a headerless upgrade": a
 headerless `POST /tickets` → 401 `unauthenticated` (the credential gate
 precedes routing, so the route's absence is not observable without a
 credential); the same call **with** the bearer → 404 `not_found`; then the
-flagship leg, unchanged — a locally issued ticket admits a fully headerless
+flagship leg — a locally issued ticket admits a fully headerless
 upgrade with its claim winning. **36.** tamper / `v1u.`-form / no-credential
-legs unchanged: one flipped character in the signature segment →
+legs: one flipped character in the signature segment →
 `ticket_invalid`; a `v1u.`-form string → `ticket_invalid`; no bearer and no
-ticket → `unauthenticated`. The real-expiry leg no longer needs any
+ticket → `unauthenticated`. The real-expiry leg needs no special
 environment: it issues a ticket with a 1.5-second lifetime, connects with it
-(proving it was good), waits it out, and reconnects to get `ticket_expired`
-— previously this needed `ATOMS_WS_TICKET_SKEW_MS` in the runner env and a
-Worker started with a short `ATOMS_WS_TICKET_TTL_MS`, both gone. **37.**
-bearer precedence: unchanged, issues its own ticket — a **tampered** ticket
+(proving it was good), waits it out, and reconnects to get
+`ticket_expired`. **37.**
+bearer precedence: issues its own ticket — a **tampered** ticket
 is 401 `ticket_invalid` headerless (the non-vacuity guard), then the same
 upgrade with a valid bearer connects — the bearer path strips the ticket
 unverified. **38.** the routing regression guard, untouched: with bearer
@@ -1771,7 +1752,7 @@ the run's own secret produces exactly what the runner derives, which is what
 makes "the monolith derives in PHP and the Worker in WebCrypto" a checked
 claim rather than an assumption — it skips when there is no `php` on PATH, and
 `ATOMS_REQUIRE_BEARER_VECTOR=1` turns that skip into a failure (CI installs
-PHP and sets it). M5 adds a second cross-language leg here: an inline
+PHP and sets it). A second cross-language leg: an inline
 `php -r` (no autoloader — the worker CI job has no composer install) runs the
 issuer's exact algorithm over the pinned `docs/ws-ticket-protocol.md` vector
 inputs and must produce the pinned ticket string, matching both the pinned
@@ -1785,8 +1766,8 @@ either secret, callbacks signed with the current key" — with
 `ATOMS_SHARED_SECRET_PREVIOUS` configured on the Worker and the runner,
 `bearer(current)` and `bearer(previous)` are both accepted on `/invoke` while
 an unrelated bearer is 401 (the non-vacuity half); a ticket signed under the
-**previous** secret's ticket key now **connects** — the M5 flip, since local
-issuance made the old refusal wrong (§The shared secret, Rotation) — a ticket
+**previous** secret's ticket key **connects** — local issuance is what makes
+refusing it the wrong answer (§The shared secret, Rotation) — a ticket
 signed under the **current** key connects too, and a ticket signed under an
 **unrelated** secret is still `ticket_invalid`, so neither acceptance is
 vacuous; and the callback the listener receives verifies under the current
@@ -1798,8 +1779,8 @@ misconfigured Worker, unchanged: booted with no secret, `GET /healthz` still
 answers 200 `{ok: true}` (`loadConfig()` stays total) and `/invoke`,
 `/tickets`, `/debug` and `/ws` all answer HTTP 500 with the wire code
 `misconfigured` — loudly broken, never silently open — including its
-`POST /tickets` leg, which now pins that the configuration gate precedes
-routing even for a route that no longer exists: a Worker missing its secret
+`POST /tickets` leg, which pins that the configuration gate precedes
+routing even for an unrouted path: a Worker missing its secret
 must not leak which routes it has. It runs only under
 `ATOMS_EXPECT_MISCONFIGURED=1`, which is the whole of that short posture's
 run. **42.** the config deny list, untouched: with the Worker started with
@@ -1811,7 +1792,7 @@ makes the two nulls meaningful rather than vacuous, and its absence is what
 the check skips on, with `ATOMS_REQUIRE_DENY_CHECKS=1` turning that skip into
 a failure. The built-in deny list wins over the operator's allowlist, because
 a guest that could read the secret would hold the root of everything.
-**44.** the malformed rotation overlap, new: a Worker booted with a **valid**
+**44.** the malformed rotation overlap: a Worker booted with a **valid**
 current secret and a malformed `ATOMS_SHARED_SECRET_PREVIOUS` is as loudly
 broken as check 41's — `/healthz` answers 200 `{ok:true}`, `/invoke`,
 `/tickets`, `/debug` and `/ws` all answer HTTP 500 `misconfigured` — and each
@@ -1819,8 +1800,9 @@ refusal message must name `ATOMS_SHARED_SECRET_PREVIOUS`, which is what pins
 that the gate tripped on the overlap and not on the current secret (41's
 Worker has no current secret at all, so it cannot make that distinction).
 This is the spec §"The shared secret" requirement "set but malformed →
-misconfigured", previously untested: check 40 exercises only a well-formed
-overlap and check 41 only a missing current secret. It runs only under
+misconfigured": check 40 exercises only a well-formed
+overlap and check 41 only a missing current secret, so this is the one
+place it is pinned. It runs only under
 `ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1`, which is the whole of its short
 posture's run (`ATOMS_ONLY=44`).
 
@@ -1834,15 +1816,13 @@ activation, not lazily). No gate; runs in every posture that can invoke.
 Remote-only additions: measure cold activation, warm turn, and
 post-hibernation wake latencies; record them in `test/results/remote.json`.
 
-## Appendix: measured deviations (2026-08-04, wrangler 4.118 local)
+## Appendix: measured platform behavior (2026-08-04, wrangler 4.118 local)
 
-Two premises above are wrong about the platform as it actually behaves. They are
-recorded here rather than worked around silently; the body of the spec is
-otherwise unchanged and still binding.
+The platform behaviors recorded here were established by measurement, not
+taken from documentation, and the contracts in the body of this spec account
+for each of them. They are recorded rather than worked around silently.
 
-1. **`ctx.storage.sql` speaks no BigInt, in either direction.** §"Int64 tagging"
-   says "JS uses `BigInt` internally (`ctx.storage.sql` returns bigint for large
-   ints)". Measured:
+1. **`ctx.storage.sql` speaks no BigInt, in either direction.** Measured:
    - *Binding* a `bigint` throws `TypeError: Cannot convert a BigInt value to a
      number`. The host therefore folds any binding wider than 2^53−1 into the
      statement text as a validated decimal literal
@@ -1878,7 +1858,7 @@ otherwise unchanged and still binding.
    therefore either set `=float` or be selected through a cast the same way a
    wide integer is.
 
-   **Accepted tradeoff (M1 review F-21, DECLINED beyond a message reword):**
+   **Accepted tradeoff:**
    `inlineWideIntegers()` folds every `bigint` binding into the statement TEXT
    as a validated decimal literal — not just the ones a naive reading of "wide"
    would require, and not conditionally on the statement being reused. That
@@ -1886,7 +1866,7 @@ otherwise unchanged and still binding.
    wide-integer binding ever touches (a rewritten SQL string is a different
    statement to `ctx.storage.sql` every time), in exchange for the storage-class
    honesty the rest of this item describes (a genuine INTEGER binding stays
-   INTEGER storage class, never REAL). Reviewed and accepted for M1: correctness
+   INTEGER storage class, never REAL). Correctness
    of the stored value's storage class is worth more than statement-object
    reuse here, and there is no third option — a `bigint` cannot cross the
    binding boundary at all (the `TypeError` above), so text-inlining is the
@@ -1924,8 +1904,9 @@ otherwise unchanged and still binding.
    preempt it. Nothing here weakens turn serialization: it is enforced by the
    DO's turn mutex, not by timing.
 
-4. **M2 measurements (2026-08-12, pinned wrangler 4.118.0, workerd
-   `1.20260730.1` local; deployed behaviour flagged separately below).**
+4. **Callback, WebSocket and timer seam measurements (2026-08-12, pinned
+   wrangler 4.118.0, workerd `1.20260730.1` local; deployed behaviour
+   flagged separately below).**
 
    - **Ed25519 is present in workerd's WebCrypto, and interoperates with
      libsodium.** `crypto.subtle.importKey('pkcs8', …, 'Ed25519', false,
@@ -2036,37 +2017,33 @@ otherwise unchanged and still binding.
      all," and what conformance check 24 measures directly against a real
      eviction rather than assuming.
 
-5. **Deployed review against real Durable Objects (2026-08-12).** The M2 suite
-   was run against a `workers.dev` deployment on a real Cloudflare account, not
-   `wrangler dev`. Everything below is now measured on deployed infrastructure,
-   not inferred from local behaviour. Two findings changed the tree — a runtime
-   fix and this appendix; the rest confirmed local assumptions on the platform.
+5. **Deployed measurements against real Durable Objects (2026-08-12).** The
+   suite was run against a `workers.dev` deployment on a real Cloudflare
+   account, not `wrangler dev`. Everything below is measured on deployed
+   infrastructure, not inferred from local behaviour.
 
-   - **Chained timers needed a within-event drain (fixed).** Conformance
-     check 23 intermittently failed: a timer scheduled for "now" from inside
-     `onTimer()` did not fire until ~15s later, because the alarm handler
-     computed one batch of due rows, rearmed for the chained timer's now-past
-     timestamp, and relied on the platform firing that past-due alarm promptly
-     — which deployed workerd sometimes stalled ~15s on (local workerd fires it
-     at once). `runAlarm()` now re-queries and DRAINS newly-due timers within a
-     single alarm event, bounded by `ATOMS_TIMERS_MAX_PER_ALARM`, rearming only
-     after the drain, so a chained timer fires in the same event regardless of
-     platform alarm-timing (§Timers). This removes the timing dependency rather
-     than tightening any assertion.
+   - **A past-due alarm can stall ~15s on deployed workerd** (local workerd
+     fires it at once): a timer scheduled for "now" from inside `onTimer()`
+     is not reliably woken promptly by rearming for its now-past timestamp.
+     This is why `runAlarm()` re-queries and DRAINS newly-due timers within a
+     single alarm event, bounded by `ATOMS_TIMERS_MAX_PER_ALARM`, rearming
+     only after the drain, so a chained timer fires in the same event
+     regardless of platform alarm timing (§Timers) — conformance check 23
+     exercises exactly this.
    - **An orphaned cross-Worker `fetch()` COMPLETED 20/20** after its source
      event returned — this deployment did NOT cancel the orphaned I/O; it
-     behaved like local workerd. The runtime relies on neither outcome; see the
-     corrected orphan item in the M2 local list above for why awaiting every
+     behaved like local workerd. The runtime relies on neither outcome; see
+     the orphan item in the local list above for why awaiting every
      delivery inside its DO event is the real justification.
    - **WebSockets survived a genuine eviction:** across a full
      `ATOMS_EVICTION_WAIT_MS` idle the object was reconstructed (construction
-     count increased) and the socket kept working — check 21, now confirmed
+     count increased) and the socket kept working — check 21, confirmed
      against real eviction.
    - **Both a close event AND an alarm event independently woke an evicted
      object** with no HTTP request and no prior traffic — checks 25 and 24,
      confirmed on deployed hibernation.
    - **The guest clock stayed frozen across CPU work and across a SQL round
-     trip** on the deployed Worker (the item-3 deviation, now reconfirmed on
+     trip** on the deployed Worker (the item-3 behavior, reconfirmed on
      this deployment): `hrtime(true)` did not advance across a busy loop or a
      `sql.exec`.
    - **The turn deadline fired for real:** an over-budget turn returned 504
@@ -2084,25 +2061,23 @@ otherwise unchanged and still binding.
      path of item 1) and through `app()` callbacks: the whole ±(2^63−1) matrix
      round-tripped without loss on deployed infrastructure.
    - **Latency (median):** cold activation 651ms, warm turn 73ms,
-     post-hibernation wake 449ms — no material regression against the earlier
-     ~740 / ~59 / ~604ms figures.
+     post-hibernation wake 449ms.
 
-6. **M1 measurements (2026-08-13, pinned wrangler 4.118.0 local) — the PDO
-   surface honesty pass.**
+6. **PDO surface measurements (2026-08-13, pinned wrangler 4.118.0 local).**
 
    - **`SqlStorageCursor` exposes `columnNames`, source order, duplicates
-     preserved.** Step 0 of the M1 design: a temporary log line in `opSqlExec`
+     preserved.** A temporary log line in `opSqlExec`
      confirmed `Array.isArray(cursor.columnNames) === true` for both a
      unique-column and a duplicate-column `SELECT`, captured before the cursor
-     is drained. This decided Branch A of §"SQL bridge details": `sql.exec`'s
-     rows-mode reply now carries `columns`, which is what lets
+     is drained. This is what `sql.exec`'s
+     rows-mode `columns` reply rests on: it lets
      `AtomsStatement` report an exact `columnCount()` on an empty result set
      and refuse `FETCH_NUM`/`FETCH_BOTH`/`FETCH_COLUMN`-by-index/`FETCH_NAMED`
      *precisely* (only when the column list itself proves a duplicate) rather
      than refusing the whole family unconditionally; `bridge.js`'s `sql.exec`
-     now fails loudly with `sql_columns_unavailable` instead of silently
+     fails loudly with `sql_columns_unavailable` instead of silently
      shipping `columns: []` if this capability is ever absent on a future
-     platform build (M1 review round 2, R13).
+     platform build.
    - **`cursor.rowsWritten` counts underlying B-tree writes, not logical rows
      changed.** Measured (temporary instrumentation): a single-row `INSERT`
      into a table with a `UNIQUE` column and an `AUTOINCREMENT` primary key
@@ -2134,9 +2109,9 @@ otherwise unchanged and still binding.
      (`toSqlBinding()`/`inlineWideIntegers()`) for the implementation this
      measurement drove.
 
-## Deployment (MVP)
+## Deployment
 
-`wrangler.jsonc` name `atoms-mvp-conformance`, `compatibility_date` current,
+`wrangler.jsonc` name `atoms-conformance`, `compatibility_date` current,
 SQLite-backed DO class export + migration tag `v1`. Deploy with
 `npx wrangler deploy`; the remote suite runs against the `workers.dev` URL
 with `ATOMS_DEBUG_ENDPOINTS=1` and an `ATOMS_SHARED_SECRET` secret set via

@@ -11,7 +11,6 @@ package and this document disagree, the package is wrong.
 - PHP baseline: **`^8.3`**. No 8.4-only features (no property hooks, no
   asymmetric visibility) anywhere — `atoms/core` executes inside the platform's
   PHP 8.3 runtime image.
-- Scope: full Phase 1 of the integration plan (§11).
 - All packages: `declare(strict_types=1);`, final classes unless the class is
   explicitly designed for extension (`Atom`, `AtomMethods`, `AtomJob`).
 - Monorepo package versions are pinned at `0.1.0` in each package's
@@ -38,7 +37,7 @@ directory mappings are registered in the **root** `composer.json`
 `autoload-dev` (package `autoload-dev` sections are ignored by the root
 install — keep them present anyway for standalone package installs).
 
-### Layering (the §11 discipline)
+### Layering
 
 ```
 core  ←  client  ←  laravel
@@ -234,7 +233,7 @@ decisions below.
   verifies against — no round trip. `docs/ws-ticket-protocol.md` is
   normative for the wire format, limits, expiry rule, and vectors; the
   Worker's `GET /ws/{type}/{id}` upgrade remains the strict, stateless
-  verifier, spec'd in `cloudflare/docs/mvp-spec.md` §Routing and auth.
+  verifier, spec'd in `cloudflare/docs/runtime-spec.md` §Routing and auth.
 - `Authorization: Bearer {bearer}`, where `{bearer}` is
   `HKDF(ATOMS_SHARED_SECRET, "atoms/bearer/v1")` — `AtomsConfig::$sharedSecret`
   is a required, validated string (`docs/shared-secret.md`), so the client
@@ -329,7 +328,7 @@ Methods resolution default: Atom class `App\Atoms\GameRoom` → Methods class
 
 The Cloudflare Worker is the production signer of this channel
 (`cloudflare/worker/src/callbacks.js`, HMAC-SHA256 WebCrypto — see
-`cloudflare/docs/mvp-spec.md` §The callback channel for headers and message
+`cloudflare/docs/runtime-spec.md` §The callback channel for headers and message
 construction, and `docs/shared-secret.md` for the key derivation). It omits
 `manifest_hash` from the `methods` body — a documented gap, safe today
 because `CallbackKernel::handleMethods()` never reads that key — and its
@@ -343,7 +342,7 @@ and declares no `ext-sodium` dependency.
 
 ## `atoms.json` (toolchain anchor) and `atoms-composer.json`
 
-Exactly as integration plan §1. The CLI must not assume `app/Atoms` — always
+The CLI must not assume `app/Atoms` — always
 read `paths.atoms` / `paths.shared` from `atoms.json`. `atoms-composer.json`
 is a normal composer.json restricted to `require` + `repositories`; the beta
 package allowlist lives in `packages/cli/resources/allowed-packages.json`.

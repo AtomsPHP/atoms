@@ -52,7 +52,7 @@ try {
 		'the scaffolded wrangler.jsonc must not set ATOMS_DEBUG_ENDPOINTS; it is enabled via atoms.json debug_endpoints',
 	);
 	assert.ok(
-		!templateWrangler.includes('"name": "atoms-mvp-conformance"'),
+		!templateWrangler.includes('"name": "atoms-conformance"'),
 		'the scaffolded wrangler.jsonc must not carry the conformance harness worker name',
 	);
 

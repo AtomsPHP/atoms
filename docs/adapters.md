@@ -86,7 +86,7 @@ check the observable behavior the six sentences promise.
 
 ## The frozen-clock rules
 
-`cloudflare/docs/mvp-spec.md`'s appendix of measured platform deviations
+`cloudflare/docs/runtime-spec.md`'s appendix of measured platform deviations
 records that the guest clock does not advance inside a turn on deployed
 workerd: a spin-probe returned the same reading across six million loop
 iterations and across a host round trip. Inside an Atom (WORLD_A code), a

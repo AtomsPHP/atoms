@@ -1,7 +1,7 @@
 <?php
 
 /**
- * `Atoms\Timers\Timers` for the Cloudflare MVP: named one-shot timers backed
+ * `Atoms\Timers\Timers` for the Cloudflare runtime: named one-shot timers backed
  * by the host's `__atoms_timers` table and a single multiplexed Durable
  * Object alarm. `schedule()`/`cancel()`/`scheduledAt()` each
  * cross exactly one sync op ('!' door) — none of this parks, so it works
@@ -10,7 +10,7 @@
  *
  * `due_at_ms` is a plain JSON number, not int64-tagged: it is milliseconds
  * since the epoch, always far inside 2^53 for any timer scheduled from now
- * (mvp-spec.md's int64 rule only taxes values that actually need it).
+ * (runtime-spec.md's int64 rule only taxes values that actually need it).
  *
  * No declare(strict_types=1) — see the note in host.php.
  */

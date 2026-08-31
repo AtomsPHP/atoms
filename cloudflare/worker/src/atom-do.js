@@ -2,7 +2,7 @@
  * `AtomDurableObject` — one generic Durable Object class for every Atom type.
  *
  * Residency shape (production plan §"One generic Durable Object class",
- * MVP spec §"AtomDurableObject lifecycle"):
+ * runtime spec §"AtomDurableObject lifecycle"):
  *
  *   first event of a residency
  *     -> activation gate inside blockConcurrencyWhile
@@ -1162,7 +1162,7 @@ export class AtomDurableObject extends DurableObject {
 	}
 
 	/**
-	 * Shutdown envelope for the parked loop. Not reachable from the MVP router
+	 * Shutdown envelope for the parked loop. Not reachable from the router
 	 * (there is no destroy route yet); kept because the protocol defines it.
 	 */
 	async shutdown() {

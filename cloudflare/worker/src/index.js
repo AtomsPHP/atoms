@@ -1,7 +1,7 @@
 /**
  * Worker entry: routing, auth, and error-envelope mapping.
  *
- * Routes (MVP spec §"Routing and auth"):
+ * Routes (runtime spec §"Routing and auth"):
  *
  *   POST /invoke/:type/:id/:method   body {"args":[...]}
  *        -> 200 {"result":..., "atom":{"type":...,"id":...}}

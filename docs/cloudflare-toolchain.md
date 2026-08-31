@@ -95,7 +95,7 @@ than invalidating every outstanding ticket at once. The binding details —
 wire format, limits, the expiry rule, the reusable-until-expiry contract, and
 the rotation decision — are normative in `docs/ws-ticket-protocol.md`; the
 Worker's observable verification behaviour is spec'd in
-`cloudflare/docs/mvp-spec.md` §Routing and auth; the key derivation itself is
+`cloudflare/docs/runtime-spec.md` §Routing and auth; the key derivation itself is
 `docs/shared-secret.md`.
 
 ## 2. How a PHP CLI drives Wrangler: a pinned local binary, never `npx`
@@ -567,7 +567,7 @@ needs `php/runtime/` and `php/atoms-core/`, which are the Worker's own.
 **Nothing under `cloudflare/worker/src/**` or `cloudflare/worker/php/**`
 changed.** The emitted module is exactly the shape the host already reads, so
 the Worker conformance suite was untouched by the CLI integration (see
-`cloudflare/docs/mvp-spec.md` §Conformance suite), and the vendored
+`cloudflare/docs/runtime-spec.md` §Conformance suite), and the vendored
 `atoms/core` copy needed no re-vendor on this account.
 
 `build-bundle.mjs` is the conformance fixture builder. It is not a stand-in
@@ -700,7 +700,7 @@ Nothing in this sequence contacts a service operated by Atoms.
   `atoms.json`'s `callback_url.<env>`) reaches the Worker as an
   `ATOMS_CALLBACK_URL` var via `wrangler dev --var`, and the Worker half is
   real: `Atom::app()`/`dispatch()` call back through it (`cloudflare/docs/
-  mvp-spec.md` §The callback channel). `DevCommand` prints the URL it wired
+  runtime-spec.md` §The callback channel). `DevCommand` prints the URL it wired
   and provisions the Worker project's `.dev.vars` with a per-machine
   `ATOMS_SHARED_SECRET` if one is not already there, so `app()`/`dispatch()`
   has a usable signing key (`ATOMS-E081` covers the case where it still does

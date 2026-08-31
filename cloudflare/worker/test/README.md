@@ -1,6 +1,6 @@
-# Atoms-on-Cloudflare MVP Conformance Suite
+# Atoms-on-Cloudflare Conformance Suite
 
-This directory contains the conformance test suite for the Atoms MVP on Cloudflare Workers.
+This directory contains the conformance test suite for the Atoms runtime on Cloudflare Workers.
 
 ## Tests
 
@@ -254,9 +254,9 @@ already set in `wrangler.jsonc` for this conformance deployment.
 
 ```bash
 # Get your worker URL from the deploy output, e.g.:
-# Deployed to https://atoms-mvp-conformance.example.workers.dev/
+# Deployed to https://atoms-conformance.example.workers.dev/
 
-ATOMS_BASE_URL=https://atoms-mvp-conformance.example.workers.dev \
+ATOMS_BASE_URL=https://atoms-conformance.example.workers.dev \
 ATOMS_BEARER_TOKEN="$(atoms token)" \
 ATOMS_EVICTION_WAIT_MS=16000 \
 node test/conformance.mjs
@@ -314,7 +314,7 @@ activation, warm turn, and post-hibernation wake latency — into
 `test/results/remote.json`, together with the deployed version id it measured:
 
 ```bash
-ATOMS_BASE_URL=https://atoms-mvp-conformance.example.workers.dev \
+ATOMS_BASE_URL=https://atoms-conformance.example.workers.dev \
 ATOMS_BEARER_TOKEN="$(atoms token)" \
 ATOMS_EVICTION_WAIT_MS=16000 \
 node test/measure-remote.mjs

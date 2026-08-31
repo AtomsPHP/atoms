@@ -1,8 +1,7 @@
 <?php
 
 /**
- * The \PDO half of `db()->pdo()`, hardened from the phase-2 spike's
- * `php/pdo_shim.php` (mvp-spec.md §PHP-side db()).
+ * The \PDO half of `db()->pdo()` (runtime-spec.md §PHP-side db()).
  *
  * The Atoms ABI declares `Database::pdo(): \PDO`, and the real
  * `Atoms\Migrations\Migrator` drives migrations entirely through this surface

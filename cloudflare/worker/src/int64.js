@@ -130,7 +130,7 @@ export function encodeInteger(v) {
  *
  * Accepts what `ctx.storage.sql` can return (number, bigint, string, null,
  * ArrayBuffer) plus arrays and plain objects. Binary column values are not
- * supported by the MVP wire format and throw rather than being silently
+ * supported by the wire format and throw rather than being silently
  * mangled by `JSON.stringify`.
  *
  * @param {unknown} value
@@ -188,7 +188,7 @@ export function encodeInt64Deep(value, opts = {}) {
 	if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
 		throw new AtomsError(
 			'unsupported_value',
-			'binary (BLOB) values are not supported by the MVP PHP<->JS wire format'
+			'binary (BLOB) values are not supported by the PHP<->JS wire format'
 		);
 	}
 

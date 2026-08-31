@@ -15,13 +15,13 @@
  *               inside `ctx.storage.transactionSync(cb)` is the whole reason
  *               this build is Asyncify and not JSPI).
  *
- * Wire shape (mvp-spec.md §PHP↔JS protocol): the request is a JSON object with
+ * Wire shape (runtime-spec.md §PHP↔JS protocol): the request is a JSON object with
  * an `op`; every reply is a JSON object carrying either `ok: true` (plus
  * op-specific fields) or `ok: false, error: {code, message}`.
  *
  * NOTE: no `declare(strict_types=1)` anywhere under runtime/. A declare() must
  * be the very first statement of a file, and these files may be composed by the
- * host; the pre-MVP spike hit hard fatals on exactly this.
+ * host; doing so is a measured hard fatal.
  * The verbatim atoms-core files keep their own declare() and are therefore only
  * ever `require`d, never concatenated.
  */
@@ -55,7 +55,7 @@ function host_call($door, array $req)
         // (JSON_INVALID_UTF8_SUBSTITUTE) would be worse than failing.
         throw new \RuntimeException(sprintf(
             'Atoms: could not encode host request for op "%s": %s. '
-            . 'Binary values do not cross the MVP bridge; store them base64-encoded.',
+            . 'Binary values do not cross the bridge; store them base64-encoded.',
             isset($req['op']) ? (string) $req['op'] : '?',
             json_last_error_msg()
         ));

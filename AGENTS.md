@@ -18,7 +18,7 @@ parked inside a SQLite-backed Durable Object.
 | Directory | What it is | Guidance |
 |---|---|---|
 | `packages/` | The eight MIT PHP packages: `atoms/{core,client,laravel,symfony,testing,phpstan-rules,cli,database-illuminate}` | `docs/conventions.md` (normative) |
-| `cloudflare/` | The Worker runtime: `worker/` (host JS, `Atoms\Cf\` guest prelude, fixtures, conformance suite), `docs/` (MVP spec + PDO matrix), `corresponding-source/`, the licence files | `cloudflare/README.md`, `cloudflare/docs/mvp-spec.md` |
+| `cloudflare/` | The Worker runtime: `worker/` (host JS, `Atoms\Cf\` guest prelude, fixtures, conformance suite), `docs/` (runtime spec + PDO matrix), `corresponding-source/`, the licence files | `cloudflare/README.md`, `cloudflare/docs/runtime-spec.md` |
 | `docs/` | Framework docs: `conventions.md`, `cloudflare-toolchain.md`, `two-worlds.md`, `errors.md` | — |
 | `action/` | The deploy GitHub Action (composite) | `action/README.md` |
 | `tests/` | Cross-package integration tests (`Atoms\Tests\Integration\`) | `docs/conventions.md` |
@@ -40,7 +40,7 @@ convenient it looks.
 2. `docs/two-worlds.md` — the two-worlds model: which code ships to the
    runtime, which stays in the monolith, and how the file layout makes the
    difference unmistakable.
-3. `cloudflare/docs/mvp-spec.md` — the binding spec for the Worker: PHP↔JS
+3. `cloudflare/docs/runtime-spec.md` — the binding spec for the Worker: PHP↔JS
    wire protocol, DO lifecycle, routes, envelopes, bundle format, and an
    appendix of **measured** platform deviations. Read the appendix before
    assuming anything about workerd.
@@ -106,7 +106,7 @@ convenient it looks.
 - **`app()`, `dispatch()`, `broadcast()`, WebSockets and timers/alarms are
   implemented**, over a signed callback channel, the Hibernation API and
   a multiplexed Durable Object alarm respectively — see
-  `cloudflare/docs/mvp-spec.md` §The callback channel, §The WebSocket seam and
+  `cloudflare/docs/runtime-spec.md` §The callback channel, §The WebSocket seam and
   §Timers. `AtomsNotSupported` (`worker/php/runtime/`) now legitimately
   remains only on the permanently-unsupported corner of the PDO shim
   (`AtomsPDO.php`/`AtomsStatement.php` — see `worker/php/README.md`

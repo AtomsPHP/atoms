@@ -2,8 +2,7 @@
 
 /**
  * The \PDOStatement half of the documented-leaky `db()->pdo()` surface,
- * hardened from the phase-2 spike's `php/pdo_shim.php` and filled per
- * design §3 — see the F-numbered items cited inline below.
+ * filled per design §3 — see the F-numbered items cited inline below.
  *
  * The Atoms customer ABI declares `Database::pdo(): \PDO`, so the object handed
  * to customer code must genuinely be a \PDO / \PDOStatement — hence the
@@ -343,7 +342,7 @@ class AtomsStatement extends \PDOStatement
         if ($type === \PDO::PARAM_LOB) {
             throw new AtomsNotSupported(
                 'PDO::PARAM_LOB',
-                'Binary values do not cross the MVP JSON bridge; store them base64-encoded as text.'
+                'Binary values do not cross the JSON bridge; store them base64-encoded as text.'
             );
         }
 
@@ -389,7 +388,7 @@ class AtomsStatement extends \PDOStatement
         if ($type === \PDO::PARAM_LOB) {
             throw new AtomsNotSupported(
                 'PDO::PARAM_LOB',
-                'Binary values do not cross the MVP JSON bridge; store them base64-encoded as text.'
+                'Binary values do not cross the JSON bridge; store them base64-encoded as text.'
             );
         }
 

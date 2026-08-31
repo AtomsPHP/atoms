@@ -1,9 +1,9 @@
 {
-	"name": "atoms-mvp-conformance",
+	"name": "atoms-conformance",
 	"private": true,
 	"type": "module",
 	"version": "0.0.0",
-	"description": "Atoms-on-Cloudflare MVP: one generic AtomDurableObject hosting a parked PHP loop.",
+	"description": "Atoms on Cloudflare: one generic AtomDurableObject hosting a parked PHP loop.",
 	"license": "MIT",
 	"dependencies": {
 		"@php-wasm/universal": "3.1.48",

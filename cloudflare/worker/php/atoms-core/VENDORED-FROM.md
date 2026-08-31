@@ -1,7 +1,7 @@
 # Vendored: the `atoms/core` package
 
 These files are **verbatim copies** of the `atoms/core` package, and are the
-reason the Cloudflare MVP can claim the real ABI runs inside the guest.
+reason the Cloudflare runtime can claim the real ABI runs inside the guest.
 
 | | |
 |---|---|
@@ -60,7 +60,7 @@ WebAssembly binary; it is PHP source carried into the guest and interpreted.
 
 If one of these files cannot work unmodified inside the php-wasm guest, that is
 a finding about the ABI, not a patch to apply here. Raise it upstream; a fork
-that silently diverges would make the MVP's central claim false.
+that silently diverges would make the runtime's central claim false.
 
 Re-vendor by re-copying from upstream, then re-check the digests below,
 then run `npm run bundle` from `cloudflare/worker` and commit

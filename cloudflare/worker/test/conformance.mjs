@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Conformance suite for Atoms-on-Cloudflare MVP.
+ * Conformance suite for the Atoms runtime on Cloudflare.
  *
  * Runs the conformance contract against a live Worker URL. For callback
  * checks, this suite plays the monolith with a `node:http` listener bound to
@@ -716,7 +716,7 @@ function callbackSignatureValid(key, message, signatureB64) {
  * awaits anything also satisfies. Comparing "job response sent" against "invoke
  * response received" is the observable that distinguishes them, and orphaned
  * deliveries are the failure that passes locally and silently drops jobs on
- * deployed workerd (mvp-spec.md §Appendix item 4).
+ * deployed workerd (runtime-spec.md §Appendix item 4).
  */
 class CallbackListener {
     /** @param {Buffer} callbackKey HKDF(shared secret, "atoms/callback/v1") */
@@ -1860,7 +1860,7 @@ checks.push(async () => {
     // ATOMS_TEST_JOB_DELAY_MS; if the turn's 200 came back before the job
     // response was sent, the Worker returned without awaiting the delivery —
     // which works locally and silently drops jobs on deployed workerd
-    // (mvp-spec.md §Appendix item 4). Receipt alone proves nothing here.
+    // (runtime-spec.md §Appendix item 4). Receipt alone proves nothing here.
     if (rec.respondedAt === null) {
         fail(checkNum, name, 'the listener never finished responding to the job delivery');
         return;
@@ -1930,7 +1930,7 @@ checks.push(async () => {
     // Boot.onActivation() calls $this->app()->echoBig(1) BEFORE it dispatches, so
     // the listener must have seen exactly one signed methods request from the
     // activation — which also proves the activation budget was re-stamped past
-    // wasm boot + migrations (mvp-spec.md §The turn deadline): under this run's
+    // wasm boot + migrations (runtime-spec.md §The turn deadline): under this run's
     // small ATOMS_TURN_DEADLINE_MS a budget still charged for boot would have
     // thrown TurnDeadlineExceeded in onActivation and failed the invoke above.
     const bootMethods = listener.records.filter((r) => r.kind === 'methods');
@@ -2293,7 +2293,7 @@ checks.push(async () => {
         // broadcast() from INSIDE a committed db()->transaction() — the
         // documented transaction-send hazard: a ws op is legal at all while the
         // guest is parked inside ctx.storage.transactionSync()'s callback. It
-        // was probed and found legal (mvp-spec.md §Appendix item 4); the
+        // was probed and found legal (runtime-spec.md §Appendix item 4); the
         // assertion here is what keeps it from silently regressing into the
         // pre-decided fallback (a tx_state refusal), which would be a
         // behaviour change no test would have caught.
@@ -4538,7 +4538,7 @@ checks.push(async () => {
 // ---------------------------------------------------------------- run
 
 async function run() {
-    console.log(`\nAtoms-on-Cloudflare MVP Conformance Suite`);
+    console.log(`\nAtoms-on-Cloudflare Conformance Suite`);
     console.log(`Base URL: ${baseUrl}`);
     console.log(
         `Bearer auth: ${AUTH_REQUIRED ? 'required' : 'disabled'}` +

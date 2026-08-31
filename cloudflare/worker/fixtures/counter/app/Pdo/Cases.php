@@ -1739,7 +1739,7 @@ final class Cases
                 'int.wide.direct_read',
                 $g,
                 'value round-trip',
-                'a stored >2^53-1 INTEGER read WITHOUT a CAST — workerd loses precision before Atoms code runs; refused (mvp-spec.md Appendix item 1)',
+                'a stored >2^53-1 INTEGER read WITHOUT a CAST — workerd loses precision before Atoms code runs; refused (runtime-spec.md Appendix item 1)',
                 static function (\PDO $p) {
                     $p->exec("DELETE FROM probe_wide WHERE k = 'direct'");
                     $p->exec("INSERT INTO probe_wide (k, v) VALUES ('direct', 9223372036854775807)");

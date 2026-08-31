@@ -7,7 +7,7 @@ Two directories, with very different rules:
 | `atoms-core/` | Verbatim copies of `packages/core/src` (+ `resources/errors.json`), from the repository root | **Never edit.** See `atoms-core/VENDORED-FROM.md` |
 | `runtime/` | The `Atoms\Cf\` prelude — the platform side of the guest | Owned here |
 
-The whole point of the MVP is that the first column runs *unmodified*: the
+The whole point of the runtime is that the first column runs *unmodified*: the
 customer ABI, `Atoms\Migrations\Migrator` and `Atoms\Serialization\Serializer`
 inside a Durable Object are the same code the `atoms/core` package ships to
 customers. Nothing in `atoms-core/` was patched to make that work.
@@ -66,7 +66,7 @@ Rules for the composed script:
   raw newline, so the closing identifier can never collide with the payload.
 - **`require`, never concatenate.** Every file in `atoms-core/` begins with
   `declare(strict_types=1)`, which must be the first statement *of its file*.
-  Concatenating them is the exact fatal the pre-MVP spike hit. Nothing under
+  Concatenating them is a hard fatal. Nothing under
   `runtime/` declares
   `strict_types`, precisely so the composed entry stays safe to build.
 - Do not add `declare(strict_types=1)` to the entry script either.
@@ -112,7 +112,7 @@ from it automatically — a `NNN_name.php` migration *returns* a `Migration`
 object and must only ever be loaded by `MigrationEntry::migration()`. If `files`
 is omitted, only the Atom's own `file` is loaded.
 
-`manifest.vendor.autoload` (optional, mvp-spec.md §Bundle format) names the
+`manifest.vendor.autoload` (optional, runtime-spec.md §Bundle format) names the
 guest path of a build-generated classmap + function-file loader for a bundled
 vendor tree. When present, everything under that file's own directory is
 excluded from the line-scanning autoloader's index — the classmap is exact,
@@ -179,7 +179,7 @@ appear in an envelope; they go out on the `log` door.
 nothing to coerce), and the success envelope is always
 `{"ok": true, "result": null}` — the handlers return `void`. An uncaught
 exception in one is logged and becomes `atom_exception`, same as an invoke,
-but is **never** relayed to the socket peer in any form (`mvp-spec.md`
+but is **never** relayed to the socket peer in any form (`runtime-spec.md`
 §Turn-result envelope).
 
 ---
@@ -202,7 +202,7 @@ Load order matters and is encoded in `bootstrap.php`; this is what each file is.
 | `AtomsPDO.php` | `\PDO` subclass; same rule, plus SQLite-correct `quote()` |
 | `BridgeDatabase.php` | `Atoms\Database`: `query`/`execute`/`transaction`/`pdo` |
 | `CallbackError.php` | Base `\RuntimeException` for the callback channel's typed failures, formatted through `ErrorCatalog::format()` |
-| `CallbackNotConfigured.php` / `CallbackUnsigned.php` / `CallbackInTransaction.php` / `CallbackFailed.php` / `JobNotEncodable.php` | ATOMS-E080–E084 — see `mvp-spec.md` §The callback channel |
+| `CallbackNotConfigured.php` / `CallbackUnsigned.php` / `CallbackInTransaction.php` / `CallbackFailed.php` / `JobNotEncodable.php` | ATOMS-E080–E084 — see `runtime-spec.md` §The callback channel |
 | `TurnDeadlineExceeded.php` | Reuses ATOMS-E061; thrown by `CallbackAppProxy` on an `app()` deadline overrun |
 | `CallbackChannel.php` | The one place that maps a host door failure onto the typed exception above, shared by `app()` and `dispatch()` |
 | `CallbackAppProxy.php` | `app()`'s `__call()` proxy: the transaction guard, body encoding, the `app.call` park, result decoding |
@@ -351,7 +351,7 @@ Other differences worth knowing, not omissions:
 - `app()->foo()` returns the decoded wire tree — scalars, lists,
   string-keyed maps — **not** hydrated back into `Payload` DTOs,
   `\DateTimeImmutable` or `\BackedEnum` return values. A documented gap, not a
-  bug; see `mvp-spec.md` §The callback channel's result-hydration gap.
+  bug; see `runtime-spec.md` §The callback channel's result-hydration gap.
 - `dispatch()` is **at-most-once, unordered, and unretried**: a delivery
   failure (transport error, timeout, non-2xx) is logged and dropped, silently
   from the customer's point of view, because `dispatch(): void` cannot report

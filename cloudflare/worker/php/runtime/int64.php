@@ -1,7 +1,7 @@
 <?php
 
 /**
- * The int64 tagging codec, PHP side (mvp-spec.md §Int64 tagging).
+ * The int64 tagging codec, PHP side (runtime-spec.md §Int64 tagging).
  *
  * JSON numbers are exact only through 2^53−1. Any integer outside
  * ±(2^53−1) crosses the PHP↔JS boundary as

@@ -6,7 +6,7 @@
  * `not_supported`, never a no-op answer.
  *
  * The public envelope is `{"error":{"code","message","retryable"}}`. The
- * turn-result codes defined by the MVP spec (`atom_exception`, `method_not_found`, `atom_not_found`,
+ * turn-result codes defined by the runtime spec (`atom_exception`, `method_not_found`, `atom_not_found`,
  * `internal`) are passed through verbatim so the client sees exactly what PHP
  * reported.
  */

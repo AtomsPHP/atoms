@@ -63,7 +63,7 @@ const STATIC_FILES = [
 	'release/supported-core',
 	// Ships as the template's wrangler.jsonc. The repository's own
 	// wrangler.jsonc is the conformance-harness config (debug endpoints on,
-	// name atoms-mvp-conformance) and deliberately never enters the tarball.
+	// name atoms-conformance) and deliberately never enters the tarball.
 	'wrangler.scaffold.jsonc',
 ];
 

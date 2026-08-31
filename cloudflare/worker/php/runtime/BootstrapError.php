@@ -5,7 +5,7 @@
  * `turn.await`, so before there is any turn-result envelope to carry it.
  *
  * These carry one of the spec's error codes (`atom_not_found` or `internal`,
- * mvp-spec.md §Turn-result envelope) so the host can classify the failure from
+ * runtime-spec.md §Turn-result envelope) so the host can classify the failure from
  * the `log` line that {@see bootstrap.php} emits before rethrowing. The rethrow
  * is deliberate: an activation that did not complete leaves no Atom to serve
  * turns, and the spec's answer to that is a poisoned residency the host
@@ -18,7 +18,7 @@ namespace Atoms\Cf;
 
 class BootstrapError extends \RuntimeException
 {
-    /** @var string one of the mvp-spec error codes */
+    /** @var string one of the runtime-spec error codes */
     private $atomsCode;
 
     /**

@@ -78,7 +78,7 @@ jobs:
 
       # cloudflare/worker/php/atoms-core/ is a verbatim copy of packages/core —
       # the guest loads PHP source out of MEMFS and cannot composer-require it.
-      # The MVP's central claim is that the real ABI runs unmodified inside the
+      # The runtime's central claim is that the real ABI runs unmodified inside the
       # Durable Object, and that claim is only true while the copy is identical.
       # Before the 2026-08-08 migration the two lived in different repositories
       # and this could not be checked in one clone; now it can, so it is. Driven

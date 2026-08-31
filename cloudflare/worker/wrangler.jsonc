@@ -8,7 +8,7 @@
 	// Keep the two in sync structurally; the deliberate differences are the
 	// worker name and ATOMS_DEBUG_ENDPOINTS, which the suite (checks 5/10/12)
 	// needs on and customers get off by default.
-	"name": "atoms-mvp-conformance",
+	"name": "atoms-conformance",
 	"main": "src/index.js",
 	"compatibility_date": "2026-08-01",
 
@@ -35,8 +35,8 @@
 	// `migrations` and the newer declarative `exports` block together
 	// ("mutually exclusive"); the equivalent declarative form is
 	//   "exports": { "AtomDurableObject": { "type": "durable-object", "storage": "sqlite" } }
-	// and both dry-run clean. The migration tag is kept because it is the
-	// shape the phase-2 spike exercised end to end under `wrangler dev`.
+	// and both dry-run clean. The migration tag is the shape exercised end to
+	// end under `wrangler dev`.
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["AtomDurableObject"] }],
 
 	// Operational values live in env, with defaults resolved in src/config.js.
