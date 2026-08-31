@@ -1,8 +1,7 @@
 # Monorepo Conventions & Cross-Package Contracts
 
 This document pins every decision that more than one package depends on. If a
-package and this document disagree, the package is wrong. Read
-`docs/integration-plan.md` (the design rationale) alongside it.
+package and this document disagree, the package is wrong.
 
 ## Decisions already made (do not reopen)
 

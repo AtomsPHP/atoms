@@ -9,7 +9,7 @@ use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 
 /**
- * The repo-root toolchain anchor (integration-plan.md §1). Parsed and validated;
+ * The repo-root toolchain anchor. Parsed and validated;
  * every structural problem surfaces as ATOMS-E070 with the catalog fix line.
  *
  * `endpoint` is the base URL the deployed Worker serves on — what `atoms/client`

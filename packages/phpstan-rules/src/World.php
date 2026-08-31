@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Atoms\PHPStan;
 
 /**
- * The two-worlds model (docs/integration-plan.md §2), plus the classification
+ * The two-worlds model (docs/two-worlds.md), plus the classification
  * outcomes every boundary rule branches on.
  *
  * - WorldA: extends Atoms\Atom. Ships to the platform; runs on the Atoms runtime.

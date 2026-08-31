@@ -14,7 +14,7 @@ use PHPStan\Reflection\ClassReflection;
 
 /**
  * Classifies a class into one of the four World buckets (see {@see World}),
- * implementing the rule of thumb from docs/integration-plan.md §2:
+ * implementing the two-worlds rule of thumb (docs/two-worlds.md):
  * "If it extends Atom, it leaves. If it extends AtomMethods or AtomJob, it
  * stays. If it's in Shared/, it does both — so it must be pure data."
  */

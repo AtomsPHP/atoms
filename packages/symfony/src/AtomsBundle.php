@@ -37,7 +37,7 @@ use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 
 /**
- * Skeleton Symfony bundle for Atoms (integration-plan §5.3): a deliberately
+ * Skeleton Symfony bundle for Atoms: a deliberately
  * small proof that `atoms/client` is sufficient monolith-side glue and that
  * `atoms/symfony` never needs `atoms/laravel` or Illuminate. Wires
  * AtomsClient, the callback stack (HMAC verification, Methods dispatch,

@@ -30,8 +30,7 @@ use PHPStan\Rules\RuleErrorBuilder;
 
 /**
  * Checks every public RPC signature against the serialization type algebra
- * (docs/conventions.md "Serialization type algebra"; docs/integration-plan.md
- * §4.2):
+ * (docs/conventions.md "Serialization type algebra"):
  *
  *  - WORLD_A public methods (the Atom's RPC surface; constructors are final
  *    ABI on Atoms\Atom and are never overridable, so they are skipped)

@@ -19,7 +19,7 @@ parked inside a SQLite-backed Durable Object.
 |---|---|---|
 | `packages/` | The eight MIT PHP packages: `atoms/{core,client,laravel,symfony,testing,phpstan-rules,cli,database-illuminate}` | `docs/conventions.md` (normative) |
 | `cloudflare/` | The Worker runtime: `worker/` (host JS, `Atoms\Cf\` guest prelude, fixtures, conformance suite), `docs/` (MVP spec + PDO matrix), `corresponding-source/`, the licence files | `cloudflare/README.md`, `cloudflare/docs/mvp-spec.md` |
-| `docs/` | Framework docs: `conventions.md`, `cloudflare-toolchain.md`, `integration-plan.md`, `two-worlds.md`, `errors.md` | — |
+| `docs/` | Framework docs: `conventions.md`, `cloudflare-toolchain.md`, `two-worlds.md`, `errors.md` | — |
 | `action/` | The deploy GitHub Action (composite) | `action/README.md` |
 | `tests/` | Cross-package integration tests (`Atoms\Tests\Integration\`) | `docs/conventions.md` |
 | `site/` | The public marketing site (Astro; content in `src/pages/index.astro`, tokens in `src/styles/global.css`) | `site/AGENTS.md` |
@@ -43,8 +43,11 @@ not direction.
 1. `docs/conventions.md` — cross-package contracts, the frozen `atoms/core`
    ABI, error-catalog rules, layering. **Normative.** If code and this file
    disagree, the code is wrong.
-2. `docs/integration-plan.md` — the design rationale (why the packages are split, the
-   two-worlds model, the extraction pipeline).
+2. `docs/two-worlds.md` — the two-worlds model: which code ships to the
+   runtime, which stays in the monolith, and how the file layout makes the
+   difference unmistakable. (The full design rationale — why the packages
+   are split, the extraction pipeline — is archived in the internal decision
+   records.)
 3. `cloudflare/docs/mvp-spec.md` — the binding spec for the Worker: PHP↔JS
    wire protocol, DO lifecycle, routes, envelopes, bundle format, and an
    appendix of **measured** platform deviations. Read the appendix before

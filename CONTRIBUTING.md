@@ -19,7 +19,7 @@ The repository is two halves that meet at the `atoms/core` ABI.
 |---|---|
 | `packages/{core,client,laravel,symfony,testing,phpstan-rules,cli,database-illuminate}` | The eight PHP packages: the runtime ABI, the monolith-side SDK, the Laravel and Symfony adapters, the test harness, the PHPStan rules, the `atoms` CLI, the Illuminate database bridge. MIT. |
 | `action/` | The deploy GitHub Action. |
-| `docs/` | `conventions.md` (normative), `integration-plan.md` (rationale), `two-worlds.md`, `errors.md` (the error catalog). |
+| `docs/` | `conventions.md` (normative), `two-worlds.md`, `errors.md` (the error catalog). |
 | `tests/Integration/` | Cross-package tests that no single package owns. |
 | `cloudflare/` | The Worker runtime: a PHP 8.3 WebAssembly interpreter parked inside a SQLite-backed Durable Object, its binding spec in `cloudflare/docs/mvp-spec.md`, and the conformance suite. Atoms-authored source here is MIT; upstream components retain their own licenses. |
 
