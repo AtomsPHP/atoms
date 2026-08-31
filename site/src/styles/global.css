@@ -126,6 +126,19 @@ section{ border-top:1px solid var(--rule); padding:4rem 0; }
 .anno.cli .anno-m{ color:var(--charcoal); }
 
 /* code */
+.code-tabs{ display:flex; gap:.45rem; margin-bottom:.7rem; }
+.code-tabs [role="tab"]{
+  font-family:'IBM Plex Mono', ui-monospace, monospace;
+  font-size:.72rem; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--ink-soft); background:transparent;
+  border:1px solid var(--rule); border-radius:4px;
+  padding:.42rem .85rem .36rem; cursor:pointer;
+}
+.code-tabs [role="tab"][aria-selected="true"]{
+  background:var(--paper-card); color:var(--ink); border-color:var(--ink);
+}
+.code-tabs [role="tab"]:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
+.tabpanel + .code-card{ margin-top:.9rem; }
 .code-card{
   background:var(--paper-card); border:1px solid var(--rule); border-radius:6px;
   padding:1.15rem 1.35rem; overflow-x:auto;

@@ -22,6 +22,10 @@ const home = defineCollection({
         }),
       )
       .optional(),
+    /** Tab labels for a tabbed code panel; ids match panel ids in index.astro. */
+    tabs: z
+      .array(z.object({ id: z.string(), label: z.string() }))
+      .optional(),
     /** The left-rail guided reading beside the GameRoom sample. */
     annotations: z
       .array(

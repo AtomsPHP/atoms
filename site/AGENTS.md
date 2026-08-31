@@ -21,7 +21,7 @@ part in the coordinated release flow. It ships when its content ships.
   with the answer beneath it.
 - `src/pages/index.astro` — page structure only: the designed section shells.
 - `src/samples.ts` — the code samples, as hand-highlighted HTML (brand token
-  classes, anchor ids for the annotation rail). Single source for both
+  classes, `data-a` anchors for the annotation rail). Single source for both
   renditions: index.astro renders the HTML, and the markdown endpoint derives
   plain code from the same strings.
 - `src/pages/index.md.ts` — the homepage as markdown for agents, built to
