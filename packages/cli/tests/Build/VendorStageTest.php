@@ -97,6 +97,52 @@ final class VendorStageTest extends TestCase
         self::assertStringContainsString('/composer/InstalledVersions.php', $autoload);
     }
 
+    public function testAnUnreadableCacheFileIsAMissNotABuildFailure(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $runner = CannedComposer::runner();
+        $stage = new VendorStage($runner);
+
+        $stage->resolve($root);
+        $runsAfterFirst = \count($runner->runs);
+
+        // A read failure mid-cache — a permissions problem, or a concurrent
+        // replacement racing the reader — must degrade to a miss.
+        $caches = glob($root . '/.atoms/vendor-cache/*');
+        self::assertNotFalse($caches);
+        $victim = $caches[0] . '/files/vendor/acme/lib/src/Greeter.php';
+        self::assertTrue(chmod($victim, 0o000));
+        if (@file_get_contents($victim) !== false) {
+            chmod($victim, 0o644);
+            self::markTestSkipped('this user can read a mode-000 file (running as root?)');
+        }
+
+        try {
+            $tree = $stage->resolve($root);
+        } finally {
+            chmod($victim, 0o644);
+        }
+
+        self::assertGreaterThan($runsAfterFirst, \count($runner->runs), 'an unreadable cache must re-resolve through composer');
+        self::assertContains('vendor/acme/lib/src/Greeter.php', array_column($tree->entries, 'name'));
+    }
+
+    public function testAMisconfiguredComposerTimeoutRefusesWithTheCatalogCode(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        putenv('ATOMS_COMPOSER_TIMEOUT=-1');
+
+        try {
+            (new VendorStage(CannedComposer::runner()))->resolve($root);
+            self::fail('a non-positive timeout must refuse');
+        } catch (AtomsError $e) {
+            self::assertSame(ErrorCode::VendorResolutionFailed, $e->errorCode);
+            self::assertStringContainsString('ATOMS_COMPOSER_TIMEOUT', $e->getMessage());
+        } finally {
+            putenv('ATOMS_COMPOSER_TIMEOUT');
+        }
+    }
+
     public function testATamperedCacheIsAMissThatReResolvesNotAPoisonedTree(): void
     {
         $root = $this->tempCopy('sample-app');

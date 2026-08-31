@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Build;
 
+use Atoms\Cli\Config\Timeouts;
 use Atoms\Cli\Process\ProcessRunner;
 use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCatalog;
@@ -56,13 +57,6 @@ final class VendorStage
      * the signal.
      */
     private const DATA_EXTENSIONS = ['json', 'txt', 'csv', 'tsv', 'xml', 'yml', 'yaml', 'ini', 'dat'];
-
-    /**
-     * Default subprocess budget for `composer install`, which may hit the
-     * network; override with the ATOMS_COMPOSER_TIMEOUT environment variable
-     * (seconds).
-     */
-    private const DEFAULT_COMPOSER_TIMEOUT_SECONDS = 600.0;
 
     /**
      * The two Composer runtime files a dependency may genuinely load at
@@ -182,9 +176,11 @@ final class VendorStage
 
     private static function composerTimeout(): float
     {
-        $env = getenv('ATOMS_COMPOSER_TIMEOUT');
-
-        return \is_string($env) && is_numeric($env) ? (float) $env : self::DEFAULT_COMPOSER_TIMEOUT_SECONDS;
+        try {
+            return Timeouts::composerInstall();
+        } catch (\InvalidArgumentException $e) {
+            throw self::failure($e->getMessage());
+        }
     }
 
     /**
@@ -398,6 +394,18 @@ final class VendorStage
 
     private function readCache(string $rootDir, string $key): ?VendorTree
     {
+        // The cache can never fail a build: an unreadable file, a directory
+        // vanishing under the iterator mid-replacement, anything at all — a
+        // miss, and composer resolves again.
+        try {
+            return $this->readCacheOrThrow($rootDir, $key);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function readCacheOrThrow(string $rootDir, string $key): ?VendorTree
+    {
         $dir = $this->cacheDir($rootDir, $key);
         $metaPath = $dir . '/meta.json';
         if (!is_file($metaPath)) {
@@ -482,13 +490,26 @@ final class VendorStage
             return;
         }
 
+        // Replace the live tree without a visibility gap: move it aside
+        // (rename, atomic), move the stage in, then delete the aside copy.
+        // Deleting first left a window where readers saw a missing or
+        // half-deleted directory.
         $dir = $this->cacheDir($rootDir, $key);
-        self::rmrf($dir);
-        if (!@rename($stage, $dir)) {
-            self::rmrf($stage); // a concurrent build won the rename; theirs is as good as ours
+        $aside = $parent . '/.old-' . bin2hex(random_bytes(6));
+        if (is_dir($dir) && !@rename($dir, $aside)) {
+            self::rmrf($stage); // cannot displace the live tree; keep it
 
             return;
         }
+        if (!@rename($stage, $dir)) {
+            self::rmrf($stage); // a concurrent build won the rename; theirs is as good as ours
+            if (is_dir($aside) && !@rename($aside, $dir)) {
+                self::rmrf($aside);
+            }
+
+            return;
+        }
+        self::rmrf($aside);
 
         // One resolution is current at a time; non-dot siblings are stale keys.
         foreach (glob($parent . '/*', GLOB_NOSORT) ?: [] as $sibling) {
