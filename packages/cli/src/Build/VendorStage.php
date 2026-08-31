@@ -49,6 +49,15 @@ final class VendorStage
     public const AUTOLOAD_PATH = 'vendor/atoms-vendor-autoload.php';
 
     /**
+     * Pruned files with one of these extensions look like runtime data a
+     * package might file_get_contents() in the guest (where they will not
+     * exist), so the build surfaces them by name. Docs and metadata
+     * extensions are deliberately absent — listing every readme would bury
+     * the signal.
+     */
+    private const DATA_EXTENSIONS = ['json', 'txt', 'csv', 'tsv', 'xml', 'yml', 'yaml', 'ini', 'dat'];
+
+    /**
      * Composer resolution may hit the network; generous by design, like the
      * stager's own subprocess budget.
      */
@@ -109,10 +118,12 @@ final class VendorStage
                 $wroteLock = true;
             }
 
-            $entries = $this->collectEntries($work . '/vendor');
+            $pruned = [];
+            $entries = $this->collectEntries($work . '/vendor', $pruned);
+            sort($pruned, SORT_STRING);
             $packages = $this->installedPackages($work . '/vendor');
 
-            $tree = new VendorTree($entries, $packages, $wroteLock);
+            $tree = new VendorTree($entries, $packages, $wroteLock, $pruned);
 
             if ($lockBytes !== null) {
                 $this->writeCache($rootDir, self::cacheKey($jsonBytes, $lockBytes), $tree);
@@ -141,11 +152,13 @@ final class VendorStage
 
     /**
      * Every .php file plus package LICENSE files, and the generated autoload
-     * file, as sorted bundle entries.
+     * file, as sorted bundle entries. Pruned files that look like runtime
+     * data ({@see self::DATA_EXTENSIONS}) are collected into $pruned.
      *
+     * @param list<string> $pruned
      * @return list<array{name: string, contents: string}>
      */
-    private function collectEntries(string $vendorDir): array
+    private function collectEntries(string $vendorDir, array &$pruned = []): array
     {
         if (!is_dir($vendorDir)) {
             throw self::failure("composer install produced no vendor directory at {$vendorDir}");
@@ -170,6 +183,10 @@ final class VendorStage
             $isPhp = str_ends_with($relative, '.php');
             $isLicense = str_starts_with($base, 'LICENSE') || str_starts_with($base, 'LICENCE');
             if (!$isPhp && !$isLicense) {
+                $extension = strtolower(pathinfo($relative, PATHINFO_EXTENSION));
+                if (\in_array($extension, self::DATA_EXTENSIONS, true) && $base !== 'composer.json') {
+                    $pruned[] = 'vendor/' . $relative;
+                }
                 continue;
             }
             $entries[] = [
@@ -336,8 +353,12 @@ final class VendorStage
 
         /** @var array<string, string> $packages */
         $packages = $meta['packages'];
+        /** @var list<string> $prunedDataFiles */
+        $prunedDataFiles = \is_array($meta['pruned_data_files'] ?? null)
+            ? array_values(array_map('strval', $meta['pruned_data_files']))
+            : [];
 
-        return new VendorTree($entries, $packages, false);
+        return new VendorTree($entries, $packages, false, $prunedDataFiles);
     }
 
     private function writeCache(string $rootDir, string $key, VendorTree $tree): void
@@ -359,7 +380,7 @@ final class VendorStage
             file_put_contents($path, $entry['contents']);
         }
         file_put_contents($dir . '/meta.json', json_encode(
-            ['packages' => $tree->packages],
+            ['packages' => $tree->packages, 'pruned_data_files' => $tree->prunedDataFiles],
             JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
         ) . "\n");
     }

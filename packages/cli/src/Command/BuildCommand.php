@@ -25,7 +25,7 @@ final class BuildCommand extends AbstractCommand
     protected function configure(): void
     {
         parent::configure();
-        $this->addOption('fast', null, InputOption::VALUE_NONE, 'Skip the vendor stage (the bundle ships no atoms-composer.json packages)');
+        $this->addOption('fast', null, InputOption::VALUE_NONE, 'Skip the vendor stage; refuses (ATOMS-E107) if atoms-composer.json declares packages');
         $this->addOption('out', null, InputOption::VALUE_REQUIRED, 'Output directory (defaults to .atoms/build)');
     }
 
@@ -59,6 +59,16 @@ final class BuildCommand extends AbstractCommand
             }
         }
         $output->writeln('  vendor:        ' . $vendorLine);
+        if ($result->vendor !== null && $result->vendor->prunedDataFiles !== []) {
+            $output->writeln('  <comment>note: the bundle ships vendor .php and LICENSE files only; these data-looking files were pruned and will not exist in the guest:</comment>');
+            foreach (\array_slice($result->vendor->prunedDataFiles, 0, 10) as $pruned) {
+                $output->writeln('    - ' . $pruned);
+            }
+            $remaining = \count($result->vendor->prunedDataFiles) - 10;
+            if ($remaining > 0) {
+                $output->writeln(sprintf('    … and %d more', $remaining));
+            }
+        }
         $output->writeln('  atom types:    ' . $atoms);
 
         return self::SUCCESS;

@@ -12,7 +12,7 @@ your app, so a broken monolith never blocks a deploy.
 
 ```sh
 atoms validate                 # stages 1–3+5: static boundary/contract/migration checks. Seconds, no network. The PR gate.
-atoms build [--fast] [--out D] # deterministic, content-addressed bundle + manifest. --fast skips the vendor stage (no atoms-composer.json packages in the bundle).
+atoms build [--fast] [--out D] # deterministic, content-addressed bundle + manifest. --fast skips the vendor stage and refuses (ATOMS-E107) if atoms-composer.json declares packages.
 atoms diff [--against M]       # label each manifest change additive / contracting / breaking vs a saved manifest.
 atoms deploy --env X [--bundle B]  # build (unless --bundle), stage into the Worker project, then `wrangler deploy` into YOUR Cloudflare account.
 atoms dev [--port P]           # build + `wrangler dev` locally. No Cloudflare account needed.

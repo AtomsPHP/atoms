@@ -47,7 +47,7 @@ final class BundleBridgeTest extends TestCase
         self::assertFileExists($script);
 
         $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
-        $built = (new Builder())->build(AtomsJson::load($repo . '/' . self::FIXTURE . '/atoms.json'), $outDir, fast: true);
+        $built = $this->buildSampleApp($repo, $outDir);
 
         $output = $outDir . '/bundle.generated.js';
         $process = new \Symfony\Component\Process\Process(
@@ -189,7 +189,7 @@ final class BundleBridgeTest extends TestCase
         }
 
         $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
-        $built = (new Builder())->build(AtomsJson::load($repo . '/' . self::FIXTURE . '/atoms.json'), $outDir, fast: true);
+        $built = $this->buildSampleApp($repo, $outDir);
 
         // Tamper with the CONTENTS and keep the original, correct filename —
         // the attack a filename comparison cannot see. `GameR00m` is the same
@@ -238,7 +238,7 @@ final class BundleBridgeTest extends TestCase
         }
 
         $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
-        $built = (new Builder())->build(AtomsJson::load($repo . '/' . self::FIXTURE . '/atoms.json'), $outDir, fast: true);
+        $built = $this->buildSampleApp($repo, $outDir);
 
         foreach ([null, '', 'not-a-hash', 'ABCDEF'] as $i => $bad) {
             /** @var array<string, mixed> $manifest */
@@ -333,6 +333,26 @@ final class BundleBridgeTest extends TestCase
 
         self::rmrf($outDir);
         self::rmrf($root);
+    }
+
+    /**
+     * sample-app declares a dependency, so --fast now refuses (ATOMS-E107)
+     * and a real build runs the vendor stage: composer is the CannedComposer
+     * fake, and the build runs against a throwaway copy of the fixture
+     * because the stage writes atoms-composer.lock + .atoms/vendor-cache
+     * into the project root.
+     */
+    private function buildSampleApp(string $repo, string $outDir): \Atoms\Cli\Build\BuildResult
+    {
+        $root = sys_get_temp_dir() . '/atoms-bundle-bridge-src-' . bin2hex(random_bytes(6));
+        self::copyTree($repo . '/' . self::FIXTURE, $root);
+        try {
+            $runner = \Atoms\Cli\Tests\Support\CannedComposer::runner();
+
+            return (new Builder(runner: $runner))->build(AtomsJson::load($root . '/atoms.json'), $outDir);
+        } finally {
+            self::rmrf($root);
+        }
     }
 
     private static function copyTree(string $from, string $to): void

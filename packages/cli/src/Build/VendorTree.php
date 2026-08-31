@@ -17,11 +17,17 @@ final class VendorTree
      *        package => version, from Composer's own installed.json
      * @param bool                                        $wroteLock whether this
      *        resolution wrote atoms-composer.lock back next to atoms-composer.json
+     * @param list<string>                                $prunedDataFiles
+     *        bundle-relative vendor files that LOOK like runtime data
+     *        (.json/.txt/.csv/…) but were pruned by the ship rule (.php +
+     *        LICENSE only) — surfaced so a package that reads one at runtime
+     *        fails with a named cause at build output, not a bare guest error
      */
     public function __construct(
         public readonly array $entries,
         public readonly array $packages,
         public readonly bool $wroteLock,
+        public readonly array $prunedDataFiles = [],
     ) {
     }
 }

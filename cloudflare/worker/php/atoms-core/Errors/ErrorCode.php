@@ -75,4 +75,5 @@ enum ErrorCode: string
     case AtomJobConstructedInAtom = 'ATOMS-E104';
     case SharedSecretMissing = 'ATOMS-E105';
     case SchemaBuilderUnavailable = 'ATOMS-E106';
+    case FastBuildWithDependencies = 'ATOMS-E107';
 }

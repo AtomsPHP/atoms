@@ -496,6 +496,14 @@
             "fix": "Ship DDL as Atom migrations (app/Atoms/<Atom>/migrations/NNN_*.sql or .php) — they run at activation, tracked in PRAGMA user_version. The atoms/database-illuminate bridge serves queries and models only, never DDL.",
             "severity": "error",
             "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E107",
+            "title": "Fast build cannot ship declared dependencies",
+            "message": "`atoms build --fast` skips the vendor stage, but atoms-composer.json declares {count} package(s); the bundle would fail at runtime when an Atom first touches one.",
+            "fix": "Drop --fast: with an unchanged atoms-composer.lock the vendor stage resolves offline from .atoms/vendor-cache, so a full build costs no network and no composer run. Or remove the requires from atoms-composer.json. For a fast no-bundle check, use `atoms validate`.",
+            "severity": "error",
+            "phase": "build"
         }
     ]
 }

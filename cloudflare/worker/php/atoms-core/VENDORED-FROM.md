@@ -26,6 +26,7 @@ reason the Cloudflare MVP can claim the real ABI runs inside the guest.
 | Re-verified | 2026-08-17, comment-only note of the migration-payload invariant — `Migrations/MigrationEntry.php` gains a constructor docblock stating that exactly one of `$sql`/`$phpFile` must be set (unenforced: the constructor is public ABI), and `Migrations/Migrator.php` a comment on why its `?->` is reachable only for an entry violating that. No behavioural change. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-17, comment-only note of the migration-payload invariant — `Migrations/MigrationEntry.php` gains a constructor docblock stating that exactly one of `$sql`/`$phpFile` must be set (unenforced: the constructor is public ABI), and `Migrations/Migrator.php` a comment on why its `?->` is reachable only for an entry violating that. No behavioural change. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-30, on the database-illuminate bridge and vendor-shipping build — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E079 added: vendor dependency resolution failed, raised by the CLI's build vendor stage; ATOMS-E106 added: schema builder not available on the Atom database connection, raised by the atoms/database-illuminate bridge). Nothing in the guest raises either; the copy carries them because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
+| Re-verified | 2026-08-30, on the fast-build refusal — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E107 added: fast build cannot ship declared dependencies, raised by the CLI's Builder when `--fast` meets a non-empty atoms-composer.json). Nothing in the guest raises it; the copy carries it because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -103,7 +104,7 @@ efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/Met
 7c996f6c31cff9bf210040f311bb534a140e79ae3c62b721c6266ad6d78353e2  Errors/AtomsError.php
 0b4bfcf9ea74ed277614139157b03696f4eae42dc85f420120f96663cf654283  Errors/CatalogEntry.php
 3d1a122b24f6e3dd88104816b2b3b96b846690a9acd9316cd142d16afb71c411  Errors/ErrorCatalog.php
-43df2aa90e17e51a0289e7ece58cd84b00970ceb017f95b1c2af2521dfcd3af8  Errors/ErrorCode.php
+825b602772a7bf2142352f79f477d3037ee4b24e4b38b4b48b243805e7e6200c  Errors/ErrorCode.php
 e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Migration.php
 cc9106ddfbb2c70523c404a83855fbb90c49f453e8d2e2314c4af94085202cde  Migrations/MigrationEntry.php
 addfe71f9472e7f2e76422227ef06586818b546e09842cdcba8e8a97a1dcd690  Migrations/MigrationSet.php
@@ -117,7 +118,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
 a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
 b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
-178b5aa91243e68875dcc8ba155a8c885b568d25b72e1fad160fd68f33ad541f  resources/errors.json
+3a8676aba4c347f83cddf02d281a3c9484f8f9a98d8cab135a24b5056266c350  resources/errors.json
 ```
 
 Verify with, from this directory:

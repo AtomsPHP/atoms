@@ -608,8 +608,15 @@ them:
   isolation returns as future hardening only as a whole-bundle rewrite
   (vendor **and** app together). The manifest's `toolchain.scoper_prefix`
   keeps its original meaning: a content fingerprint of the customer tree.
-- `--fast` skips the stage entirely; the bundle then ships no vendor code and
-  declares no `vendor` key.
+- `--fast` skips the stage — legal only when `atoms-composer.json` declares
+  nothing. With dependencies declared it refuses (**ATOMS-E107**): a
+  vendor-less bundle would deploy cleanly and fatal in the guest on the first
+  vendor class an Atom touches, and the cache already makes the full build
+  composer-free. `atoms validate` remains the fast no-bundle check.
+- Files a package might read as runtime data (`.json`, `.txt`, `.csv`, …) are
+  pruned by the ship rule and named in the build output, so a package that
+  needs one fails with a visible cause at build time rather than a bare
+  `file_get_contents` error in the guest.
 
 `atoms validate` runs no vendor stage, so its manifest (and manifest hash)
 describes the customer tree only; `atoms build`'s manifest is the one with

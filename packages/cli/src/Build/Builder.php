@@ -9,14 +9,16 @@ use Atoms\Cli\Config\AtomsJson;
 use Atoms\Cli\Process\ProcessRunner;
 use Atoms\Cli\Process\SymfonyProcessRunner;
 use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 
 /**
  * `atoms build`: validate, resolve and bundle the approved vendor packages
  * ({@see VendorStage}), then write a deterministic content-addressed bundle.
- * `--fast` skips the vendor stage (the pre-commit / no-dependencies path); a
- * project with no approved dependencies also skips it because there is
- * nothing to resolve.
+ * `--fast` skips the vendor stage — legal only for a project with no
+ * atoms-composer.json dependencies (there is nothing to resolve); with
+ * dependencies declared it refuses (ATOMS-E107) rather than emit a bundle
+ * that would fatal in the guest.
  */
 final class Builder
 {
@@ -38,7 +40,20 @@ final class Builder
 
         $composer = AtomsComposerJson::locate($config->rootDir);
         $vendor = null;
-        if (!$fast && $composer->requiredPackages() !== []) {
+        if ($composer->requiredPackages() !== []) {
+            // A --fast bundle with declared dependencies would deploy cleanly
+            // and fatal in the guest on the first vendor class an Atom
+            // touches — a runtime failure for a fact known right here. Refuse
+            // instead; the vendor cache makes the full build cheap anyway.
+            if ($fast) {
+                throw new AtomsError(
+                    ErrorCode::FastBuildWithDependencies,
+                    ErrorCatalog::format(ErrorCode::FastBuildWithDependencies, [
+                        'count' => (string) \count($composer->requiredPackages()),
+                    ]),
+                );
+            }
+
             $stage = new VendorStage($this->runner ?? new SymfonyProcessRunner());
             $vendor = $stage->resolve($config->rootDir);
         }

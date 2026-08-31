@@ -69,6 +69,12 @@ final class DeployCommand extends AbstractCommand
                 $result = $this->builder->build($config, $config->rootDir . '/.atoms/build');
                 $bundlePath = $result->bundlePath;
                 $manifestPath = $result->manifestPath;
+                if ($result->vendor !== null && $result->vendor->prunedDataFiles !== []) {
+                    $output->writeln(sprintf(
+                        '<comment>note: %d vendor data-looking file(s) were pruned from the bundle and will not exist in the guest — run `atoms build` for the list.</comment>',
+                        \count($result->vendor->prunedDataFiles),
+                    ));
+                }
             }
 
             $output->writeln('Staging bundle into ' . $target->workerDir . '…');

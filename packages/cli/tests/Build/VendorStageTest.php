@@ -6,6 +6,7 @@ namespace Atoms\Cli\Tests\Build;
 
 use Atoms\Cli\Build\VendorStage;
 use Atoms\Cli\Process\ProcessResult;
+use Atoms\Cli\Tests\Support\CannedComposer;
 use Atoms\Cli\Tests\Support\FakeProcessRunner;
 use Atoms\Cli\Tests\TestCase;
 use Atoms\Errors\AtomsError;
@@ -13,59 +14,10 @@ use Atoms\Errors\ErrorCode;
 
 final class VendorStageTest extends TestCase
 {
-    /**
-     * A FakeProcessRunner whose `composer install` materializes a canned
-     * one-package vendor tree (class + function file + LICENSE + a readme
-     * that must be pruned) with real Composer-shaped autoload output, in
-     * whatever cwd the stage hands it.
-     */
-    private function fakeComposer(): FakeProcessRunner
-    {
-        $runner = new FakeProcessRunner(onPath: ['composer' => '/usr/bin/composer']);
-        $runner->resultFor = static function (array $command, ?string $cwd): ?ProcessResult {
-            if ($command[0] !== 'composer' || $cwd === null) {
-                return null;
-            }
-
-            $v = $cwd . '/vendor';
-            foreach ([$v . '/acme/lib/src', $v . '/composer'] as $dir) {
-                mkdir($dir, 0777, true);
-            }
-            file_put_contents($cwd . '/composer.lock', "{\"canned\": true}\n");
-            file_put_contents(
-                $v . '/acme/lib/src/Greeter.php',
-                "<?php\n\nnamespace Acme\\Lib;\n\nfinal class Greeter\n{\n    public static function greet(): string\n    {\n        return 'hello from vendor';\n    }\n}\n",
-            );
-            file_put_contents(
-                $v . '/acme/lib/functions.php',
-                "<?php\n\nif (!function_exists('acme_vendor_greet')) {\n    function acme_vendor_greet(): string\n    {\n        return 'hello from a function file';\n    }\n}\n",
-            );
-            file_put_contents($v . '/acme/lib/LICENSE', "MIT\n");
-            file_put_contents($v . '/acme/lib/readme.md', "not shipped\n");
-            file_put_contents(
-                $v . '/composer/autoload_classmap.php',
-                "<?php\n\n\$vendorDir = dirname(__DIR__);\n\$baseDir = dirname(\$vendorDir);\n\nreturn [\n    'Acme\\\\Lib\\\\Greeter' => \$vendorDir . '/acme/lib/src/Greeter.php',\n];\n",
-            );
-            file_put_contents(
-                $v . '/composer/autoload_files.php',
-                "<?php\n\n\$vendorDir = dirname(__DIR__);\n\$baseDir = dirname(\$vendorDir);\n\nreturn [\n    'deadbeef' => \$vendorDir . '/acme/lib/functions.php',\n];\n",
-            );
-            file_put_contents(
-                $v . '/composer/installed.json',
-                "{\"packages\": [{\"name\": \"acme/lib\", \"version\": \"1.2.3\"}]}\n",
-            );
-            file_put_contents($v . '/autoload.php', "<?php // composer runtime, must be pruned\n");
-
-            return new ProcessResult(0, '', '');
-        };
-
-        return $runner;
-    }
-
     public function testResolveShipsPhpAndLicensesPrunesTheRestAndWritesTheLockBack(): void
     {
         $root = $this->tempCopy('sample-app');
-        $tree = (new VendorStage($this->fakeComposer()))->resolve($root);
+        $tree = (new VendorStage(CannedComposer::runner()))->resolve($root);
 
         $names = array_column($tree->entries, 'name');
         self::assertContains('vendor/acme/lib/src/Greeter.php', $names);
@@ -89,7 +41,7 @@ final class VendorStageTest extends TestCase
     public function testTheGeneratedAutoloadFileActuallyLoadsTheTree(): void
     {
         $root = $this->tempCopy('sample-app');
-        $tree = (new VendorStage($this->fakeComposer()))->resolve($root);
+        $tree = (new VendorStage(CannedComposer::runner()))->resolve($root);
 
         $mount = $this->freshDir();
         foreach ($tree->entries as $entry) {
@@ -111,7 +63,7 @@ final class VendorStageTest extends TestCase
     public function testASecondResolveWithTheLockPresentComesFromTheCacheWithoutComposer(): void
     {
         $root = $this->tempCopy('sample-app');
-        $runner = $this->fakeComposer();
+        $runner = CannedComposer::runner();
         $stage = new VendorStage($runner);
 
         $first = $stage->resolve($root);
@@ -126,6 +78,33 @@ final class VendorStageTest extends TestCase
         );
         self::assertSame($first->packages, $second->packages);
         self::assertFalse($second->wroteLock);
+    }
+
+    public function testPrunedDataLookingFilesAreSurfacedByNameAndSurviveTheCache(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $runner = CannedComposer::runner([
+            'acme/lib/data/tlds.txt' => "com\norg\n",
+            'acme/lib/data/rules.json' => "{}\n",
+            'acme/lib/composer.json' => "{}\n",
+            'acme/lib/CHANGELOG.md' => "history\n",
+        ]);
+        $stage = new VendorStage($runner);
+
+        $tree = $stage->resolve($root);
+
+        // Data-looking prunes are named; metadata/docs prunes are not noise.
+        self::assertSame(
+            ['vendor/acme/lib/data/rules.json', 'vendor/acme/lib/data/tlds.txt'],
+            $tree->prunedDataFiles,
+        );
+        self::assertNotContains('vendor/acme/lib/data/tlds.txt', array_column($tree->entries, 'name'));
+
+        // A cache hit reports the same prunes — the notice must not vanish
+        // just because composer did not run this time.
+        $cached = $stage->resolve($root);
+        self::assertFalse($cached->wroteLock);
+        self::assertSame($tree->prunedDataFiles, $cached->prunedDataFiles);
     }
 
     public function testAFailedComposerInstallRefusesWithTheCatalogCode(): void

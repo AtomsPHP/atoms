@@ -7,51 +7,27 @@ namespace Atoms\Cli\Tests\Build;
 use Atoms\Cli\Build\Builder;
 use Atoms\Cli\Build\VendorStage;
 use Atoms\Cli\Config\AtomsJson;
-use Atoms\Cli\Process\ProcessResult;
-use Atoms\Cli\Tests\Support\FakeProcessRunner;
+use Atoms\Cli\Tests\Support\CannedComposer;
 use Atoms\Cli\Tests\TestCase;
+use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCode;
 
 final class BuilderVendorTest extends TestCase
 {
-    private function fakeComposer(): FakeProcessRunner
-    {
-        $runner = new FakeProcessRunner(onPath: ['composer' => '/usr/bin/composer']);
-        $runner->resultFor = static function (array $command, ?string $cwd): ?ProcessResult {
-            if ($command[0] !== 'composer' || $cwd === null) {
-                return null;
-            }
-
-            $v = $cwd . '/vendor';
-            mkdir($v . '/acme/lib', 0777, true);
-            mkdir($v . '/composer', 0777, true);
-            file_put_contents($cwd . '/composer.lock', "{\"canned\": true}\n");
-            file_put_contents($v . '/acme/lib/Widget.php', "<?php\n\nnamespace Acme\\Lib;\n\nfinal class Widget\n{\n}\n");
-            file_put_contents(
-                $v . '/composer/autoload_classmap.php',
-                "<?php\n\n\$vendorDir = dirname(__DIR__);\n\nreturn ['Acme\\\\Lib\\\\Widget' => \$vendorDir . '/acme/lib/Widget.php'];\n",
-            );
-            file_put_contents($v . '/composer/installed.json', "{\"packages\": [{\"name\": \"acme/lib\", \"version\": \"2.0.0\"}]}\n");
-
-            return new ProcessResult(0, '', '');
-        };
-
-        return $runner;
-    }
-
     public function testAFullBuildShipsTheVendorTreeAndRecordsItInTheManifest(): void
     {
         $root = $this->tempCopy('sample-app');
         $config = AtomsJson::load($root . '/atoms.json');
 
-        $result = (new Builder(runner: $this->fakeComposer()))->build($config, $this->freshDir());
+        $result = (new Builder(runner: CannedComposer::runner()))->build($config, $this->freshDir());
 
         $tar = gzdecode((string) file_get_contents($result->bundlePath));
         self::assertIsString($tar);
-        self::assertStringContainsString('vendor/acme/lib/Widget.php', $tar);
+        self::assertStringContainsString('vendor/acme/lib/src/Greeter.php', $tar);
         self::assertStringContainsString('vendor/atoms-vendor-autoload.php', $tar);
 
         self::assertSame(VendorStage::AUTOLOAD_PATH, $result->manifest['vendor']['autoload'] ?? null);
-        self::assertSame(['acme/lib' => '2.0.0'], $result->manifest['vendor']['packages'] ?? null);
+        self::assertSame(['acme/lib' => '1.2.3'], $result->manifest['vendor']['packages'] ?? null);
         self::assertNotNull($result->vendor);
         self::assertTrue($result->vendor->wroteLock);
     }
@@ -60,7 +36,7 @@ final class BuilderVendorTest extends TestCase
     {
         $root = $this->tempCopy('sample-app');
         $config = AtomsJson::load($root . '/atoms.json');
-        $runner = $this->fakeComposer();
+        $runner = CannedComposer::runner();
         $builder = new Builder(runner: $runner);
 
         $one = $builder->build($config, $this->freshDir());
@@ -75,12 +51,29 @@ final class BuilderVendorTest extends TestCase
         self::assertSame($runsAfterFirst, \count($runner->runs), 'the second build resolves from the cache');
     }
 
-    public function testAFastBuildShipsNoVendorAndDeclaresNoneInTheManifest(): void
+    public function testAFastBuildWithDeclaredDependenciesRefusesWithTheCatalogCode(): void
     {
         $root = $this->tempCopy('sample-app');
         $config = AtomsJson::load($root . '/atoms.json');
+        $runner = CannedComposer::runner();
 
-        $result = (new Builder(runner: $this->fakeComposer()))->build($config, $this->freshDir(), fast: true);
+        try {
+            (new Builder(runner: $runner))->build($config, $this->freshDir(), fast: true);
+            self::fail('--fast with a non-empty atoms-composer.json must refuse');
+        } catch (AtomsError $e) {
+            self::assertSame(ErrorCode::FastBuildWithDependencies, $e->errorCode);
+            self::assertStringContainsString('ATOMS-E107', $e->getMessage());
+            self::assertStringContainsString('1 package(s)', $e->getMessage());
+        }
+
+        self::assertSame([], $runner->runs, 'the refusal happens before any subprocess');
+    }
+
+    public function testAFastBuildWithNoDependenciesStillWorksAndShipsNoVendor(): void
+    {
+        $config = AtomsJson::load($this->fixtureDir('ws-app') . '/atoms.json');
+
+        $result = (new Builder())->build($config, $this->freshDir(), fast: true);
 
         self::assertNull($result->vendor);
         self::assertArrayNotHasKey('vendor', $result->manifest);

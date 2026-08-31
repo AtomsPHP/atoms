@@ -21,6 +21,12 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   unprefixed (prefixing vendor without rewriting the customer's call sites
   would break the app; the guest has no co-tenant), documented in
   `docs/cloudflare-toolchain.md` §3.
+- **Added:** `atoms build --fast` refuses (`ATOMS-E107`) when
+  `atoms-composer.json` declares packages — a vendor-less bundle would deploy
+  cleanly and fatal in the guest at the first vendor class. The vendor stage
+  also names any pruned data-looking files (`.json`, `.txt`, `.csv`, …) in
+  the build output, since the bundle ships vendor `.php` and LICENSE files
+  only.
 - **Added:** The Worker honours the manifest's `vendor.autoload` key: the
   vendor subtree is excluded from the line-scanning bundle autoloader and the
   declared classmap loader is required at activation (conformance check 45;
