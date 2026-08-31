@@ -58,8 +58,8 @@ not direction.
    the bundle bridge between `atoms build` and the Worker. M4 inherits all
    three decisions, so read it before changing any of them.
 
-The Fly-era platform HTTP contract v1 (`/v1/{customer}/invoke/...`, anycast
-edge, Atoms-issued API keys) is retired and archived in the internal decision
+The retired hosted platform's HTTP contract v1 (`/v1/{customer}/invoke/...`,
+anycast edge, Atoms-issued API keys) is archived in the internal decision
 records. Nothing implements it since M3; do not cite it as the transport.
 
 ## Hard rules — the PHP packages
