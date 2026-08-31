@@ -7,10 +7,10 @@ namespace Atoms\Cli\Build;
 use PhpParser\NodeTraverser;
 
 /**
- * Stages 2+3: compute the transitive symbol closure of every Atom class and
- * every Shared DTO, classify each referenced symbol, and collect the boundary
- * violations. Recursion follows only bundled (Atom/Shared) classes — Methods and
- * AtomJob code stays in the monolith and is never walked.
+ * Stages 2+3: compute the transitive symbol closure of every bundled class
+ * (Atom, Shared DTO, Support), classify each referenced symbol, and collect
+ * the boundary violations. Recursion follows only bundled classes — Methods
+ * and AtomJob code stays in the monolith and is never walked.
  */
 final class ClosureWalker
 {

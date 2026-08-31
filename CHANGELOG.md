@@ -3,6 +3,19 @@
 All notable changes to Atoms are documented here. The eight Composer packages,
 the Cloudflare runtime, and deploy Action use one coordinated version.
 
+## [Unreleased]
+
+- **Added:** support classes — a sanctioned home for World-A helpers that ship
+  with an Atom without being Atoms themselves (an Eloquent model, a value
+  object, a pure service). Any class under an Atom's `support/` directory
+  (sibling to its `migrations/`, e.g. `app/Atoms/GameRoom/support/`) ships in
+  the bundle and follows the same import rules as Atom code. Previously the
+  only arrangement that built was declaring the helper inside the Atom's own
+  file.
+- **Fixed:** referencing an unclassifiable class (`ATOMS-E001`) from Atom code
+  now fails the build with `ATOMS-E012`. It used to pass validation and fatal
+  in the guest with class-not-found, because the file never ships.
+
 ## [0.4.0] - 2026-08-31
 
 - **Added:** `atoms/database-illuminate`: the Laravel query builder and Eloquent

@@ -24,6 +24,7 @@ final class DiscoveryTest extends TestCase
         self::assertSame(ClassKind::Methods, $kinds['App\\Atoms\\GameRoom\\Methods']);
         self::assertSame(ClassKind::Job, $kinds['App\\Atoms\\Jobs\\RecordGameResult']);
         self::assertSame(ClassKind::Shared, $kinds['App\\Atoms\\Shared\\PlayerSnapshot']);
+        self::assertSame(ClassKind::Support, $kinds['App\\Atoms\\GameRoom\\Support\\ScoreBoard']);
         self::assertSame([], $result->violations);
     }
 

@@ -27,6 +27,7 @@ reason the Cloudflare runtime can claim the real ABI runs inside the guest.
 | Re-verified | 2026-08-17, comment-only note of the migration-payload invariant — `Migrations/MigrationEntry.php` gains a constructor docblock stating that exactly one of `$sql`/`$phpFile` must be set (unenforced: the constructor is public ABI), and `Migrations/Migrator.php` a comment on why its `?->` is reachable only for an entry violating that. No behavioural change. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-30, on the database-illuminate bridge and vendor-shipping build — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E079 added: vendor dependency resolution failed, raised by the CLI's build vendor stage; ATOMS-E106 added: schema builder not available on the Atom database connection, raised by the atoms/database-illuminate bridge). Nothing in the guest raises either; the copy carries them because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-30, on the fast-build refusal — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E107 added: fast build cannot ship declared dependencies, raised by the CLI's Builder when `--fast` meets a non-empty atoms-composer.json). Nothing in the guest raises it; the copy carries it because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
+| Re-verified | 2026-08-31, on the support-class classification — `resources/errors.json` re-vendored (E001 and E012 reworded: both now name the Atom's `support/` directory, the sanctioned home for World-A helper classes shipping with an Atom). No code added or removed; still 24 files total, the other 23 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -123,7 +124,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
 a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
 b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
-3a8676aba4c347f83cddf02d281a3c9484f8f9a98d8cab135a24b5056266c350  resources/errors.json
+485fc2c05376570b89b3fea49c1c517ca86984a95206774589aef53b7c40a7da  resources/errors.json
 ```
 
 Verify with, from this directory:
