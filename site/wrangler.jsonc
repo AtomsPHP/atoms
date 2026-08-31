@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "atoms-site",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-08-31",
+  // The site is reachable only at its own domains, never at a workers.dev
+  // hostname that would duplicate it as a second indexable origin.
+  "workers_dev": false,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // Every request reaches worker/index.js first: the www redirect and the
+    // markdown content negotiation both have to see requests for paths that
+    // would otherwise be served straight off the asset server.
+    "run_worker_first": true
+  },
+  "routes": [
+    { "pattern": "atomsphp.dev", "custom_domain": true },
+    { "pattern": "www.atomsphp.dev", "custom_domain": true }
+  ],
+  "observability": { "enabled": true }
+}

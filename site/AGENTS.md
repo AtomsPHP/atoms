@@ -26,9 +26,12 @@ part in the coordinated release flow. It ships when its content ships.
   plain code from the same strings.
 - `src/pages/index.md.ts` — the homepage as markdown for agents, built to
   `/index.md` from the same content collection and samples.
-- `functions/_middleware.js` — Cloudflare Pages middleware: a request for `/`
-  with `Accept: text/markdown` is answered with `/index.md` (`Vary: Accept`).
-  Deploying anywhere other than Pages needs an equivalent at that edge.
+- `worker/index.js` — the deployed edge, a Cloudflare Worker in front of the
+  static build: it redirects any `www.` hostname to the bare apex, and answers
+  a request for `/` carrying `Accept: text/markdown` with `/index.md`
+  (`Vary: Accept`). `wrangler.jsonc` binds `dist/` as its assets and sets
+  `run_worker_first`, without which neither behaviour would see a request that
+  matches a built file. Deploying anywhere else needs equivalents at that edge.
 - `src/styles/global.css` — the design system: paper/ink tokens as CSS custom
   properties on `:root`, type scale, and every component style. Modern vanilla
   CSS only — no Tailwind, no preprocessor.
@@ -59,9 +62,14 @@ part in the coordinated release flow. It ships when its content ships.
 
 ```sh
 npm ci          # install
-npm run dev     # local dev server
+npm run dev     # local Astro dev server
 npm run build   # astro check, then static build into dist/
+npx wrangler dev  # the built site behind worker/index.js, on 127.0.0.1:8787
+npm run deploy    # build, then deploy the Worker and its assets
 ```
 
 The build needs no Cloudflare account, no credentials, and no cross-repo
-fetches.
+fetches; only `npm run deploy` does. The Worker is `atoms-site`, serving
+`atomsphp.dev` and `www.atomsphp.dev` as custom domains declared in
+`wrangler.jsonc` — it is deployed straight from a working copy and takes no
+part in the coordinated release flow.
