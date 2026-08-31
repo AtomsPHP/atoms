@@ -8,7 +8,7 @@ use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 use Atoms\PHPStan\AtomsRulesConfig;
 use Atoms\PHPStan\Rules\AtomTimeWaitLoopRule;
-use Atoms\PHPStan\WorldClassifier;
+use Atoms\PHPStan\SideClassifier;
 use PHPStan\Rules\Rule;
 use PHPStan\Testing\RuleTestCase;
 
@@ -24,7 +24,7 @@ final class AtomTimeWaitLoopRuleTest extends RuleTestCase
             sharedPaths: ['tests/Fixtures/Shared'],
         );
 
-        return new AtomTimeWaitLoopRule(new WorldClassifier($config), self::createReflectionProvider());
+        return new AtomTimeWaitLoopRule(new SideClassifier($config), self::createReflectionProvider());
     }
 
     public function testFlagsEveryWaitLoopShape(): void
@@ -61,13 +61,13 @@ final class AtomTimeWaitLoopRuleTest extends RuleTestCase
         $this->analyse([__DIR__ . '/../Fixtures/Clock/CleanClockAtom.php'], []);
     }
 
-    public function testWorldBSleepMethodsHasNoViolations(): void
+    public function testAppSideSleepMethodsHasNoViolations(): void
     {
         $this->analyse([__DIR__ . '/../Fixtures/Clock/SleepMethods.php'], []);
     }
 
     /**
-     * A WORLD_A namespace that defines its own time()/microtime()/hrtime()/
+     * An ATOM_SIDE namespace that defines its own time()/microtime()/hrtime()/
      * gettimeofday() functions and its own DateTimeImmutable class, and reads
      * each unqualified in a wait-loop condition, must produce zero errors:
      * unqualified function calls resolve to the namespace-local function

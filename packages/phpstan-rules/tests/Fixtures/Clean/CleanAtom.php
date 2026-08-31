@@ -7,7 +7,7 @@ namespace Atoms\PHPStan\Tests\Fixtures\Clean;
 use Atoms\Atom;
 
 /**
- * A fully compliant WORLD_A Atom exercising db(), a Payload DTO param/return,
+ * A fully compliant ATOM_SIDE Atom exercising db(), a Payload DTO param/return,
  * DateTimeImmutable, a BackedEnum, $this->app(), and dispatch() — asserted to
  * produce zero errors from every rule in this package.
  *

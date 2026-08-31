@@ -39,7 +39,7 @@ final class DeterminismTest extends TestCase
         );
     }
 
-    public function testBundleContainsOnlyWorldAAndVendorFiles(): void
+    public function testBundleContainsOnlyAtomSideAndVendorFiles(): void
     {
         $root = $this->tempCopy('sample-app');
         $result = (new Builder(runner: CannedComposer::runner()))

@@ -8,8 +8,8 @@ use Atoms\AtomJob;
 use Atoms\AtomMethods;
 use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
-use Atoms\PHPStan\World;
-use Atoms\PHPStan\WorldClassifier;
+use Atoms\PHPStan\Side;
+use Atoms\PHPStan\SideClassifier;
 use Atoms\Serialization\Payload;
 use PhpParser\Node;
 use PhpParser\Node\ComplexType;
@@ -32,7 +32,7 @@ use PHPStan\Rules\RuleErrorBuilder;
  * Checks every public RPC signature against the serialization type algebra
  * (docs/conventions.md "Serialization type algebra"):
  *
- *  - WORLD_A public methods (the Atom's RPC surface; constructors are final
+ *  - ATOM_SIDE public methods (the Atom's RPC surface; constructors are final
  *    ABI on Atoms\Atom and are never overridable, so they are skipped)
  *  - AtomMethods public methods (the $this->app() callback surface)
  *  - AtomJob's constructor only (its promoted properties ARE the dispatch
@@ -58,7 +58,7 @@ final class BoundarySignatureRule implements Rule
     private const DOCTRINE_NAMESPACE_PREFIX = 'Doctrine\ORM\\';
 
     public function __construct(
-        private readonly WorldClassifier $classifier,
+        private readonly SideClassifier $classifier,
         private readonly ReflectionProvider $reflectionProvider,
     ) {
     }
@@ -75,12 +75,12 @@ final class BoundarySignatureRule implements Rule
     public function processNode(Node $node, Scope $scope): array
     {
         $classReflection = $node->getClassReflection();
-        $world = $this->classifier->classify($classReflection, $scope);
+        $side = $this->classifier->classify($classReflection, $scope);
 
         $methodNode = $node->getOriginalNode();
         $isConstructor = strtolower($methodNode->name->toString()) === '__construct';
 
-        if (!$this->shouldCheck($world, $classReflection, $methodNode, $isConstructor)) {
+        if (!$this->shouldCheck($side, $classReflection, $methodNode, $isConstructor)) {
             return [];
         }
 
@@ -113,9 +113,9 @@ final class BoundarySignatureRule implements Rule
         return $errors;
     }
 
-    private function shouldCheck(World $world, ClassReflection $classReflection, ClassMethod $methodNode, bool $isConstructor): bool
+    private function shouldCheck(Side $side, ClassReflection $classReflection, ClassMethod $methodNode, bool $isConstructor): bool
     {
-        if ($world === World::WorldA) {
+        if ($side === Side::AtomSide) {
             // Atom::__construct is final ABI; subclasses cannot redeclare it.
             if ($isConstructor) {
                 return false;
@@ -124,7 +124,7 @@ final class BoundarySignatureRule implements Rule
             return $methodNode->isPublic();
         }
 
-        if ($world === World::WorldB) {
+        if ($side === Side::AppSide) {
             if ($classReflection->isSubclassOf(AtomJob::class)) {
                 return $isConstructor;
             }

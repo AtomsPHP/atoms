@@ -9,7 +9,7 @@ use Atoms\AtomMethods;
 use Atoms\Examples\PlainPhp\Atoms\GameRoom;
 
 /**
- * World B for {@see GameRoom}. The `#[MethodsFor]` attribute is what lets a
+ * The App side of {@see GameRoom}. The `#[MethodsFor]` attribute is what lets a
  * single `$resolver->registerMethodsClass(Methods::class)` call resolve the
  * wire type `"GameRoom"` (the Atom class basename the platform sends) back to
  * this class — see `examples/plain-php/README.md` §Register your Methods

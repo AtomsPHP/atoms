@@ -13,7 +13,7 @@ namespace Atoms\PHPStan\Tests\Fixtures\Clock\Shadow;
 use Atoms\Atom;
 
 /**
- * WORLD_A Atom in a namespace that defines its own sleep()/usleep()/
+ * ATOM_SIDE Atom in a namespace that defines its own sleep()/usleep()/
  * time_nanosleep()/time_sleep_until() functions below and calls every one of
  * them unqualified. PHP resolves an unqualified call to a namespace-local
  * function of the same name before ever falling back to the global built-in

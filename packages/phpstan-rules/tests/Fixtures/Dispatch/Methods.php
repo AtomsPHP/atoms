@@ -7,7 +7,7 @@ namespace Atoms\PHPStan\Tests\Fixtures\Dispatch;
 use Atoms\AtomMethods;
 use Atoms\PHPStan\Tests\Fixtures\Clean\RecordResult;
 
-/** World B: constructing a job in the monolith is ordinary code. */
+/** App-side: constructing a job in the monolith is ordinary code. */
 final class Methods extends AtomMethods
 {
     public function build(string $id): RecordResult

@@ -13,7 +13,7 @@ use PhpParser\Node\Stmt\TraitUse;
 /**
  * Stage 1 of the extraction pipeline: enumerate every `.php` class under the
  * Atoms path and classify it as an Atom, Methods, AtomJob, Shared DTO, a
- * Support class (World-A helper under an Atom's `support/` directory), or an
+ * Support class (Atom-side helper under an Atom's `support/` directory), or an
  * unclassifiable file (ATOMS-E001). Two files declaring one FQCN is
  * ATOMS-E002. Purely static — files are parsed, never included.
  */
@@ -156,7 +156,7 @@ final class Discovery
 
     /**
      * The `support/` directories of every discovered Atom — the sanctioned home
-     * for World-A helper classes (an Eloquent model, a value object, a pure
+     * for Atom-side helper classes (an Eloquent model, a value object, a pure
      * service) that ship with the Atom but are not Atoms themselves. Sibling to
      * the Atom's migrations directory: `app/Atoms/GameRoom/support/` for
      * `app/Atoms/GameRoom.php`. Computed before the classification pass because

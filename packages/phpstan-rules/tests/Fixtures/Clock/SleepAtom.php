@@ -7,7 +7,7 @@ namespace Atoms\PHPStan\Tests\Fixtures\Clock;
 use Atoms\Atom;
 
 /**
- * WORLD_A Atom exercising every ATOMS-E101 sleep-family function. Asserted to
+ * ATOM_SIDE Atom exercising every ATOMS-E101 sleep-family function. Asserted to
  * produce exactly five AtomSleepCallRule errors, one per call below. The
  * time() nested inside time_sleep_until()'s argument is not itself a
  * sleep-family call and must not add an extra error. fullyQualifiedStillFlags()

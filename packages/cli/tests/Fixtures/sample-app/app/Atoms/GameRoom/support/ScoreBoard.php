@@ -7,7 +7,7 @@ namespace App\Atoms\GameRoom\Support;
 use Ramsey\Uuid\Uuid;
 
 /**
- * World A. A support class: ships with GameRoom, runs only in the Atoms
+ * Atom-side. A support class: ships with GameRoom, runs only in the Atoms
  * runtime, and may use approved vendor packages like Atom code.
  */
 final class ScoreBoard

@@ -5,7 +5,12 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
-- **Added:** support classes — a sanctioned home for World-A helpers that ship
+- **Changed:** terminology — the two worlds are now named **Atom-side** and
+  **App-side** in docs, scaffolding, agent skills, and the E001/E012/E016
+  catalog fix lines. In `atoms/phpstan-rules` the `World` enum is now `Side`
+  (`AtomSide`/`Shared`/`AppSide`/`Other`) and `WorldClassifier` is
+  `SideClassifier`.
+- **Added:** support classes — a sanctioned home for Atom-side helpers that ship
   with an Atom without being Atoms themselves (an Eloquent model, a value
   object, a pure service). Any class under an Atom's `support/` directory
   (sibling to its `migrations/`, e.g. `app/Atoms/GameRoom/support/`) ships in

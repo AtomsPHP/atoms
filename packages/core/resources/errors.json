@@ -5,7 +5,7 @@
             "code": "ATOMS-E001",
             "title": "Unclassifiable file under the Atoms path",
             "message": "File {file} under the Atoms path is neither an Atom, Methods, AtomJob, Shared DTO, support class, nor a migration.",
-            "fix": "Move non-Atoms code out of the Atoms path, make the class extend the appropriate atoms/core base class, or move a World-A helper into the Atom's support/ directory (e.g. app/Atoms/GameRoom/support/).",
+            "fix": "Move non-Atoms code out of the Atoms path, make the class extend the appropriate atoms/core base class, or move an Atom-side helper into the Atom's support/ directory (e.g. app/Atoms/GameRoom/support/).",
             "severity": "warning",
             "phase": "build"
         },
@@ -37,7 +37,7 @@
             "code": "ATOMS-E012",
             "title": "Monolith class referenced inside Atom code",
             "message": "Reference to monolith class {symbol} inside Atom code. Atom code ships to the platform; your application's classes do not.",
-            "fix": "Pass data across the boundary as a Shared DTO (implement Atoms\\Serialization\\Payload), call it via $this->app(), or move a World-A helper into the Atom's support/ directory.",
+            "fix": "Pass data across the boundary as a Shared DTO (implement Atoms\\Serialization\\Payload), call it via $this->app(), or move an Atom-side helper into the Atom's support/ directory.",
             "severity": "error",
             "phase": "build"
         },
@@ -69,7 +69,7 @@
             "code": "ATOMS-E016",
             "title": "Shared class contains behavior",
             "message": "Shared class {class} method {method} looks like behavior (I/O or side effects), not data.",
-            "fix": "Shared classes are DTOs. Move behavior to the Atom (World A) or a Methods class (World B).",
+            "fix": "Shared classes are DTOs. Move behavior to the Atom (Atom-side) or a Methods class (App-side).",
             "severity": "warning",
             "phase": "build"
         },

@@ -8,7 +8,7 @@ use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 use Atoms\PHPStan\AtomsRulesConfig;
 use Atoms\PHPStan\Rules\BoundaryFunctionCallRule;
-use Atoms\PHPStan\WorldClassifier;
+use Atoms\PHPStan\SideClassifier;
 use PHPStan\Rules\Rule;
 use PHPStan\Testing\RuleTestCase;
 
@@ -24,7 +24,7 @@ final class BoundaryFunctionCallRuleTest extends RuleTestCase
             sharedPaths: ['tests/Fixtures/Shared'],
         );
 
-        return new BoundaryFunctionCallRule(new WorldClassifier($config));
+        return new BoundaryFunctionCallRule(new SideClassifier($config));
     }
 
     public function testCleanAtomHasNoViolations(): void

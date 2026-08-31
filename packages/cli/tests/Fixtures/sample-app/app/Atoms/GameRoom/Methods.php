@@ -8,7 +8,7 @@ use App\Atoms\Shared\PlayerSnapshot;
 use Atoms\AtomMethods;
 
 /**
- * World B. Stays in the monolith; the Atom reaches it via $this->app(). Its
+ * App-side. Stays in the monolith; the Atom reaches it via $this->app(). Its
  * signatures are the contract the build validates.
  */
 final class Methods extends AtomMethods

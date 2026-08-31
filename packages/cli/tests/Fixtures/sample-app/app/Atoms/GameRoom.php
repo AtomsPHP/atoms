@@ -11,7 +11,7 @@ use Atoms\Atom;
 use Atoms\Websocket\Connection;
 
 /**
- * World A. A realistic Atom: SQLite writes via db(), a reverse RPC into its
+ * Atom-side. A realistic Atom: SQLite writes via db(), a reverse RPC into its
  * Methods class, a dispatched AtomJob, a support class, and a WebSocket
  * handler override.
  */

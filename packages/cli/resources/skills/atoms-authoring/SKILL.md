@@ -14,14 +14,14 @@ rule everything else follows:
 
 ## The two worlds
 
-- **World A — Atom classes** (`app/Atoms/GameRoom.php`) ship to the platform.
+- **Atom-side — Atom classes** (`app/Atoms/GameRoom.php`) ship to the platform.
   Inside them you may reference only: `atoms/core` (the `Atoms\*` API), classes
   under the Atoms path (other Atoms, `Shared/` DTOs), packages declared in
   `atoms-composer.json`, and the PHP stdlib available in the runtime image.
   No `App\Models\*`, no framework classes, no facades, no global helpers.
-- **World B — Methods and AtomJob classes** (`GameRoom/Methods.php`,
+- **App-side — Methods and AtomJob classes** (`GameRoom/Methods.php`,
   `Jobs/RecordGameResult.php`) stay in your monolith with full framework access.
-  The Atom reaches World B through `$this->app()->method(...)` and
+  The Atom reaches the App side through `$this->app()->method(...)` and
   `$this->dispatch(SomeJob::class, ['param' => $value])`. Only their
   **signatures** are the contract the build validates — the code never ships.
   Which is exactly why a job is dispatched BY NAME: the class is not on the
@@ -34,7 +34,7 @@ What an Atom may touch on `atoms/core` (frozen ABI):
 
 ```php
 $this->db();                       // Atoms\Database — pdo(), query(), execute(), transaction()
-$this->app()->getPlayer($id);      // reverse RPC into your Methods class (World B)
+$this->app()->getPlayer($id);      // reverse RPC into your Methods class (App-side)
 $this->dispatch(RecordGameResult::class, [  // hand a job to the monolith queue
     'ref' => $ref,                                // keys are the job's constructor
     'seat' => 1,                                  // parameter names

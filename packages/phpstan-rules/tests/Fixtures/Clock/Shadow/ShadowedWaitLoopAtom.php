@@ -10,7 +10,7 @@ namespace Atoms\PHPStan\Tests\Fixtures\Clock\Shadow;
 use Atoms\Atom;
 
 /**
- * WORLD_A Atom in a namespace that defines its own time()/microtime()/
+ * ATOM_SIDE Atom in a namespace that defines its own time()/microtime()/
  * hrtime()/gettimeofday() functions and its own DateTimeImmutable class
  * below, then reads every one of them unqualified in the same wait-loop
  * shapes WaitLoopAtom uses to trigger ATOMS-E102.
