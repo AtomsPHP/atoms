@@ -1,8 +1,8 @@
 # The Cloudflare toolchain: deploy, runtime auth, and the bundle bridge
 
 **Status:** normative for `atoms/cli`, `atoms/client` and `cloudflare/worker`
-as of M3. Supersedes `docs/platform/api-contract.md`, which describes the
-retired hosted platform — see the banner on that file.
+as of M3. Supersedes the Fly-era platform HTTP contract v1, which described
+the retired hosted platform and is archived in the internal decision records.
 
 Atoms deploys into **your** Cloudflare account. There is no Atoms-hosted
 service in any path described here, and Atoms never proxies or retains your

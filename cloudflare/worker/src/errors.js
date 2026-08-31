@@ -5,9 +5,9 @@
  * in this Worker fails silently: unimplemented surfaces throw `AtomsError` with
  * `not_supported`, never a no-op answer.
  *
- * The public envelope mirrors `atoms-framework/docs/platform/api-contract.md`:
- * `{"error":{"code","message","retryable"}}`. The turn-result codes defined by
- * the MVP spec (`atom_exception`, `method_not_found`, `atom_not_found`,
+ * The public envelope is `{"error":{"code","message","retryable"}}`, the
+ * shape carried over from the retired platform contract. The turn-result
+ * codes defined by the MVP spec (`atom_exception`, `method_not_found`, `atom_not_found`,
  * `internal`) are passed through verbatim so the client sees exactly what PHP
  * reported.
  */

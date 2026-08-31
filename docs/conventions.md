@@ -2,8 +2,7 @@
 
 This document pins every decision that more than one package depends on. If a
 package and this document disagree, the package is wrong. Read
-`docs/integration-plan.md` (the design rationale) and
-`docs/platform/api-contract.md` (the frozen platform HTTP contract) alongside it.
+`docs/integration-plan.md` (the design rationale) alongside it.
 
 ## Decisions already made (do not reopen)
 
@@ -225,8 +224,8 @@ Wire form of an AtomJob: `{"job": "FQCN", "args": {"param": value, ...}}`
 
 The Worker is single-tenant, so there is no customer prefix and no
 Atoms-operated service. `docs/cloudflare-toolchain.md` is normative for the
-decisions below; `docs/platform/api-contract.md` describes the retired Fly-era
-contract and is history only.
+decisions below; the retired Fly-era contract is history only, archived in
+the internal decision records.
 
 `atoms/client` calls the Worker:
 

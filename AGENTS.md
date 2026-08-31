@@ -18,8 +18,8 @@ parked inside a SQLite-backed Durable Object.
 | Directory | What it is | Guidance |
 |---|---|---|
 | `packages/` | The eight MIT PHP packages: `atoms/{core,client,laravel,symfony,testing,phpstan-rules,cli,database-illuminate}` | `docs/conventions.md` (normative) |
-| `cloudflare/` | The Worker runtime: `worker/` (host JS, `Atoms\Cf\` guest prelude, fixtures, conformance suite), `docs/` (MVP spec + summary), `corresponding-source/`, the licence files | `cloudflare/README.md`, `cloudflare/docs/mvp-spec.md` |
-| `docs/` | Framework docs: `conventions.md`, `cloudflare-toolchain.md`, `integration-plan.md`, `two-worlds.md`, `errors.md`, `platform/api-contract.md` (retired) | — |
+| `cloudflare/` | The Worker runtime: `worker/` (host JS, `Atoms\Cf\` guest prelude, fixtures, conformance suite), `docs/` (MVP spec + PDO matrix), `corresponding-source/`, the licence files | `cloudflare/README.md`, `cloudflare/docs/mvp-spec.md` |
+| `docs/` | Framework docs: `conventions.md`, `cloudflare-toolchain.md`, `integration-plan.md`, `two-worlds.md`, `errors.md` | — |
 | `action/` | The deploy GitHub Action (composite) | `action/README.md` |
 | `tests/` | Cross-package integration tests (`Atoms\Tests\Integration\`) | `docs/conventions.md` |
 | `site/` | The public marketing site (Astro; content in `src/pages/index.astro`, tokens in `src/styles/global.css`) | `site/AGENTS.md` |
@@ -54,10 +54,10 @@ not direction.
    single-tenant `/invoke/...`), how a PHP CLI drives a pinned Wrangler, and
    the bundle bridge between `atoms build` and the Worker. M4 inherits all
    three decisions, so read it before changing any of them.
-5. `docs/platform/api-contract.md` — **retired**, history only. It is the
-   Fly-era platform HTTP contract v1 (`/v1/{customer}/invoke/...`, anycast
-   edge, Atoms-issued API keys). Nothing implements it since M3. Do not cite
-   it as the transport.
+
+The Fly-era platform HTTP contract v1 (`/v1/{customer}/invoke/...`, anycast
+edge, Atoms-issued API keys) is retired and archived in the internal decision
+records. Nothing implements it since M3; do not cite it as the transport.
 
 ## Hard rules — the PHP packages
 

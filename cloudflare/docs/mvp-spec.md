@@ -768,9 +768,9 @@ them as plaintext `vars`.
 
 - `POST /invoke/:type/:id/:method` body `{"args":[...]}` →
   `200 {"result":..., "atom":{"type":...,"id":...}}` or
-  `4xx/5xx {"error":{"code","message","retryable"}}`. Mirrors the existing
-  platform invoke contract (`docs/platform/api-contract.md`)
-  minus the `/v1/{customer}` prefix — single-tenant Worker.
+  `4xx/5xx {"error":{"code","message","retryable"}}`. Mirrors the retired
+  Fly-era platform invoke contract minus the `/v1/{customer}` prefix —
+  single-tenant Worker.
 - `GET /healthz` → `{"ok":true}` (no DO touch).
 - `GET /debug/:type/:id/info` → residency info (constructions, turns, php
   boot ms, user_version, memory high-water, plus the `ws`/`timers`/callback
