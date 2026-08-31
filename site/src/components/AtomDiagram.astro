@@ -97,36 +97,49 @@
 
   var packets = [], rings = [];
   var nextEvent = 1400;
+  var nextAppCall = 900;
   var seed = 0.734;
   function rand(){ seed = (seed*9301 + 49297) % 233280; return seed/233280; }
 
-  function spawnInbound(t){
+  function pickAtom(t){
     var live = [];
     atoms.forEach(function(a, i){ if (t > a.born + 700) live.push(i); });
-    if (!live.length) return;
-    var ai = live[Math.floor(rand()*live.length)];
+    return live.length ? live[Math.floor(rand()*live.length)] : -1;
+  }
+
+  // Packets start hidden: the frame loop places them, and a packet spawned
+  // from inside that loop is not reached until the next frame.
+  function spawnPacket(attrs, rec){
+    attrs.opacity = 0;
+    rec.el = el('circle', attrs, fxLayer);
+    packets.push(rec);
+  }
+
+  // The app's own lane: a steady background of calls into its Atoms, each
+  // answered by a value travelling back. Quieter than the client traffic.
+  function spawnAppCall(t){
+    var ai = pickAtom(t);
+    if (ai < 0) return;
+    spawnPacket({ r:5, fill:'#7C3AED' },
+      { atom:ai, src:'app', born:t, dur:1150, kind:'in' });
+  }
+
+  function spawnInbound(t){
+    var ai = pickAtom(t);
+    if (ai < 0) return;
     var ready = atoms[ai].clients.filter(function(ci){ return t > clients[ci].born + 700; });
+    if (!ready.length) return;
     // sometimes an atom pushes on its own — a timer fired, state changed
-    if (ready.length && rand() < 0.18){ spawnBroadcast(t, ai); return; }
-    var src = 'app';
-    if (ready.length && rand() < 0.75){
-      src = ready[Math.floor(rand()*ready.length)];
-    }
-    // Packets start hidden: the frame loop places them, and a packet spawned
-    // from inside that loop is not reached until the next frame.
-    var p = el('circle', {
-      r: src === 'app' ? 5 : 3.6,
-      fill: src === 'app' ? '#7C3AED' : '#44444B',
-      opacity: 0
-    }, fxLayer);
-    packets.push({ el:p, atom:ai, src:src, born:t, dur:1150, kind:'in' });
+    if (rand() < 0.18){ spawnBroadcast(t, ai); return; }
+    spawnPacket({ r:3.6, fill:'#44444B' },
+      { atom:ai, src: ready[Math.floor(rand()*ready.length)], born:t, dur:1150, kind:'in' });
   }
   function spawnBroadcast(t, ai){
     var ring = el('circle', { r:atoms[ai].r, fill:'none', stroke:'#EA580C', 'stroke-width':2 }, fxLayer);
     rings.push({ el:ring, atom:ai, born:t, dur:650 });
     atoms[ai].clients.forEach(function(ci, i){
-      var p = el('circle', { r:3.4, fill:'#EA580C', opacity:0 }, fxLayer);
-      packets.push({ el:p, atom:ai, src:ci, born: t + 90 + i*130, dur:1000, kind:'out' });
+      spawnPacket({ r:3.4, fill:'#EA580C' },
+        { atom:ai, src:ci, born: t + 90 + i*130, dur:1000, kind:'out' });
     });
   }
 
@@ -183,6 +196,10 @@
         spawnInbound(t);
         nextEvent = t + 1200 + rand()*1400;
       }
+      if (t > nextAppCall){
+        spawnAppCall(t);
+        nextAppCall = t + 1600 + rand()*1200;
+      }
       for (var i = packets.length - 1; i >= 0; i--){
         var pk = packets[i];
         var k = (t - pk.born) / pk.dur;
@@ -195,8 +212,8 @@
               // an RPC: the atom pulses (it did work) and a value travels back
               rings.push({ el: el('circle', { r:atoms[pk.atom].r, fill:'none',
                 stroke:'#EA580C', 'stroke-width':2 }, fxLayer), atom:pk.atom, born:t, dur:650 });
-              var rp = el('circle', { r:4, fill:'#7C3AED', opacity:0 }, fxLayer);
-              packets.push({ el:rp, atom:pk.atom, src:'app', born:t + 260, dur:1000, kind:'ret' });
+              spawnPacket({ r:4, fill:'#7C3AED' },
+                { atom:pk.atom, src:'app', born:t + 260, dur:1000, kind:'ret' });
             } else {
               spawnBroadcast(t, pk.atom);
             }
