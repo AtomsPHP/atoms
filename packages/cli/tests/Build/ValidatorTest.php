@@ -52,6 +52,32 @@ final class ValidatorTest extends TestCase
         self::assertStringEndsWith('app/Atoms/Helper.php', $byCode['ATOMS-E001']);
     }
 
+    public function testSupportClassesShipInTheBundle(): void
+    {
+        $result = (new Validator())->validate($this->sampleApp());
+
+        $paths = array_column($result->bundleFiles->files, 'relative');
+        self::assertContains('app/Atoms/GameRoom/support/ScoreBoard.php', $paths);
+    }
+
+    /**
+     * An unclassifiable class never ships, so a reference to it from Atom code
+     * must fail the build (ATOMS-E012), not fatal in the guest at runtime.
+     */
+    public function testAReferenceToAnUnclassifiableClassIsAnError(): void
+    {
+        $result = (new Validator())->validate($this->violatingApp());
+
+        $matches = array_values(array_filter(
+            $result->errors,
+            static fn (Violation $v): bool => $v->code->value === 'ATOMS-E012'
+                && $v->symbol === 'App\\Atoms\\Helper',
+        ));
+
+        self::assertCount(1, $matches);
+        self::assertStringEndsWith('app/Atoms/BadRoom.php', $matches[0]->file);
+    }
+
     public function testMessagesCarryCodeAndFix(): void
     {
         $result = (new Validator())->validate($this->violatingApp());

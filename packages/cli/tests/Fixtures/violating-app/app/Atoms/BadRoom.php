@@ -18,6 +18,7 @@ final class BadRoom extends \Atoms\Atom
     {
         $collection = new Collection();          // E010: framework symbol
         $user = new User();                      // E012: monolith class
+        $helper = new Helper();                  // E012: unclassifiable class, never ships
         $name = config('app.name');              // E011: framework helper
         $secret = env('SECRET_KEY');             // E017: env() in Atom code
         $blob = serialize($collection);          // E018: native serialization

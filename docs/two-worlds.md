@@ -9,9 +9,11 @@ app/Atoms/
 ├── GameRoom.php                    ← WORLD A: ships to platform, runs on Amp runtime
 ├── GameRoom/
 │   ├── Methods.php                 ← WORLD B: stays in monolith, full Laravel access
-│   └── migrations/
-│       ├── 001_create_events.sql   ← WORLD A: ships, runs at activation
-│       └── 002_add_round_index.sql
+│   ├── migrations/
+│   │   ├── 001_create_events.sql   ← WORLD A: ships, runs at activation
+│   │   └── 002_add_round_index.sql
+│   └── support/
+│       └── ScoreBoard.php          ← WORLD A: helper class shipping with the Atom
 ├── Shared/
 │   └── PlayerSnapshot.php          ← BOTH: DTO crossing the RPC boundary
 ├── Jobs/
@@ -33,17 +35,25 @@ atoms-composer.json                 ← World A dependencies only
 | **Methods class** (e.g., `GameRoom/Methods.php`) | World B | Your Laravel/Symfony app | Full app access | `$this->app()->someMethod()` receives calls from Atoms |
 | **Shared DTOs** (e.g., `Shared/PlayerSnapshot.php`) | BOTH | Platform runtime + your app | `atoms/core` + stdlib only | Data crossing the RPC boundary |
 | **AtomJob** (e.g., `Jobs/RecordGameResult.php`) | World B | Your app's queue/job system | Full app access | Dispatched **by name** via `$this->dispatch(RecordGameResult::class, [...])` from Atoms |
+| **Support classes** (e.g., `GameRoom/support/ScoreBoard.php`) | World A | Platform Atoms runtime | Same as Atom code | Helpers shipping with their Atom — an Eloquent model, a value object, a pure service |
 | **Migrations** (e.g., `GameRoom/migrations/001_*.sql`) | World A | Platform Atoms runtime at activation | SQL + no app context | Append-only, schema changes for the Atom's SQLite database |
 
 ## The Rule of Thumb
 
-**If it extends `Atom`, it leaves. If it extends `AtomMethods` or `AtomJob`, it stays. If it's in `Shared/`, it does both — so it must be pure data.**
+**If it extends `Atom`, it leaves. If it extends `AtomMethods` or `AtomJob`, it stays. If it's in `Shared/`, it does both — so it must be pure data. If it's in an Atom's `support/` directory, it leaves with that Atom.**
 
-This one sentence is the entire mental model:
+This is the entire mental model:
 
 - Anything under an Atom class's namespace that extends `Atom` ships to the platform.
 - Methods classes and Jobs extend base classes that stay in your app (World B).
 - `Shared/` classes cross the boundary, so they carry no framework dependencies.
+- An Atom's `support/` directory (sibling to its `migrations/`, e.g.
+  `app/Atoms/GameRoom/support/`) holds World-A helper classes that ship with
+  the Atom without being Atoms themselves: an Eloquent model bound to the
+  Atom's database, a value object, a pure service. They follow the same import
+  rules as Atom code — `atoms/core`, approved packages from
+  `atoms-composer.json`, `Shared/` — and exist only in World A; your app
+  never loads them.
 
 Jobs staying home has one consequence worth stating outright, because the
 compiler will not remind you: **an Atom cannot `new` a job.** The class is not
@@ -121,7 +131,7 @@ Activation-time cost gets a budget: a migration exceeding it (default 250ms) tri
 
 When you `atoms build`:
 
-1. The CLI enumerates all Atom classes, Methods classes, Shared DTOs, and migrations under the Atoms path.
+1. The CLI enumerates all Atom classes, Methods classes, Shared DTOs, support classes, and migrations under the Atoms path.
 2. For each Atom class, it computes the transitive closure: parent classes, interfaces, traits, attributes, type hints, constants, `new`/static-call/`instanceof` targets.
 3. Every symbol in the closure is classified:
    - `atoms/core` → provided by the runtime, not bundled
