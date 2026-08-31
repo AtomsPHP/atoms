@@ -223,7 +223,7 @@ Wire form of an AtomJob: `{"job": "FQCN", "args": {"param": value, ...}}`
 
 The Worker is single-tenant, so there is no customer prefix and no
 Atoms-operated service. `docs/cloudflare-toolchain.md` is normative for the
-decisions below; the retired hosted platform's contract is history only.
+decisions below.
 
 `atoms/client` calls the Worker:
 
@@ -362,7 +362,7 @@ scoper_prefix}`), `vendor` (optional, present only when the build shipped
 where `autoload` is the bundle-relative path of the build-generated vendor
 autoload file — see `docs/cloudflare-toolchain.md` §3), `content_hash`
 (sha256 of the bundle tarball, hex).
-`file` and `migrations.files[].path` are bundle-relative paths, added in M3:
+`file` and `migrations.files[].path` are bundle-relative paths:
 the Cloudflare Worker must `require` and migrate exactly those files, and
 `MigrationEntry::$name` keeps only the descriptive part of `NNN_name.sql`, so
 neither is reconstructable from the rest of the manifest.
@@ -404,10 +404,7 @@ runbooks, search boxes and support threads. So:
   a different kind of failure. Those break the promise.
 - **Updating the `message` or `fix` text of an existing code is allowed**, and
   is sometimes required: a code that is still thrown must describe the failure
-  as it is now. M3 rewrote E072's text when deploy credentials stopped being an
-  Atoms API key and became the user's own Cloudflare token — same failure, same
-  number, a credential that now exists. Leaving the old wording would have
-  pointed users at a service that no longer runs.
+  as it is now, under the same number.
 
 Through 0.x the bar for rewording stays low: the packages are published, but
 pre-release, and message text is not something a `^0.1` constraint promises. At

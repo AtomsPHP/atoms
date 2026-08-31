@@ -768,9 +768,8 @@ them as plaintext `vars`.
 
 - `POST /invoke/:type/:id/:method` body `{"args":[...]}` →
   `200 {"result":..., "atom":{"type":...,"id":...}}` or
-  `4xx/5xx {"error":{"code","message","retryable"}}`. Mirrors the retired
-  hosted platform's invoke contract minus the `/v1/{customer}` prefix —
-  single-tenant Worker.
+  `4xx/5xx {"error":{"code","message","retryable"}}`. Single-tenant Worker;
+  routes carry no tenant prefix.
 - `GET /healthz` → `{"ok":true}` (no DO touch).
 - `GET /debug/:type/:id/info` → residency info (constructions, turns, php
   boot ms, user_version, memory high-water, plus the `ws`/`timers`/callback
@@ -2141,8 +2140,7 @@ otherwise unchanged and still binding.
 SQLite-backed DO class export + migration tag `v1`. Deploy with
 `npx wrangler deploy`; the remote suite runs against the `workers.dev` URL
 with `ATOMS_DEBUG_ENDPOINTS=1` and an `ATOMS_SHARED_SECRET` secret set via
-`wrangler secret put ATOMS_SHARED_SECRET`. Nothing here touches the retired
-hosted platform's path.
+`wrangler secret put ATOMS_SHARED_SECRET`.
 
 That `wrangler.jsonc` is the conformance harness's config only. What
 customers scaffold (via `@atomsphp/runtime-cloudflare`) is built from

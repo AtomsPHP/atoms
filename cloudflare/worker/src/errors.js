@@ -5,9 +5,8 @@
  * in this Worker fails silently: unimplemented surfaces throw `AtomsError` with
  * `not_supported`, never a no-op answer.
  *
- * The public envelope is `{"error":{"code","message","retryable"}}`, the
- * shape carried over from the retired platform contract. The turn-result
- * codes defined by the MVP spec (`atom_exception`, `method_not_found`, `atom_not_found`,
+ * The public envelope is `{"error":{"code","message","retryable"}}`. The
+ * turn-result codes defined by the MVP spec (`atom_exception`, `method_not_found`, `atom_not_found`,
  * `internal`) are passed through verbatim so the client sees exactly what PHP
  * reported.
  */
@@ -111,9 +110,8 @@ const CODE_TABLE = {
 	// before any DO is addressed.
 	ticket_invalid: { status: 401, retryable: false },
 	ticket_expired: { status: 401, retryable: false },
-	// Matches the retired platform contract's table and what atoms/client
-	// already expects (AtomsClient.php maps this to TurnDeadlineExceeded and
-	// only retries when the call site opts in).
+	// Matches what atoms/client already expects (AtomsClient.php maps this
+	// to TurnDeadlineExceeded and only retries when the call site opts in).
 	turn_deadline_exceeded: { status: 504, retryable: true },
 	internal: { status: 500, retryable: true },
 };

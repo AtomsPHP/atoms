@@ -32,12 +32,6 @@ and `git clone` delivers history rather than the tip, so inheriting it would
 have republished the binary. **Never graft that history on**, however
 convenient it looks.
 
-An earlier, differently-shaped platform preceded the Cloudflare runtime — an
-edge router, a central control plane, a durability bus, a process-per-Atom
-runtime. None of it is in this repository, and Cloudflare supplies most of what
-it existed to provide. Treat references to it in older documents as history,
-not direction.
-
 ## Read before non-trivial work
 
 1. `docs/conventions.md` — cross-package contracts, the frozen `atoms/core`
@@ -55,10 +49,6 @@ not direction.
    single-tenant `/invoke/...`), how a PHP CLI drives a pinned Wrangler, and
    the bundle bridge between `atoms build` and the Worker. M4 inherits all
    three decisions, so read it before changing any of them.
-
-The retired hosted platform's HTTP contract v1 (`/v1/{customer}/invoke/...`,
-anycast edge, Atoms-issued API keys) is history: nothing implements it since
-M3, and it is not the transport.
 
 ## Hard rules — the PHP packages
 

@@ -204,8 +204,7 @@ final class AtomsJson
 
             $out[$name] = [
                 'endpoint' => rtrim($endpoint, '/'),
-                // Vestigial: the superseded platform placed Machines in a
-                // region. Cloudflare places a Durable Object itself. Still
+                // Vestigial: Cloudflare places a Durable Object itself. Still
                 // parsed so an older atoms.json loads, and ignored everywhere.
                 'region' => self::optionalString($env, 'region'),
                 'worker_name' => self::optionalString($env, 'worker_name'),

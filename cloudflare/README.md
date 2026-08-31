@@ -17,9 +17,7 @@ from WordPress Playground's npm package, and
 `worker/scripts/prepare-runtime.mjs` stages it into the gitignored
 `worker/.php-wasm/` directory after verifying its size and SHA-256.
 
-This is the Cloudflare track, and it is the only runtime Atoms targets. An
-earlier platform preceded it; that work is frozen and is not in this
-repository.
+This is the only runtime Atoms targets.
 
 ## Running it
 

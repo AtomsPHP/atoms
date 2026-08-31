@@ -31,7 +31,7 @@ use Psr\Log\LoggerInterface;
  * says it is safe.
  *
  * The deployed Worker is single-tenant — one Cloudflare account, one Worker,
- * one set of Atoms — so there is no `/v1/{customer}` prefix to build. Every
+ * one set of Atoms — so routes carry no tenant prefix. Every
  * call carries `Authorization: Bearer` with {@see AtomsConfig::bearerToken()},
  * derived from the shared secret; the Worker derives the same value from its
  * own copy and compares it.

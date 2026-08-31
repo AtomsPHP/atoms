@@ -1,13 +1,12 @@
 # The Cloudflare toolchain: deploy, runtime auth, and the bundle bridge
 
-**Status:** normative for `atoms/cli`, `atoms/client` and `cloudflare/worker`
-as of M3. Supersedes the retired hosted platform's HTTP contract v1.
+**Status:** normative for `atoms/cli`, `atoms/client` and `cloudflare/worker`.
 
 Atoms deploys into **your** Cloudflare account. There is no Atoms-hosted
 service in any path described here, and Atoms never proxies or retains your
 credentials.
 
-This document records three decisions that M3 had to make and that everything
+This document records three decisions that everything
 downstream inherits. Each is written with its rejected alternatives, because
 the alternatives are all reasonable and will otherwise be re-proposed.
 
@@ -27,7 +26,7 @@ Authorization: Bearer $(atoms token)
 record for the whole boundary. `/invoke` is the only route the client calls;
 WebSocket tickets are issued locally, without an HTTP hop.
 
-### Why no `/v1/{customer}` prefix
+### Why no tenant prefix in the routes
 
 **Rejected: a customer-prefixed route.** A prefix routes a multi-tenant edge
 to one tenant's compute. The Worker is single-tenant by construction: it *is*
@@ -136,8 +135,8 @@ Wrangler needs a project to run in: a wrangler config, `src/`, and
 `--worker-dir`, `environments.<env>.worker_dir` in `atoms.json`, or the default
 `.atoms/worker`. An unusable directory is **ATOMS-E076**.
 
-**Installing the Worker project.** M7 publishes a version-matched template and
-initializer. Run the exact command printed by `atoms init`:
+**Installing the Worker project.** Each release publishes a version-matched
+template and initializer. Run the exact command printed by `atoms init`:
 
 ```sh
 npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
@@ -526,8 +525,8 @@ guessing, and guessing is the defect this replaced.
 
 ### The decision
 
-**Neither format moves. The missing piece was the translation, and that is what
-M3 built.**
+**Neither format moves. The missing piece is the translation, and the CLI
+supplies it.**
 
 - `atoms build` keeps emitting `bundle-{sha256}.tar.gz` + schema-1
   `manifest.json`. This is the **portable** artifact: content-addressed,
@@ -695,9 +694,9 @@ atoms deploy --env production
 
 Nothing in this sequence contacts a service operated by Atoms.
 
-## Known gaps after M7 packaging
+## Known gaps
 
-- **`atoms dev`'s callback URL is wired, as of M2.** `--callback-url` (or
+- **`atoms dev`'s callback URL is wired.** `--callback-url` (or
   `atoms.json`'s `callback_url.<env>`) reaches the Worker as an
   `ATOMS_CALLBACK_URL` var via `wrangler dev --var`, and the Worker half is
   real: `Atom::app()`/`dispatch()` call back through it (`cloudflare/docs/
