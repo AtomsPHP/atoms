@@ -60,6 +60,7 @@ enum ErrorCode: string
     case WorkerDirectoryInvalid = 'ATOMS-E076';
     case SecretNotReadable = 'ATOMS-E077';
     case BundlePathTooLong = 'ATOMS-E078';
+    case VendorResolutionFailed = 'ATOMS-E079';
     case CallbackChannelNotConfigured = 'ATOMS-E080';
     case CallbackSigningKeyUnusable = 'ATOMS-E081';
     case CallbackInTransaction = 'ATOMS-E082';
@@ -73,4 +74,5 @@ enum ErrorCode: string
     case NoQueueBridgeConfigured = 'ATOMS-E103';
     case AtomJobConstructedInAtom = 'ATOMS-E104';
     case SharedSecretMissing = 'ATOMS-E105';
+    case SchemaBuilderUnavailable = 'ATOMS-E106';
 }

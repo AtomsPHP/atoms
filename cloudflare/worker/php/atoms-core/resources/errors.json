@@ -378,6 +378,14 @@
             "phase": "build"
         },
         {
+            "code": "ATOMS-E079",
+            "title": "Vendor dependency resolution failed",
+            "message": "Could not resolve atoms-composer.json dependencies: {reason}.",
+            "fix": "`atoms build` installs atoms-composer.json's packages in an isolated directory (composer install --no-scripts --no-plugins) and ships the resulting PHP sources in the bundle. Check that composer is on PATH and the constraints are satisfiable. For reproducible builds, commit the atoms-composer.lock file the first successful resolution writes next to atoms-composer.json.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
             "code": "ATOMS-E080",
             "title": "Callback channel not configured",
             "message": "$this->app()/dispatch() requires the Worker's callback channel, which is not configured.",
@@ -478,6 +486,14 @@
             "title": "Shared secret missing or malformed",
             "message": "ATOMS_SHARED_SECRET is missing, or does not decode to exactly 32 bytes of base64.",
             "fix": "Generate one with `openssl rand -base64 32` and configure the identical value on the app and the Worker (`wrangler secret put ATOMS_SHARED_SECRET`). The secret itself is never transmitted: clients authenticate with the bearer derived from it (`atoms token` prints it). ATOMS_SHARED_SECRET_PREVIOUS, when set for rotation, must satisfy the same format.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E106",
+            "title": "Schema builder not available on the Atom database connection",
+            "message": "{member} is not available inside an Atom: Atoms migrations own the schema.",
+            "fix": "Ship DDL as Atom migrations (app/Atoms/<Atom>/migrations/NNN_*.sql or .php) — they run at activation, tracked in PRAGMA user_version. The atoms/database-illuminate bridge serves queries and models only, never DDL.",
             "severity": "error",
             "phase": "runtime"
         }
