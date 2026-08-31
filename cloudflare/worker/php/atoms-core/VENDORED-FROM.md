@@ -62,7 +62,12 @@ If one of these files cannot work unmodified inside the php-wasm guest, that is
 a finding about the ABI, not a patch to apply here. Raise it upstream; a fork
 that silently diverges would make the MVP's central claim false.
 
-Re-vendor by re-copying from upstream, then re-check the digests below.
+Re-vendor by re-copying from upstream, then re-check the digests below,
+then run `npm run bundle` from `cloudflare/worker` and commit
+`src/bundle.generated.js` — this copy is embedded in it, and CI diffs a
+fresh regeneration against the committed file. `npm run check:fresh` is
+that gate, runnable locally. Comment-only edits count: the bundle embeds
+file bytes, not behaviour.
 
 ## What is here, and why
 

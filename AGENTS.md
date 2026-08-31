@@ -132,6 +132,11 @@ not direction.
 - `worker/php/atoms-core/` is a **verbatim** copy of `packages/core/src`,
   hash-recorded in its `VENDORED-FROM.md`. Never edit it in place — fix
   `packages/core/` and re-vendor.
+- **The committed bundle embeds its inputs.** Any change under
+  `cloudflare/worker/php/` or `cloudflare/worker/fixtures/counter/` —
+  comment-only edits and re-vendors included — requires regenerating and
+  committing `src/bundle.generated.js` (`npm run bundle`). CI's staleness
+  gate enforces it; `npm run check:fresh` runs the same check locally.
 
 ## Cross-cutting rules
 
