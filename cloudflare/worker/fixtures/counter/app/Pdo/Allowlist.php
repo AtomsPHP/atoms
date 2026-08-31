@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Pdo;
 
 /**
- * The reflection tripwire's allowlist (design §1.3): the members that
+ * The reflection tripwire's allowlist: the members that
  * cannot be enumerated-and-declared like every other member of \PDO /
  * \PDOStatement, each with a written justification AND a runtime assertion
  * that SurfaceAudit actually runs.

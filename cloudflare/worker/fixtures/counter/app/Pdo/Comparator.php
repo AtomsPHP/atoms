@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Pdo;
 
 /**
- * The differential harness's ground truth (design §2.3): an in-guest
+ * The differential harness's ground truth: an in-guest
  * `new \PDO('sqlite::memory:')` — the SAME php-wasm PHP build as everything
  * under test, so no measured-on-8.4 value is ever an assertion target.
  *
- * `Comparator::sanity()` is the design's answer to "the comparator could be
+ * `Comparator::sanity()` is the harness's answer to "the comparator could be
  * your own shim": five structural gates, all required, three of which
  * (`FETCH_NAMED` grouping, `getColumnMeta()`, `PDORow`) are things
  * `Atoms\Cf\AtomsPDO` cannot produce even in principle.
@@ -28,7 +28,7 @@ final class Comparator
      * `ATTR_DEFAULT_FETCH_MODE` default against real pdo_sqlite's own
      * unmodified default, with nothing on either side forcing them to agree.
      * AtomsPDO's default is
-     * FETCH_BOTH (design §3 F-30, matching real pdo_sqlite's own measured
+     * FETCH_BOTH (matching real pdo_sqlite's own measured
      * default). Probe::differential()
      * does not force-set `ATTR_DEFAULT_FETCH_MODE` on `$ours` either,
      * so whatever divergence exists, if any, SURFACES in the
@@ -70,7 +70,7 @@ final class Comparator
         return get_class($c) === 'PDO';
     }
 
-    /** AtomsPDO::getAttribute() throws for this attribute, permanently (design §3 F-22). */
+    /** AtomsPDO::getAttribute() throws for this attribute, permanently. */
     private static function gateS2(\PDO $c): bool
     {
         try {

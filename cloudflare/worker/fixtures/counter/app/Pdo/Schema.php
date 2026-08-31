@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Pdo;
 
 /**
- * Schema and seed parity for the differential harness (design §2.2).
+ * Schema and seed parity for the differential harness.
  * There is exactly one copy of the DDL — the migration file — so drift
  * between the DO side (via the real `Atoms\Migrations\Migrator`, applied at
  * Probe's activation) and the comparator (via {@see applySchema}) is
@@ -24,7 +24,7 @@ final class Schema
      * statement. Used only by the comparator — the DO side already has this
      * schema via Probe's manifest-declared migration.
      *
-     * The naive splitter (design §2.2) cannot see across a full-line SQL
+     * The naive splitter cannot see across a full-line SQL
      * comment, and this file's OWN header comment contains a literal ';'
      * character (documenting the splitter itself) that would otherwise be
      * cut mid-line. Comment lines are stripped first so the split only ever
@@ -54,7 +54,7 @@ final class Schema
     }
 
     /**
-     * Fixed, deterministic seed rows (design §2.2). Executed through the
+     * Fixed, deterministic seed rows. Executed through the
      * passed-in \PDO, so seeding itself is exercised on both sides.
      *
      * probe_rows: 3 rows, k ordered a<b<c (== insertion/id order), covering
@@ -75,7 +75,7 @@ final class Schema
      * Clear the DO-side tables and their autoincrement counters, then
      * reseed — so every `Probe::differential($group)` call starts from
      * identical, reproducible state regardless of what a previous group's
-     * cases wrote (design §2.2). The comparator needs no equivalent: it is
+     * cases wrote. The comparator needs no equivalent: it is
      * a brand new `sqlite::memory:` connection every call.
      *
      * `sqlite_sequence` does not exist until the first AUTOINCREMENT insert

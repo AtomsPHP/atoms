@@ -6,7 +6,7 @@ namespace App\Pdo;
 
 /**
  * The pinned name=>value maps for every \PDO constant namespace the
- * reflection tripwire audits (design §1.2, rule R5).
+ * reflection tripwire audits (rule R5).
  *
  * MEASURED on local PHP 8.4.19 / SQLite 3.45.1 (`php -r`, reflecting
  * \PDO::class, driver-namespaced constants excluded — see
@@ -14,7 +14,7 @@ namespace App\Pdo;
  * values are the STARTING pin, and the first in-guest run of check 26 is
  * what confirms them. A mismatch is a red build the implementer resolves by
  * recording the measured 8.3 value here with a comment — that is rule R5
- * working as designed (m1-design.md §0.1, §1.4), not a bug in the pin.
+ * working as designed, not a bug in the pin.
  *
  * `ERR_NONE` is a lone constant, not a family — it is the only public
  * `ERR_*`-prefixed constant \PDO declares (measured); it is kept in its own

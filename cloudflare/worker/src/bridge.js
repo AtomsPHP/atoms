@@ -59,7 +59,7 @@ export { ok as okReply, fail as errorReply };
 /** Pragmas answered synthetically instead of being forwarded to the DO. */
 const SYNTHETIC_PRAGMAS = new Set(['journal_mode', 'synchronous', 'busy_timeout']);
 
-// Module scope, one instance: the result-set byte guard (design §4.2)
+// Module scope, one instance: the result-set byte guard
 // encodes every row in rows mode, so this is on the hot path.
 const ENC = new TextEncoder();
 
@@ -291,7 +291,7 @@ export class Bridge {
 			throw sqlError(e);
 		}
 
-		// Branch A (design §2.7, measured on this wrangler/workerd build:
+		// Branch A (measured on this wrangler/workerd build:
 		// `cursor.columnNames` exists): captured now, before anything else
 		// touches `this.sql` and creates unrelated cursors, and before the
 		// cursor is drained. Source order, duplicates preserved — the wire's
@@ -321,7 +321,7 @@ export class Bridge {
 		try {
 			if (mode === 'rows') {
 				// The row cap is checked BEFORE push and the byte cap AFTER adding
-				// and BEFORE push (design §4.2), so peak memory here is bounded
+				// and BEFORE push, so peak memory here is bounded
 				// by `cap + one row` and a single oversized row also trips it.
 				// "Bytes" is the sum, over rows, of the UTF-8 byte length of that
 				// row's JSON.stringify() output — deliberately not String.length
@@ -920,7 +920,7 @@ function sqlError(e) {
 
 /**
  * A `sql.exec` rows-mode result exceeded ATOMS_SQL_MAX_ROWS or
- * ATOMS_SQL_MAX_RESULT_BYTES (design §4.3). A distinct code from
+ * ATOMS_SQL_MAX_RESULT_BYTES. A distinct code from
  * `sql_error`: "your query was wrong" and "your query returned too much"
  * call for opposite client responses. `detail.cap` is what lets a caller
  * (and conformance check 29) tell which cap fired.
@@ -941,7 +941,7 @@ function resultTooLarge(cap, limit) {
  * `cursor.columnNames` is missing on this platform build.
  * Named, not just message-worded, so it's distinguishable from an
  * ordinary `sql_error` by every caller: AtomsStatement's duplicate-column
- * detection (Branch A, design §2.7) has no other source for the result
+ * detection (Branch A) has no other source for the result
  * set's true column arity, so losing this capability silently would silently
  * disarm every guard that depends on it instead of failing the statement
  * that needed it.

@@ -1,4 +1,4 @@
--- Probe's schema (design §2.2). This file is single-sourced: the
+-- Probe's schema. This file is single-sourced: the
 -- Durable Object side applies it through the real Atoms\Migrations\Migrator
 -- (one sql.exec over the whole text, same as every other fixture's
 -- migration); the differential harness's comparator reads

@@ -37,7 +37,7 @@ class AtomsNotSupported extends \PDOException
     /**
      * @param string $feature the unsupported member or capability
      * @param string $why one sentence naming the limitation
-     * @param string $sqlstate design §3 F-23 (append-only, back-compatible):
+     * @param string $sqlstate an append-only, back-compatible parameter:
      *     defaults to '0A000' ("feature not supported"), the honest answer
      *     for a corner nothing else refuses the same way. A handful of call
      *     sites pass the SQLSTATE real pdo_sqlite is MEASURED to answer with
@@ -57,8 +57,9 @@ class AtomsNotSupported extends \PDOException
         ));
 
         // PDO consumers that inspect errorInfo()/getCode() get a real triple
-        // rather than an empty one, and getCode() the SQLSTATE (design §3
-        // F-28's rule applies here too — this IS a \PDOException subclass).
+        // rather than an empty one, and getCode() the SQLSTATE (the
+        // getCode()-is-the-SQLSTATE rule applies here too — this IS a
+        // \PDOException subclass).
         $this->errorInfo = [(string) $sqlstate, 0, $this->getMessage()];
         $this->code = (string) $sqlstate;
     }

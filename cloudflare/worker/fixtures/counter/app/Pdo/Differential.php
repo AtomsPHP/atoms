@@ -6,7 +6,7 @@ namespace App\Pdo;
 
 /**
  * Runs one group of {@see Cases}' matrix against both sides and classifies
- * every case (design §2.4, §2.10). The comparison happens IN-GUEST —
+ * every case. The comparison happens IN-GUEST —
  * only classifications and short renderings cross the turn boundary, so
  * int64 and float fidelity are never at the mercy of the wire under test.
  */
@@ -103,7 +103,7 @@ final class Differential
 
             if ($case['informational']) {
                 // 'informational' is a closed set
-                // of exactly one case id (design §2.5's
+                // of exactly one case id (the
                 // rowCount()-after-SELECT exception) — never an open escape
                 // from the pin rules (which skip 'informational' outright)
                 // that a new case could opt into merely by setting this
@@ -133,7 +133,7 @@ final class Differential
             // The HARNESS broke (a malformed case record, an informational
             // id outside the closed set, or a value the normalizer refuses
             // to render) — never the case-under-test's own outcome, and
-            // never pinnable (design §2.4).
+            // never pinnable.
             return [
                 'id' => $id,
                 'group' => $group,

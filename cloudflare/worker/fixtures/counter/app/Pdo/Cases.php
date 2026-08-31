@@ -10,7 +10,7 @@ use App\Pdo\Fixtures\Promoted;
 use App\Pdo\Fixtures\Row;
 
 /**
- * The differential harness's case matrix (design §2.8).
+ * The differential harness's case matrix.
  *
  * Every case is ONE closure taking a single `\PDO $pdo` — the identical
  * closure runs against `Atoms\Cf\AtomsPDO` (via `db()->pdo()`) and a native
@@ -96,12 +96,12 @@ final class Cases
 
     /**
      * @param bool $sqlstateStrict when both sides throw, also require
-     *     matching SQLSTATEs (design §2.5) — only for engine-produced
+     *     matching SQLSTATEs — only for engine-produced
      *     errors (constraint violation, syntax error, FETCH_KEY_PAIR
      *     arity).
      * @param bool $informational never compared; both sides' outcomes are
      *     recorded but the case is always classified 'informational'
-     *     (design §2.5 — PDOStatement::rowCount() after a SELECT).
+     *     (PDOStatement::rowCount() after a SELECT is the only such case).
      */
     private static function c(
         string $id,
@@ -654,7 +654,7 @@ final class Cases
                     // [gettype($id), is_numeric($id)] would be a SHAPE-only
                     // comparison that would pass even if the actual id value
                     // were wrong on one side. Returning $id itself makes the
-                    // comparison include content, per design §2.5's "nothing
+                    // comparison include content, per the harness's "nothing
                     // is compared shape-only" invariant.
                     return [gettype($id), $id];
                 }
@@ -1208,7 +1208,7 @@ final class Cases
                 'fetch.class.private_props',
                 $g,
                 'PDOStatement::fetchAll()',
-                'FETCH_CLASS writes private/protected declared props AND makes an unmatched column dynamic (measured E13)',
+                'FETCH_CLASS writes private/protected declared props AND makes an unmatched column dynamic (measured)',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT i AS id, s AS v, 9 AS zz FROM probe_rows WHERE k = :k');
                     $stmt->execute([':k' => 'a']);
@@ -1221,7 +1221,7 @@ final class Cases
                 'fetch.class.promoted_ctor',
                 $g,
                 'PDOStatement::fetchAll()',
-                'FETCH_CLASS into a promoted-constructor class — the ctor\'s defaults overwrite the hydrated props (measured E13)',
+                'FETCH_CLASS into a promoted-constructor class — the ctor\'s defaults overwrite the hydrated props (measured)',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT k, i FROM probe_rows WHERE k = :k');
                     $stmt->execute([':k' => 'a']);
@@ -1658,8 +1658,8 @@ final class Cases
                 return $s;
             }
 
-            // Real pdo_sqlite ignores $type entirely for quote() (design §3
-            // F-24) and PARAM_STR is a no-op for an already-correct escape,
+            // Real pdo_sqlite ignores $type entirely for quote() (measured)
+            // and PARAM_STR is a no-op for an already-correct escape,
             // so this is safe on both sides regardless of quote()'s other
             // bugs under non-default types.
             return $p->quote((string) $value, \PDO::PARAM_STR);

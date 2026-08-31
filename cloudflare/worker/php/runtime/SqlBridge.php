@@ -40,9 +40,9 @@ final class SqlBridge
     /**
      * Run one statement against the Durable Object's SQLite.
      *
-     * Deliberately holds no error-state memory of its own (design §3
-     * F-27): real PDO scopes `errorCode()`/`errorInfo()` to the HANDLE that
-     * ran the failing operation — a statement's own failure does not leak
+     * Deliberately holds no error-state memory of its own: real PDO
+     * scopes `errorCode()`/`errorInfo()` to the HANDLE that ran the
+     * failing operation — a statement's own failure does not leak
      * onto the connection's error state (measured: after a statement
      * `execute()` fails with a UNIQUE violation, `$stmt->errorCode()` is
      * `'23000'` while `$pdo->errorCode()` is still `'00000'`). This bridge is
@@ -81,7 +81,7 @@ final class SqlBridge
             $rows = int64_decode($reply['rows']);
         }
 
-        // Branch A (design §2.7): source-order column names, duplicates
+        // Branch A: source-order column names, duplicates
         // preserved, from `cursor.columnNames` (bridge.js). Absent (an empty
         // list) for a non-"rows" reply. This is the only place the wire's
         // arity survives — the `{column: value}` row maps have already
@@ -224,9 +224,9 @@ final class SqlBridge
 
     /**
      * Build the exception for an `ok: false` sql.exec reply, with the
-     * errorInfo triple attached AND settable as ->getCode() (design §3
-     * F-28) — the caller (AtomsPDO or AtomsStatement) is what decides
-     * whether the triple becomes ITS cached error state (F-27).
+     * errorInfo triple attached AND settable as ->getCode() — the caller
+     * (AtomsPDO or AtomsStatement) is what decides whether the triple
+     * becomes ITS cached error state (per-handle error scoping).
      *
      * The raw `$error` object — everything
      * `bridge.js`'s `fail()` spread into `reply.error`, e.g. `cap`/`limit`

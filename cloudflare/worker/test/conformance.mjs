@@ -84,7 +84,7 @@ const TURN_DEADLINE_MS = process.env.ATOMS_TURN_DEADLINE_MS ? parseInt(process.e
 const REQUIRE_CALLBACK_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_CALLBACK_CHECKS || '');
 // Must match the values the Worker was started with (never defaulted here,
 // same rule as ATOMS_TURN_DEADLINE_MS above) — check 29's result-set size
-// guard (design §4.4). Both absent => check 29 skips.
+// guard. Both absent => check 29 skips.
 const SQL_MAX_ROWS = process.env.ATOMS_SQL_MAX_ROWS ? parseInt(process.env.ATOMS_SQL_MAX_ROWS, 10) : null;
 const SQL_MAX_RESULT_BYTES = process.env.ATOMS_SQL_MAX_RESULT_BYTES
     ? parseInt(process.env.ATOMS_SQL_MAX_RESULT_BYTES, 10)
@@ -872,7 +872,7 @@ let listener = null;
 
 /**
  * Set by CHECK 28, the merged PDO differential report (all groups, one
- * object) — {@see design §5.4}. CHECK 30 re-uses this rather than
+ * object). CHECK 30 re-uses this rather than
  * re-running the differential matrix a second time, the same way the
  * callback listener's records are reused across checks 13-17.
  * @type {{php: string, cases: Array<{id: string, group: string, member: string, title: string, class: string, ours: string, theirs: string, detail: string}>}|null}
@@ -2910,7 +2910,7 @@ checks.push(async () => {
     }
 });
 
-// CHECK 26: pdo surface tripwire (design §1.7).
+// CHECK 26: pdo surface tripwire.
 //
 // Probe::surfaceAudit() reflects the RUNTIME \PDO / \PDOStatement and
 // asserts every public member is genuinely declared on Atoms\Cf\AtomsPDO /
@@ -2990,7 +2990,7 @@ checks.push(async () => {
         }
     }
 
-    // Orchestrator override on design §1.7: exact SET equality on allowlist
+    // Exact SET equality on allowlist
     // ids, not merely a length cap — a renamed or silently added entry must
     // fail this check by name, not just by count.
     const allowlistIds = allowlist.map((e) => e?.id).sort();
@@ -3011,7 +3011,7 @@ checks.push(async () => {
     }
 });
 
-// CHECK 27: pdo comparator integrity (design §2.11).
+// CHECK 27: pdo comparator integrity.
 //
 // Probe::comparatorSanity() builds a fresh native in-guest
 // `new \PDO('sqlite::memory:')` and runs its five structural gates (S1-S5).
@@ -3055,9 +3055,9 @@ checks.push(async () => {
     }
 });
 
-// CHECK 28: pdo differential matrix (design §2.11).
+// CHECK 28: pdo differential matrix.
 //
-// Orchestrator override on the design's report flow: Probe::differential()
+// Probe::differential()
 // runs ONE group per invoke (a single 160-case turn is too close to
 // ATOMS_TURN_DEADLINE_MS), so this check iterates
 // Probe::differentialGroups() and merges each group's report runner-side
@@ -3148,7 +3148,7 @@ checks.push(async () => {
     }
 
     // Assertion order matters: the FIRST failure is meant to be the most
-    // informative one (design §2.11).
+    // informative one.
     if (!comparatorSane) {
         problems.push('comparator.sane !== true for at least one group — the differential run cannot be trusted');
     }
@@ -3166,8 +3166,8 @@ checks.push(async () => {
     // entirely (pin rule 1 skips it outright), so unlike every other class it
     // is not bounded by anything unless this check bounds it. It must be a
     // closed set of exactly one case id — the one case whose non-comparison
-    // is a deliberate, documented, published exception (design §2.5's
-    // rowCount()-after-SELECT note) — never a blanket escape a new case could
+    // is a deliberate, documented, published exception (the
+    // rowCount()-after-SELECT case) — never a blanket escape a new case could
     // walk through by setting 'informational' => true.
     const INFORMATIONAL_IDS = new Set(['count.rowcount.select']);
     if (problems.length === 0) {
@@ -3267,14 +3267,14 @@ checks.push(async () => {
     }
 
     // Kept for CHECK 30, which re-uses this instead of re-running the
-    // differential matrix a second time (design §5.4). Stored regardless of
+    // differential matrix a second time. Stored regardless of
     // whether this check passed or failed, so a run with an unpinned
     // difference still leaves evidence on disk.
     pdoMatrixReport = { php: php || 'unknown', cases: allCases };
 
     // Evidence for a human reading a failure, never a contract — gitignored
     // (cloudflare/worker/.gitignore). A read-only checkout makes this write a
-    // no-op, never a failure (design §5.4).
+    // no-op, never a failure.
     try {
         const resultsDir = join(__dirname, 'results');
         mkdirSync(resultsDir, { recursive: true });
@@ -3297,7 +3297,7 @@ checks.push(async () => {
     }
 });
 
-// CHECK 29: sql result caps (design §4.4).
+// CHECK 29: sql result caps.
 //
 // Same pattern as check 15: the Worker is started with small
 // ATOMS_SQL_MAX_ROWS/ATOMS_SQL_MAX_RESULT_BYTES values, and the runner is
@@ -3421,7 +3421,7 @@ checks.push(async () => {
     }
 });
 
-// CHECK 30: pdo compatibility doc is current (design §5.4).
+// CHECK 30: pdo compatibility doc is current.
 //
 // Re-uses check 28's already-fetched report (pdoMatrixReport, kept in a
 // module-level variable the way the callback listener's records are),

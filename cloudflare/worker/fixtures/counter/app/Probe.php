@@ -20,11 +20,11 @@ use Atoms\Atom;
  * the audit/differential machinery, and it must not perturb any other
  * fixture's residency counters or table contents.
  *
- * The entry points below were added one milestone step at a time
- * (see /docs m1-design.md §7). `surfaceAudit()` is Step 1 (conformance check
+ * The entry points below were added one milestone step at a time.
+ * `surfaceAudit()` is the reflection tripwire (conformance check
  * 26); `comparatorSanity()`, `differentialGroups()` and `differential()` are
- * Step 2, the differential harness (checks 27-28); `ping()` and `capProbe()`
- * are Step 5, the result-set size guard (check 29). The class stays
+ * the differential harness (checks 27-28); `ping()` and `capProbe()`
+ * are the result-set size guard (check 29). The class stays
  * extensible: new methods are added here, not by reshaping this one.
  */
 final class Probe extends Atom
@@ -40,7 +40,7 @@ final class Probe extends Atom
     }
 
     /**
-     * The reflection tripwire (design §1): asserts every public member of \PDO
+     * The reflection tripwire: asserts every public member of \PDO
      * and \PDOStatement is genuinely declared on our subclasses, that the
      * pinned FETCH_* / ATTR_* / PARAM_* / ... constants match the runtime exactly,
      * and that every pinned FETCH_* value is refused or shaped correctly.
@@ -65,7 +65,7 @@ final class Probe extends Atom
 
     /**
      * The differential harness's answer to "the comparator could be your
-     * own shim" (design §2.3): builds a fresh native in-guest
+     * own shim": builds a fresh native in-guest
      * `new \PDO('sqlite::memory:')` and runs its five structural sanity
      * gates. Construction failure is reported as ok:false with every gate
      * false rather than propagating — "we could not verify our own
@@ -103,7 +103,7 @@ final class Probe extends Atom
     }
 
     /**
-     * Run ONE group of the differential matrix (design §2) against both
+     * Run ONE group of the differential matrix against both
      * `Atoms\Cf\AtomsPDO` (this residency's `db()->pdo()`) and a fresh
      * native comparator. The DO-side tables are cleared and reseeded first,
      * so every call — regardless of what a previous group's cases wrote —
@@ -153,7 +153,7 @@ final class Probe extends Atom
     }
 
     /**
-     * Result-set size guard exercise (design §4.4, conformance check 29).
+     * Result-set size guard exercise (conformance check 29).
      * Builds a result set of exactly `$rows` rows through a recursive CTE —
      * CPU cost only, no writes, so this never perturbs any table or the
      * residency's durable state. `$cap` selects the shape:
@@ -173,7 +173,8 @@ final class Probe extends Atom
      * `BridgeSqlException::getDetail()` — the same raw `cap`/`limit` fields
      * `bridge.js` put in the wire reply.
      * `code` is the Atoms error code, not the SQLSTATE
-     * (see F-28 for `->getCode()`, which IS the SQLSTATE).
+     * (`->getCode()`, by contrast, IS the SQLSTATE, as measured on real
+     * pdo_sqlite).
      *
      * @return array{ok: true, rowCount: int}|array{ok: false, code: ?string, message: string, sqlstate: ?string, cap: ?string, limit: ?int}
      */

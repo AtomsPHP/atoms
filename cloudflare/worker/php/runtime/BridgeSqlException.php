@@ -1,8 +1,7 @@
 <?php
 
 /**
- * A \PDOException whose ->getCode() is the SQLSTATE string (design §3
- * F-28).
+ * A \PDOException whose ->getCode() is the SQLSTATE string.
  *
  * Measured: real PDO's own exceptions answer getCode() with the SQLSTATE
  * (e.g. `'23000'`), not an int — and an ordinary \PDOException subclass CAN

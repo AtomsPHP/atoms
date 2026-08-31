@@ -12,7 +12,7 @@
  * The rule for every member: route to the {@see SqlBridge}, or throw
  * {@see AtomsNotSupported}. `quote()` is implemented in PHP with SQLite's own
  * escaping rules; `errorCode()`/`errorInfo()` report THIS CONNECTION's own
- * last operation (design §3 F-27 — a statement's failure does not leak
+ * last operation (a statement's failure does not leak
  * here, see {@see AtomsStatement}); `getAttribute()` serves every attribute
  * that has a truthful answer and refuses the rest, never the carrier.
  *
@@ -34,8 +34,8 @@ class AtomsPDO extends \PDO
     private $bridge;
 
     /**
-     * Default fetch mode handed to statements this connection makes
-     * (design §3 F-30): real pdo_sqlite's ATTR_DEFAULT_FETCH_MODE is
+     * Default fetch mode handed to statements this connection makes:
+     * real pdo_sqlite's ATTR_DEFAULT_FETCH_MODE is
      * FETCH_BOTH (measured), so this matches it rather than
      * FETCH_ASSOC. {@see BridgeDatabase} passes its own fetch mode explicitly
      * on every call, so it is unaffected by this default.
@@ -45,8 +45,8 @@ class AtomsPDO extends \PDO
     private $fetchMode = \PDO::FETCH_BOTH;
 
     /**
-     * This CONNECTION's own errorCode()/errorInfo() triple (design §3
-     * F-27): set only by operations performed directly through the
+     * This CONNECTION's own errorCode()/errorInfo() triple: set only by
+     * operations performed directly through the
      * connection ({@see exec()}) — never by a statement's execute(), which
      * keeps its own triple on {@see AtomsStatement} instead.
      *
@@ -89,7 +89,7 @@ class AtomsPDO extends \PDO
     #[\ReturnTypeWillChange]
     public function prepare($query, $options = [])
     {
-        // Design §3 F-15: real pdo_sqlite silently IGNORES unrecognized
+        // Real pdo_sqlite silently IGNORES unrecognized
         // driver options (measured: ATTR_TIMEOUT accepted and ignored) and
         // silently REFUSES CURSOR_SCROLL (prepare() returns false; sqlite has
         // no scrollable cursor). Neither of those is honest to reproduce:
@@ -131,7 +131,7 @@ class AtomsPDO extends \PDO
     {
         $statement = new AtomsStatement($this->bridge, $query, $this->fetchMode);
 
-        // Design §3 F-14: query()'s fetch-mode arguments are exactly
+        // query()'s fetch-mode arguments are exactly
         // setFetchMode()'s — set the mode BEFORE execute() so an invalid
         // combination is rejected before anything runs, same as a customer
         // calling setFetchMode() themselves.
@@ -142,7 +142,7 @@ class AtomsPDO extends \PDO
         // query() is a CONNECTION-level entry point (real
         // PDO's own $pdo->errorCode() reflects a failed query() — measured
         // '00000' -> 'HY000'), so a failure here records THIS connection's
-        // triple too, on top of the statement's own (F-27's scoping is
+        // triple too, on top of the statement's own (per-handle scoping is
         // unaffected: the statement still caches its own triple internally).
         try {
             $statement->execute();
@@ -178,7 +178,7 @@ class AtomsPDO extends \PDO
     /**
      * PDO's contract is a string, not an int — the Migrator and customer code
      * both depend on that. Real pdo_sqlite IGNORES a given sequence name
-     * (SQLite has none) rather than refusing it (measured, design §3 F-20);
+     * (SQLite has none) rather than refusing it (measured);
      * our former throw was stricter than the driver we claim to be, for no
      * truth gained.
      *
@@ -277,7 +277,7 @@ class AtomsPDO extends \PDO
      * SQLite escaping, implemented here rather than delegated to the carrier
      * connection, so that nothing about this object depends on the carrier.
      *
-     * Design §3 F-24 (measured): real pdo_sqlite IGNORES `$type` entirely
+     * Measured: real pdo_sqlite IGNORES `$type` entirely
      * — `quote(null, PARAM_NULL)` is `"''"` (not the string `NULL`),
      * `quote(true, PARAM_BOOL)` is `"'1'"` (quoted, not bare `1`),
      * `quote('42', PARAM_INT)` is `"'42'"` (quoted, not bare `42`), and an
@@ -349,7 +349,7 @@ class AtomsPDO extends \PDO
      * Only the attributes with a truthful answer are served; the rest throw
      * rather than reporting the carrier connection's values.
      *
-     * Design §3 F-22 (measured): `ATTR_PERSISTENT` is always `false`,
+     * Measured: `ATTR_PERSISTENT` is always `false`,
      * `ATTR_CASE`'s default is `CASE_NATURAL`, `ATTR_ORACLE_NULLS`'s default
      * is `NULL_NATURAL` — each a permanent truth about this runtime that
      * matches real pdo_sqlite exactly. `ATTR_SERVER_VERSION` /
@@ -439,7 +439,7 @@ class AtomsPDO extends \PDO
             return true;
         }
 
-        // Design §3 F-22: only the NATURAL value is accepted for these
+        // Only the NATURAL value is accepted for these
         // two — setting a real one would require actually reshaping every
         // fetch (upper/lower-casing keys, NULL<->'' conversion), which is a
         // capability this runtime does not have, so the honest answer to
@@ -475,7 +475,7 @@ class AtomsPDO extends \PDO
 
     /**
      * The one parent static PHP permits redeclaring in a subclass and that
-     * has a truthful answer to give (design §0.2a, §3 F-25): the question
+     * has a truthful answer to give: the question
      * "which PDO drivers does this PHP build carry?" is about the BUILD, not
      * about a connection, so answering it from the real parent — rather than
      * leaving it undeclared, where it would fall through to whatever the
