@@ -1,7 +1,7 @@
 {
     "name": "atoms/client",
     "description": "Framework-agnostic monolith-side SDK for Atoms: RPC stub proxies, callback kernel, manifest loader.",
-    "version": "0.3.1",
+    "version": "0.4.0",
     "license": "MIT",
     "homepage": "https://atomsphp.dev",
     "support": {
@@ -17,7 +17,7 @@
     ],
     "require": {
         "php": "^8.3",
-        "atoms/core": "^0.3",
+        "atoms/core": "^0.4",
         "psr/container": "^1.1 || ^2.0",
         "psr/http-client": "^1.0",
         "psr/http-factory": "^1.0",
