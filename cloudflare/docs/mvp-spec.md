@@ -1368,6 +1368,35 @@ is `{"atoms":{"Counter":{"class":"App\\Atoms\\Counter","file":"/app/Counter.php"
 The DO writes `files` into MEMFS at boot. No customer PHP executes at build
 time. This format is internal and versioned `bundle_format: 0`.
 
+**Manifest versioning rule** (same rule the WebSocket attachment pins for
+`v`): `bundle_format` is bumped only when the meaning of an existing manifest
+field changes or a field is removed; a new optional field does not bump it,
+and readers ignore unknown keys. Every consumer today is a targeted read —
+nothing validates the manifest against a closed schema, and that is by
+design.
+
+**`vendor.autoload` (optional, additive, 2026-08-30).** A bundle may carry an
+approved vendor tree (the `atoms build` vendor stage resolves
+`atoms-composer.json` and ships every vendor `.php` + LICENSE file under
+`vendor/`, which the translator mounts at `/app/vendor/...`). The manifest's
+top-level `vendor.autoload` names the guest path of one build-generated PHP
+file — a classmap plus Composer-style eager function-file requires, with
+`__DIR__`-relative paths. At activation the guest excludes everything under
+that file's directory from the line-scanning bundle autoloader (the classmap
+is exact; scanning a vendor tree at every activation would be pure boot
+cost), registers the bundle autoloader, then `require`s the declared file; a
+declared-but-missing file is an `internal` `BootstrapError`. The value is
+**constrained before it is trusted** — it names a file the guest executes and
+a subtree it stops autoloading, so the translator refuses anything but a
+normalized, relative `vendor/….php` path, and the guest independently
+refuses a non-`.php` value, a traversal, or a directory that would swallow
+the Atom's own source. Relatedly, the translator refuses any bundle entry
+whose bytes are not valid UTF-8: the deploy module carries contents as
+strings, and a lossy decode would deploy code that differs from the
+content-addressed archive while keeping its `content_hash`. A manifest
+without the key changes nothing: `bundle_format` stays `0`. Conformance
+check 45 is the gate.
+
 **`atoms build` integration (M3, 2026-08-09).** The module format above is
 unchanged and remains what the host loads — it is the *deploy* artifact.
 `atoms build`'s `bundle-{sha256}.tar.gz` + schema-1 `manifest.json` is the
@@ -1379,7 +1408,7 @@ claims nothing beyond it. See `docs/cloudflare-toolchain.md` §3.
 
 ## Fixture app (conformance subject)
 
-`fixtures/counter/` defines six Atom types and one job class:
+`fixtures/counter/` defines seven Atom types and one job class:
 
 - `Counter` — `increment(int $by): int` (SQL update + returns new value),
   `getValue(): int`, `getStats(): array` (exercises Serializer arrays),
@@ -1443,6 +1472,15 @@ claims nothing beyond it. See `docs/cloudflare-toolchain.md` §3.
   builds a result set through a recursive CTE (CPU cost only, no writes) for
   check 29's result-set size guard. Migration `probe/001_init.sql` creates
   `probe_rows`/`probe_wide`/`probe_bulk`, the differential matrix's schema.
+- `Vendor` — the fixture for the bundle's vendor tree (§Bundle format,
+  `vendor.autoload`): `viaVendor()` touches the classmap and the eager
+  function files in one turn. `Acme\Greeter\Greeter`
+  (`app/vendor/acme/greeter/`) is deliberately declared indented inside a
+  conditional — a shape the line-scanning bundle autoloader cannot index — so
+  the class resolving at all proves the declared classmap served it. A
+  **separate** type, like Room/Boot/Scheduler/Probe before it, so checks
+  3/11/12/16/17's exact `turnsThisResidency` and listener-record assertions
+  are undisturbed; no migrations.
 - `App\Jobs\Notify` (`fixtures/counter/app/Jobs/Notify.php`) — an `AtomJob`
   with promoted public `$atomId`/`$note` properties, the dispatch contract
   `dispatch()`'s encoder and `CallbackKernel::constructJob()` must agree on.
@@ -1455,12 +1493,14 @@ claims nothing beyond it. See `docs/cloudflare-toolchain.md` §3.
 ## Conformance suite
 
 `test/conformance.mjs` runs against any base URL (`ATOMS_BASE_URL`), so the
-same suite runs against `wrangler dev` and the deployed Worker. It is 42
+same suite runs against `wrangler dev` and the deployed Worker. It is 45
 checks: the original 12 (1–12, untouched, not renumbered, not weakened) plus
 13 more added across M2's three waves and its review round, plus 5 more added
 by M1's PDO surface honesty pass, plus 8 more (31–38) added by M4's
 connection-ticket work, plus 4 more (39–42) for the shared secret
-(`docs/shared-secret.md`).
+(`docs/shared-secret.md`), plus 2 more (43–44) for structured WebSocket
+frames and the malformed rotation overlap, plus 1 more (45) for the bundled
+vendor tree (§Bundle format, `vendor.autoload`).
 
 **M5's rework of 31–38 and 40.** Deleting the mint route (above) made a
 purely additive edit to the ticket checks impossible: check 31 used to spend
@@ -1784,6 +1824,13 @@ misconfigured", previously untested: check 40 exercises only a well-formed
 overlap and check 41 only a missing current secret. It runs only under
 `ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1`, which is the whole of its short
 posture's run (`ATOMS_ONLY=44`).
+
+**45.** the vendor tree: `Vendor::viaVendor()` resolves a vendor class the
+line-scanning autoloader **cannot** index (declared indented inside a
+conditional — the proof that the manifest's `vendor.autoload` classmap served
+it) and reports that a Composer-style function file was already loaded before
+the class was touched (the proof that "files" entries are required eagerly at
+activation, not lazily). No gate; runs in every posture that can invoke.
 
 Remote-only additions: measure cold activation, warm turn, and
 post-hibernation wake latencies; record them in `test/results/remote.json`.

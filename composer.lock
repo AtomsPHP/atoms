@@ -4,16 +4,16 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "e1e9288326849d7b3d416812b334f03b",
+    "content-hash": "da004cbb2dc0354da2bb5af066ac1ffe",
     "packages": [],
     "packages-dev": [
         {
             "name": "atoms/cli",
-            "version": "0.3.0",
+            "version": "0.3.1",
             "dist": {
                 "type": "path",
                 "url": "packages/cli",
-                "reference": "f66a93dcb26b427ec8d9a781d60333ad3e1421ad"
+                "reference": "c5e2c3afd16c293fc0ce424341f59c4ac5b23e31"
             },
             "require": {
                 "atoms/core": "^0.3",
@@ -27,7 +27,7 @@
                 "symfony/process": "^6.4 || ^7.0"
             },
             "suggest": {
-                "humbug/php-scoper": "Required for full builds (`atoms build`); `atoms validate` and `--fast` builds work without it"
+                "composer/composer": "The vendor stage of `atoms build` shells out to a composer on PATH when atoms-composer.json declares packages and .atoms/vendor-cache has no current resolution; `atoms validate` and `--fast` builds work without it"
             },
             "bin": [
                 "bin/atoms"
@@ -65,11 +65,11 @@
         },
         {
             "name": "atoms/client",
-            "version": "0.3.0",
+            "version": "0.3.1",
             "dist": {
                 "type": "path",
                 "url": "packages/client",
-                "reference": "676d990d2d8af49502b388a0bbf97c2cf87f8929"
+                "reference": "79d2f4717562d3c9bee428794377ae14a9a9f75c"
             },
             "require": {
                 "atoms/core": "^0.3",
@@ -115,11 +115,11 @@
         },
         {
             "name": "atoms/core",
-            "version": "0.3.0",
+            "version": "0.3.1",
             "dist": {
                 "type": "path",
                 "url": "packages/core",
-                "reference": "b32331a7bba56a4db2f4de64eb58eb0f9743dd99"
+                "reference": "1da94f08c0fc6ae293c547346e96b82e1af7176b"
             },
             "require": {
                 "ext-pdo": "*",
@@ -160,12 +160,60 @@
             }
         },
         {
+            "name": "atoms/database-illuminate",
+            "version": "0.3.1",
+            "dist": {
+                "type": "path",
+                "url": "packages/database-illuminate",
+                "reference": "466fe77a25a357e8f6bc7198c8271b0e5f24c200"
+            },
+            "require": {
+                "atoms/core": "^0.3",
+                "ext-pdo": "*",
+                "illuminate/database": "^12.0",
+                "php": "^8.3"
+            },
+            "suggest": {
+                "atoms/testing": "AtomHarness drives an Atom against a real SQLite file, bridge included, in plain PHPUnit."
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Atoms\\DatabaseIlluminate\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Atoms\\DatabaseIlluminate\\Tests\\": "tests/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Illuminate bridge for Atoms: the Laravel query builder and Eloquent models against an Atom's own SQLite database.",
+            "homepage": "https://atomsphp.dev",
+            "keywords": [
+                "atoms",
+                "database",
+                "eloquent"
+            ],
+            "support": {
+                "docs": "https://docs.atomsphp.dev",
+                "issues": "https://github.com/AtomsPHP/atoms/issues",
+                "source": "https://github.com/AtomsPHP/atoms"
+            },
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
             "name": "atoms/laravel",
-            "version": "0.3.0",
+            "version": "0.3.1",
             "dist": {
                 "type": "path",
                 "url": "packages/laravel",
-                "reference": "e26541843bdbecbb8aede898e4363db073c259a9"
+                "reference": "1c0c1b10e6481a0de2e99e2f4cbca5ed37c0ab6c"
             },
             "require": {
                 "atoms/client": "^0.3",
@@ -227,11 +275,11 @@
         },
         {
             "name": "atoms/phpstan-rules",
-            "version": "0.3.0",
+            "version": "0.3.1",
             "dist": {
                 "type": "path",
                 "url": "packages/phpstan-rules",
-                "reference": "1b90112a80127a5c46939eb11641875686182d25"
+                "reference": "556a5fef50bac2ba3e212f0223b4ea143a4ab021"
             },
             "require": {
                 "atoms/core": "^0.3",
@@ -278,11 +326,11 @@
         },
         {
             "name": "atoms/symfony",
-            "version": "0.3.0",
+            "version": "0.3.1",
             "dist": {
                 "type": "path",
                 "url": "packages/symfony",
-                "reference": "c5fe9e1eed24852e2c73c7fdadebaf8c541eb206"
+                "reference": "4eded2e4bd3d4b4701cfb706062c0d80a2b9ae56"
             },
             "require": {
                 "atoms/client": "^0.3",
@@ -335,11 +383,11 @@
         },
         {
             "name": "atoms/testing",
-            "version": "0.3.0",
+            "version": "0.3.1",
             "dist": {
                 "type": "path",
                 "url": "packages/testing",
-                "reference": "3be3774c16be92f869ecb88f65f1e51ccac9510a"
+                "reference": "163dd54b0b454e0f765af46ef532057bccc1c122"
             },
             "require": {
                 "atoms/core": "^0.3",
@@ -1092,7 +1140,7 @@
             ],
             "authors": [
                 {
-                    "name": "Fran\u00e7ois Zaninotto"
+                    "name": "François Zaninotto"
                 }
             ],
             "description": "Faker is a PHP library that generates fake data for you.",
@@ -1106,158 +1154,6 @@
                 "source": "https://github.com/FakerPHP/Faker/tree/v1.24.1"
             },
             "time": "2024-11-21T13:46:39+00:00"
-        },
-        {
-            "name": "fidry/console",
-            "version": "0.6.11",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/theofidry/console.git",
-                "reference": "bea8316beae874fc5b8be679d67dd3169c7e205f"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/theofidry/console/zipball/bea8316beae874fc5b8be679d67dd3169c7e205f",
-                "reference": "bea8316beae874fc5b8be679d67dd3169c7e205f",
-                "shasum": ""
-            },
-            "require": {
-                "php": "^8.2",
-                "psr/log": "^1.0 || ^2.0 || ^3.0",
-                "symfony/console": "^6.4 || ^7.2",
-                "symfony/deprecation-contracts": "^3.4",
-                "symfony/event-dispatcher-contracts": "^2.5 || ^3.0",
-                "symfony/polyfill-php84": "^1.31",
-                "symfony/service-contracts": "^2.5 || ^3.0",
-                "thecodingmachine/safe": "^2.0 || ^3.0",
-                "webmozart/assert": "^1.11"
-            },
-            "conflict": {
-                "symfony/dependency-injection": "<6.4.0 || >=7.0.0 <7.2.0",
-                "symfony/framework-bundle": "<6.4.0 || >=7.0.0 <7.2.0",
-                "symfony/http-kernel": "<6.4.0 || >=7.0.0 <7.2.0"
-            },
-            "require-dev": {
-                "bamarni/composer-bin-plugin": "^1.8.2",
-                "composer/semver": "^3.3.2",
-                "ergebnis/composer-normalize": "^2.33",
-                "fidry/makefile": "^0.2.1 || ^1.0.0",
-                "infection/infection": "^0.28",
-                "phpunit/phpunit": "^10.2",
-                "symfony/dependency-injection": "^6.4 || ^7.2",
-                "symfony/flex": "^2.4.0",
-                "symfony/framework-bundle": "^6.4 || ^7.2",
-                "symfony/http-kernel": "^6.4 || ^7.2",
-                "symfony/yaml": "^6.4 || ^7.2"
-            },
-            "type": "library",
-            "extra": {
-                "bamarni-bin": {
-                    "bin-links": false,
-                    "forward-command": false
-                },
-                "branch-alias": {
-                    "dev-main": "1.0.x-dev"
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "Fidry\\Console\\": "src"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Th\u00e9o Fidry",
-                    "email": "theo.fidry@gmail.com"
-                }
-            ],
-            "description": "Library to create CLI applications",
-            "keywords": [
-                "cli",
-                "console",
-                "symfony"
-            ],
-            "support": {
-                "issues": "https://github.com/theofidry/console/issues",
-                "source": "https://github.com/theofidry/console/tree/0.6.11"
-            },
-            "funding": [
-                {
-                    "url": "https://github.com/theofidry",
-                    "type": "github"
-                }
-            ],
-            "time": "2025-02-14T11:06:15+00:00"
-        },
-        {
-            "name": "fidry/filesystem",
-            "version": "1.3.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/theofidry/filesystem.git",
-                "reference": "d0d9e8dfa43f7663da153c306b0d5bc24846ad8e"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/theofidry/filesystem/zipball/d0d9e8dfa43f7663da153c306b0d5bc24846ad8e",
-                "reference": "d0d9e8dfa43f7663da153c306b0d5bc24846ad8e",
-                "shasum": ""
-            },
-            "require": {
-                "php": "^8.3",
-                "symfony/filesystem": "^6.4 || ^7.0"
-            },
-            "require-dev": {
-                "bamarni/composer-bin-plugin": "^1.4",
-                "ergebnis/composer-normalize": "^2.28",
-                "infection/infection": ">=0.26",
-                "phpunit/phpunit": "^12",
-                "symfony/finder": "^6.4 || ^7.0"
-            },
-            "type": "library",
-            "extra": {
-                "bamarni-bin": {
-                    "bin-links": false,
-                    "forward-command": false
-                },
-                "branch-alias": {
-                    "dev-main": "1.0.x-dev"
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "Fidry\\FileSystem\\": "src"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "BSD-3-Clause"
-            ],
-            "authors": [
-                {
-                    "name": "Th\u00e9o Fidry",
-                    "email": "theo.fidry@gmail.com"
-                }
-            ],
-            "description": "Symfony Filesystem with a few more utilities.",
-            "keywords": [
-                "filesystem"
-            ],
-            "support": {
-                "issues": "https://github.com/theofidry/filesystem/issues",
-                "source": "https://github.com/theofidry/filesystem/tree/1.3.0"
-            },
-            "funding": [
-                {
-                    "url": "https://github.com/theofidry",
-                    "type": "github"
-                }
-            ],
-            "time": "2025-02-13T23:05:19+00:00"
         },
         {
             "name": "filp/whoops",
@@ -1549,7 +1445,7 @@
                     "homepage": "https://github.com/Nyholm"
                 },
                 {
-                    "name": "M\u00e1rk S\u00e1gi-Kaz\u00e1r",
+                    "name": "Márk Sági-Kazár",
                     "email": "mark.sagikazar@gmail.com",
                     "homepage": "https://github.com/sagikazarmark"
                 },
@@ -1748,7 +1644,7 @@
                     "homepage": "https://github.com/Nyholm"
                 },
                 {
-                    "name": "M\u00e1rk S\u00e1gi-Kaz\u00e1r",
+                    "name": "Márk Sági-Kazár",
                     "email": "mark.sagikazar@gmail.com",
                     "homepage": "https://github.com/sagikazarmark"
                 },
@@ -1758,7 +1654,7 @@
                     "homepage": "https://github.com/Tobion"
                 },
                 {
-                    "name": "M\u00e1rk S\u00e1gi-Kaz\u00e1r",
+                    "name": "Márk Sági-Kazár",
                     "email": "mark.sagikazar@gmail.com",
                     "homepage": "https://sagikazarmark.hu"
                 }
@@ -1934,137 +1830,6 @@
                 "source": "https://github.com/hamcrest/hamcrest-php/tree/v3.0.0"
             },
             "time": "2026-03-17T11:56:53+00:00"
-        },
-        {
-            "name": "humbug/php-scoper",
-            "version": "0.18.18",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/humbug/php-scoper.git",
-                "reference": "dd55d01a937602c9473cfbe0ecab9521cb9740aa"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/humbug/php-scoper/zipball/dd55d01a937602c9473cfbe0ecab9521cb9740aa",
-                "reference": "dd55d01a937602c9473cfbe0ecab9521cb9740aa",
-                "shasum": ""
-            },
-            "require": {
-                "fidry/console": "^0.6.10",
-                "fidry/filesystem": "^1.1",
-                "jetbrains/phpstorm-stubs": "^2024.1",
-                "nikic/php-parser": "^5.0",
-                "php": "^8.2",
-                "symfony/console": "^6.4 || ^7.0",
-                "symfony/filesystem": "^6.4 || ^7.0",
-                "symfony/finder": "^6.4 || ^7.0",
-                "symfony/var-dumper": "^7.1",
-                "thecodingmachine/safe": "^3.0"
-            },
-            "require-dev": {
-                "bamarni/composer-bin-plugin": "^1.1",
-                "ergebnis/composer-normalize": "^2.28",
-                "fidry/makefile": "^1.0",
-                "humbug/box": "^4.6.2",
-                "phpspec/prophecy-phpunit": "^2.0",
-                "phpunit/phpunit": "^10.0 || ^11.0",
-                "symfony/yaml": "^6.4 || ^7.0"
-            },
-            "bin": [
-                "bin/php-scoper"
-            ],
-            "type": "library",
-            "extra": {
-                "bamarni-bin": {
-                    "bin-links": false,
-                    "forward-command": false
-                },
-                "branch-alias": {
-                    "dev-master": "1.0-dev"
-                }
-            },
-            "autoload": {
-                "files": [
-                    "src/functions.php"
-                ],
-                "psr-4": {
-                    "Humbug\\PhpScoper\\": "src/"
-                },
-                "classmap": [
-                    "vendor-hotfix/"
-                ]
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Bernhard Schussek",
-                    "email": "bschussek@gmail.com"
-                },
-                {
-                    "name": "Th\u00e9o Fidry",
-                    "email": "theo.fidry@gmail.com"
-                },
-                {
-                    "name": "P\u00e1draic Brady",
-                    "email": "padraic.brady@gmail.com"
-                }
-            ],
-            "description": "Prefixes all PHP namespaces in a file or directory.",
-            "support": {
-                "issues": "https://github.com/humbug/php-scoper/issues",
-                "source": "https://github.com/humbug/php-scoper/tree/0.18.18"
-            },
-            "time": "2025-10-15T15:29:47+00:00"
-        },
-        {
-            "name": "jetbrains/phpstorm-stubs",
-            "version": "v2024.3",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/JetBrains/phpstorm-stubs.git",
-                "reference": "0e82bdfe850c71857ee4ee3501ed82a9fc5d043c"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/JetBrains/phpstorm-stubs/zipball/0e82bdfe850c71857ee4ee3501ed82a9fc5d043c",
-                "reference": "0e82bdfe850c71857ee4ee3501ed82a9fc5d043c",
-                "shasum": ""
-            },
-            "require-dev": {
-                "friendsofphp/php-cs-fixer": "v3.64.0",
-                "nikic/php-parser": "v5.3.1",
-                "phpdocumentor/reflection-docblock": "5.6.0",
-                "phpunit/phpunit": "11.4.3"
-            },
-            "type": "library",
-            "autoload": {
-                "files": [
-                    "PhpStormStubsMap.php"
-                ]
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "Apache-2.0"
-            ],
-            "description": "PHP runtime & extensions header files for PhpStorm",
-            "homepage": "https://www.jetbrains.com/phpstorm",
-            "keywords": [
-                "autocomplete",
-                "code",
-                "inference",
-                "inspection",
-                "jetbrains",
-                "phpstorm",
-                "stubs",
-                "type"
-            ],
-            "support": {
-                "source": "https://github.com/JetBrains/phpstorm-stubs/tree/v2024.3"
-            },
-            "time": "2024-12-14T08:03:12+00:00"
         },
         {
             "name": "laravel/framework",
@@ -3154,7 +2919,7 @@
             ],
             "authors": [
                 {
-                    "name": "P\u00e1draic Brady",
+                    "name": "Pádraic Brady",
                     "email": "padraic.brady@gmail.com",
                     "homepage": "https://github.com/padraic",
                     "role": "Author"
@@ -3518,7 +3283,7 @@
                     "homepage": "https://nette.org/contributors"
                 }
             ],
-            "description": "\ud83d\udcd0 Nette Schema: validating data structures against a given Schema.",
+            "description": "📐 Nette Schema: validating data structures against a given Schema.",
             "homepage": "https://nette.org",
             "keywords": [
                 "config",
@@ -3597,7 +3362,7 @@
                     "homepage": "https://nette.org/contributors"
                 }
             ],
-            "description": "\ud83d\udee0  Nette Utils: lightweight utilities for string & array manipulation, image handling, safe JSON encoding/decoding, validation, slug or strong password generating etc.",
+            "description": "🛠  Nette Utils: lightweight utilities for string & array manipulation, image handling, safe JSON encoding/decoding, validation, slug or strong password generating etc.",
             "homepage": "https://nette.org",
             "keywords": [
                 "array",
@@ -4504,7 +4269,7 @@
             ],
             "authors": [
                 {
-                    "name": "Ond\u0159ej Mirtes"
+                    "name": "Ondřej Mirtes"
                 },
                 {
                     "name": "Markus Staab"
@@ -7341,7 +7106,7 @@
                     "email": "fabien@symfony.com"
                 },
                 {
-                    "name": "Jean-Fran\u00e7ois Simon",
+                    "name": "Jean-François Simon",
                     "email": "jeanfrancois.simon@sensiolabs.com"
                 },
                 {
@@ -9330,7 +9095,7 @@
             ],
             "authors": [
                 {
-                    "name": "Gr\u00e9goire Pineau",
+                    "name": "Grégoire Pineau",
                     "email": "lyrixx@lyrixx.info"
                 },
                 {
@@ -9915,7 +9680,7 @@
             ],
             "authors": [
                 {
-                    "name": "Gr\u00e9goire Pineau",
+                    "name": "Grégoire Pineau",
                     "email": "lyrixx@lyrixx.info"
                 },
                 {
@@ -10202,149 +9967,6 @@
             "time": "2026-07-21T15:13:06+00:00"
         },
         {
-            "name": "thecodingmachine/safe",
-            "version": "v3.4.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/thecodingmachine/safe.git",
-                "reference": "705683a25bacf0d4860c7dea4d7947bfd09eea19"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/thecodingmachine/safe/zipball/705683a25bacf0d4860c7dea4d7947bfd09eea19",
-                "reference": "705683a25bacf0d4860c7dea4d7947bfd09eea19",
-                "shasum": ""
-            },
-            "require": {
-                "php": "^8.1"
-            },
-            "require-dev": {
-                "php-parallel-lint/php-parallel-lint": "^1.4",
-                "phpstan/phpstan": "^2",
-                "phpunit/phpunit": "^10",
-                "squizlabs/php_codesniffer": "^3.2"
-            },
-            "type": "library",
-            "autoload": {
-                "files": [
-                    "lib/special_cases.php",
-                    "generated/apache.php",
-                    "generated/apcu.php",
-                    "generated/array.php",
-                    "generated/bzip2.php",
-                    "generated/calendar.php",
-                    "generated/classobj.php",
-                    "generated/com.php",
-                    "generated/cubrid.php",
-                    "generated/curl.php",
-                    "generated/datetime.php",
-                    "generated/dir.php",
-                    "generated/eio.php",
-                    "generated/errorfunc.php",
-                    "generated/exec.php",
-                    "generated/fileinfo.php",
-                    "generated/filesystem.php",
-                    "generated/filter.php",
-                    "generated/fpm.php",
-                    "generated/ftp.php",
-                    "generated/funchand.php",
-                    "generated/gettext.php",
-                    "generated/gmp.php",
-                    "generated/gnupg.php",
-                    "generated/hash.php",
-                    "generated/ibase.php",
-                    "generated/ibmDb2.php",
-                    "generated/iconv.php",
-                    "generated/image.php",
-                    "generated/imap.php",
-                    "generated/info.php",
-                    "generated/inotify.php",
-                    "generated/json.php",
-                    "generated/ldap.php",
-                    "generated/libxml.php",
-                    "generated/lzf.php",
-                    "generated/mailparse.php",
-                    "generated/mbstring.php",
-                    "generated/misc.php",
-                    "generated/mysql.php",
-                    "generated/mysqli.php",
-                    "generated/network.php",
-                    "generated/oci8.php",
-                    "generated/opcache.php",
-                    "generated/openssl.php",
-                    "generated/outcontrol.php",
-                    "generated/pcntl.php",
-                    "generated/pcre.php",
-                    "generated/pgsql.php",
-                    "generated/posix.php",
-                    "generated/ps.php",
-                    "generated/pspell.php",
-                    "generated/readline.php",
-                    "generated/rnp.php",
-                    "generated/rpminfo.php",
-                    "generated/rrd.php",
-                    "generated/sem.php",
-                    "generated/session.php",
-                    "generated/shmop.php",
-                    "generated/sockets.php",
-                    "generated/sodium.php",
-                    "generated/solr.php",
-                    "generated/spl.php",
-                    "generated/sqlsrv.php",
-                    "generated/ssdeep.php",
-                    "generated/ssh2.php",
-                    "generated/stream.php",
-                    "generated/strings.php",
-                    "generated/swoole.php",
-                    "generated/uodbc.php",
-                    "generated/uopz.php",
-                    "generated/url.php",
-                    "generated/var.php",
-                    "generated/xdiff.php",
-                    "generated/xml.php",
-                    "generated/xmlrpc.php",
-                    "generated/yaml.php",
-                    "generated/yaz.php",
-                    "generated/zip.php",
-                    "generated/zlib.php"
-                ],
-                "classmap": [
-                    "lib/DateTime.php",
-                    "lib/DateTimeImmutable.php",
-                    "lib/Exceptions/",
-                    "generated/Exceptions/"
-                ]
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "description": "PHP core functions that throw exceptions instead of returning FALSE on error",
-            "support": {
-                "issues": "https://github.com/thecodingmachine/safe/issues",
-                "source": "https://github.com/thecodingmachine/safe/tree/v3.4.0"
-            },
-            "funding": [
-                {
-                    "url": "https://github.com/OskarStark",
-                    "type": "github"
-                },
-                {
-                    "url": "https://github.com/shish",
-                    "type": "github"
-                },
-                {
-                    "url": "https://github.com/silasjoisten",
-                    "type": "github"
-                },
-                {
-                    "url": "https://github.com/staabm",
-                    "type": "github"
-                }
-            ],
-            "time": "2026-02-04T18:08:13+00:00"
-        },
-        {
             "name": "theseer/tokenizer",
             "version": "1.3.1",
             "source": {
@@ -10606,77 +10228,19 @@
                 }
             ],
             "time": "2026-04-26T05:33:54+00:00"
-        },
-        {
-            "name": "webmozart/assert",
-            "version": "1.12.1",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/webmozarts/assert.git",
-                "reference": "9be6926d8b485f55b9229203f962b51ed377ba68"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/webmozarts/assert/zipball/9be6926d8b485f55b9229203f962b51ed377ba68",
-                "reference": "9be6926d8b485f55b9229203f962b51ed377ba68",
-                "shasum": ""
-            },
-            "require": {
-                "ext-ctype": "*",
-                "ext-date": "*",
-                "ext-filter": "*",
-                "php": "^7.2 || ^8.0"
-            },
-            "suggest": {
-                "ext-intl": "",
-                "ext-simplexml": "",
-                "ext-spl": ""
-            },
-            "type": "library",
-            "extra": {
-                "branch-alias": {
-                    "dev-master": "1.10-dev"
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "Webmozart\\Assert\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Bernhard Schussek",
-                    "email": "bschussek@gmail.com"
-                }
-            ],
-            "description": "Assertions to validate method input/output with nice error messages.",
-            "keywords": [
-                "assert",
-                "check",
-                "validate"
-            ],
-            "support": {
-                "issues": "https://github.com/webmozarts/assert/issues",
-                "source": "https://github.com/webmozarts/assert/tree/1.12.1"
-            },
-            "time": "2025-10-29T15:56:20+00:00"
         }
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": [],
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
         "php": "^8.3"
     },
-    "platform-dev": [],
+    "platform-dev": {},
     "platform-overrides": {
         "php": "8.3.99"
     },
-    "plugin-api-version": "2.6.0"
+    "plugin-api-version": "2.9.0"
 }

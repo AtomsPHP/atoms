@@ -113,6 +113,7 @@ Activation-time cost gets a budget: a migration exceeding it (default 250ms) tri
 | `atoms/testing` | Dev-time | `AtomHarness` (in-process Atom against temp SQLite), fake `app()` proxy, dispatcher recorder, WebSocket test client — `FakeConnection::sentJson()` records structured frames decoded, so assertions compare payloads rather than JSON strings. |
 | `atoms/phpstan-rules` | Dev-time | Boundary enforcement: serialization rules, call-site collector, World A symbol restrictions. |
 | `atoms/cli` | Dev-time | Standalone `atoms` binary: `init`, `make`, `validate`, `build`, `deploy`, `rollback`, `local`, `ai:install`. |
+| `atoms/database-illuminate` | World A (inside the Atom) | Illuminate bridge: the Laravel query builder and Eloquent models against the Atom's own SQLite database. |
 
 **Critical constraint:** Nothing in `atoms/laravel` may leak into `atoms/client`. Everything an Atom can touch at runtime lives in `atoms/core`. This is not speculative — the platform runtime has no Laravel loaded, so any Laravel symbol an Atom references is a bug today.
 

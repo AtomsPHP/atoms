@@ -4,7 +4,7 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 
 ## Tests
 
-`conformance.mjs` runs 44 checks against a live worker URL:
+`conformance.mjs` runs 45 checks against a live worker URL:
 
 1. **healthz** — `/healthz` endpoint responds
 2. **invoke + result envelope** — HTTP interface returns correct shape
@@ -50,6 +50,7 @@ This directory contains the conformance test suite for the Atoms MVP on Cloudfla
 42. **config deny list** — with the Worker's `ATOMS_CONFIG_ENV_KEYS` naming `ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS`, a guest `$this->config()` of either name resolves `null`; an allowlisted control key on the same list resolves, which is what makes the two nulls meaningful rather than vacuous
 43. **structured WebSocket frames** — `Connection::sendJson()` puts a payload on the wire **bare**, with no `kind:"broadcast"` envelope, slashes unescaped and an integer past 2^53-1 intact; `Message::json()` round-trips an object and preserves a nested list; a nested empty map still encodes as `[]` (only the top level is forced to an object, deliberately); and a top-level list and malformed JSON both reach the Atom as one `\JsonException`. Every frame is compared as a raw string — `JSON.parse` would round the int64 and hide the envelope
 44. **malformed rotation overlap** — booted with a **valid** current secret but a malformed `ATOMS_SHARED_SECRET_PREVIOUS`, the Worker is exactly as loudly broken as check 41's: `/healthz` answers 200 `{ok:true}` and `/invoke`, `/tickets`, `/debug` and `/ws` all answer HTTP 500 `misconfigured` — and each refusal message names `ATOMS_SHARED_SECRET_PREVIOUS`, which is what proves the gate tripped on the overlap and not on the current secret. Pins the spec's "set but malformed → misconfigured" requirement that checks 40 (valid overlap) and 41 (no current secret) cannot see
+45. **vendor tree autoload** — the manifest's `vendor.autoload` classmap loads a vendor class the line-scanning bundle autoloader cannot index (`Acme\Greeter\Greeter` is declared indented inside a conditional, on purpose), and a Composer-style function file is already loaded before the class is first touched, proving "files" entries are required eagerly at activation
 
 ### Postures
 
@@ -91,7 +92,7 @@ the posture can satisfy.
 | 44 | `ATOMS_EXPECT_MISCONFIGURED_PREVIOUS` unset (the flag is the gate) | — |
 | 42 | the Worker's `ATOMS_CONFIG_ENV_KEYS` does not make the control key readable | `ATOMS_REQUIRE_DENY_CHECKS=1` |
 
-Checks 18–28 and 30 have no gate; they always run. Check 30 never skips — a
+Checks 18–28, 30 and 45 have no gate; they always run. Check 30 never skips — a
 stale doc is not excused by a missing run.
 
 ## Tests that are not conformance checks
@@ -342,6 +343,7 @@ The suite tests against the `fixtures/counter/` app, which includes:
 - **Room** Atom (`"websocket": true` in the manifest): `onConnect`/`onMessage`/`onDisconnect` plus `broadcast()`, driving checks 18-22. A separate type from Counter/Vault on purpose, so it cannot perturb checks 3/11/12's exact `turnsThisResidency` assertions.
 - **Scheduler** Atom: `arm()`/`cancelTimer()`/`scheduledMs()`/`timerLog()` over `$this->timers()`, driving checks 23-24.
 - **Probe** Atom: the M1 PDO surface work. `surfaceAudit()` drives check 26; `comparatorSanity()`/`differentialGroups()`/`differential(group)` drive checks 27-28; `capProbe(cap, rows, padBytes)` and `capProbeRunMode(rows)` (both recursive CTEs, no writes) drive check 29. A separate type for the same reason Room/Scheduler are.
+- **Vendor** Atom: `viaVendor()` drives check 45 over the bundled vendor tree under `app/vendor/` and the manifest's `vendor.autoload` key. A separate type for the same reason Room/Scheduler/Probe are.
 - **`App\Jobs\Notify`**: the `AtomJob` `Counter::notify()` dispatches.
 
 All are defined in `fixtures/counter/manifest.json` and bundled into the worker at build time.

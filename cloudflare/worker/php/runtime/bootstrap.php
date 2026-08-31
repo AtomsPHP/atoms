@@ -907,7 +907,50 @@ function activate(array $cfg)
     }
 
     $bundleFiles = isset($cfg['files']) && is_array($cfg['files']) ? array_values($cfg['files']) : [$entry['file']];
+
+    // Additive manifest field `vendor.autoload` (mvp-spec.md §Bundle format):
+    // a build-generated classmap + function-file loader for the bundled
+    // vendor tree. The tree is served by that loader alone, so its files are
+    // excluded from the line-scanning autoloader below — an activation must
+    // not read a thousand vendor files to index classes the classmap already
+    // knows exactly.
+    $vendorAutoload = null;
+    if (isset($cfg['manifest']['vendor']['autoload']) && is_string($cfg['manifest']['vendor']['autoload'])) {
+        $vendorAutoload = $cfg['manifest']['vendor']['autoload'];
+        // The value controls what gets required and which subtree the bundle
+        // autoloader ignores, so refuse a malformed one: it must be a .php
+        // file, with no traversal, whose directory does not contain the
+        // Atom's own source. The translator enforces the stricter
+        // vendor/-only shape; this is the guest's own check.
+        $vendorRoot = rtrim(dirname($vendorAutoload), '/') . '/';
+        if (substr($vendorAutoload, -4) !== '.php'
+            || strpos($vendorAutoload, '..') !== false
+            || strncmp($entry['file'], $vendorRoot, strlen($vendorRoot)) === 0
+        ) {
+            throw new BootstrapError(
+                'internal',
+                sprintf('The manifest declares vendor autoload %s, which is not an acceptable vendor autoload path.', $vendorAutoload)
+            );
+        }
+        if (!is_file($vendorAutoload)) {
+            throw new BootstrapError(
+                'internal',
+                sprintf('The manifest declares vendor autoload %s, which is missing from the guest filesystem.', $vendorAutoload)
+            );
+        }
+        $bundleFiles = array_values(array_filter(
+            $bundleFiles,
+            static function ($path) use ($vendorRoot) {
+                return strncmp((string) $path, $vendorRoot, strlen($vendorRoot)) !== 0;
+            }
+        ));
+    }
+
     register_bundle_autoloader($bundleFiles, $migrationPaths);
+
+    if ($vendorAutoload !== null) {
+        require_once $vendorAutoload;
+    }
 
     $bridge = new SqlBridge();
     $db = new BridgeDatabase($bridge);

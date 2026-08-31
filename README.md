@@ -39,7 +39,7 @@ the consistency boundary.
 
 - Release tags are the source of truth for registry availability. Before the
   `v0.1.0` tag exists, contributors install from this monorepo; after it exists,
-  applications install the seven packages from Packagist and the Worker
+  applications install the eight packages from Packagist and the Worker
   template from npm.
 - The Cloudflare runtime is validated by its conformance suite locally and
   against a real deployed Worker. It is not a managed service; you deploy it
@@ -58,7 +58,7 @@ the consistency boundary.
 
 | Directory | Contents |
 |---|---|
-| [`packages/`](packages/) | The seven PHP packages — see the table below |
+| [`packages/`](packages/) | The eight PHP packages — see the table below |
 | [`cloudflare/`](cloudflare/) | The Cloudflare Worker runtime: a PHP interpreter in WebAssembly parked inside a SQLite-backed Durable Object, plus its spec, conformance suite and licence files |
 | [`docs/`](docs/) | Architecture and contracts: [`conventions.md`](docs/conventions.md) (normative), [`adapters.md`](docs/adapters.md) (the contracts each host adapter supplies and the conformance suite), [`cloudflare-toolchain.md`](docs/cloudflare-toolchain.md) (deploy, runtime auth, bundles), [`integration-plan.md`](docs/integration-plan.md), [`two-worlds.md`](docs/two-worlds.md), [`errors.md`](docs/errors.md) |
 | [`action/`](action/) | The deploy GitHub Action |
@@ -74,6 +74,7 @@ the consistency boundary.
 | `atoms/testing` | `AtomHarness` and fakes for fast, infrastructure-free tests. |
 | `atoms/phpstan-rules` | Boundary enforcement in your IDE and CI. |
 | `atoms/cli` | The `atoms` binary: `init`, `make:atom`, `validate`, `build`, `deploy`, `dev`, `status`, `diff`, `rollback`, `secrets:*`, `ai:install`. |
+| `atoms/database-illuminate` | The Laravel query builder and Eloquent models against an Atom's own SQLite database (optional, ships inside the Atom bundle via `atoms-composer.json`). |
 
 Every failure in every package carries a stable `ATOMS-E###` code and a fix
 line — see [`docs/errors.md`](docs/errors.md).

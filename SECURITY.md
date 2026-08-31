@@ -32,7 +32,7 @@ only the default branch is supported.
 
 ## What is in scope
 
-Everything in this repository: the seven PHP packages under `packages/`, the
+Everything in this repository: the eight PHP packages under `packages/`, the
 deploy Action in `action/`, and the Cloudflare Worker runtime under
 `cloudflare/`.
 

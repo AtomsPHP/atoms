@@ -53,6 +53,15 @@
       "migrations": [
         "/app/migrations/probe/001_init.sql"
       ]
+    },
+    "Vendor": {
+      "class": "App\\Atoms\\Vendor",
+      "file": "/app/Vendor.php",
+      "websocket": false,
+      "migrations": []
     }
+  },
+  "vendor": {
+    "autoload": "/app/vendor/atoms-vendor-autoload.php"
   }
 }

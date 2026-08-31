@@ -59,8 +59,8 @@
             "properties": {
                 "packages": {
                     "type": "array",
-                    "minItems": 7,
-                    "maxItems": 7,
+                    "minItems": 8,
+                    "maxItems": 8,
                     "uniqueItems": true,
                     "items": {
                         "enum": [
@@ -70,7 +70,8 @@
                             "atoms/symfony",
                             "atoms/testing",
                             "atoms/phpstan-rules",
-                            "atoms/cli"
+                            "atoms/cli",
+                            "atoms/database-illuminate"
                         ]
                     }
                 }

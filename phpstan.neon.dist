@@ -11,6 +11,7 @@ parameters:
         - packages/testing/src
         - packages/phpstan-rules/src
         - packages/cli/src
+        - packages/database-illuminate/src
     treatPhpDocTypesAsCertain: false
     atomsLayering:
         zones:
@@ -35,3 +36,13 @@ parameters:
             # in packages/symfony/composer.json, not an accidental coupling.
             - { paths: [packages/symfony/src], allow: [], forbid: [Illuminate, Laravel, 'Atoms\Laravel', 'Atoms\Cli'] }
             - { paths: [packages/laravel/src], allow: [], forbid: [Doctrine, 'Atoms\Symfony', 'Atoms\Cli'] }
+            # allow: the bridge's entire purpose is illuminate/database inside
+            # the Atom world — the connection subclass, the grammar, Eloquent's
+            # resolver. Illuminate stays in forbid (with Laravel) so the rest
+            # of the framework, and the 19 global helpers the bare 'Illuminate'
+            # forbid-name switches on (see Zone::forbidsFrameworkGlobals),
+            # remain banned; only the Illuminate\Database subtree is opened.
+            # Illuminate\Filesystem is allowed for one signature: the
+            # getSchemaState() override that REFUSES schema work must repeat
+            # the parent's ?Filesystem parameter type to be an override at all.
+            - { paths: [packages/database-illuminate/src], allow: ['Illuminate\Database', 'Illuminate\Filesystem'], forbid: [Illuminate, Laravel, Symfony, Doctrine, GuzzleHttp, Monolog, Twig, PHPUnit, 'Atoms\Client', 'Atoms\Laravel', 'Atoms\Symfony', 'Atoms\Cli', 'Atoms\Testing', 'Atoms\PHPStan'] }

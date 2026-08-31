@@ -5,7 +5,7 @@
 **Inputs:** the project's internal requirements, overview, app-integration and platform design documents.
 
 > **Read as design rationale, not as current direction (noted 2026-08-09, M3).**
-> Why there are seven packages, the two-worlds model, the closure-walk
+> Why the packages are split, the two-worlds model, the closure-walk
 > extraction pipeline and the callback surface are all still exactly right, and
 > that is what this document is kept for.
 >
@@ -36,7 +36,7 @@
 
 ## 1. Package architecture
 
-Seven packages. The split is dictated by *where code executes*, not by feature area — that's the discipline that keeps the Symfony adapter a bundle-sized project instead of a fork.
+Eight packages. The split is dictated by *where code executes*, not by feature area — that's the discipline that keeps the Symfony adapter a bundle-sized project instead of a fork.
 
 | Package | Executes in | Depends on | Contents |
 |---|---|---|---|
@@ -47,6 +47,7 @@ Seven packages. The split is dictated by *where code executes*, not by feature a
 | `atoms/testing` | Dev | `atoms/core` | `AtomHarness` (in-process Atom execution against temp SQLite), fake `app()` proxy that executes real Methods classes locally, dispatched-job recorder, WebSocket test client |
 | `atoms/phpstan-rules` | Dev/CI | phpstan | Boundary rules, serialization rules, call-site collector for contract diffing |
 | `atoms` CLI | Dev/CI | (distributed as PHAR/binary) | `init`, `make`, `validate`, `build`, `deploy`, `rollback`, `diff`, `secrets`, `local`, `tunnel`, `ai:install` |
+| `atoms/database-illuminate` | Runtime (inside the Atom) | `atoms/core`, `illuminate/database` | The optional query-builder/Eloquent bridge designed in §4.4, now built: Illuminate's builder and models over the Atom's own SQLite database |
 
 Two consequences worth stating explicitly:
 
@@ -121,6 +122,7 @@ The rule of thumb we teach (docs, error messages, agent skill, all use the same 
    - PHP stdlib / bundled extension in the runtime image → allowed; extension usage recorded in manifest for platform-side compatibility check.
    - **Anything else — monolith classes (`App\Models\*`, services), Laravel framework, global helpers (`config()`, `app()`, `env()`, `now()`), facades — hard error**, with the code and fix from the error catalog (§6.4). No polyfills, ever: a polyfilled `config()` that silently returns `null` in production is worse than a build failure.
 4. **Vendor resolution.** `composer install` against `atoms-composer.json` in an isolated directory; `composer audit`; then **PHP-Scoper** prefixes the entire vendor tree (`AtomsScoped\{hash}\...`) and rewrites references in the bundled customer code. Customer deps now cannot collide with the runtime's own dependencies or with another deploy's, and the requirements doc's sandboxing claim becomes true by construction. Scoper config ships with sane excludes (never prefix `atoms/core` — it must unify with the runtime's copy).
+   > **Superseded (2026-08-30).** The vendor stage as built ships the resolved tree **unprefixed** with a generated classmap autoloader, pins resolution with a written-back `atoms-composer.lock`, and refuses failures loudly (ATOMS-E079). On the Cloudflare runtime there is no co-tenant to collide with — one guest holds one bundle — and prefixing vendor without rewriting the customer's own call sites would break the app against its own tree. Scoping returns, if ever, only as a whole-bundle rewrite. `docs/cloudflare-toolchain.md` §3 is normative.
 5. **Manifest generation.** One JSON document, the contract artifact for everything downstream:
    - Atom types: public method names, parameter/return types (serialization-checked, §4.2), WebSocket handler presence, migration head version.
    - Methods classes: per-Atom callback method signatures (this is what the platform uses to validate `$this->app()` calls per the app-integration doc).

@@ -47,7 +47,7 @@ final class BundleBridgeTest extends TestCase
         self::assertFileExists($script);
 
         $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
-        $built = (new Builder())->build(AtomsJson::load($repo . '/' . self::FIXTURE . '/atoms.json'), $outDir, fast: true);
+        $built = $this->buildSampleApp($repo, $outDir);
 
         $output = $outDir . '/bundle.generated.js';
         $process = new \Symfony\Component\Process\Process(
@@ -189,7 +189,7 @@ final class BundleBridgeTest extends TestCase
         }
 
         $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
-        $built = (new Builder())->build(AtomsJson::load($repo . '/' . self::FIXTURE . '/atoms.json'), $outDir, fast: true);
+        $built = $this->buildSampleApp($repo, $outDir);
 
         // Tamper with the CONTENTS and keep the original, correct filename —
         // the attack a filename comparison cannot see. `GameR00m` is the same
@@ -238,7 +238,7 @@ final class BundleBridgeTest extends TestCase
         }
 
         $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
-        $built = (new Builder())->build(AtomsJson::load($repo . '/' . self::FIXTURE . '/atoms.json'), $outDir, fast: true);
+        $built = $this->buildSampleApp($repo, $outDir);
 
         foreach ([null, '', 'not-a-hash', 'ABCDEF'] as $i => $bad) {
             /** @var array<string, mixed> $manifest */
@@ -267,6 +267,193 @@ final class BundleBridgeTest extends TestCase
         }
 
         self::rmrf($outDir);
+    }
+
+    /**
+     * The additive `vendor` manifest field (docs/cloudflare-toolchain.md §3)
+     * must survive the bridge: a full (non---fast) build ships the resolved
+     * vendor tree in the tar, and the translator must mount it under
+     * /app/vendor and carry `vendor.autoload` — guest-pathed like
+     * atoms[].file — into the host manifest, where bootstrap.php requires it.
+     * Composer is faked; the vendor tree is canned. No network.
+     */
+    public function testTheVendorTreeAndItsAutoloadDeclarationSurviveTheBridge(): void
+    {
+        $repo = \dirname(__DIR__, 2);
+        $node = (new \Symfony\Component\Process\ExecutableFinder())->find('node');
+        if ($node === null) {
+            self::markTestSkipped('node is not on PATH; the Worker bundle is built by a Node script.');
+        }
+
+        // A full build writes atoms-composer.lock and .atoms/vendor-cache into
+        // the project root, so it runs against a throwaway copy of the fixture.
+        $root = sys_get_temp_dir() . '/atoms-bundle-bridge-vendor-' . bin2hex(random_bytes(6));
+        self::copyTree($repo . '/' . self::FIXTURE, $root);
+
+        $runner = new \Atoms\Cli\Tests\Support\FakeProcessRunner(onPath: ['composer' => '/usr/bin/composer']);
+        $runner->resultFor = static function (array $command, ?string $cwd): ?\Atoms\Cli\Process\ProcessResult {
+            if ($command[0] !== 'composer' || $cwd === null) {
+                return null;
+            }
+            $v = $cwd . '/vendor';
+            mkdir($v . '/acme/lib', 0777, true);
+            mkdir($v . '/composer', 0777, true);
+            file_put_contents($cwd . '/composer.lock', "{\"canned\": true}\n");
+            file_put_contents($v . '/acme/lib/Widget.php', "<?php\n\nnamespace Acme\\Lib;\n\nfinal class Widget\n{\n}\n");
+            file_put_contents(
+                $v . '/composer/autoload_classmap.php',
+                "<?php\n\n\$vendorDir = dirname(__DIR__);\n\nreturn ['Acme\\\\Lib\\\\Widget' => \$vendorDir . '/acme/lib/Widget.php'];\n",
+            );
+            file_put_contents($v . '/composer/installed.json', "{\"packages\": [{\"name\": \"acme/lib\", \"version\": \"2.0.0\"}]}\n");
+
+            return new \Atoms\Cli\Process\ProcessResult(0, '', '');
+        };
+
+        $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
+        $built = (new Builder(runner: $runner))->build(AtomsJson::load($root . '/atoms.json'), $outDir);
+
+        $output = $outDir . '/bundle.generated.js';
+        $process = new \Symfony\Component\Process\Process(
+            [$node, $repo . '/cloudflare/worker/scripts/bundle-from-cli.mjs', $built->bundlePath, $built->manifestPath, $output],
+            $repo . '/cloudflare/worker',
+        );
+        $process->run();
+
+        self::assertSame(
+            0,
+            $process->getExitCode(),
+            "bundle-from-cli.mjs failed:\n" . $process->getErrorOutput(),
+        );
+
+        $module = (string) file_get_contents($output);
+
+        self::assertStringContainsString('"/app/vendor/acme/lib/Widget.php"', $module);
+        self::assertStringContainsString('"/app/vendor/atoms-vendor-autoload.php"', $module);
+        self::assertStringContainsString('"autoload": "/app/vendor/atoms-vendor-autoload.php"', $module);
+
+        self::rmrf($outDir);
+        self::rmrf($root);
+    }
+
+    /**
+     * vendor.autoload controls what the guest requires and which subtree the
+     * bundle autoloader ignores, so the translator must refuse anything but
+     * a plain vendor/….php path. Unvalidated, `atoms-composer.json` was
+     * accepted — bootstrap then dropped the whole app from its autoloader
+     * and required a JSON file.
+     */
+    public function testTranslatorRefusesAVendorAutoloadOutsideTheVendorTree(): void
+    {
+        $repo = \dirname(__DIR__, 2);
+        $node = (new \Symfony\Component\Process\ExecutableFinder())->find('node');
+        if ($node === null) {
+            self::markTestSkipped('node is not on PATH.');
+        }
+
+        $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
+        $built = $this->buildSampleApp($repo, $outDir);
+
+        foreach (['atoms-composer.json', 'vendor/../app/Atoms/GameRoom.php', '/app/vendor/x.php', 'vendor/'] as $bad) {
+            /** @var array<string, mixed> $manifest */
+            $manifest = json_decode((string) file_get_contents($built->manifestPath), true, 512, JSON_THROW_ON_ERROR);
+            $manifest['vendor'] = ['autoload' => $bad, 'packages' => []];
+            $badPath = $outDir . '/manifest-bad.json';
+            file_put_contents($badPath, json_encode($manifest, JSON_THROW_ON_ERROR));
+
+            $process = new \Symfony\Component\Process\Process(
+                [$node, $repo . '/cloudflare/worker/scripts/bundle-from-cli.mjs', $built->bundlePath, $badPath, $outDir . '/bad.generated.js'],
+                $repo . '/cloudflare/worker',
+            );
+            $process->run();
+
+            self::assertNotSame(0, $process->getExitCode(), 'must refuse vendor.autoload ' . var_export($bad, true));
+            self::assertStringContainsString('vendor.autoload', $process->getErrorOutput());
+        }
+
+        self::rmrf($outDir);
+    }
+
+    /**
+     * Decoding bundle entries into JS strings must be lossless: a non-UTF-8
+     * PHP file passes content-hash verification (the hash is over raw bytes)
+     * and would otherwise deploy with replacement characters — code that
+     * differs from the artifact its content_hash names.
+     */
+    public function testTranslatorRefusesANonUtf8BundleEntry(): void
+    {
+        $repo = \dirname(__DIR__, 2);
+        $node = (new \Symfony\Component\Process\ExecutableFinder())->find('node');
+        if ($node === null) {
+            self::markTestSkipped('node is not on PATH.');
+        }
+
+        $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
+        mkdir($outDir, 0777, true);
+
+        // A perfectly valid, correctly hashed archive whose one entry holds a
+        // raw 0xFF byte — the hash gate must pass and the UTF-8 gate must trip.
+        $tar = \Atoms\Cli\Build\TarWriter::build([
+            ['name' => 'app/Latin1.php', 'contents' => "<?php // caf\xE9\n"],
+        ]);
+        $bundlePath = $outDir . '/bundle.tar.gz';
+        file_put_contents($bundlePath, gzencode($tar, 9));
+        $manifestPath = $outDir . '/manifest.json';
+        file_put_contents($manifestPath, json_encode([
+            'schema' => 1,
+            'project' => 'utf8-refusal-test',
+            'atoms' => [],
+            'toolchain' => ['core_version' => \Atoms\Cli\Release\RuntimeVersion::CORE_VERSION],
+            'content_hash' => hash('sha256', $tar),
+        ], JSON_THROW_ON_ERROR));
+
+        $process = new \Symfony\Component\Process\Process(
+            [$node, $repo . '/cloudflare/worker/scripts/bundle-from-cli.mjs', $bundlePath, $manifestPath, $outDir . '/bad.generated.js'],
+            $repo . '/cloudflare/worker',
+        );
+        $process->run();
+
+        self::assertNotSame(0, $process->getExitCode(), 'a non-UTF-8 entry must refuse, not mangle');
+        self::assertStringContainsString('not valid UTF-8', $process->getErrorOutput());
+
+        self::rmrf($outDir);
+    }
+
+    /**
+     * sample-app declares a dependency, so --fast now refuses (ATOMS-E107)
+     * and a real build runs the vendor stage: composer is the CannedComposer
+     * fake, and the build runs against a throwaway copy of the fixture
+     * because the stage writes atoms-composer.lock + .atoms/vendor-cache
+     * into the project root.
+     */
+    private function buildSampleApp(string $repo, string $outDir): \Atoms\Cli\Build\BuildResult
+    {
+        $root = sys_get_temp_dir() . '/atoms-bundle-bridge-src-' . bin2hex(random_bytes(6));
+        self::copyTree($repo . '/' . self::FIXTURE, $root);
+        try {
+            $runner = \Atoms\Cli\Tests\Support\CannedComposer::runner();
+
+            return (new Builder(runner: $runner))->build(AtomsJson::load($root . '/atoms.json'), $outDir);
+        } finally {
+            self::rmrf($root);
+        }
+    }
+
+    private static function copyTree(string $from, string $to): void
+    {
+        $items = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($from, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST,
+        );
+        mkdir($to, 0777, true);
+        /** @var \SplFileInfo $item */
+        foreach ($items as $item) {
+            $dest = $to . '/' . substr($item->getPathname(), \strlen($from) + 1);
+            if ($item->isDir()) {
+                mkdir($dest, 0777, true);
+            } else {
+                copy($item->getPathname(), $dest);
+            }
+        }
     }
 
     private static function rmrf(string $dir): void
