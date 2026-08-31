@@ -45,9 +45,7 @@ not direction.
    disagree, the code is wrong.
 2. `docs/two-worlds.md` — the two-worlds model: which code ships to the
    runtime, which stays in the monolith, and how the file layout makes the
-   difference unmistakable. (The full design rationale — why the packages
-   are split, the extraction pipeline — is archived in the internal decision
-   records.)
+   difference unmistakable.
 3. `cloudflare/docs/mvp-spec.md` — the binding spec for the Worker: PHP↔JS
    wire protocol, DO lifecycle, routes, envelopes, bundle format, and an
    appendix of **measured** platform deviations. Read the appendix before
@@ -59,8 +57,8 @@ not direction.
    three decisions, so read it before changing any of them.
 
 The retired hosted platform's HTTP contract v1 (`/v1/{customer}/invoke/...`,
-anycast edge, Atoms-issued API keys) is archived in the internal decision
-records. Nothing implements it since M3; do not cite it as the transport.
+anycast edge, Atoms-issued API keys) is history: nothing implements it since
+M3, and it is not the transport.
 
 ## Hard rules — the PHP packages
 

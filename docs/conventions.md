@@ -223,8 +223,7 @@ Wire form of an AtomJob: `{"job": "FQCN", "args": {"param": value, ...}}`
 
 The Worker is single-tenant, so there is no customer prefix and no
 Atoms-operated service. `docs/cloudflare-toolchain.md` is normative for the
-decisions below; the retired hosted platform's contract is history only,
-archived in the internal decision records.
+decisions below; the retired hosted platform's contract is history only.
 
 `atoms/client` calls the Worker:
 
