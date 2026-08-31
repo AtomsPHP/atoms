@@ -4,7 +4,7 @@ description: Requirements, PHP packages, the Cloudflare runtime, and initial pro
 ---
 
 :::caution[Pre-1.0]
-Atoms is released on the `0.1` line. The `atoms/core` runtime ABI is frozen and additive; other pre-1.0 APIs may still change between minor releases.
+Atoms is released on the `0.4` line. The `atoms/core` runtime ABI is frozen and additive; other pre-1.0 APIs may still change between minor releases.
 :::
 
 ## Requirements
@@ -12,7 +12,7 @@ Atoms is released on the `0.1` line. The `atoms/core` runtime ABI is frozen and 
 - PHP 8.3 or 8.4 on the application host.
 - Composer 2.
 - Node.js 22 for the Cloudflare Worker toolchain.
-- A Cloudflare Workers Paid account. Free-plan support is outside the 0.1 support boundary.
+- A Cloudflare Workers Paid account. Free-plan support is outside the 0.4 support boundary.
 
 ## Install the PHP side
 
@@ -20,25 +20,25 @@ Choose the adapter for the application you already have:
 
 ```bash
 # Laravel
-composer require atoms/laravel:^0.1
+composer require atoms/laravel:^0.4
 
 # Symfony
-composer require atoms/symfony:^0.1
+composer require atoms/symfony:^0.4
 
 # Framework-free
-composer require atoms/client:^0.1
+composer require atoms/client:^0.4
 ```
 
 Install the CLI for development and deployment:
 
 ```bash
-composer require --dev atoms/cli:^0.1
+composer require --dev atoms/cli:^0.4
 ```
 
 Add the static rules that protect the PHP↔Worker boundary:
 
 ```bash
-composer require --dev atoms/phpstan-rules:^0.1
+composer require --dev atoms/phpstan-rules:^0.4
 ```
 
 Then include its configuration from your PHPStan config:
@@ -47,6 +47,8 @@ Then include its configuration from your PHPStan config:
 includes:
     - vendor/atoms/phpstan-rules/rules.neon
 ```
+
+The Illuminate bridge, `atoms/database-illuminate`, runs inside the Atom rather than in your application; [Eloquent and the query builder](/guides/eloquent/) covers installing it.
 
 ## Initialize the project
 
@@ -57,7 +59,7 @@ vendor/bin/atoms init
 The command creates `atoms.json` and `atoms-composer.json`. It does not download a deployment toolchain. Scaffold the exact co-versioned Worker runtime printed by `atoms init`:
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.4.0 -- \
   atoms-runtime-cloudflare init .atoms/worker
 cd .atoms/worker
 npm ci

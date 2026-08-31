@@ -10,7 +10,7 @@ Atoms deploys into your Cloudflare account. It does not proxy credentials throug
 Scaffold the co-versioned runtime once and install its lockfile:
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.4.0 -- \
   atoms-runtime-cloudflare init .atoms/worker
 (cd .atoms/worker && npm ci)
 ```
@@ -36,7 +36,13 @@ vendor/bin/atoms build
 vendor/bin/atoms deploy --env production
 ```
 
-`build` discovers the configured Atom tree, validates Atom-side code, vendors approved packages without executing customer code, scopes dependencies, and emits a deterministic bundle plus manifest. `deploy` translates that artifact into the Worker module and invokes the pinned Wrangler.
+`build` discovers the configured Atom tree, validates Atom-side code, ships the packages named in `atoms-composer.json`, and emits a deterministic bundle plus manifest, all without executing customer code. `deploy` translates that artifact into the Worker module and invokes the pinned Wrangler.
+
+## Dependencies that ship with the Atom
+
+Packages listed in `atoms-composer.json` are resolved with `composer install --no-scripts --no-plugins` in an isolated directory, written back to `atoms-composer.lock` for reproducibility, and cached under `.atoms/vendor-cache` so repeat builds and `atoms dev` stay offline. The resolved tree ships unprefixed: each package's `.php` and licence files, plus a generated classmap autoloader the runtime requires at activation.
+
+A resolution failure stops the build with `ATOMS-E079`. `atoms build --fast` skips the vendor stage, so it refuses with `ATOMS-E107` while `atoms-composer.json` declares packages — a vendor-less bundle deploys cleanly and then fatals in the guest at the first vendor class.
 
 ## Configure callbacks and application secrets
 
@@ -69,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms/action@v0.1.0
+      - uses: AtomsPHP/atoms/action@v0.4.0
         with:
           environment: production
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}

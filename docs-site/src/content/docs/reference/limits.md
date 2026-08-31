@@ -12,7 +12,7 @@ On deployed workerd, the PHP guest clock remains frozen across CPU work and sync
 Install the shipped enforcement:
 
 ```bash
-composer require --dev atoms/phpstan-rules:^0.1
+composer require --dev atoms/phpstan-rules:^0.4
 ```
 
 ```text
@@ -62,4 +62,4 @@ PHP guest memory and Worker isolate memory share a finite platform envelope acro
 
 The stock runtime has no point-in-time restore route or CLI command. Cloudflare’s restore primitives are callable only from inside the Durable Object. A custom Worker fork can expose an authenticated administrative surface, but it is unsupported and must be maintained by the operator. An unrelated Worker cannot directly open an Atom’s private SQLite database.
 
-Atoms 0.1 supports the Workers Paid plan. See Cloudflare’s current [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) for billing terms; Cloudflare’s own analytics documentation explains the account-level and per-object telemetry available to operators.
+Atoms 0.4 supports the Workers Paid plan. See Cloudflare’s current [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) for billing terms; Cloudflare’s own analytics documentation explains the account-level and per-object telemetry available to operators.

@@ -80,7 +80,7 @@ Calls with the same Atom type and id are serialized by the Durable Object. Diffe
 Use `atoms/testing` for fast local tests of Atom behavior, migrations, callbacks, broadcasts, and timers:
 
 ```bash
-composer require --dev atoms/testing:^0.1
+composer require --dev atoms/testing:^0.4
 ```
 
 ```php

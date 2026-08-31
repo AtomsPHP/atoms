@@ -13,7 +13,7 @@ It builds two collaborators through `AtomsBootstrap::create()`:
 ## Install
 
 ```bash
-composer require atoms/client:^0.1 guzzlehttp/psr7:^2.7
+composer require atoms/client:^0.4 guzzlehttp/psr7:^2.7
 ```
 
 Supply a PSR-18 client, the PSR-17 factories, your endpoint, and callback verification key explicitly:

@@ -10,9 +10,12 @@ Atoms spans two runtimes with different capabilities.
 Atom-side code is bundled into PHP 8.3 WebAssembly and run inside a Durable Object. It includes:
 
 - classes extending `Atoms\Atom`;
+- helper classes in an Atom's `support/` directory;
 - shared, JSON-safe data transfer objects;
 - append-only SQL or PHP migrations;
 - dependencies explicitly approved in `atoms-composer.json`.
+
+An Atom's `support/` directory sits beside its `migrations/` — `app/Atoms/GameRoom/support/ScoreBoard.php` — and holds Atom-side helpers that ship with the Atom without being Atoms themselves: an Eloquent model bound to the Atom's database, a value object, a pure service. They follow the same import rules as the Atom class, and your application never loads them.
 
 An Atom can use its own database, configuration, timers, WebSockets, and the `app()`/`dispatch()` callback seam. It cannot use your Laravel container, Doctrine entity manager, filesystem, sessions, or arbitrary framework services.
 

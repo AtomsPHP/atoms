@@ -47,7 +47,7 @@ Inside `GameRoom`, `$this->app()->displayName($id)` waits for that response. Do 
 
 ## Asynchronous `dispatch()`
 
-`dispatch()` is at-most-once, unordered, and unretried in 0.1. Outside a transaction, delivery is initiated immediately and settled before the triggering Worker response completes. Inside a transaction, jobs are released only after commit and dropped on rollback.
+`dispatch()` is at-most-once, unordered, and unretried in 0.4. Outside a transaction, delivery is initiated immediately and settled before the triggering Worker response completes. Inside a transaction, jobs are released only after commit and dropped on rollback.
 
 Transport failures are logged and dropped because the frozen `dispatch(): void` ABI cannot report an asynchronous failure. Use idempotent jobs and do not treat this as a durable outbox.
 

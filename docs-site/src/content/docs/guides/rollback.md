@@ -22,6 +22,6 @@ Like deploys and secret changes, rollbacks propagate eventually. Verify behavior
 
 ## Point-in-time recovery is not exposed
 
-Cloudflare maintains SQLite Durable Object history and exposes restore primitives from inside the Durable Object. The stock Atoms 0.1 runtime does not provide a restore route or CLI command, and Wrangler or Data Studio cannot restore an Atom on its behalf.
+Cloudflare maintains SQLite Durable Object history and exposes restore primitives from inside the Durable Object. The stock Atoms 0.4 runtime does not provide a restore route or CLI command, and Wrangler or Data Studio cannot restore an Atom on its behalf.
 
 An advanced operator can maintain a custom Worker fork that exposes those primitives to an authenticated administrative surface. That fork is outside the supported runtime and must preserve the Atom’s namespace and storage identity. Do not imply that an unrelated companion Worker can directly access another Durable Object’s private SQLite storage.

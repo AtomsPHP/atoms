@@ -52,4 +52,4 @@ The CLI never invokes `npx` and never installs tooling. Run `npm ci` in the scaf
 
 `secrets:set NAME` maps application-facing names through the Worker’s configured allowlist prefix. It cannot set operational runtime secrets such as `ATOMS_CALLBACK_SIGNING_KEY`; use Wrangler for those.
 
-There is no `atoms usage` or point-in-time recovery command in 0.1.
+There is no `atoms usage` or point-in-time recovery command in 0.4.
