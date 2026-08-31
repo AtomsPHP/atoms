@@ -8,7 +8,7 @@ Use the release tool rather than editing version fields by hand:
 
 ```sh
 php scripts/release/release.php check
-php scripts/release/release.php set 0.1.1 ready
+php scripts/release/release.php set 0.4.1 ready
 php scripts/release/release.php validate-splits
 ```
 

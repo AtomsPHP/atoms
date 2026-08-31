@@ -13,9 +13,9 @@ package and this document disagree, the package is wrong.
   PHP 8.3 runtime image.
 - All packages: `declare(strict_types=1);`, final classes unless the class is
   explicitly designed for extension (`Atom`, `AtomMethods`, `AtomJob`).
-- Monorepo package versions are pinned at `0.1.0` in each package's
-  `composer.json`; inter-package constraints are `^0.1`. Release tooling will
-  own versions later — do not hand-edit them.
+- Monorepo package versions and inter-package constraints are coordinated from
+  `release/manifest.json`. Release tooling owns those fields — do not hand-edit
+  them.
 
 ## Layout
 
@@ -71,8 +71,8 @@ Everything below is wire-protocol-grade API. Implement exactly these
 signatures; additions are fine, changes are not.
 
 **Through the 0.x line, that freeze is a default, not a wall.** The packages
-are on Packagist — `atoms/core` 0.1.0 published 2026-08-14 — but they are
-explicitly pre-release, and a `^0.1` constraint promises nothing across a minor.
+are on Packagist, but they are explicitly pre-release, and Composer's pre-1.0
+caret constraints promise nothing across a minor.
 Publication is not the line; 1.0 is. Until then a signature that cannot be used
 correctly is worth fixing while fixing it is still cheap: `dispatch()` was
 changed in place that way, having taken an `AtomJob` instance that required a
@@ -406,9 +406,9 @@ runbooks, search boxes and support threads. So:
   as it is now, under the same number.
 
 Through 0.x the bar for rewording stays low: the packages are published, but
-pre-release, and message text is not something a `^0.1` constraint promises. At
-1.0 the bar rises — a code's wording starts showing up in users' runbooks — but
-the two bullets above stay the rule either way.
+pre-release, and message text is not something a pre-1.0 minor constraint
+promises. At 1.0 the bar rises — a code's wording starts showing up in users'
+runbooks — but the two bullets above stay the rule either way.
 
 ## Testing & tooling
 

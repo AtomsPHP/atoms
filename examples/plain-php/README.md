@@ -22,7 +22,7 @@ Two collaborators, both built by one call to `AtomsBootstrap::create()`:
 {
     "require": {
         "php": "^8.3",
-        "atoms/client": "^0.1",
+        "atoms/client": "^0.4",
         "guzzlehttp/psr7": "^2.7"
     }
 }

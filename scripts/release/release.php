@@ -190,11 +190,62 @@ function checkRelease(string $root): void
         $errors[] = 'the generated compatibility page is stale; run the release generator';
     }
 
+    $errors = array_merge(
+        $errors,
+        validateCurrentReleaseReferences($root, $version, $internalConstraint),
+    );
+
     if ($errors !== []) {
         throw new RuntimeException("release metadata is inconsistent:\n- " . implode("\n- ", $errors));
     }
 
     fwrite(STDOUT, "Release {$version} ({$manifest['status']}) is internally consistent.\n");
+}
+
+/** @return list<string> */
+function validateCurrentReleaseReferences(string $root, string $version, string $constraint): array
+{
+    $relativePaths = [
+        'README.md',
+        'action/README.md',
+        'docs/cloudflare-toolchain.md',
+        'examples/laravel/README.md',
+        'examples/laravel/composer.json',
+        'examples/laravel/.github/workflows/deploy-atoms.yml',
+        'examples/plain-php/README.md',
+        'examples/plain-php/composer.json',
+    ];
+    foreach (PACKAGE_NAMES as $packageName) {
+        $relativePaths[] = 'packages/' . packageSlug($packageName) . '/README.md';
+    }
+    $errors = [];
+
+    foreach ($relativePaths as $relativePath) {
+        $contents = (string) file_get_contents("{$root}/{$relativePath}");
+
+        preg_match_all('/@atomsphp\/runtime-cloudflare@(\d+\.\d+\.\d+)/', $contents, $runtimeMatches);
+        foreach ($runtimeMatches[1] as $referencedVersion) {
+            if ($referencedVersion !== $version) {
+                $errors[] = "{$relativePath} references runtime {$referencedVersion}; expected {$version}";
+            }
+        }
+
+        preg_match_all('/AtomsPHP\/atoms\/action@v(\d+\.\d+\.\d+)/', $contents, $actionMatches);
+        foreach ($actionMatches[1] as $referencedVersion) {
+            if ($referencedVersion !== $version) {
+                $errors[] = "{$relativePath} references Action {$referencedVersion}; expected {$version}";
+            }
+        }
+
+        preg_match_all('/\^0\.\d+(?:\.\d+)?/', $contents, $constraintMatches);
+        foreach ($constraintMatches[0] as $referencedConstraint) {
+            if ($referencedConstraint !== $constraint) {
+                $errors[] = "{$relativePath} references {$referencedConstraint}; expected {$constraint}";
+            }
+        }
+    }
+
+    return $errors;
 }
 
 function generateReleaseArtifacts(string $root): void
