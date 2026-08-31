@@ -208,6 +208,13 @@ function hostManifest(cli) {
 		bundle_format: BUNDLE_FORMAT,
 		abi: { php: cli.toolchain?.php ?? '8.3' },
 		atoms,
+		// Additive manifest field (docs/cloudflare-toolchain.md §3): the
+		// bundled vendor autoloader, guest-pathed like atoms[].file. Spread
+		// like `websocket` above — absence stays absence (a bundle with no
+		// atoms-composer.json packages declares nothing).
+		...(typeof cli.vendor?.autoload === 'string' && cli.vendor.autoload !== ''
+			? { vendor: { autoload: path.posix.join(APP_PREFIX, cli.vendor.autoload) } }
+			: {}),
 		// Provenance, for `atoms status` and for reading a deployed Worker.
 		project: cli.project ?? null,
 		content_hash: cli.content_hash,
@@ -276,6 +283,9 @@ function main() {
 				throw new Error(`atom ${type} declares migration ${migration}, which is not in the bundle`);
 			}
 		}
+	}
+	if (manifest.vendor && !(manifest.vendor.autoload in appFiles)) {
+		throw new Error(`the manifest declares vendor autoload ${manifest.vendor.autoload}, which is not in the bundle`);
 	}
 
 	const all = { ...appFiles, ...runtimeFiles(PROJECT_ROOT) };

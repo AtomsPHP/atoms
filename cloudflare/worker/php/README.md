@@ -112,12 +112,23 @@ from it automatically — a `NNN_name.php` migration *returns* a `Migration`
 object and must only ever be loaded by `MigrationEntry::migration()`. If `files`
 is omitted, only the Atom's own `file` is loaded.
 
+`manifest.vendor.autoload` (optional, mvp-spec.md §Bundle format) names the
+guest path of a build-generated classmap + function-file loader for a bundled
+vendor tree. When present, everything under that file's own directory is
+excluded from the line-scanning autoloader's index — the classmap is exact,
+and reading a vendor tree's every file at each activation would be pure boot
+cost — and the file is `require`d right after the bundle autoloader is
+registered. Declared but missing from the guest filesystem is an `internal`
+`BootstrapError`, like a missing Atom source.
+
 ### 4. What happens next, in order
 
 `bootstrap.php` requires `host.php` and `int64.php`, then:
 
 1. `require`s `atoms-core/` (interfaces first) and then the rest of `runtime/`;
-2. registers the bundle autoloader;
+2. registers the bundle autoloader (vendor subtree excluded when the manifest
+   declares `vendor.autoload`), then `require`s the declared vendor autoload
+   file, if any;
 3. applies pending migrations with the real `Migrator` — each migration in its
    own transaction (`tx.begin`/`tx.commit`), with `PRAGMA user_version` read and
    written through the bridge for the host to map onto `__atoms_meta`;

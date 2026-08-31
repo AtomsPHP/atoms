@@ -533,7 +533,9 @@ M3 built.**
 - `atoms build` keeps emitting `bundle-{sha256}.tar.gz` + schema-1
   `manifest.json`. This is the **portable** artifact: content-addressed,
   byte-reproducible, archivable, signable, and produced without executing
-  customer code. It carries the customer's app and nothing else.
+  customer code. It carries the customer's app and — since the vendor stage
+  (below) — the resolved `atoms-composer.json` packages the app's Atoms use;
+  nothing else.
 - The Worker keeps loading `src/bundle.generated.js`, an ES module exporting
   `{manifest, files}` at `bundle_format: 0`. This is the **deploy** artifact.
   It has to be a JS module because the Worker script is what `wrangler deploy`
@@ -573,9 +575,50 @@ the Worker conformance suite was untouched by the CLI integration (see
 `build-bundle.mjs` is the conformance fixture builder. It is not a stand-in
 for the real `atoms build`.
 
-### Two additive manifest fields
+### The vendor stage (2026-08-30)
 
-The Worker needs two things the schema-1 manifest did not record. Both are
+A project whose Atoms use approved packages (`atoms-composer.json`, gated by
+`packages/cli/resources/allowed-packages.json`) needs those packages **in the
+guest**. The build's vendor stage (`Atoms\Cli\Build\VendorStage`) supplies
+them:
+
+- `composer install --no-dev --no-scripts --no-plugins` runs in an isolated
+  temp directory — a build never executes customer or dependency code. A
+  missing composer, an unresolvable constraint, or any other failure refuses
+  loudly with **ATOMS-E079**; there is no silent fallback to an
+  unshippable bundle.
+- **Determinism**: the first successful resolution writes
+  `atoms-composer.lock` (Composer's own lock format) back next to
+  `atoms-composer.json`; committed, it pins every later resolution. The
+  resolved tree is cached under `.atoms/vendor-cache/<key>` (key = sha256 of
+  atoms-composer.json + lock), so repeat builds — `atoms dev`'s rebuild loop
+  included — are offline and composer-free until the lock changes.
+- **What ships**: every vendor `.php` file (data files like Carbon's locale
+  tables are `.php` too) plus package LICENSE files, under `vendor/…` in the
+  tar, and one generated `vendor/atoms-vendor-autoload.php` — a classmap +
+  eager function-file loader built from Composer's own optimized autoload
+  output, `__DIR__`-relative so it works at any guest mount point. The
+  manifest records it as the additive `vendor` key (autoload path + resolved
+  package versions).
+- **Unprefixed, deliberately.** php-scoper is no longer run: prefixing vendor
+  namespaces without also rewriting the customer's Atom code (which names
+  those namespaces at every call site) would break the app against its own
+  vendor tree, and the guest has no other occupant to collide with — it loads
+  exactly `atoms/core`, the `Atoms\Cf` prelude, and this bundle. Namespace
+  isolation returns as future hardening only as a whole-bundle rewrite
+  (vendor **and** app together). The manifest's `toolchain.scoper_prefix`
+  keeps its original meaning: a content fingerprint of the customer tree.
+- `--fast` skips the stage entirely; the bundle then ships no vendor code and
+  declares no `vendor` key.
+
+`atoms validate` runs no vendor stage, so its manifest (and manifest hash)
+describes the customer tree only; `atoms build`'s manifest is the one with
+the `vendor` key. The content hash always covers everything in the tar,
+vendor included.
+
+### Three additive manifest fields
+
+The Worker needs three things the schema-1 manifest did not record. All are
 additive; `schema` stays `1`.
 
 - **`atoms[].file`** — the bundle-relative path of the file declaring the Atom
@@ -586,6 +629,15 @@ additive; `schema` stays `1`.
   migration. `MigrationEntry::$name` is the *descriptive* part only
   (`MigrationSet` parses `NNN_name.sql` and keeps `name`), so the filename is
   not reconstructable from the manifest at all.
+- **`vendor.autoload`** — the bundle-relative path of the generated vendor
+  autoload file (see §The vendor stage). The translator mounts the tar's
+  `vendor/…` entries under `/app/vendor/…` like everything else, carries this
+  key through guest-pathed (exactly as it does `atoms[].file`), and verifies
+  the declared file is actually in the archive; `bootstrap.php` excludes the
+  vendor subtree from its line-scanning autoloader (the classmap is exact,
+  and scanning a vendor tree at every activation is pure boot cost) and
+  `require`s the declared file. Absent key ⇒ no vendor tree, nothing changes;
+  `bundle_format` stays `0`. Conformance check 45 pins the guest behaviour.
 
 **`atoms[].websocket` is three-valued, and the third value is "no answer".**
 The Worker reads the key as: absent ⇒ allowed, `true` ⇒ allowed, `false` ⇒

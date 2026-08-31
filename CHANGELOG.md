@@ -1,10 +1,30 @@
 # Changelog
 
-All notable changes to Atoms are documented here. The seven Composer packages,
+All notable changes to Atoms are documented here. The eight Composer packages,
 the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+- **Added:** `atoms/database-illuminate`: the Laravel query builder and Eloquent
+  models against an Atom's own SQLite database, as an optional bridge that
+  ships inside the Atom bundle. Nested `transaction()` calls reuse the outer
+  transaction (the runtime has no savepoints), schema work is refused
+  (`ATOMS-E106`), and `getServerVersion()` answers from connection config.
+- **Added:** `atoms build` now ships approved `atoms-composer.json` packages
+  in the bundle. The vendor stage (`Atoms\Cli\Build\VendorStage`) resolves
+  with `composer install --no-scripts --no-plugins` in an isolated directory,
+  writes `atoms-composer.lock` back for reproducibility, caches the pruned
+  tree under `.atoms/vendor-cache` (so `atoms dev` rebuilds stay offline),
+  ships every vendor `.php` + LICENSE file plus a generated classmap
+  autoloader, and records the additive manifest `vendor` key. Failures refuse
+  loudly with `ATOMS-E079`. The php-scoper stage is retired: the tree ships
+  unprefixed (prefixing vendor without rewriting the customer's call sites
+  would break the app; the guest has no co-tenant), documented in
+  `docs/cloudflare-toolchain.md` §3.
+- **Added:** The Worker honours the manifest's `vendor.autoload` key: the
+  vendor subtree is excluded from the line-scanning bundle autoloader and the
+  declared classmap loader is required at activation (conformance check 45;
+  `bundle_format` stays 0, absent key changes nothing).
 - **Added:** `Atoms\Serialization\Serializer::denormalizeNamedArguments(string $class, array $wireArgs)`
   binds a dispatched job's `{"job": FQCN, "args": {...}}` argument map to a
   constructor by parameter name — wire value, else declared default, else null

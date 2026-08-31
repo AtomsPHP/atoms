@@ -19,7 +19,7 @@ final class BuildResult
         public readonly string $contentHash,
         public readonly array $manifest,
         public readonly ValidationResult $validation,
-        public readonly bool $scoped,
+        public readonly ?VendorTree $vendor = null,
     ) {
     }
 

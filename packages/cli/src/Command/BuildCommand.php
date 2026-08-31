@@ -25,7 +25,7 @@ final class BuildCommand extends AbstractCommand
     protected function configure(): void
     {
         parent::configure();
-        $this->addOption('fast', null, InputOption::VALUE_NONE, 'Skip the vendor + php-scoper stage');
+        $this->addOption('fast', null, InputOption::VALUE_NONE, 'Skip the vendor stage (the bundle ships no atoms-composer.json packages)');
         $this->addOption('out', null, InputOption::VALUE_REQUIRED, 'Output directory (defaults to .atoms/build)');
     }
 
@@ -51,7 +51,14 @@ final class BuildCommand extends AbstractCommand
         $output->writeln('  manifest:      ' . $result->manifestPath);
         $output->writeln('  content hash:  ' . $result->contentHash);
         $output->writeln('  manifest hash: ' . $result->manifestHash());
-        $output->writeln('  scoped:        ' . ($result->scoped ? 'yes' : 'no (fast / no dependencies)'));
+        $vendorLine = 'none (fast / no dependencies)';
+        if ($result->vendor !== null) {
+            $vendorLine = \count($result->vendor->packages) . ' package(s) bundled';
+            if ($result->vendor->wroteLock) {
+                $vendorLine .= ', atoms-composer.lock written — commit it';
+            }
+        }
+        $output->writeln('  vendor:        ' . $vendorLine);
         $output->writeln('  atom types:    ' . $atoms);
 
         return self::SUCCESS;

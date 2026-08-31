@@ -4498,6 +4498,44 @@ checks.push(async () => {
     }
 });
 
+// CHECK 45: the bundle's vendor tree loads through the manifest's declared
+// autoloader (spec §Bundle format, the additive `vendor.autoload` field).
+// The fixture's Acme\Greeter\Greeter is deliberately declared INDENTED inside
+// a conditional — a shape bootstrap.php's line-scanning autoloader cannot
+// index — so the class resolving at all proves the classmap in
+// /app/vendor/atoms-vendor-autoload.php served it, not the scanner. The
+// function probe runs before the class is touched, proving Composer-style
+// "files" entries were required eagerly at activation rather than lazily.
+checks.push(async () => {
+    const checkNum = 45;
+    const name = 'vendor.autoload: classmap classes resolve, function files are preloaded';
+    const id = atomId('vendor');
+
+    const { status, data } = await invoke('Vendor', id, 'viaVendor');
+    const problems = [];
+
+    if (status !== 200) {
+        problems.push(`invoke returned ${status}: ${JSON.stringify(data)}`);
+    } else {
+        const result = data.result ?? {};
+        if (result.class !== 'greetings from the vendor tree') {
+            problems.push(`classmap class answered ${JSON.stringify(result.class)}`);
+        }
+        if (result.function !== 'greetings from a vendor function file') {
+            problems.push(`vendor function answered ${JSON.stringify(result.function)}`);
+        }
+        if (result.function_was_preloaded !== true) {
+            problems.push('the function file was not loaded at activation (function_exists was false before first use)');
+        }
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, 'conditional-declared vendor class resolved via the classmap; function file preloaded at activation');
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
 // ---------------------------------------------------------------- run
 
 async function run() {

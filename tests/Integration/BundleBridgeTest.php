@@ -269,6 +269,90 @@ final class BundleBridgeTest extends TestCase
         self::rmrf($outDir);
     }
 
+    /**
+     * The additive `vendor` manifest field (docs/cloudflare-toolchain.md §3)
+     * must survive the bridge: a full (non---fast) build ships the resolved
+     * vendor tree in the tar, and the translator must mount it under
+     * /app/vendor and carry `vendor.autoload` — guest-pathed like
+     * atoms[].file — into the host manifest, where bootstrap.php requires it.
+     * Composer is faked; the vendor tree is canned. No network.
+     */
+    public function testTheVendorTreeAndItsAutoloadDeclarationSurviveTheBridge(): void
+    {
+        $repo = \dirname(__DIR__, 2);
+        $node = (new \Symfony\Component\Process\ExecutableFinder())->find('node');
+        if ($node === null) {
+            self::markTestSkipped('node is not on PATH; the Worker bundle is built by a Node script.');
+        }
+
+        // A full build writes atoms-composer.lock and .atoms/vendor-cache into
+        // the project root, so it runs against a throwaway copy of the fixture.
+        $root = sys_get_temp_dir() . '/atoms-bundle-bridge-vendor-' . bin2hex(random_bytes(6));
+        self::copyTree($repo . '/' . self::FIXTURE, $root);
+
+        $runner = new \Atoms\Cli\Tests\Support\FakeProcessRunner(onPath: ['composer' => '/usr/bin/composer']);
+        $runner->resultFor = static function (array $command, ?string $cwd): ?\Atoms\Cli\Process\ProcessResult {
+            if ($command[0] !== 'composer' || $cwd === null) {
+                return null;
+            }
+            $v = $cwd . '/vendor';
+            mkdir($v . '/acme/lib', 0777, true);
+            mkdir($v . '/composer', 0777, true);
+            file_put_contents($cwd . '/composer.lock', "{\"canned\": true}\n");
+            file_put_contents($v . '/acme/lib/Widget.php', "<?php\n\nnamespace Acme\\Lib;\n\nfinal class Widget\n{\n}\n");
+            file_put_contents(
+                $v . '/composer/autoload_classmap.php',
+                "<?php\n\n\$vendorDir = dirname(__DIR__);\n\nreturn ['Acme\\\\Lib\\\\Widget' => \$vendorDir . '/acme/lib/Widget.php'];\n",
+            );
+            file_put_contents($v . '/composer/installed.json', "{\"packages\": [{\"name\": \"acme/lib\", \"version\": \"2.0.0\"}]}\n");
+
+            return new \Atoms\Cli\Process\ProcessResult(0, '', '');
+        };
+
+        $outDir = sys_get_temp_dir() . '/atoms-bundle-bridge-' . bin2hex(random_bytes(6));
+        $built = (new Builder(runner: $runner))->build(AtomsJson::load($root . '/atoms.json'), $outDir);
+
+        $output = $outDir . '/bundle.generated.js';
+        $process = new \Symfony\Component\Process\Process(
+            [$node, $repo . '/cloudflare/worker/scripts/bundle-from-cli.mjs', $built->bundlePath, $built->manifestPath, $output],
+            $repo . '/cloudflare/worker',
+        );
+        $process->run();
+
+        self::assertSame(
+            0,
+            $process->getExitCode(),
+            "bundle-from-cli.mjs failed:\n" . $process->getErrorOutput(),
+        );
+
+        $module = (string) file_get_contents($output);
+
+        self::assertStringContainsString('"/app/vendor/acme/lib/Widget.php"', $module);
+        self::assertStringContainsString('"/app/vendor/atoms-vendor-autoload.php"', $module);
+        self::assertStringContainsString('"autoload": "/app/vendor/atoms-vendor-autoload.php"', $module);
+
+        self::rmrf($outDir);
+        self::rmrf($root);
+    }
+
+    private static function copyTree(string $from, string $to): void
+    {
+        $items = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($from, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST,
+        );
+        mkdir($to, 0777, true);
+        /** @var \SplFileInfo $item */
+        foreach ($items as $item) {
+            $dest = $to . '/' . substr($item->getPathname(), \strlen($from) + 1);
+            if ($item->isDir()) {
+                mkdir($dest, 0777, true);
+            } else {
+                copy($item->getPathname(), $dest);
+            }
+        }
+    }
+
     private static function rmrf(string $dir): void
     {
         if (!is_dir($dir)) {
