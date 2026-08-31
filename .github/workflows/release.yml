@@ -206,9 +206,10 @@ jobs:
             testing
             phpstan-rules
             cli
+            database-illuminate
           permission-contents: write
 
-      - name: Derive and push the seven package histories
+      - name: Derive and push the eight package histories
         env:
           MIRROR_TOKEN: ${{ steps.mirror-token.outputs.token }}
           VERSION: ${{ needs.preflight.outputs.version }}
@@ -216,7 +217,7 @@ jobs:
         run: |
           set -euo pipefail
           auth="$(printf 'x-access-token:%s' "$MIRROR_TOKEN" | base64 | tr -d '\n')"
-          for package in core client laravel symfony testing phpstan-rules cli; do
+          for package in core client laravel symfony testing phpstan-rules cli database-illuminate; do
             split_commit="$(git subtree split --prefix="packages/$package" "$GITHUB_SHA")"
             remote="https://github.com/AtomsPHP/$package.git"
             git -c "http.extraheader=AUTHORIZATION: basic $auth" \

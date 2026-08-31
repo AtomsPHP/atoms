@@ -17,7 +17,7 @@ parked inside a SQLite-backed Durable Object.
 
 | Directory | What it is | Guidance |
 |---|---|---|
-| `packages/` | The seven MIT PHP packages: `atoms/{core,client,laravel,symfony,testing,phpstan-rules,cli}` | `docs/conventions.md` (normative) |
+| `packages/` | The eight MIT PHP packages: `atoms/{core,client,laravel,symfony,testing,phpstan-rules,cli,database-illuminate}` | `docs/conventions.md` (normative) |
 | `cloudflare/` | The Worker runtime: `worker/` (host JS, `Atoms\Cf\` guest prelude, fixtures, conformance suite), `docs/` (MVP spec + summary), `corresponding-source/`, the licence files | `cloudflare/README.md`, `cloudflare/docs/mvp-spec.md` |
 | `docs/` | Framework docs: `conventions.md`, `cloudflare-toolchain.md`, `integration-plan.md`, `two-worlds.md`, `errors.md`, `platform/api-contract.md` (retired) | — |
 | `action/` | The deploy GitHub Action (composite) | `action/README.md` |
@@ -42,7 +42,7 @@ not direction.
 1. `docs/conventions.md` — cross-package contracts, the frozen `atoms/core`
    ABI, error-catalog rules, layering. **Normative.** If code and this file
    disagree, the code is wrong.
-2. `docs/integration-plan.md` — the design rationale (why seven packages, the
+2. `docs/integration-plan.md` — the design rationale (why the packages are split, the
    two-worlds model, the extraction pipeline).
 3. `cloudflare/docs/mvp-spec.md` — the binding spec for the Worker: PHP↔JS
    wire protocol, DO lifecycle, routes, envelopes, bundle format, and an

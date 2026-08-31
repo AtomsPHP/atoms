@@ -11,6 +11,7 @@ const PACKAGE_NAMES = [
     'atoms/testing',
     'atoms/phpstan-rules',
     'atoms/cli',
+    'atoms/database-illuminate',
 ];
 
 $root = dirname(__DIR__, 2);
@@ -50,7 +51,7 @@ Usage:
   php scripts/release/release.php split-all <empty-destination>
   php scripts/release/release.php validate-splits
 
-Package slugs: core, client, laravel, symfony, testing, phpstan-rules, cli
+Package slugs: core, client, laravel, symfony, testing, phpstan-rules, cli, database-illuminate
 
 TEXT);
     exit(0);
@@ -79,7 +80,7 @@ function checkRelease(string $root): void
 
     $listedPackages = $composer['packages'] ?? null;
     if ($listedPackages !== PACKAGE_NAMES) {
-        $errors[] = 'composer.packages must list the seven packages once, in release order';
+        $errors[] = 'composer.packages must list the eight packages once, in release order';
     }
 
     // Same rule as the per-package cross-requires below: the root
@@ -394,7 +395,7 @@ function validateSplits(string $root): void
         removeOwnedTemporaryTree($temporary);
     }
 
-    fwrite(STDOUT, "All seven Composer split trees are self-contained and valid.\n");
+    fwrite(STDOUT, "All eight Composer split trees are self-contained and valid.\n");
 }
 
 /** @param array<string, mixed> $manifest @return list<string> */

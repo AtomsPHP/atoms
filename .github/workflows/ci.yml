@@ -72,7 +72,7 @@ jobs:
       # Package manifests carry pinned version fields (managed by release
       # tooling — see CLAUDE.md), which --strict rejects as a publish warning.
       - run: |
-          for p in core client laravel symfony testing phpstan-rules cli; do
+          for p in core client laravel symfony testing phpstan-rules cli database-illuminate; do
             composer validate --no-check-all "packages/$p/composer.json"
           done
 

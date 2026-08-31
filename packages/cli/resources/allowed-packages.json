@@ -3,6 +3,7 @@
     "packages": [
         { "name": "illuminate/database", "namespaces": ["Illuminate\\Database\\"] },
         { "name": "illuminate/collections", "namespaces": ["Illuminate\\Support\\"] },
+        { "name": "atoms/database-illuminate", "namespaces": ["Atoms\\DatabaseIlluminate\\"] },
         { "name": "ramsey/uuid", "namespaces": ["Ramsey\\Uuid\\"] },
         { "name": "nesbot/carbon", "namespaces": ["Carbon\\"] },
         { "name": "brick/math", "namespaces": ["Brick\\Math\\"] },

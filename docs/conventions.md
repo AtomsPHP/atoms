@@ -8,7 +8,8 @@ package and this document disagree, the package is wrong. Read
 ## Decisions already made (do not reopen)
 
 - Vendor prefix: **`atoms/*`** — `atoms/core`, `atoms/client`, `atoms/laravel`,
-  `atoms/symfony`, `atoms/testing`, `atoms/phpstan-rules`, `atoms/cli`.
+  `atoms/symfony`, `atoms/testing`, `atoms/phpstan-rules`, `atoms/cli`,
+  `atoms/database-illuminate`.
 - PHP baseline: **`^8.3`**. No 8.4-only features (no property hooks, no
   asymmetric visibility) anywhere — `atoms/core` executes inside the platform's
   PHP 8.3 runtime image.
@@ -29,7 +30,8 @@ packages/
 ├── symfony/        atoms/symfony         namespace Atoms\Symfony\    Symfony adapter bundle
 ├── testing/        atoms/testing         namespace Atoms\Testing\    AtomHarness etc.
 ├── phpstan-rules/  atoms/phpstan-rules   namespace Atoms\PHPStan\    boundary rules
-└── cli/            atoms/cli             namespace Atoms\Cli\        `atoms` binary + build library
+├── cli/            atoms/cli             namespace Atoms\Cli\        `atoms` binary + build library
+└── database-illuminate/  atoms/database-illuminate  namespace Atoms\DatabaseIlluminate\  Illuminate bridge: query builder + Eloquent against the Atom's own SQLite
 ```
 
 Tests live in `packages/<pkg>/tests`, namespace `Atoms\<Pkg>\Tests\`
@@ -45,6 +47,7 @@ core  ←  client  ←  laravel
       ←  testing            ←  symfony (client only!)
       ←  phpstan-rules
       ←  cli
+      ←  database-illuminate
 ```
 
 - `atoms/core` depends on **nothing** framework-ish. `psr/*` interfaces only.
@@ -55,6 +58,8 @@ core  ←  client  ←  laravel
 - `atoms/testing` depends on core (+ phpunit). NOT on client.
 - `atoms/cli` depends on core (+ symfony/console, nikic/php-parser). NOT on
   client — it speaks the deploy HTTP API itself via ext-curl.
+- `atoms/database-illuminate` depends on core (+ illuminate/database). NOT on
+  client or the adapters.
 - Nothing ships in `atoms/laravel` that could live in `atoms/client` or
   `atoms/core`.
 
@@ -355,7 +360,11 @@ default?}], return}], websocket: bool, migrations: {head: int, files:
 `{atom_type, class, methods: [...]}`), `jobs`
 (list of `{class, params: [...]}`), `shared` (list of `{class, properties:
 [{name, type}]}`), `toolchain` (`{core_version, php, extensions: [...],
-scoper_prefix}`), `content_hash` (sha256 of the bundle tarball, hex).
+scoper_prefix}`), `vendor` (optional, present only when the build shipped
+`atoms-composer.json` packages: `{autoload, packages: {name: version}}`,
+where `autoload` is the bundle-relative path of the build-generated vendor
+autoload file — see `docs/cloudflare-toolchain.md` §3), `content_hash`
+(sha256 of the bundle tarball, hex).
 `file` and `migrations.files[].path` are bundle-relative paths, added in M3:
 the Cloudflare Worker must `require` and migrate exactly those files, and
 `MigrationEntry::$name` keeps only the descriptive part of `NNN_name.sql`, so

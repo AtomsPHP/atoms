@@ -17,7 +17,7 @@ The repository is two halves that meet at the `atoms/core` ABI.
 
 | Path | What it is |
 |---|---|
-| `packages/{core,client,laravel,symfony,testing,phpstan-rules,cli}` | The seven PHP packages: the runtime ABI, the monolith-side SDK, the Laravel and Symfony adapters, the test harness, the PHPStan rules, the `atoms` CLI. MIT. |
+| `packages/{core,client,laravel,symfony,testing,phpstan-rules,cli,database-illuminate}` | The eight PHP packages: the runtime ABI, the monolith-side SDK, the Laravel and Symfony adapters, the test harness, the PHPStan rules, the `atoms` CLI, the Illuminate database bridge. MIT. |
 | `action/` | The deploy GitHub Action. |
 | `docs/` | `conventions.md` (normative), `integration-plan.md` (rationale), `two-worlds.md`, `errors.md` (the error catalog), `platform/api-contract.md`. |
 | `tests/Integration/` | Cross-package tests that no single package owns. |
@@ -46,13 +46,13 @@ interpreter, so no 8.4-only syntax (no property hooks, no asymmetric
 visibility) may appear anywhere in the repository. CI runs the suites on 8.3
 and 8.4.
 
-One install at the root wires all seven packages through Composer path
+One install at the root wires all eight packages through Composer path
 repositories, symlinked. That root install is what you develop and test
 against; there is one `vendor/` and the per-package `composer.json` files
 exist for standalone consumption, not for working here.
 
 ```sh
-composer install                     # all seven packages, symlinked
+composer install                     # all eight packages, symlinked
 composer test                        # every suite
 composer test -- --testsuite=core    # one suite
 composer stan                        # PHPStan across packages/*/src

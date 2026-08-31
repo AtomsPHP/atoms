@@ -28,7 +28,8 @@
             "atoms/symfony",
             "atoms/testing",
             "atoms/phpstan-rules",
-            "atoms/cli"
+            "atoms/cli",
+            "atoms/database-illuminate"
         ]
     }
 }

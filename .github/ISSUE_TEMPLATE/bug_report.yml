@@ -55,6 +55,7 @@ body:
         - atoms/testing
         - atoms/phpstan-rules
         - atoms/cli
+        - atoms/database-illuminate
         - Cloudflare Worker runtime
         - deploy Action
         - not sure

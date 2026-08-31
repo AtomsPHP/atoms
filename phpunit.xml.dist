@@ -28,6 +28,9 @@
         <testsuite name="cli">
             <directory>packages/cli/tests</directory>
         </testsuite>
+        <testsuite name="database-illuminate">
+            <directory>packages/database-illuminate/tests</directory>
+        </testsuite>
         <testsuite name="integration">
             <directory>tests/Integration</directory>
         </testsuite>
@@ -44,6 +47,7 @@
             <directory>packages/testing/src</directory>
             <directory>packages/phpstan-rules/src</directory>
             <directory>packages/cli/src</directory>
+            <directory>packages/database-illuminate/src</directory>
         </include>
     </source>
 </phpunit>
