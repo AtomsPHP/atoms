@@ -17,7 +17,7 @@ use Illuminate\Filesystem\Filesystem;
  * There is no DSN path to an Atom's durable database — on the Cloudflare
  * runtime the PDO is a bridge to the Durable Object's own SQLite — so the
  * connectors are bypassed entirely and four members are overridden, each for
- * a measured reason (see the Eloquent spike report):
+ * a measured reason:
  *
  *  - the grammar reports no savepoint support ({@see SavepointlessSQLiteGrammar});
  *  - transactions always open through PDO::beginTransaction(), never through

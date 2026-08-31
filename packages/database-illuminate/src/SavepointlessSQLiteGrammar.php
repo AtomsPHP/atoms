@@ -11,7 +11,7 @@ use Illuminate\Database\Query\Grammars\SQLiteGrammar;
  *
  * The Cloudflare runtime refuses SAVEPOINT / RELEASE / ROLLBACK TO outright
  * (workerd owns transactions through storage.transactionSync() and rejects
- * transaction-control SQL, measured in the Eloquent spike). Reporting
+ * transaction-control SQL — measured, not assumed). Reporting
  * savepoints as unsupported makes Illuminate's ManagesTransactions degrade to
  * counter-only nesting — begin once, run inner callbacks inline, commit once —
  * which is exactly the semantics Atoms\Database::transaction() already
