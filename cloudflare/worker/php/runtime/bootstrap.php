@@ -28,7 +28,7 @@ use Atoms\Migrations\Migrator;
 use Atoms\Runtime\LifecycleInvoker;
 use Atoms\Serialization\Serializer;
 
-/** Where the host writes this prelude, unless $CFG['paths']['runtime'] says otherwise. */
+/** Where the host writes these runtime files, unless $CFG['paths']['runtime'] says otherwise. */
 const RUNTIME_DIR_DEFAULT = '/atoms/runtime';
 
 /** Where the host writes the verbatim atoms/core sources, unless $CFG overrides it. */
@@ -70,7 +70,7 @@ function core_files()
 }
 
 /**
- * The rest of the Atoms\Cf prelude, in dependency order. host.php and int64.php
+ * The rest of the Atoms\Cf runtime, in dependency order. host.php and int64.php
  * are required by hand below, before anything can fail usefully.
  *
  * @return list<string> paths relative to the runtime directory
@@ -859,7 +859,7 @@ function activate(array $cfg)
 
     // atoms-core first: BridgeDatabase implements Atoms\Database and
     // CfAtomContext implements Atoms\Runtime\AtomContext, so those interfaces
-    // must exist before the prelude classes are declared.
+    // must exist before the Atoms\Cf classes are declared.
     require_all($coreDir, core_files());
     require_all($runtimeDir, runtime_files());
 

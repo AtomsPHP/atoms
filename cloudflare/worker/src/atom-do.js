@@ -32,7 +32,7 @@ import { bootPHP, composeBootCode, guestMemoryBytes, mkdirp, writeGuestFile } fr
 import { TimersHost } from './timers.js';
 import { WebSocketHost, WS_ATTACHMENT_VERSION, buildAttachment, readAttachment, attachmentByteLength } from './websockets.js';
 
-/** Wire version of the boot payload handed to the PHP runtime prelude. */
+/** Wire version of the boot payload handed to the guest runtime. */
 const BOOT_PROTOCOL = 1;
 
 /**
@@ -917,7 +917,7 @@ export class AtomDurableObject extends DurableObject {
 	}
 
 	/**
-	 * Everything the PHP runtime prelude needs to bootstrap itself.
+	 * Everything the guest runtime needs to bootstrap itself.
 	 *
 	 * @param {string} type
 	 * @param {string} id
@@ -929,8 +929,8 @@ export class AtomDurableObject extends DurableObject {
 			host: 'cloudflare-do',
 			atom: { type, id },
 			manifest: bundle?.manifest ?? {},
-			// Guest paths the host wrote into MEMFS. The prelude indexes these
-			// for its bundle-class autoloader (php/README.md §3).
+			// Guest paths the host wrote into MEMFS. The guest runtime indexes
+			// these for its bundle-class autoloader (php/README.md §3).
 			files: Object.keys(bundle?.files ?? {}),
 			paths: {
 				boot_payload: this.config.bootPayloadPath,

@@ -49,7 +49,7 @@ One wasm import, dispatched on the first byte of the message string:
   Used for the turn loop and transactions.
 - anything else: stock php-wasm behavior (unused by us).
 
-Guest-side helpers (in the runtime prelude, not customer-visible):
+Guest-side helpers (in the `Atoms\Cf\` runtime, not customer-visible):
 `\Atoms\Cf\host_sync(array $req): array` and
 `\Atoms\Cf\host_park(array $req): array` — JSON-encode with `'!'`/`'~'`
 prefix, JSON-decode the reply. Every reply is an object with `ok: true` or
@@ -182,14 +182,15 @@ which propagates out through `Database::transaction()`'s own catch, which
 issues `tx.rollback`, which the machine accepts — the existing mechanism
 handles it end to end. `CallbackAppProxy` also refuses guest-side, before
 encoding anything, so in the ordinary case no request ever reaches this
-host-side check at all; it exists as defence in depth against a prelude bug.
+host-side check at all; it exists as defence in depth against a bug in the
+guest runtime.
 
 `turn.await` is the one park op that is *not* rejected there, because it is the
 turn boundary rather than a protocol violation: rejecting it would strand a
 guest that has nowhere else to park. A turn that ends with a transaction still
 open (a customer forgetting `commit()`, or catching an exception above the
 frame that opened it) is settled instead — the write set is discarded and the
-turn reports `atom_exception`. The runtime prelude does this itself before it
+turn reports `atom_exception`. The guest runtime does this itself before it
 reaches the boundary; the host's handling of `turn.await` inside an open
 transaction is the defence in depth, and reports `internal`. Neither path may
 poison the residency: an application bug the host cannot see must not become a
@@ -265,7 +266,7 @@ invalidate the signature computed over the corrupted bytes. The one guard is
 a check for a lone UTF-16 surrogate (which `TextEncoder` would otherwise
 silently replace with U+FFFD, making sent ≢ what PHP built even though
 signed ≡ sent stayed true) — PHP's `json_encode()` cannot produce one, so
-this can only ever fire on a prelude bug, and it fails the op with
+this can only ever fire on a guest runtime bug, and it fails the op with
 `callback_body_invalid` rather than sending a corrupted body. `broadcast()`'s
 `frame` follows the identical rule for a different reason: the guest builds
 the complete wire frame with `json_encode()` and the host only fans the
@@ -440,7 +441,7 @@ catalog — unlike `AtomsNotSupported`, which predates the catalog and does not.
 `CallbackAppProxy::__call()` before anything is encoded (the customer gets a
 clean exception and no request ever leaves the Worker), and host-side when the
 `tx_state` reply is mapped by `CallbackChannel::exceptionFor()` (defence in
-depth against a prelude bug).
+depth against a guest runtime bug).
 
 ### `manifest_hash` — deliberately absent
 
@@ -658,9 +659,9 @@ cloudflare/worker/
     int64.js        # tagging codec (JS side)
     config.js       # env-derived settings with defaults
   php/
-    runtime/        # Atoms\Cf\* prelude: host_sync/host_park, bootstrap loop,
-                    # BridgeDatabase, AtomsPDO, CfAtomContext, int64 codec,
-                    # dispatcher, error envelope, CallbackAppProxy/
+    runtime/        # Atoms\Cf\* guest runtime: host_sync/host_park, bootstrap
+                    # loop, BridgeDatabase, AtomsPDO, CfAtomContext, int64
+                    # codec, dispatcher, error envelope, CallbackAppProxy/
                     # CallbackChannel + CallbackError subclasses (app()/
                     # dispatch()), CfConnection/CfMessage/ConnectionClosed
                     # (WebSockets), CfTimers + its typed exceptions (timers)
@@ -1064,7 +1065,7 @@ awaited event: the DO is never evicted mid-event, only between them.
 
 `Atom::onConnect/onMessage/onDisconnect` and `AtomContext::broadcast()`,
 implemented in `src/websockets.js`'s `WebSocketHost` (one instance per DO) plus
-the prelude's `CfConnection`/`CfMessage`.
+the guest runtime's `CfConnection`/`CfMessage`.
 
 ### The attachment format and its versioning rule
 

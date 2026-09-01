@@ -9,7 +9,7 @@
  *
  * A plain `\RuntimeException`, not a catalog entry: the catalog
  * (`packages/core/resources/errors.json`) is binding on the PHP packages, and
- * the `Atoms\Cf` prelude has never carried `ATOMS-E###` codes — neither does
+ * the `Atoms\Cf` runtime has never carried `ATOMS-E###` codes — neither does
  * {@see AtomsNotSupported}.
  *
  * Honesty caveat (`php/README.md` §Documented leaks): the host
