@@ -5,7 +5,7 @@
 ## Scope
 
 In scope: one Worker hosting a generic `AtomDurableObject`; a persistent
-parked PHP loop per active DO; the real `atoms/core` PHP ABI running unmodified
+parked PHP loop per active DO; the real `atoms/core` PHP API running unmodified
 inside the guest; `db()` (query/execute/transaction + a documented-leaky
 `pdo()`), `config()`, migrations, lossless int64; `app()`/`dispatch()` over a
 signed callback channel to the monolith; WebSockets (`onConnect`/`onMessage`/
@@ -485,7 +485,7 @@ Atom stays resident and healthy.
   budget exists before any guest code can consume it, for `invoke`, `ws.*` and
   `timer` turns alike.
 - **Activation is a callback window of its own.** `onActivation()` is customer
-  code on the frozen ABI: it may call `$this->app()` and `$this->dispatch()`
+  code on the frozen API: it may call `$this->app()` and `$this->dispatch()`
   like any other method, and the runtime supports it. Because it runs during
   the activation gate — before any turn exists — `activate()` opens its own
   window (a delivery collector and a budget) **before `php.run()` starts**, so
@@ -1265,7 +1265,7 @@ a duplicate. That is a real but narrow best-effort gap, not a guarantee it
 cannot happen. A close that arrives while the residency is hibernating still
 wakes it (measured — §Appendix — and pinned by conformance check 25). An
 inbound frame whose connection is already in the set is **dropped**, not
-dispatched: `onMessage` after `onDisconnect` is an ordering the ABI does not
+dispatched: `onMessage` after `onDisconnect` is an ordering the API does not
 allow.
 
 **Honesty caveat.** The host can only detect "gone" when the id resolves to no

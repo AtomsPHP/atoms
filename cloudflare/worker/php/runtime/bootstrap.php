@@ -988,7 +988,7 @@ function activate(array $cfg)
 
     $atom = new $class($id, $context);
 
-    // onActivation() is customer code on the legal ABI: it may write SQL, and
+    // onActivation() is customer code on the legal API: it may write SQL, and
     // — since the host opens a callback window before php.run() starts
     // (runtime-spec.md §The turn deadline) — it may call app() and dispatch() too.
     // A throw from it still fails the activation, which is the existing

@@ -2,7 +2,7 @@
 
 An Atoms runtime that hosts a persistent PHP interpreter inside a SQLite-backed
 Durable Object: one generic `AtomDurableObject`, one parked PHP loop per active
-Atom, the real `atoms/core` ABI running unmodified inside the guest.
+Atom, the real `atoms/core` API running unmodified inside the guest.
 
 | Path | What it is |
 |---|---|

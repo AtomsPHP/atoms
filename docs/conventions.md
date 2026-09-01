@@ -21,7 +21,7 @@ package and this document disagree, the package is wrong.
 
 ```
 packages/
-├── core/           atoms/core            namespace Atoms\            the runtime ABI
+├── core/           atoms/core            namespace Atoms\            the frozen runtime API
 ├── client/         atoms/client          namespace Atoms\Client\     framework-free monolith SDK
 ├── laravel/        atoms/laravel         namespace Atoms\Laravel\    thin adapter (< ~1,500 lines)
 ├── symfony/        atoms/symfony         namespace Atoms\Symfony\    Symfony adapter bundle
@@ -65,7 +65,7 @@ This diagram is enforced: `LayeringRule` (atoms/phpstan-rules) runs over every
 ATOMS-E100. The adapter-facing half of the contract — what each host
 supplies — is docs/adapters.md.
 
-## The `atoms/core` ABI (frozen surface)
+## The `atoms/core` API (frozen surface)
 
 Everything below is wire-protocol-grade API. Implement exactly these
 signatures; additions are fine, changes are not.

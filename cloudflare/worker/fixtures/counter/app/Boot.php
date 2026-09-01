@@ -10,7 +10,7 @@ use Atoms\Atom;
 /**
  * Boot — a fixture Atom whose whole purpose is `onActivation()`.
  *
- * `onActivation()` is customer code on the legal ABI, so it may call
+ * `onActivation()` is customer code on the legal API, so it may call
  * `$this->app()` and `$this->dispatch()` like any other method. It runs during
  * the activation gate, before any turn exists, which is a genuinely different
  * moment from every other fixture's calls: the host has to have opened a

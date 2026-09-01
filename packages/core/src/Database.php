@@ -8,7 +8,7 @@ namespace Atoms;
  * The guaranteed database surface an Atom can touch. Backed per-Atom by a single
  * SQLite file in the runtime; {@see Sqlite\SqliteDatabase} is the core
  * implementation. Query-builder ergonomics are an optional bridge on top — the
- * ABI is just this PDO-level interface.
+ * API is just this PDO-level interface.
  */
 interface Database
 {

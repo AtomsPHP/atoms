@@ -75,7 +75,7 @@ function checkRelease(string $root): void
         $errors[] = "core.supported must be {$internalConstraint} for {$version}";
     }
     if (($php['constraint'] ?? null) !== '^8.3') {
-        $errors[] = 'php.constraint must remain ^8.3 for the frozen PHP 8.3 ABI';
+        $errors[] = 'php.constraint must remain ^8.3: the frozen core API targets PHP 8.3';
     }
 
     $listedPackages = $composer['packages'] ?? null;
@@ -480,7 +480,7 @@ function validateManifest(array $manifest): array
         $errors[] = 'runtime.wrangler must match the pinned Worker lockfile';
     }
     if (($manifest['runtime']['guest_php'] ?? null) !== '8.3') {
-        $errors[] = 'runtime.guest_php must be 8.3 for the frozen ABI';
+        $errors[] = 'runtime.guest_php must be 8.3, the frozen core API\'s PHP target';
     }
     if (($manifest['php']['tested'] ?? null) !== ['8.3', '8.4']) {
         $errors[] = 'php.tested must match the CI matrix: 8.3 and 8.4';
@@ -550,7 +550,7 @@ Atoms releases its PHP packages, Worker runtime, and deployment Action as one co
 
 | Component | {$releaseLine} support |
 |---|---|
-| `atoms/core` | `{$core['supported']}` frozen, additive ABI |
+| `atoms/core` | `{$core['supported']}` frozen, additive API |
 | `atoms/client`, adapters, testing, rules, CLI | `{$core['supported']}` |
 | `{$runtime['package']}` | `{$runtime['version']}`, co-versioned with the release |
 | Deploy Action | immutable `AtomsPHP/atoms/action@v{$version}` |
@@ -559,7 +559,7 @@ Atoms releases its PHP packages, Worker runtime, and deployment Action as one co
 | Node.js | {$runtime['node']} |
 | Wrangler | {$runtime['wrangler']} (exact runtime-template pin) |
 
-Use matching {$releaseLine} release artifacts. The CLI stamps the core ABI version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043) instead of attempting to run it.
+Use matching {$releaseLine} release artifacts. The CLI stamps the core API version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043) instead of attempting to run it.
 
 The runtime scaffold command printed by `atoms init` and used by the deploy Action is generated from the same release manifest as the tag. It is not an independently moving “latest” dependency.
 

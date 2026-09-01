@@ -27,7 +27,7 @@ final class MigrationEntry
      * $sql alone to tell the shapes apart — so a $phpFile entry must leave $sql
      * null, or it will be applied as SQL and never loaded.
      *
-     * The constructor does not enforce this. It is public ABI, and every
+     * The constructor does not enforce this. It is public API, and every
      * in-repo entry comes from {@see MigrationSet::fromDirectory()}, which
      * upholds the invariant by construction; a loader outside this package that
      * builds entries directly owns it instead.

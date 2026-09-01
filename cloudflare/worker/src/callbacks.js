@@ -136,7 +136,7 @@ export class CallbackChannel {
 	 *     `runTurn()` delivers the envelope, settled by `settlePostTurn()`;
 	 *   - the **activation** window — opened before `php.run()` starts, so the
 	 *     bootstrap, the migrations and `onActivation()` (customer code on the
-	 *     legal ABI, which may call `app()`/`dispatch()`) all run inside one,
+	 *     legal API, which may call `app()`/`dispatch()`) all run inside one,
 	 *     and settled by `activate()` before `ensureActive()` returns.
 	 *
 	 * The budget is always newly minted here and never reused: a budget that
