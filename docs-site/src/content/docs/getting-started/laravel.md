@@ -18,9 +18,10 @@ Set your deployed Worker endpoint:
 ```dotenv
 ATOMS_ENDPOINT=https://your-atoms-worker.example.workers.dev
 ATOMS_ENVIRONMENT=production
+ATOMS_SHARED_SECRET=base64-of-32-random-bytes
 ```
 
-`ATOMS_API_KEY` is optional only when the Worker’s `ATOMS_APP_KEY` is also unset. An empty string is rejected because it is neither authenticated nor explicitly unauthenticated.
+`ATOMS_SHARED_SECRET` is required and must be identical on this application and the Worker (`openssl rand -base64 32` generates one). Every credential on that boundary — the outbound `Authorization` bearer, WebSocket ticket signing, and inbound callback verification — is derived from it; the value itself is never sent anywhere. Set it on the Worker with `vendor/bin/atoms shared-secret:set --env production`, not with `atoms:install` or `secrets:set`. See [Callbacks](/guides/callbacks/#configure-the-channel) for the full mechanism.
 
 ## Create an Atom
 
@@ -72,6 +73,8 @@ use Atoms\Laravel\Facades\Atoms;
 
 $count = Atoms::get(GameRoom::class, 'room-42')->join('ada');
 ```
+
+Pass an `Atoms\Client\CallOptions` as a third argument to `get()` to control retry-on-timeout, the idempotency key, or the trace header for one call — see [Per-call options](/reference/limits/#per-call-options).
 
 Calls with the same Atom type and id are serialized by the Durable Object. Different ids can execute independently.
 

@@ -16,13 +16,12 @@ It builds two collaborators through `AtomsBootstrap::create()`:
 composer require atoms/client:^0.4 guzzlehttp/psr7:^2.7
 ```
 
-Supply a PSR-18 client, the PSR-17 factories, your endpoint, and callback verification key explicitly:
+Supply a PSR-18 client, the PSR-17 factories, your endpoint, and the shared secret explicitly:
 
 ```php
 $app = AtomsBootstrap::create(
     endpoint: getenv('ATOMS_ENDPOINT'),
-    apiKey: getenv('ATOMS_API_KEY') ?: null,
-    platformPublicKey: getenv('ATOMS_PLATFORM_PUBLIC_KEY'),
+    sharedSecret: getenv('ATOMS_SHARED_SECRET'),
     callbackPath: '/atoms/callback',
     http: $psr18Client,
     requestFactory: $factory,
@@ -32,6 +31,8 @@ $app = AtomsBootstrap::create(
     queueBridge: $queueBridge,
 );
 ```
+
+`ATOMS_SHARED_SECRET` is base64 of 32 random bytes, required, and identical to the value configured on the Worker (`vendor/bin/atoms shared-secret:set --env production`). Every credential on the boundary — the outbound bearer, WebSocket ticket signing, and inbound callback verification — is derived from it. An optional `sharedSecretPrevious` argument widens callback and ticket acceptance during a rotation window.
 
 Register the callback as a POST-only route in Slim, Mezzio, or another router:
 

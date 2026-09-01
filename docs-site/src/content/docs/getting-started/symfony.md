@@ -20,10 +20,10 @@ return [
 atoms:
     environment: '%env(APP_ENV)%'
     endpoint: 'https://your-atoms-worker.example.workers.dev'
-    api_key: '%env(ATOMS_API_KEY)%'
+    shared_secret: '%env(ATOMS_SHARED_SECRET)%'
     timeout: 10.0
     max_attempts: 3
-    platform_public_key: '%env(ATOMS_PLATFORM_PUBLIC_KEY)%'
+    ws_ticket_ttl_ms: 60000
     callback_path: /atoms/callback
     callback_timestamp_window: 300
     http_client: null
@@ -32,6 +32,8 @@ atoms:
         - App\Atoms\GameRoom\Methods
 ```
 
+- `shared_secret` is `ATOMS_SHARED_SECRET`: base64 of 32 random bytes, identical on this application and the Worker, required. Every credential on that boundary — the outbound bearer, WebSocket ticket signing, and inbound callback verification — is derived from it; set it on the Worker with `vendor/bin/atoms shared-secret:set --env production`, never through `secrets:set`. An optional `shared_secret_previous` (`ATOMS_SHARED_SECRET_PREVIOUS`) widens acceptance during a rotation window without changing what this application sends.
+- `ws_ticket_ttl_ms` is how long a WebSocket connection ticket minted by this application stays valid, in milliseconds.
 - `callback_path` is where the signed reverse-RPC callback is mounted.
 - `callback_timestamp_window` is the permitted clock skew in seconds.
 - `psr17_factory` names a service implementing the PSR-17 request, response, server-request, and stream factory interfaces. Leave it `null` to use the bundled Guzzle factory.
@@ -48,7 +50,7 @@ atoms:
 
 `AtomsRouteLoader` resolves the `atoms` resource type. There is no vendor directory to import. Changing `atoms.callback_path` moves the route automatically. Import the loader once; duplicate imports are rejected.
 
-The callback endpoint accepts POST only and is intentionally outside session and CSRF middleware. Ed25519 signatures, timestamps, and nonces authenticate callback requests.
+The callback endpoint accepts POST only and is intentionally outside session and CSRF middleware. HMAC-SHA256 signatures — keyed from `shared_secret`, alongside a timestamp and a nonce — authenticate callback requests; see [Callbacks](/guides/callbacks/#configure-the-channel).
 
 ## Inject and call the client
 

@@ -54,6 +54,21 @@ Binary values crossing JSON are tagged and base64 encoded. WebSocket binary fram
 - `app()` cannot run inside a database transaction.
 - Cloudflare deployment and secret propagation are eventual, with no per-Atom convergence signal.
 
+## Per-call options
+
+`Atoms\Client\CallOptions` carries options for one invocation, passed to `AtomsClient::get()` / `AtomsManager::get()` rather than as a fluent method on the returned proxy:
+
+```php
+Atoms::get(GameRoom::class, $id, new CallOptions(retryTurnDeadline: true))
+    ->recordResult($score);
+```
+
+- `retryTurnDeadline` (default `false`) treats a `turn_deadline_exceeded` failure as retryable. Leave it off unless the method is idempotent: a turn that ran out of time may already have committed its writes.
+- `idempotencyKey` reuses a specific `Idempotency-Key` header value instead of a fresh random one per call; it must be unique per logical call.
+- `traceparent` sets the W3C `traceparent` header for this call only.
+
+The proxy `AtomProxy` returned by `get()` deliberately declares only `__construct`, `__call`, and `__get` — nothing else, ever — because a declared method silently wins over `__call()` in PHP. A fluent option-setting method could permanently shadow a same-named method your own Atom defines. This is also why options are passed alongside the Atom's class and id rather than through the proxy.
+
 ## Memory and residency
 
 PHP guest memory and Worker isolate memory share a finite platform envelope across colocated Durable Objects. Avoid retaining bulk results or treating per-residency PHP properties as durable storage. Cloudflare may evict idle compute at any time; SQLite, hibernatable sockets, and alarms are the durable mechanisms.
