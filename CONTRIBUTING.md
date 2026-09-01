@@ -68,8 +68,9 @@ Manifests are validated separately, as CI does it:
 composer validate --strict --no-check-all --no-check-lock
 ```
 
-Package versions are pinned at `0.1.0` and inter-package constraints at
-`^0.1`. Release tooling owns those fields — do not hand-edit them.
+Package versions and inter-package constraints are coordinated from
+`release/manifest.json`. Release tooling owns those fields — do not hand-edit
+them.
 
 ## The Worker side
 

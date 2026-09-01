@@ -15,7 +15,7 @@ composer install
 cp .env.example .env
 php artisan key:generate
 php artisan atoms:install
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.4.0 -- \
   atoms-runtime-cloudflare init .atoms/worker
 ```
 
@@ -52,6 +52,6 @@ migration and proving that repeated calls persist state.
 Copy `.github/workflows/deploy-atoms.yml` to the root workflow directory of
 your application and add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as
 repository secrets, which is what the example reads. The example pins the
-immutable `AtomsPHP/atoms/action@v0.1.0` release. See
+immutable `AtomsPHP/atoms/action@v0.4.0` release. See
 `docs/cloudflare-toolchain.md` §Getting a token for which permissions the
 token needs, and where to keep it on a workstation.

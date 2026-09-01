@@ -35,12 +35,12 @@ the consistency boundary.
 
 ## Status
 
-**Pre-1.0. The first coordinated release line is 0.1.x.**
+**Pre-1.0. Releases are coordinated across the PHP packages, Worker runtime,
+and deploy Action.**
 
-- Release tags are the source of truth for registry availability. Before the
-  `v0.1.0` tag exists, contributors install from this monorepo; after it exists,
-  applications install the eight packages from Packagist and the Worker
-  template from npm.
+- `release/manifest.json` is the version source inside the repository; release
+  tags are the source of truth for registry availability. Applications install
+  the eight packages from Packagist and the matching Worker template from npm.
 - The Cloudflare runtime is validated by its conformance suite locally and
   against a real deployed Worker. It is not a managed service; you deploy it
   to your own account.
@@ -85,10 +85,10 @@ Laravel applications install the adapter and its CLI, then scaffold the
 release-matched Worker project:
 
 ```sh
-composer require atoms/laravel:^0.1
-composer require --dev atoms/cli:^0.1 atoms/phpstan-rules:^0.1 atoms/testing:^0.1
+composer require atoms/laravel:^0.4
+composer require --dev atoms/cli:^0.4 atoms/phpstan-rules:^0.4 atoms/testing:^0.4
 php artisan atoms:install
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.4.0 -- \
   atoms-runtime-cloudflare init .atoms/worker
 cd .atoms/worker && npm ci
 ```

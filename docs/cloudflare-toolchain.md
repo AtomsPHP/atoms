@@ -139,7 +139,7 @@ Wrangler needs a project to run in: a wrangler config, `src/`, and
 template and initializer. Run the exact command printed by `atoms init`:
 
 ```sh
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.4.0 -- \
   atoms-runtime-cloudflare init .atoms/worker
 cd .atoms/worker && npm ci
 ```

@@ -6,7 +6,7 @@ do not execute customer code; Cloudflare operations use the Wrangler binary
 already installed in the scaffolded Worker project.
 
 ```sh
-composer require --dev atoms/cli:^0.1
+composer require --dev atoms/cli:^0.4
 vendor/bin/atoms --help
 ```
 

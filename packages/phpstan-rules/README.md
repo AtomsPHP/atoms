@@ -5,7 +5,7 @@ non-serializable boundary types, adapter layering violations, and code that
 depends on a guest clock which does not advance during a deployed turn.
 
 ```sh
-composer require --dev atoms/phpstan-rules:^0.1
+composer require --dev atoms/phpstan-rules:^0.4
 ```
 
 Include the shipped rules in `phpstan.neon`:

@@ -85,9 +85,10 @@ convenient it looks.
   register it for redaction — GitHub has no non-echoing form of that command,
   and an action input is not masked automatically unless it came from
   `secrets.*`. Masking is what keeps the rest of the rule true in a log.
-- Package versions are pinned `0.1.0` and managed by release tooling — don't
-  hand-edit them. Root `composer.json` wires the packages via path
-  repositories; one root `composer install`, one root `vendor/`.
+- Package versions and inter-package constraints are coordinated from
+  `release/manifest.json` by the release tooling — don't hand-edit them. Root
+  `composer.json` wires the packages via path repositories; one root
+  `composer install`, one root `vendor/`.
 
 ## Hard rules — `cloudflare/`
 
