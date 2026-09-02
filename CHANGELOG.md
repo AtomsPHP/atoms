@@ -5,6 +5,11 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+- **Changed:** terminology — the frozen `atoms/core` surface is described as an
+  **API**, not an ABI, in docs and comments. An ABI is a binary-level contract;
+  what `atoms/core` freezes is PHP source-level signatures. Where the old word
+  carried the "cannot change" weight, the adjective **frozen** now does. The
+  `abi` key in the bundle manifest is unchanged — deployed bundles carry it.
 - **Changed:** terminology — the two worlds are now named **Atom-side** and
   **App-side** in docs, scaffolding, agent skills, and the E001/E012/E016
   catalog fix lines. In `atoms/phpstan-rules` the `World` enum is now `Side`

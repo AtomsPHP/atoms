@@ -36,7 +36,7 @@ segment whose only possible value is a constant, and `AtomsConfig` holding a
 `customer` it never varies.
 
 The client is the right side to carry that shape, because `atoms/client` is
-**not** the frozen ABI — only `atoms/core` is — so its URL shape is free to
+**not** the frozen API — only `atoms/core` is — so its URL shape is free to
 match whatever the Worker actually serves.
 
 ### Bearer auth is mandatory; `ATOMS_BEARER_AUTH` is the explicit posture switch

@@ -10,7 +10,7 @@ body:
         out to be something nobody had suggested yet.
 
         Some things are settled and not reopened in an issue: the frozen
-        `atoms/core` ABI, the package layering, and the append-only error
+        `atoms/core` API, the package layering, and the append-only error
         catalog. See CONTRIBUTING.md.
 
   - type: textarea

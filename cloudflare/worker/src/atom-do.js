@@ -452,7 +452,7 @@ export class AtomDurableObject extends DurableObject {
 		} else if (this.wsDisconnected.has(att.id)) {
 			// A frame that arrived after this connection's onDisconnect already
 			// ran. Dispatching it would call onMessage() on a connection the
-			// Atom has been told is gone — an ordering the ABI does not allow —
+			// Atom has been told is gone — an ordering the API does not allow —
 			// so it is dropped rather than delivered late.
 			this.log('debug', { msg: 'atoms.ws.message_after_disconnect', conn: att.id });
 			return;
@@ -810,7 +810,7 @@ export class AtomDurableObject extends DurableObject {
 	 *
 	 * Activation is itself a callback window (§The turn deadline): the guest
 	 * code it runs — the bootstrap, the migrations, and `onActivation()`, which
-	 * is customer code on the legal ABI — may call `app()` and `dispatch()`.
+	 * is customer code on the legal API — may call `app()` and `dispatch()`.
 	 * The window is opened BEFORE `php.run()` starts and settled in a `finally`
 	 * before this method returns, so activation-time deliveries are awaited
 	 * inside the activation event rather than orphaned across it. The settle

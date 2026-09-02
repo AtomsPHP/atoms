@@ -30,7 +30,7 @@ rule everything else follows:
   `SomeJob::class` is a compile-time constant, so naming it neither loads nor
   ships anything.
 
-What an Atom may touch on `atoms/core` (frozen ABI):
+What an Atom may touch on `atoms/core` (frozen API):
 
 ```php
 $this->db();                       // Atoms\Database — pdo(), query(), execute(), transaction()

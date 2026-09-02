@@ -4,7 +4,7 @@
  * The \PDOStatement half of the documented-leaky `db()->pdo()` surface,
  * filled member by member, each choice measured and documented inline.
  *
- * The Atoms customer ABI declares `Database::pdo(): \PDO`, so the object handed
+ * The Atoms customer API declares `Database::pdo(): \PDO`, so the object handed
  * to customer code must genuinely be a \PDO / \PDOStatement — hence the
  * subclass. No driver backs this statement: every member either routes to the
  * {@see SqlBridge} (and therefore to `ctx.storage.sql` in the Durable Object),

@@ -1,7 +1,7 @@
 # Vendored: the `atoms/core` package
 
 These files are **verbatim copies** of the `atoms/core` package, and are the
-reason the Cloudflare runtime can claim the real ABI runs inside the guest.
+reason the Cloudflare runtime can claim the real API runs inside the guest.
 
 | | |
 |---|---|
@@ -10,10 +10,10 @@ reason the Cloudflare runtime can claim the real ABI runs inside the guest.
 | Source of `resources/errors.json` | `packages/core/resources/errors.json` |
 | Vendored on | 2026-08-04 (from the then-separate framework repository) |
 | Re-verified | 2026-08-09, on the Cloudflare toolchain change — all 22 files byte-identical to `packages/core`. `Errors/ErrorCode.php` and `resources/errors.json` were re-vendored (ATOMS-E073–E077 added, E072 reworded); the other 20 digests are unchanged |
-| Re-verified | 2026-08-12, on the timers ABI change — `Atom.php`, `Errors/ErrorCode.php`, `Runtime/AtomContext.php`, `Runtime/LifecycleInvoker.php` and `resources/errors.json` re-vendored (`AtomContext::timers()`, `Atom::timers()`/`onTimer()`, `LifecycleInvoker::timer()`, ATOMS-E080–E086 added); new file `Timers/Timers.php` added, 23 files total; the other 17 digests are unchanged |
+| Re-verified | 2026-08-12, on the timers API change — `Atom.php`, `Errors/ErrorCode.php`, `Runtime/AtomContext.php`, `Runtime/LifecycleInvoker.php` and `resources/errors.json` re-vendored (`AtomContext::timers()`, `Atom::timers()`/`onTimer()`, `LifecycleInvoker::timer()`, ATOMS-E080–E086 added); new file `Timers/Timers.php` added, 23 files total; the other 17 digests are unchanged |
 | Re-verified | 2026-08-13, on the adapter discipline error codes — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E100–E103 added: layering violation, sleep-in-Atom, elapsed-time wait loop, no queue bridge configured); still 23 files total, the other 21 digests are unchanged |
 | Re-verified | 2026-08-13, on documentation publication — `Errors/ErrorCatalog.php` re-vendored so stable error links use `docs.atomsphp.dev`; still 23 files total, the other 22 digests are unchanged |
-| Re-verified | 2026-08-14, on the by-name dispatch fix — `Atom.php`, `Runtime/AtomContext.php`, `Errors/ErrorCode.php` and `resources/errors.json` re-vendored. `dispatch()` changed in place from `dispatch(AtomJob $job)` to `dispatch(string $job, array $args = [])`: the instance form needed the job class loaded in the guest, which a bundle never carries. A pre-1.0 signature change, taken deliberately — see `docs/conventions.md` §The `atoms/core` ABI. ATOMS-E104 added; E032/E061/E082/E084/E101/E102 reworded. Still 23 files total, the other 19 digests are unchanged |
+| Re-verified | 2026-08-14, on the by-name dispatch fix — `Atom.php`, `Runtime/AtomContext.php`, `Errors/ErrorCode.php` and `resources/errors.json` re-vendored. `dispatch()` changed in place from `dispatch(AtomJob $job)` to `dispatch(string $job, array $args = [])`: the instance form needed the job class loaded in the guest, which a bundle never carries. A pre-1.0 signature change, taken deliberately — see `docs/conventions.md` §The `atoms/core` API. ATOMS-E104 added; E032/E061/E082/E084/E101/E102 reworded. Still 23 files total, the other 19 digests are unchanged |
 | Re-verified | 2026-08-14, on connection tickets — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E067 added: WebSocket ticket acquisition failed; its fix line reworded when the single-use design was dropped pre-merge); still 23 files total, the other 21 digests are unchanged |
 | Re-verified | 2026-08-15, on the shared-secret change (`docs/shared-secret.md`) — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E105 added: shared secret missing or malformed; E064/E067/E080/E081 reworded from the two-secret design to `ATOMS_SHARED_SECRET`); still 23 files total, the other 21 digests are unchanged |
 | Re-verified | 2026-08-16, on local WebSocket ticket issuance — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E068 added: WebSocket ticket claims invalid, raised by the application's own `TicketIssuer`; E067 reworded to record that it is retired, the Worker having stopped minting tickets over HTTP). Still 23 files total, the other 21 digests are unchanged |
@@ -22,17 +22,18 @@ reason the Cloudflare runtime can claim the real ABI runs inside the guest.
 | Re-verified | 2026-08-16, comment-pattern cleanup of `Websocket/{JsonFrame,Message}.php` — `JsonFrame::decode()`'s docblock reworded from constraint-as-identity phrasing ("is a frame") to a stated rule ("must decode to"), and from a "frame" reused mid-sentence for both the WebSocket-protocol sense and this library's structured-payload sense; `Message::json()`'s docblock, which duplicated that same explanation in full, now cross-references `{@see JsonFrame::decode()}` instead. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-16, on the duplicate-FQCN discovery fix — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E002 added: two files declaring the same class under the Atoms path, raised by the CLI's build-time discovery). Nothing in the guest raises it; the copy carries it because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-17, on the Wrangler credential handoff (`docs/cloudflare-toolchain.md` §Credentials) — `resources/errors.json` re-vendored (E072 and E075 reworded: the CLI no longer pre-empts a missing `CLOUDFLARE_API_TOKEN` or a missing account id, so both codes now name the inlets and are raised from Wrangler's own failure output). No code added or removed; still 24 files total, the other 23 digests are unchanged |
-| Re-verified | 2026-08-16, on the named-argument hydration primitive — `Serialization/Serializer.php` re-vendored (`denormalizeNamedArguments()` added: the one owner of the "bind wire args to a constructor by name" algebra the dispatched-job envelope and Payload hydration share; `denormalizePayload()` rewired onto it). Additive to the ABI, no existing signature changed. Still 24 files total, the other 23 digests are unchanged |
-| Re-verified | 2026-08-17, comment-only note of the migration-payload invariant — `Migrations/MigrationEntry.php` gains a constructor docblock stating that exactly one of `$sql`/`$phpFile` must be set (unenforced: the constructor is public ABI), and `Migrations/Migrator.php` a comment on why its `?->` is reachable only for an entry violating that. No behavioural change. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
-| Re-verified | 2026-08-17, comment-only note of the migration-payload invariant — `Migrations/MigrationEntry.php` gains a constructor docblock stating that exactly one of `$sql`/`$phpFile` must be set (unenforced: the constructor is public ABI), and `Migrations/Migrator.php` a comment on why its `?->` is reachable only for an entry violating that. No behavioural change. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
+| Re-verified | 2026-08-16, on the named-argument hydration primitive — `Serialization/Serializer.php` re-vendored (`denormalizeNamedArguments()` added: the one owner of the "bind wire args to a constructor by name" algebra the dispatched-job envelope and Payload hydration share; `denormalizePayload()` rewired onto it). Additive to the API, no existing signature changed. Still 24 files total, the other 23 digests are unchanged |
+| Re-verified | 2026-08-17, comment-only note of the migration-payload invariant — `Migrations/MigrationEntry.php` gains a constructor docblock stating that exactly one of `$sql`/`$phpFile` must be set (unenforced: the constructor is public API), and `Migrations/Migrator.php` a comment on why its `?->` is reachable only for an entry violating that. No behavioural change. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
+| Re-verified | 2026-08-17, comment-only note of the migration-payload invariant — `Migrations/MigrationEntry.php` gains a constructor docblock stating that exactly one of `$sql`/`$phpFile` must be set (unenforced: the constructor is public API), and `Migrations/Migrator.php` a comment on why its `?->` is reachable only for an entry violating that. No behavioural change. Both re-vendored; still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-30, on the database-illuminate bridge and vendor-shipping build — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E079 added: vendor dependency resolution failed, raised by the CLI's build vendor stage; ATOMS-E106 added: schema builder not available on the Atom database connection, raised by the atoms/database-illuminate bridge). Nothing in the guest raises either; the copy carries them because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-30, on the fast-build refusal — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E107 added: fast build cannot ship declared dependencies, raised by the CLI's Builder when `--fast` meets a non-empty atoms-composer.json). Nothing in the guest raises it; the copy carries it because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-08-31, on the support-class classification — `resources/errors.json` re-vendored (E001 and E012 reworded: both now name the Atom's `support/` directory, the sanctioned home for World-A helper classes shipping with an Atom). No code added or removed; still 24 files total, the other 23 digests are unchanged |
 | Re-verified | 2026-08-31, on the terminology pivot from "World A"/"World B" to "Atom-side"/"App-side" — `Atom.php`, `AtomJob.php`, `AtomMethods.php` and `resources/errors.json` re-vendored (docblocks reworded; E001, E012 and E016 fix lines reworded to the new terms). Comment- and message-only; no signature changed. Still 24 files total, the other 20 digests are unchanged |
+| Re-verified | 2026-08-31, on the "ABI" → "API" terminology change — `Atom.php`, `Database.php` and `Migrations/MigrationEntry.php` re-vendored (docblocks reworded; the frozen surface is a source-level API, not a binary one). Comment-only; no signature changed. Still 24 files total, the other 21 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
-all: the guest needed the ABI and could not `composer require` it. Since the
+all: the guest needed the API and could not `composer require` it. Since the
 2026-08-08 monorepo migration, upstream is a sibling directory. That does not
 make the copy redundant — the guest still loads PHP source from MEMFS, not from
 a composer install — but it does mean drift is now a plain in-repo diff:
@@ -61,7 +62,7 @@ WebAssembly binary; it is PHP source carried into the guest and interpreted.
 ## Never edit in place
 
 If one of these files cannot work unmodified inside the php-wasm guest, that is
-a finding about the ABI, not a patch to apply here. Raise it upstream; a fork
+a finding about the API, not a patch to apply here. Raise it upstream; a fork
 that silently diverges would make the runtime's central claim false.
 
 Re-vendor by re-copying from upstream, then re-check the digests below,
@@ -102,18 +103,18 @@ of `Atoms\Database` in this runtime. It is still the reference for
 ## Digests (sha256)
 
 ```
-dd7ddc039b676ae6e5ff02d9e307e5c1bcca9028b326715b779009f1356bc346  Atom.php
+db2bf7c102e5b172d70b82ab784786197d7cb3a591feff011f502efe47945c7a  Atom.php
 e1cf8cea48ad7525422c43e4c7422c250ed66028b9d4cf3bf97f5fce5fe9e624  AtomJob.php
 4a4da51d856e552242a045b68d04e7e5754e48b1825c708d0736a0b8fadc87e9  AtomMethods.php
 efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/MethodsFor.php
 5239bdac78cdf7d4d9b6af62cd2827f807cd7b6892cf2d20c377de736b677124  Attributes/SharedWithAtoms.php
-0f446033d4006ba86c48368dcce6e0dfd7e477e02f3483e540f944601d70cb62  Database.php
+bdccde339e844104309093d66577483269595946973cba4a77abb1d10bc1401c  Database.php
 7c996f6c31cff9bf210040f311bb534a140e79ae3c62b721c6266ad6d78353e2  Errors/AtomsError.php
 0b4bfcf9ea74ed277614139157b03696f4eae42dc85f420120f96663cf654283  Errors/CatalogEntry.php
 3d1a122b24f6e3dd88104816b2b3b96b846690a9acd9316cd142d16afb71c411  Errors/ErrorCatalog.php
 825b602772a7bf2142352f79f477d3037ee4b24e4b38b4b48b243805e7e6200c  Errors/ErrorCode.php
 e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Migration.php
-cc9106ddfbb2c70523c404a83855fbb90c49f453e8d2e2314c4af94085202cde  Migrations/MigrationEntry.php
+6ad41de5de3dcc255650f6d9dd29d80fc1c01625f90c8c8f5129cbb965a04069  Migrations/MigrationEntry.php
 addfe71f9472e7f2e76422227ef06586818b546e09842cdcba8e8a97a1dcd690  Migrations/MigrationSet.php
 dfd45d3a2afe9cd208bff409f5947f73ea715491ae91191444cd5b346b8f5055  Migrations/Migrator.php
 e0f9f876e5365af6f73e37c07957b202f1f6aef138e2b7ab3fd3acb98b261e7f  Runtime/AtomContext.php

@@ -3,7 +3,7 @@
 /**
  * The \PDO half of `db()->pdo()` (runtime-spec.md §PHP-side db()).
  *
- * The Atoms ABI declares `Database::pdo(): \PDO`, and the real
+ * The Atoms API declares `Database::pdo(): \PDO`, and the real
  * `Atoms\Migrations\Migrator` drives migrations entirely through this surface
  * (`query('PRAGMA user_version')`, `beginTransaction()`, `exec()`, `commit()`,
  * `inTransaction()`, `rollBack()`), so it has to be a genuine \PDO subclass
