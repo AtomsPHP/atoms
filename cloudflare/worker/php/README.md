@@ -8,7 +8,7 @@ Two directories, with very different rules:
 | `runtime/` | The `Atoms\Cf\` runtime — the platform side of the guest | Owned here |
 
 The whole point of the runtime is that the first column runs *unmodified*: the
-customer ABI, `Atoms\Migrations\Migrator` and `Atoms\Serialization\Serializer`
+customer API, `Atoms\Migrations\Migrator` and `Atoms\Serialization\Serializer`
 inside a Durable Object are the same code the `atoms/core` package ships to
 customers. Nothing in `atoms-core/` was patched to make that work.
 

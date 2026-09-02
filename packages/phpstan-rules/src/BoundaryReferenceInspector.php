@@ -16,7 +16,7 @@ use PHPStan\Reflection\ReflectionProvider;
  * legal, and if not, which ATOMS-E0xx code and message context apply.
  *
  * Legal iff the referenced name:
- *  - has the `Atoms\` prefix (the runtime ABI itself), or
+ *  - has the `Atoms\` prefix (the runtime API itself), or
  *  - resolves to a class that is itself ATOM_SIDE or SHARED, or whose own file
  *    sits under a configured Atoms path (even if its own classification is
  *    OTHER — e.g. a plain helper class colocated with an Atom), or
