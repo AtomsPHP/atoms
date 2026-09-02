@@ -11,7 +11,7 @@ use Atoms\Websocket\Message;
 
 /**
  * Base class for every Atom. This is the entire Atom-side runtime surface: what an
- * Atom class is allowed to see. Everything here is frozen ABI — a change to a
+ * Atom class is allowed to see. Everything here is frozen API — a change to a
  * signature is a breaking change to every deployed customer bundle.
  *
  * Subclasses receive an {@see AtomContext} from the runtime and reach the

@@ -78,13 +78,13 @@ jobs:
 
       # cloudflare/worker/php/atoms-core/ is a verbatim copy of packages/core —
       # the guest loads PHP source out of MEMFS and cannot composer-require it.
-      # The runtime's central claim is that the real ABI runs unmodified inside the
+      # The runtime's central claim is that the real API runs unmodified inside the
       # Durable Object, and that claim is only true while the copy is identical.
       # Before the 2026-08-08 migration the two lived in different repositories
       # and this could not be checked in one clone; now it can, so it is. Driven
       # from the vendored side because packages/core/src legitimately holds more
       # than the guest needs (see that directory's VENDORED-FROM.md).
-      - name: atoms/core ABI copy has not drifted
+      - name: atoms/core API copy has not drifted
         run: |
           status=0
           for f in $(cd cloudflare/worker/php/atoms-core && find . -name '*.php' | sed 's|^\./||'); do

@@ -36,7 +36,7 @@ segment whose only possible value is a constant, and `AtomsConfig` holding a
 `customer` it never varies.
 
 The client is the right side to carry that shape, because `atoms/client` is
-**not** the frozen ABI — only `atoms/core` is — so its URL shape is free to
+**not** the frozen API — only `atoms/core` is — so its URL shape is free to
 match whatever the Worker actually serves.
 
 ### Bearer auth is mandatory; `ATOMS_BEARER_AUTH` is the explicit posture switch
@@ -537,7 +537,7 @@ supplies it.**
 - The Worker keeps loading `src/bundle.generated.js`, an ES module exporting
   `{manifest, files}` at `bundle_format: 0`. This is the **deploy** artifact.
   It has to be a JS module because the Worker script is what `wrangler deploy`
-  uploads, and it has to carry the `Atoms\Cf` runtime prelude and the vendored
+  uploads, and it has to carry the `Atoms\Cf` runtime and the vendored
   `atoms/core` sources — neither of which `atoms build` has any business
   knowing about.
 - `cloudflare/worker/scripts/bundle-from-cli.mjs` reads the first and emits the
@@ -546,8 +546,8 @@ supplies it.**
 
 ### Why not make one side adopt the other
 
-*Teaching `atoms build` to emit the Worker module* would put the runtime
-prelude and the vendored core inside a PHP package — a second copy of files
+*Teaching `atoms build` to emit the Worker module* would put the guest
+runtime and the vendored core inside a PHP package — a second copy of files
 that version with the Worker, and the first thing to drift. It would also make
 the portable artifact un-portable: a JS module is not something you archive,
 diff or re-verify.
@@ -602,7 +602,7 @@ them:
   namespaces without also rewriting the customer's Atom code (which names
   those namespaces at every call site) would break the app against its own
   vendor tree, and the guest has no other occupant to collide with — it loads
-  exactly `atoms/core`, the `Atoms\Cf` prelude, and this bundle. Namespace
+  exactly `atoms/core`, the `Atoms\Cf` runtime, and this bundle. Namespace
   isolation returns as future hardening only as a whole-bundle rewrite
   (vendor **and** app together). The manifest's `toolchain.scoper_prefix`
   keeps its original meaning: a content fingerprint of the customer tree.

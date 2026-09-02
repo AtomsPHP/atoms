@@ -195,9 +195,9 @@ export function guestMemoryBytes(php) {
 
 /**
  * Compose the bootstrap script: inject the boot payload as `$CFG` and hand
- * control to the runtime prelude (`php/README.md` §2, "Run exactly one composed
- * script"). `$ATOMS_BOOT` is bound to the same array so either name works for a
- * prelude that expects the other.
+ * control to the guest runtime (`php/README.md` §2, "Run exactly one composed
+ * script"). `$ATOMS_BOOT` is bound to the same array so either name works for
+ * guest code that expects the other.
  *
  * The payload is a single JSON line inside a nowdoc, so nothing in it can
  * terminate the heredoc or be interpolated. `require`, never concatenate: every

@@ -51,8 +51,8 @@ and deploy Action.**
   and limits) — a restriction, not a stub.
 - `atoms/client`, `atoms/cli`, the Laravel adapter, the Symfony bundle, and the
   plain-PHP integration all target the self-hosted Cloudflare Worker contract.
-- APIs may change until 1.0, except the `atoms/core` ABI, which is frozen and
-  only grows.
+- Every public API may change until 1.0 except `atoms/core`, which is frozen
+  and only grows.
 
 ## Layout
 
@@ -67,7 +67,7 @@ and deploy Action.**
 
 | Package | Purpose |
 |---|---|
-| `atoms/core` | The runtime ABI: `Atom` base class, serialization, migrations, error catalog. Framework-free, PHP 8.3. |
+| `atoms/core` | The frozen runtime API: `Atom` base class, serialization, migrations, error catalog. Framework-free, PHP 8.3. |
 | `atoms/client` | Framework-agnostic monolith SDK: stub proxies, RPC transport, callback kernel. |
 | `atoms/laravel` | Laravel adapter: service provider, `Atoms` facade, queue bridge, Artisan wrappers. |
 | `atoms/symfony` | Supported Symfony bundle: DI, route loader, Messenger bridge, and console wrappers. |

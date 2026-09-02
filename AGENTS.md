@@ -18,7 +18,7 @@ parked inside a SQLite-backed Durable Object.
 | Directory | What it is | Guidance |
 |---|---|---|
 | `packages/` | The eight MIT PHP packages: `atoms/{core,client,laravel,symfony,testing,phpstan-rules,cli,database-illuminate}` | `docs/conventions.md` (normative) |
-| `cloudflare/` | The Worker runtime: `worker/` (host JS, `Atoms\Cf\` guest prelude, fixtures, conformance suite), `docs/` (runtime spec + PDO matrix), `corresponding-source/`, the licence files | `cloudflare/README.md`, `cloudflare/docs/runtime-spec.md` |
+| `cloudflare/` | The Worker runtime: `worker/` (host JS, `Atoms\Cf\` guest runtime, fixtures, conformance suite), `docs/` (runtime spec + PDO matrix), `corresponding-source/`, the licence files | `cloudflare/README.md`, `cloudflare/docs/runtime-spec.md` |
 | `docs/` | Framework docs: `conventions.md`, `cloudflare-toolchain.md`, `two-worlds.md`, `errors.md` | — |
 | `action/` | The deploy GitHub Action (composite) | `action/README.md` |
 | `tests/` | Cross-package integration tests (`Atoms\Tests\Integration\`) | `docs/conventions.md` |
@@ -35,7 +35,7 @@ convenient it looks.
 ## Read before non-trivial work
 
 1. `docs/conventions.md` — cross-package contracts, the frozen `atoms/core`
-   ABI, error-catalog rules, layering. **Normative.** If code and this file
+   API, error-catalog rules, layering. **Normative.** If code and this file
    disagree, the code is wrong.
 2. `docs/two-worlds.md` — the two-worlds model: which code ships to the
    runtime, which stays in the monolith, and how the file layout makes the
@@ -53,11 +53,11 @@ convenient it looks.
 
 ## Hard rules — the PHP packages
 
-- **`atoms/core` is the runtime ABI.** Its public surface is wire-protocol
+- **`atoms/core` is the frozen runtime API.** Its public surface is wire-protocol
   grade: never change an existing signature, only add. It depends on nothing
   framework-ish (`psr/*` interfaces only). It must run on PHP 8.3.
   Pre-1.0, changing one is still on the table when a signature is genuinely
-  unusable — see `docs/conventions.md` §The `atoms/core` ABI. It takes an
+  unusable — see `docs/conventions.md` §The `atoms/core` API. It takes an
   explicit decision and a build error naming the new shape; it is never a
   judgement call to make mid-task.
 - **Layering is the product.** core ← client ← {laravel, symfony};

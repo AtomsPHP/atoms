@@ -2513,7 +2513,7 @@ checks.push(async () => {
 });
 
 // CHECK 23: timers fire, are consumed, are transactional, cancel works,
-// errors are contained (Durable Object alarms behind the Timers ABI).
+// errors are contained (Durable Object alarms behind the Timers API).
 checks.push(async () => {
     const checkNum = 23;
     const name = 'timers: fire, consume, transactional, cancel, errors contained';

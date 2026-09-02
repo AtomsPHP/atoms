@@ -1,7 +1,7 @@
 # Contributing
 
 Atoms is pre-1.0. Release tags and Packagist are the source of truth for what
-has been published; public signatures outside the frozen `atoms/core` ABI may
+has been published; public signatures outside the frozen `atoms/core` API may
 still move between minor releases. Read that as an invitation rather than a
 warning: the cost of changing the right thing is still low.
 
@@ -13,18 +13,18 @@ requirement.
 
 ## Layout
 
-The repository is two halves that meet at the `atoms/core` ABI.
+The repository is two halves that meet at the frozen `atoms/core` API.
 
 | Path | What it is |
 |---|---|
-| `packages/{core,client,laravel,symfony,testing,phpstan-rules,cli,database-illuminate}` | The eight PHP packages: the runtime ABI, the monolith-side SDK, the Laravel and Symfony adapters, the test harness, the PHPStan rules, the `atoms` CLI, the Illuminate database bridge. MIT. |
+| `packages/{core,client,laravel,symfony,testing,phpstan-rules,cli,database-illuminate}` | The eight PHP packages: the frozen runtime API, the monolith-side SDK, the Laravel and Symfony adapters, the test harness, the PHPStan rules, the `atoms` CLI, the Illuminate database bridge. MIT. |
 | `action/` | The deploy GitHub Action. |
 | `docs/` | `conventions.md` (normative), `two-worlds.md`, `errors.md` (the error catalog). |
 | `tests/Integration/` | Cross-package tests that no single package owns. |
 | `cloudflare/` | The Worker runtime: a PHP 8.3 WebAssembly interpreter parked inside a SQLite-backed Durable Object, its binding spec in `cloudflare/docs/runtime-spec.md`, and the conformance suite. Atoms-authored source here is MIT; upstream components retain their own licenses. |
 
 The two halves have separate toolchains and separate test commands. A change
-to the ABI usually touches both — `cloudflare/worker/php/atoms-core/` is a
+to the API usually touches both — `cloudflare/worker/php/atoms-core/` is a
 verbatim, hash-recorded copy of `packages/core/src`. Never edit it in place:
 fix `packages/core/` and re-vendor.
 
@@ -132,7 +132,7 @@ These are settled decisions, recorded in `docs/conventions.md` and
 `AGENTS.md`. A change that breaks one is a design conversation in an issue,
 not a diff.
 
-- **`atoms/core` is a frozen, wire-protocol-grade ABI.** Its public surface is
+- **`atoms/core` is a frozen, wire-protocol-grade API.** Its public surface is
   what customer code targets and what the runtime executes on the other side
   of the boundary. Add signatures; never change or remove one. `atoms/core`
   depends on nothing framework-ish — `psr/*` interfaces only.

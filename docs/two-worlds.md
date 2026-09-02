@@ -116,7 +116,7 @@ Activation-time cost gets a budget: a migration exceeding it (default 250ms) tri
 
 | Package | Executes in | Purpose |
 |---------|-------------|---------|
-| `atoms/core` | **Both** | Runtime ABI, serialization, migrations, error catalog. Framework-free. |
+| `atoms/core` | **Both** | Frozen runtime API, serialization, migrations, error catalog. Framework-free. |
 | `atoms/client` | App-side (monolith) | Stub proxies, RPC transport, callback kernel, manifest loader. PSR-7/15/17/18 contracts. |
 | `atoms/laravel` | App-side (monolith) | Service provider, `Atoms` facade, queue bridge, Artisan wrappers, callback route registration. |
 | `atoms/symfony` | App-side (monolith) | Bundle, DI extension, callback controller, Messenger bridge, console commands. |

@@ -1,6 +1,6 @@
 # atoms/core
 
-The frozen runtime ABI shared by Atoms applications and the Cloudflare
+The frozen runtime API shared by Atoms applications and the Cloudflare
 runtime. It contains the `Atom` programming model, serialization algebra,
 SQLite helpers, migrations, WebSocket and timer interfaces, and the canonical
 error catalog. It has no framework dependency and supports PHP 8.3 and later.

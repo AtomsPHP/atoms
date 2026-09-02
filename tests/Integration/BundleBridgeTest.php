@@ -76,7 +76,7 @@ final class BundleBridgeTest extends TestCase
         // must carry that through rather than dropping it.
         self::assertStringContainsString('"websocket": true', $module);
 
-        // Guest paths: the customer's tree under /app, the runtime prelude and
+        // Guest paths: the customer's tree under /app, the guest runtime and
         // the verbatim atoms/core under /atoms.
         self::assertStringContainsString('"file": "/app/app/Atoms/GameRoom.php"', $module);
         self::assertStringContainsString('/app/app/Atoms/GameRoom/migrations/001_create_events.sql', $module);

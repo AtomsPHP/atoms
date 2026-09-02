@@ -35,7 +35,7 @@ const encoder = new TextEncoder();
 // A JS string can hold a lone UTF-16 surrogate, which TextEncoder silently
 // replaces with U+FFFD — signed would still equal sent, but sent would no
 // longer equal what PHP built. PHP's json_encode() cannot emit one, so
-// this only ever fires on a prelude bug.
+// this only ever fires on a guest runtime bug.
 const LONE_SURROGATE_RE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 /**
@@ -136,7 +136,7 @@ export class CallbackChannel {
 	 *     `runTurn()` delivers the envelope, settled by `settlePostTurn()`;
 	 *   - the **activation** window — opened before `php.run()` starts, so the
 	 *     bootstrap, the migrations and `onActivation()` (customer code on the
-	 *     legal ABI, which may call `app()`/`dispatch()`) all run inside one,
+	 *     legal API, which may call `app()`/`dispatch()`) all run inside one,
 	 *     and settled by `activate()` before `ensureActive()` returns.
 	 *
 	 * The budget is always newly minted here and never reused: a budget that
