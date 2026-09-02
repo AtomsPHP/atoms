@@ -142,7 +142,7 @@
             "license": [
                 "MIT"
             ],
-            "description": "The Atoms runtime ABI: everything an Atom class can touch. Zero framework dependencies.",
+            "description": "The Atoms runtime API: everything an Atom class can touch. Zero framework dependencies.",
             "homepage": "https://atomsphp.dev",
             "keywords": [
                 "actors",
