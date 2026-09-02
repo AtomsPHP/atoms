@@ -35,7 +35,7 @@ const encoder = new TextEncoder();
 // A JS string can hold a lone UTF-16 surrogate, which TextEncoder silently
 // replaces with U+FFFD — signed would still equal sent, but sent would no
 // longer equal what PHP built. PHP's json_encode() cannot emit one, so
-// this only ever fires on a prelude bug.
+// this only ever fires on a guest runtime bug.
 const LONE_SURROGATE_RE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 /**

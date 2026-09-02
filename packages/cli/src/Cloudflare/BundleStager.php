@@ -16,7 +16,7 @@ use Atoms\Errors\ErrorCode;
  *
  * The translation itself lives in the Worker tree
  * (`scripts/bundle-from-cli.mjs`) rather than here, deliberately: composing the
- * guest filesystem needs the `Atoms\Cf` prelude and the vendored `atoms/core`
+ * guest filesystem needs the `Atoms\Cf` runtime and the vendored `atoms/core`
  * sources, which are the Worker's own and version with it. A PHP CLI that
  * carried its own copy of those would be a second source of truth for the
  * runtime — and the first thing to drift.

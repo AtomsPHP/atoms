@@ -7,7 +7,7 @@ Atom, the real `atoms/core` API running unmodified inside the guest.
 | Path | What it is |
 |---|---|
 | [`docs/runtime-spec.md`](docs/runtime-spec.md) | The binding specification, including the appendix of measured platform deviations |
-| [`worker/`](worker/) | The Worker itself: host JavaScript, the `Atoms\Cf\` guest prelude, fixtures, and the conformance suite |
+| [`worker/`](worker/) | The Worker itself: host JavaScript, the `Atoms\Cf\` guest runtime, fixtures, and the conformance suite |
 | [`LICENSE-MIT`](LICENSE-MIT) | The MIT grant for Atoms-authored source in this tree |
 | [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | Components in the PHP/WebAssembly runtime and the evidence for each |
 | [`corresponding-source/`](corresponding-source/) | The pinned upstream artifact and source provenance |

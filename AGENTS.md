@@ -18,7 +18,7 @@ parked inside a SQLite-backed Durable Object.
 | Directory | What it is | Guidance |
 |---|---|---|
 | `packages/` | The eight MIT PHP packages: `atoms/{core,client,laravel,symfony,testing,phpstan-rules,cli,database-illuminate}` | `docs/conventions.md` (normative) |
-| `cloudflare/` | The Worker runtime: `worker/` (host JS, `Atoms\Cf\` guest prelude, fixtures, conformance suite), `docs/` (runtime spec + PDO matrix), `corresponding-source/`, the licence files | `cloudflare/README.md`, `cloudflare/docs/runtime-spec.md` |
+| `cloudflare/` | The Worker runtime: `worker/` (host JS, `Atoms\Cf\` guest runtime, fixtures, conformance suite), `docs/` (runtime spec + PDO matrix), `corresponding-source/`, the licence files | `cloudflare/README.md`, `cloudflare/docs/runtime-spec.md` |
 | `docs/` | Framework docs: `conventions.md`, `cloudflare-toolchain.md`, `two-worlds.md`, `errors.md` | — |
 | `action/` | The deploy GitHub Action (composite) | `action/README.md` |
 | `tests/` | Cross-package integration tests (`Atoms\Tests\Integration\`) | `docs/conventions.md` |

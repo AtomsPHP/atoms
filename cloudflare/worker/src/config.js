@@ -54,7 +54,7 @@ import { AtomsError } from './errors.js';
  * @property {string[]} configEnvDenyKeys     Names never readable through `config.get`, whatever else says. Always includes the built-in defaults; `ATOMS_CONFIG_ENV_DENY_KEYS` is additive to them, never a replacement.
  * @property {string}   bootstrapPath         Guest path of the PHP bootstrap script.
  * @property {string}   bootPayloadPath       Guest path the boot payload JSON is written to.
- * @property {string}   runtimeDir            Guest directory holding the `Atoms\\Cf` prelude.
+ * @property {string}   runtimeDir            Guest directory holding the `Atoms\\Cf` runtime.
  * @property {string}   coreDir               Guest directory holding the verbatim atoms/core sources.
  * @property {string[]} guestDirs             Directories created in MEMFS before files are written.
  * @property {number}   bundleFormat          Bundle format version this host understands.

@@ -5,7 +5,7 @@ Two directories, with very different rules:
 | Directory | What it is | Rule |
 |---|---|---|
 | `atoms-core/` | Verbatim copies of `packages/core/src` (+ `resources/errors.json`), from the repository root | **Never edit.** See `atoms-core/VENDORED-FROM.md` |
-| `runtime/` | The `Atoms\Cf\` prelude — the platform side of the guest | Owned here |
+| `runtime/` | The `Atoms\Cf\` runtime — the platform side of the guest | Owned here |
 
 The whole point of the runtime is that the first column runs *unmodified*: the
 customer API, `Atoms\Migrations\Migrator` and `Atoms\Serialization\Serializer`
@@ -102,8 +102,8 @@ Rules for the composed script:
 ```
 
 The same payload is also written to `paths.boot_payload` (`/atoms/boot.json`),
-so the prelude can read it from disk instead of the global. Every path above is
-overridable from the Worker's env (`ATOMS_CORE_DIR`, `ATOMS_RUNTIME_DIR`,
+so the guest runtime can read it from disk instead of the global. Every path
+above is overridable from the Worker's env (`ATOMS_CORE_DIR`, `ATOMS_RUNTIME_DIR`,
 `ATOMS_BOOTSTRAP_PATH`, `ATOMS_BOOT_PAYLOAD_PATH`) — see `src/config.js`.
 
 `files` is what the bundle-class autoloader indexes, so an Atom can reference
@@ -377,7 +377,7 @@ Other differences worth knowing, not omissions:
   subscribe/unsubscribe — reconnecting is the only way to change channels
   (the frozen `Connection` interface gained no method).
 - `ConnectionClosed` is a plain `\RuntimeException`, not a catalog entry — the
-  `Atoms\Cf` prelude has never carried `ATOMS-E###` codes, and neither does
+  `Atoms\Cf` runtime has never carried `ATOMS-E###` codes, and neither does
   `AtomsNotSupported`.
 
 **Timers.**
