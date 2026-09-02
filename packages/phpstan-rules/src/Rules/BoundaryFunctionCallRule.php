@@ -6,8 +6,8 @@ namespace Atoms\PHPStan\Rules;
 
 use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
-use Atoms\PHPStan\World;
-use Atoms\PHPStan\WorldClassifier;
+use Atoms\PHPStan\Side;
+use Atoms\PHPStan\SideClassifier;
 use PhpParser\Node;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Name;
@@ -17,7 +17,7 @@ use PHPStan\Rules\RuleError;
 use PHPStan\Rules\RuleErrorBuilder;
 
 /**
- * Flags global framework helper calls inside WORLD_A/SHARED code:
+ * Flags global framework helper calls inside ATOM_SIDE/SHARED code:
  *  - env()                      → ATOMS-E017 (Atoms cannot read the .env)
  *  - serialize()/unserialize()  → ATOMS-E018 (no native PHP serialization ever)
  *  - the rest of the helper set → ATOMS-E011 (helper does not exist at runtime)
@@ -34,7 +34,7 @@ final class BoundaryFunctionCallRule implements Rule
         'retry', 'cookie', 'encrypt', 'decrypt', 'validator', '__',
     ];
 
-    public function __construct(private readonly WorldClassifier $classifier)
+    public function __construct(private readonly SideClassifier $classifier)
     {
     }
 
@@ -59,8 +59,8 @@ final class BoundaryFunctionCallRule implements Rule
             return [];
         }
 
-        $world = $this->classifier->classify($classReflection, $scope);
-        if ($world !== World::WorldA && $world !== World::Shared) {
+        $side = $this->classifier->classify($classReflection, $scope);
+        if ($side !== Side::AtomSide && $side !== Side::Shared) {
             return [];
         }
 

@@ -1,7 +1,7 @@
--- Probe's schema (M1 design §2.2). This file is single-sourced: the
+-- Probe's schema. This file is single-sourced: the
 -- Durable Object side applies it through the real Atoms\Migrations\Migrator
 -- (one sql.exec over the whole text, same as every other fixture's
--- migration); the differential harness's comparator (a later M1 step) reads
+-- migration); the differential harness's comparator reads
 -- this same file and splits it on ';' to replay it against a native
 -- pdo_sqlite connection. Two consequences of that single-sourcing, recorded
 -- here rather than in code:

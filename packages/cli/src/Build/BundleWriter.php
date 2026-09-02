@@ -20,7 +20,7 @@ final class BundleWriter
         BundleFileSet $files,
         array $manifest,
         ValidationResult $validation,
-        bool $scoped,
+        ?VendorTree $vendor = null,
     ): BuildResult {
         if (!is_dir($outDir) && !@mkdir($outDir, 0777, true) && !is_dir($outDir)) {
             throw new \RuntimeException("Could not create output directory {$outDir}");
@@ -34,6 +34,12 @@ final class BundleWriter
             // the build runs.
             $entries[] = ['name' => $file['relative'], 'contents' => $files->contentsOf($file)];
         }
+        foreach ($vendor === null ? [] : $vendor->entries as $entry) {
+            $entries[] = $entry;
+        }
+        // One global order over customer + vendor entries keeps the archive a
+        // pure function of its contents, wherever they came from.
+        usort($entries, static fn (array $a, array $b): int => strcmp($a['name'], $b['name']));
 
         $tar = TarWriter::build($entries);
         $contentHash = hash('sha256', $tar);
@@ -49,7 +55,7 @@ final class BundleWriter
             json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n",
         );
 
-        return new BuildResult($bundlePath, $manifestPath, $contentHash, $manifest, $validation, $scoped);
+        return new BuildResult($bundlePath, $manifestPath, $contentHash, $manifest, $validation, $vendor);
     }
 
     /**

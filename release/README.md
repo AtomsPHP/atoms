@@ -8,7 +8,7 @@ Use the release tool rather than editing version fields by hand:
 
 ```sh
 php scripts/release/release.php check
-php scripts/release/release.php set 0.1.1 ready
+php scripts/release/release.php set 0.4.1 ready
 php scripts/release/release.php validate-splits
 ```
 
@@ -26,6 +26,22 @@ preflight is finished (as the 0.1.0 mirrors bootstrap required — see
 `CUTOVER.md`). There, open the version PR as `candidate` and flip it to
 `ready` with `php scripts/release/release.php status ready` once the
 preflight passes.
+
+## Publishing credentials
+
+The release workflow holds no npm credential. `@atomsphp/runtime-cloudflare` is
+published through npm [trusted publishing]: the `publish-npm` job exchanges its
+GitHub OIDC token for a short-lived, single-publish registry credential, which
+npm grants only against the trusted publisher configured on the package —
+this repository, `.github/workflows/release.yml`, and the `release`
+environment. Change any of those three and publishing stops until the package's
+trusted-publisher entry on npmjs.com is updated to match. There is no
+`NPM_TOKEN` secret to rotate, and provenance is attested automatically.
+
+The eight Composer mirrors are a separate credential path, an installation
+token scoped to those repositories — see `MIRRORS.md`.
+
+[trusted publishing]: https://docs.npmjs.com/trusted-publishers
 
 See `MIRRORS.md` for the one-time repository controls and `CUTOVER.md` for the
 first-release order. Neither document is an executable invitation to publish:

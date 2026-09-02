@@ -1,14 +1,12 @@
 # The Cloudflare toolchain: deploy, runtime auth, and the bundle bridge
 
-**Status:** normative for `atoms/cli`, `atoms/client` and `cloudflare/worker`
-as of M3. Supersedes `docs/platform/api-contract.md`, which describes the
-retired hosted platform — see the banner on that file.
+**Status:** normative for `atoms/cli`, `atoms/client` and `cloudflare/worker`.
 
 Atoms deploys into **your** Cloudflare account. There is no Atoms-hosted
 service in any path described here, and Atoms never proxies or retains your
 credentials.
 
-This document records three decisions that M3 had to make and that everything
+This document records three decisions that everything
 downstream inherits. Each is written with its rejected alternatives, because
 the alternatives are all reasonable and will otherwise be re-proposed.
 
@@ -28,7 +26,7 @@ Authorization: Bearer $(atoms token)
 record for the whole boundary. `/invoke` is the only route the client calls;
 WebSocket tickets are issued locally, without an HTTP hop.
 
-### Why no `/v1/{customer}` prefix
+### Why no tenant prefix in the routes
 
 **Rejected: a customer-prefixed route.** A prefix routes a multi-tenant edge
 to one tenant's compute. The Worker is single-tenant by construction: it *is*
@@ -97,7 +95,7 @@ than invalidating every outstanding ticket at once. The binding details —
 wire format, limits, the expiry rule, the reusable-until-expiry contract, and
 the rotation decision — are normative in `docs/ws-ticket-protocol.md`; the
 Worker's observable verification behaviour is spec'd in
-`cloudflare/docs/mvp-spec.md` §Routing and auth; the key derivation itself is
+`cloudflare/docs/runtime-spec.md` §Routing and auth; the key derivation itself is
 `docs/shared-secret.md`.
 
 ## 2. How a PHP CLI drives Wrangler: a pinned local binary, never `npx`
@@ -137,11 +135,11 @@ Wrangler needs a project to run in: a wrangler config, `src/`, and
 `--worker-dir`, `environments.<env>.worker_dir` in `atoms.json`, or the default
 `.atoms/worker`. An unusable directory is **ATOMS-E076**.
 
-**Installing the Worker project.** M7 publishes a version-matched template and
-initializer. Run the exact command printed by `atoms init`:
+**Installing the Worker project.** Each release publishes a version-matched
+template and initializer. Run the exact command printed by `atoms init`:
 
 ```sh
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.4.0 -- \
   atoms-runtime-cloudflare init .atoms/worker
 cd .atoms/worker && npm ci
 ```
@@ -527,13 +525,15 @@ guessing, and guessing is the defect this replaced.
 
 ### The decision
 
-**Neither format moves. The missing piece was the translation, and that is what
-M3 built.**
+**Neither format moves. The missing piece is the translation, and the CLI
+supplies it.**
 
 - `atoms build` keeps emitting `bundle-{sha256}.tar.gz` + schema-1
   `manifest.json`. This is the **portable** artifact: content-addressed,
   byte-reproducible, archivable, signable, and produced without executing
-  customer code. It carries the customer's app and nothing else.
+  customer code. It carries the customer's app and — since the vendor stage
+  (below) — the resolved `atoms-composer.json` packages the app's Atoms use;
+  nothing else.
 - The Worker keeps loading `src/bundle.generated.js`, an ES module exporting
   `{manifest, files}` at `bundle_format: 0`. This is the **deploy** artifact.
   It has to be a JS module because the Worker script is what `wrangler deploy`
@@ -567,15 +567,63 @@ needs `php/runtime/` and `php/atoms-core/`, which are the Worker's own.
 **Nothing under `cloudflare/worker/src/**` or `cloudflare/worker/php/**`
 changed.** The emitted module is exactly the shape the host already reads, so
 the Worker conformance suite was untouched by the CLI integration (see
-`cloudflare/docs/mvp-spec.md` §Conformance suite), and the vendored
+`cloudflare/docs/runtime-spec.md` §Conformance suite), and the vendored
 `atoms/core` copy needed no re-vendor on this account.
 
 `build-bundle.mjs` is the conformance fixture builder. It is not a stand-in
 for the real `atoms build`.
 
-### Two additive manifest fields
+### The vendor stage (2026-08-30)
 
-The Worker needs two things the schema-1 manifest did not record. Both are
+A project whose Atoms use approved packages (`atoms-composer.json`, gated by
+`packages/cli/resources/allowed-packages.json`) needs those packages **in the
+guest**. The build's vendor stage (`Atoms\Cli\Build\VendorStage`) supplies
+them:
+
+- `composer install --no-dev --no-scripts --no-plugins` runs in an isolated
+  temp directory — a build never executes customer or dependency code. A
+  missing composer, an unresolvable constraint, or any other failure refuses
+  loudly with **ATOMS-E079**; there is no silent fallback to an
+  unshippable bundle.
+- **Determinism**: the first successful resolution writes
+  `atoms-composer.lock` (Composer's own lock format) back next to
+  `atoms-composer.json`; committed, it pins every later resolution. The
+  resolved tree is cached under `.atoms/vendor-cache/<key>` (key = sha256 of
+  atoms-composer.json + lock), so repeat builds — `atoms dev`'s rebuild loop
+  included — are offline and composer-free until the lock changes.
+- **What ships**: every vendor `.php` file (data files like Carbon's locale
+  tables are `.php` too) plus package LICENSE files, under `vendor/…` in the
+  tar, and one generated `vendor/atoms-vendor-autoload.php` — a classmap +
+  eager function-file loader built from Composer's own optimized autoload
+  output, `__DIR__`-relative so it works at any guest mount point. The
+  manifest records it as the additive `vendor` key (autoload path + resolved
+  package versions).
+- **Unprefixed, deliberately.** php-scoper is no longer run: prefixing vendor
+  namespaces without also rewriting the customer's Atom code (which names
+  those namespaces at every call site) would break the app against its own
+  vendor tree, and the guest has no other occupant to collide with — it loads
+  exactly `atoms/core`, the `Atoms\Cf` prelude, and this bundle. Namespace
+  isolation returns as future hardening only as a whole-bundle rewrite
+  (vendor **and** app together). The manifest's `toolchain.scoper_prefix`
+  keeps its original meaning: a content fingerprint of the customer tree.
+- `--fast` skips the stage — legal only when `atoms-composer.json` declares
+  nothing. With dependencies declared it refuses (**ATOMS-E107**): a
+  vendor-less bundle would deploy cleanly and fatal in the guest on the first
+  vendor class an Atom touches, and the cache already makes the full build
+  composer-free. `atoms validate` remains the fast no-bundle check.
+- Files a package might read as runtime data (`.json`, `.txt`, `.csv`, …) are
+  pruned by the ship rule and named in the build output, so a package that
+  needs one fails with a visible cause at build time rather than a bare
+  `file_get_contents` error in the guest.
+
+`atoms validate` runs no vendor stage, so its manifest (and manifest hash)
+describes the customer tree only; `atoms build`'s manifest is the one with
+the `vendor` key. The content hash always covers everything in the tar,
+vendor included.
+
+### Three additive manifest fields
+
+The Worker needs three things the schema-1 manifest did not record. All are
 additive; `schema` stays `1`.
 
 - **`atoms[].file`** — the bundle-relative path of the file declaring the Atom
@@ -586,13 +634,22 @@ additive; `schema` stays `1`.
   migration. `MigrationEntry::$name` is the *descriptive* part only
   (`MigrationSet` parses `NNN_name.sql` and keeps `name`), so the filename is
   not reconstructable from the manifest at all.
+- **`vendor.autoload`** — the bundle-relative path of the generated vendor
+  autoload file (see §The vendor stage). The translator mounts the tar's
+  `vendor/…` entries under `/app/vendor/…` like everything else, carries this
+  key through guest-pathed (exactly as it does `atoms[].file`), and verifies
+  the declared file is actually in the archive; `bootstrap.php` excludes the
+  vendor subtree from its line-scanning autoloader (the classmap is exact,
+  and scanning a vendor tree at every activation is pure boot cost) and
+  `require`s the declared file. Absent key ⇒ no vendor tree, nothing changes;
+  `bundle_format` stays `0`. Conformance check 45 pins the guest behaviour.
 
 **`atoms[].websocket` is three-valued, and the third value is "no answer".**
 The Worker reads the key as: absent ⇒ allowed, `true` ⇒ allowed, `false` ⇒
 refuse `GET /ws/:type/:id` with 501 before any Durable Object is touched. So
 `false` is a *claim*, and `ManifestGenerator` may only make it when it can
 actually see that no handler exists. Discovery parses files; it does not load
-classes. For `final class Room extends BaseRoom` it cannot follow `BaseRoom`
+classes. For `class Room extends BaseRoom` it cannot follow `BaseRoom`
 — which may live in a vendor package and may itself extend something else — so
 it cannot know whether `onMessage` is declared up the chain. The generator
 therefore emits `true` when the class declares a handler **itself** (matched
@@ -637,13 +694,13 @@ atoms deploy --env production
 
 Nothing in this sequence contacts a service operated by Atoms.
 
-## Known gaps after M7 packaging
+## Known gaps
 
-- **`atoms dev`'s callback URL is wired, as of M2.** `--callback-url` (or
+- **`atoms dev`'s callback URL is wired.** `--callback-url` (or
   `atoms.json`'s `callback_url.<env>`) reaches the Worker as an
   `ATOMS_CALLBACK_URL` var via `wrangler dev --var`, and the Worker half is
   real: `Atom::app()`/`dispatch()` call back through it (`cloudflare/docs/
-  mvp-spec.md` §The callback channel). `DevCommand` prints the URL it wired
+  runtime-spec.md` §The callback channel). `DevCommand` prints the URL it wired
   and provisions the Worker project's `.dev.vars` with a per-machine
   `ATOMS_SHARED_SECRET` if one is not already there, so `app()`/`dispatch()`
   has a usable signing key (`ATOMS-E081` covers the case where it still does

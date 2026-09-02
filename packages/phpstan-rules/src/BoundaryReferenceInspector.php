@@ -12,12 +12,12 @@ use PHPStan\Reflection\ReflectionProvider;
 /**
  * Shared legality check behind BoundaryNewRule, BoundaryStaticCallRule,
  * BoundaryClassConstRule, and BoundaryInstanceofRule: given a class name
- * referenced from WORLD_A or SHARED code, decide whether the reference is
+ * referenced from ATOM_SIDE or SHARED code, decide whether the reference is
  * legal, and if not, which ATOMS-E0xx code and message context apply.
  *
  * Legal iff the referenced name:
  *  - has the `Atoms\` prefix (the runtime ABI itself), or
- *  - resolves to a class that is itself WORLD_A or SHARED, or whose own file
+ *  - resolves to a class that is itself ATOM_SIDE or SHARED, or whose own file
  *    sits under a configured Atoms path (even if its own classification is
  *    OTHER — e.g. a plain helper class colocated with an Atom), or
  *  - is a PHP builtin (resolvable and ClassReflection::isBuiltin()), or is
@@ -29,7 +29,7 @@ use PHPStan\Reflection\ReflectionProvider;
  *  - a Facade (name contains `\Facades\`, or resolvable and a subclass of
  *    Illuminate\Support\Facades\Facade) → ATOMS-E014
  *  - an `Illuminate\`/`Laravel\` symbol → ATOMS-E010
- *  - anything else → ATOMS-E012 (monolith class) in WORLD_A
+ *  - anything else → ATOMS-E012 (monolith class) in ATOM_SIDE
  *
  * In SHARED context, any illegal reference is reported as ATOMS-E015
  * instead — Shared code has one purity rule, not three.
@@ -40,7 +40,7 @@ final class BoundaryReferenceInspector
 
     public function __construct(
         private readonly AtomsRulesConfig $config,
-        private readonly WorldClassifier $classifier,
+        private readonly SideClassifier $classifier,
         private readonly ReflectionProvider $reflectionProvider,
     ) {
     }
@@ -48,7 +48,7 @@ final class BoundaryReferenceInspector
     /**
      * @return array{0: ErrorCode, 1: array<string, string>}|null null when the reference is legal
      */
-    public function inspect(string $referencedClassName, ClassReflection $containingClass, World $world, Scope $scope): ?array
+    public function inspect(string $referencedClassName, ClassReflection $containingClass, Side $side, Scope $scope): ?array
     {
         $name = ltrim($referencedClassName, '\\');
 
@@ -62,7 +62,7 @@ final class BoundaryReferenceInspector
 
         $code = $this->classifyIllegal($name);
 
-        if ($world === World::Shared) {
+        if ($side === Side::Shared) {
             $code = ErrorCode::SharedNonCoreSymbol;
         }
 
@@ -90,8 +90,8 @@ final class BoundaryReferenceInspector
                 return true;
             }
 
-            $world = $this->classifier->classify($classReflection, $scope);
-            if ($world === World::WorldA || $world === World::Shared) {
+            $side = $this->classifier->classify($classReflection, $scope);
+            if ($side === Side::AtomSide || $side === Side::Shared) {
                 return true;
             }
         } elseif (!str_contains($name, '\\')) {

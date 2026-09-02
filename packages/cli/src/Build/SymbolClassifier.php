@@ -145,13 +145,21 @@ final class SymbolClassifier
         }
 
         if ($this->discovery->has($name)) {
-            $bundled = $this->discovery->get($name);
+            $target = $this->discovery->get($name);
             // A Shared DTO may only reference core + stdlib + other Shared DTOs.
-            if ($shared && $bundled !== null && $bundled->kind() !== ClassKind::Shared) {
+            if ($shared && $target !== null && $target->kind() !== ClassKind::Shared) {
                 return $this->sharedViolation($name, $owner, $file, $line);
             }
 
-            return null; // bundled: ships in the closure
+            // An unclassifiable class never ships, so a reference to it would
+            // fatal in the guest with class-not-found. Methods and AtomJob
+            // classes also stay in the monolith, but naming them is legal —
+            // dispatch() takes a Job class-string — so only Unknown is refused.
+            if ($target !== null && $target->kind() === ClassKind::Unknown) {
+                return new Violation(ErrorCode::MonolithClassInAtom, $file, $line, ['symbol' => $name], $name);
+            }
+
+            return null; // discovered: either ships in the bundle or is a legal class-string
         }
 
         if (str_contains($name, '\\')) {

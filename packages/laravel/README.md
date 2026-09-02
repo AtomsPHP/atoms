@@ -5,7 +5,7 @@ facade, callback route and queue bridge, testing fake, Artisan installers, and
 thin wrappers around the `atoms` command-line tool.
 
 ```sh
-composer require atoms/laravel:^0.1
+composer require atoms/laravel:^0.4
 php artisan atoms:install
 ```
 

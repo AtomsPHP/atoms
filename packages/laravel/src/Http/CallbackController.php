@@ -14,7 +14,7 @@ use Illuminate\Http\Response;
  * inbound platform callback. Converts Illuminate's Request to a PSR-7
  * ServerRequest and the PSR-7 Response back to an Illuminate one; no other
  * logic lives here by design (that's the point of the kernel being framework
- * free) — see docs/integration-plan.md §5.1.
+ * free).
  */
 final class CallbackController
 {

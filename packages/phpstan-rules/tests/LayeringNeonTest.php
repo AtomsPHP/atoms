@@ -12,7 +12,7 @@ use PHPStan\Testing\PHPStanTestCase;
 /**
  * The wiring proof: loads the REPOSITORY ROOT phpstan.neon.dist (not
  * layering.neon in isolation) through PHPStan's own container/Neon
- * machinery, the same way RulesNeonTest loads rules.neon. This is the M3
+ * machinery, the same way RulesNeonTest loads rules.neon. This is the
  * defect class this rule exists to kill — layering.neon existing in the
  * package is worthless if `composer stan` at the repo root never includes
  * it and never registers LayeringRule. Container construction alone proves

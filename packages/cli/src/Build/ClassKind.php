@@ -13,11 +13,12 @@ enum ClassKind: string
     case Methods = 'methods';
     case Job = 'job';
     case Shared = 'shared';
+    case Support = 'support';
     case Unknown = 'unknown';
 
-    /** Does this kind ship to the platform (World A)? */
+    /** Does this kind ship to the platform (Atom-side)? */
     public function isBundled(): bool
     {
-        return $this === self::Atom || $this === self::Shared;
+        return $this === self::Atom || $this === self::Shared || $this === self::Support;
     }
 }

@@ -2,7 +2,7 @@
  * The timers seam: the host side of `timer.schedule` / `timer.cancel` /
  * `timer.get` (sync ops dispatched from `Bridge.handleSync`), the
  * `__atoms_timers` table (DDL in `bridge.js`'s `ensureSchema()`, alongside
- * `__atoms_meta`), and the Durable Object alarm re-arm rule (M2 wave 3).
+ * `__atoms_meta`), and the Durable Object alarm re-arm rule.
  *
  * Every op below runs its SQL through `this.sql` — literally the same
  * `ctx.storage.sql` reference `Bridge.opSqlExec` uses — so a schedule/cancel

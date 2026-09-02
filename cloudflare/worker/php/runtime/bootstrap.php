@@ -4,20 +4,19 @@
  * The guest entry point: one activation, then the parked turn loop.
  *
  * `php.run()` is a REQUEST — classes, constants and globals are torn down when
- * it returns — established by the pre-MVP spike. An Atom whose state lives in PHP
+ * it returns — measured on this build. An Atom whose state lives in PHP
  * memory therefore cannot be one `php.run()` per turn. Everything below happens
  * inside ONE `php.run()` that does not return until the host asks for shutdown:
  * the guest parks itself on the `turn.await` door between turns and the host
  * resumes it with the next envelope, so the PHP stack — and with it the Atom
- * object and all its in-memory state — is never unwound. Shape ported from
- * the spike's loop.
+ * object and all its in-memory state — is never unwound.
  *
  * Load order, and the composed entry script the JS host must run, are
  * documented in ../README.md.
  *
  * No declare(strict_types=1) — a declare() must be the very first statement of
- * a file and this one is `require`d from a host-composed script; the spike hit
- * hard fatals on exactly this. The verbatim atoms-core files
+ * a file and this one is `require`d from a host-composed script; a declare()
+ * here is a hard fatal. The verbatim atoms-core files
  * keep their own declare() because they are only ever `require`d, one file each.
  */
 
@@ -111,7 +110,7 @@ function runtime_files()
         'ConnectionClosed.php',
         'CfConnection.php',
         'CfMessage.php',
-        // The timers seam (M2 wave 3): the two typed exceptions before the
+        // The timers seam: the two typed exceptions before the
         // class that throws them, for the same "base before what references
         // it" reason as the callback classes above.
         'InvalidTimerName.php',
@@ -204,7 +203,7 @@ function register_bundle_autoloader(array $files, array $exclude)
  * Apply this Atom type's pending migrations with the real
  * `Atoms\Migrations\Migrator`, which runs each one in its own transaction and
  * tracks progress in `PRAGMA user_version` — a pragma the host intercepts and
- * maps onto `__atoms_meta` (mvp-spec.md §SQL bridge details), so the unmodified
+ * maps onto `__atoms_meta` (runtime-spec.md §SQL bridge details), so the unmodified
  * Migrator works over the bridge.
  *
  * @param BridgeDatabase $db
@@ -298,7 +297,7 @@ function runtime_handler_names()
  * method: private/protected/static/abstract members, magic methods, the
  * runtime's own lifecycle handlers (see {@see runtime_handler_names()}), and
  * the base class's own surface (the constructor and the lifecycle hooks, which
- * are out of scope for the MVP).
+ * are out of scope).
  *
  * @param object $atom
  * @param mixed $method
@@ -359,7 +358,7 @@ function invocable_method($atom, $method)
 
 /**
  * The spec's turn-result error envelope. Traces never appear here — they go to
- * the host's structured log instead (mvp-spec.md §Turn-result envelope).
+ * the host's structured log instead (runtime-spec.md §Turn-result envelope).
  *
  * @param string $code
  * @param string $message
@@ -691,7 +690,7 @@ function run_ws_dispatch($atom, SqlBridge $bridge, array $identity, $kind, array
 }
 
 /**
- * `run_ws_turn()`'s sibling for the timer lifecycle hook (M2 wave 3). Same
+ * `run_ws_turn()`'s sibling for the timer lifecycle hook. Same
  * two-layer guard, same void success envelope: the host's alarm-driven
  * dispatch already deleted the due row before this turn was ever handed to
  * the guest (at-most-once — see atom-do.js's runAlarm()), so there is
@@ -753,7 +752,7 @@ function run_timer_turn($atom, SqlBridge $bridge, array $identity, $name)
 
 /**
  * Park between turns forever. The `result` field carries the PREVIOUS turn's
- * envelope and is null on the first park after boot (mvp-spec.md §Park ops).
+ * envelope and is null on the first park after boot (runtime-spec.md §Park ops).
  *
  * @param object $atom
  * @param SqlBridge $bridge
@@ -907,7 +906,50 @@ function activate(array $cfg)
     }
 
     $bundleFiles = isset($cfg['files']) && is_array($cfg['files']) ? array_values($cfg['files']) : [$entry['file']];
+
+    // Additive manifest field `vendor.autoload` (runtime-spec.md §Bundle format):
+    // a build-generated classmap + function-file loader for the bundled
+    // vendor tree. The tree is served by that loader alone, so its files are
+    // excluded from the line-scanning autoloader below — an activation must
+    // not read a thousand vendor files to index classes the classmap already
+    // knows exactly.
+    $vendorAutoload = null;
+    if (isset($cfg['manifest']['vendor']['autoload']) && is_string($cfg['manifest']['vendor']['autoload'])) {
+        $vendorAutoload = $cfg['manifest']['vendor']['autoload'];
+        // The value controls what gets required and which subtree the bundle
+        // autoloader ignores, so refuse a malformed one: it must be a .php
+        // file, with no traversal, whose directory does not contain the
+        // Atom's own source. The translator enforces the stricter
+        // vendor/-only shape; this is the guest's own check.
+        $vendorRoot = rtrim(dirname($vendorAutoload), '/') . '/';
+        if (substr($vendorAutoload, -4) !== '.php'
+            || strpos($vendorAutoload, '..') !== false
+            || strncmp($entry['file'], $vendorRoot, strlen($vendorRoot)) === 0
+        ) {
+            throw new BootstrapError(
+                'internal',
+                sprintf('The manifest declares vendor autoload %s, which is not an acceptable vendor autoload path.', $vendorAutoload)
+            );
+        }
+        if (!is_file($vendorAutoload)) {
+            throw new BootstrapError(
+                'internal',
+                sprintf('The manifest declares vendor autoload %s, which is missing from the guest filesystem.', $vendorAutoload)
+            );
+        }
+        $bundleFiles = array_values(array_filter(
+            $bundleFiles,
+            static function ($path) use ($vendorRoot) {
+                return strncmp((string) $path, $vendorRoot, strlen($vendorRoot)) !== 0;
+            }
+        ));
+    }
+
     register_bundle_autoloader($bundleFiles, $migrationPaths);
+
+    if ($vendorAutoload !== null) {
+        require_once $vendorAutoload;
+    }
 
     $bridge = new SqlBridge();
     $db = new BridgeDatabase($bridge);
@@ -948,7 +990,7 @@ function activate(array $cfg)
 
     // onActivation() is customer code on the legal ABI: it may write SQL, and
     // — since the host opens a callback window before php.run() starts
-    // (mvp-spec.md §The turn deadline) — it may call app() and dispatch() too.
+    // (runtime-spec.md §The turn deadline) — it may call app() and dispatch() too.
     // A throw from it still fails the activation, which is the existing
     // contract: an Atom whose onActivation() did not complete must not go on to
     // serve turns. What changes here is only that the failure is CLASSIFIED
@@ -1010,7 +1052,7 @@ try {
 } catch (\Throwable $__atoms_boot_error) {
     // No turn-result envelope exists yet, so the failure is reported on the log
     // door (with its trace) and then rethrown: php.run() unwinds, and the host
-    // treats the residency as poisoned per mvp-spec.md §AtomDurableObject
+    // treats the residency as poisoned per runtime-spec.md §AtomDurableObject
     // lifecycle.
     host_log('error', [
         'event' => 'activation_failed',

@@ -5,12 +5,9 @@ declare(strict_types=1);
 namespace Atoms\Laravel\Console;
 
 /**
- * `php artisan atoms:dev` — thin wrapper over `atoms dev`.
- *
- * Replaces `atoms:local`, which wrapped the removed `atoms local` (a Docker
- * image of the superseded runtime). `atoms dev` builds, stages, and serves the
- * Worker through `wrangler dev` on this machine — no Cloudflare account and no
- * credentials needed, so this wrapper forwards none.
+ * `php artisan atoms:dev` — thin wrapper over `atoms dev`, which builds,
+ * stages, and serves the Worker through `wrangler dev` on this machine — no
+ * Cloudflare account and no credentials needed, so this wrapper forwards none.
  */
 final class DevCommand extends AtomsBinaryCommand
 {

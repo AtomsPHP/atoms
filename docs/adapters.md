@@ -7,7 +7,7 @@ anything else, and the framework-free `atoms/client` package underneath it.
 inbound `CallbackKernel`; an adapter's whole job is wiring those into one
 specific host — its config system, its container, its router, its queue.
 
-The M4 claim is narrower than "four integrations exist": it is that the four
+The claim here is narrower than "four integrations exist": it is that the four
 integrations expose the **same explicit, provable contract**. Every adapter
 supplies the same set of contracts, and one conformance suite
 (`tests/Integration/Adapters/`) runs the same case table against all of them
@@ -86,10 +86,10 @@ check the observable behavior the six sentences promise.
 
 ## The frozen-clock rules
 
-`cloudflare/docs/mvp-spec.md`'s appendix of measured platform deviations
+`cloudflare/docs/runtime-spec.md`'s appendix of measured platform deviations
 records that the guest clock does not advance inside a turn on deployed
 workerd: a spin-probe returned the same reading across six million loop
-iterations and across a host round trip. Inside an Atom (WORLD_A code), a
+iterations and across a host round trip. Inside an Atom (ATOM_SIDE code), a
 `sleep()` call or a loop waiting for elapsed wall-clock time is therefore
 never "slow" — it is a hang that runs until the turn deadline (`ATOMS-E061`)
 kills it. `AtomSleepCallRule` (`ATOMS-E101`) and `AtomTimeWaitLoopRule`
@@ -97,9 +97,9 @@ kills it. `AtomSleepCallRule` (`ATOMS-E101`) and `AtomTimeWaitLoopRule`
 bug at CI time rather than at a customer's deploy.
 
 - `AtomSleepCallRule` flags direct calls to `sleep()`, `usleep()`,
-  `time_nanosleep()` and `time_sleep_until()` written inside a WORLD_A class's
+  `time_nanosleep()` and `time_sleep_until()` written inside an ATOM_SIDE class's
   own methods.
-- `AtomTimeWaitLoopRule` flags a `while`/`do`-`while`/`for` loop in a WORLD_A
+- `AtomTimeWaitLoopRule` flags a `while`/`do`-`while`/`for` loop in an ATOM_SIDE
   method whose condition reads the clock (`time()`, `microtime()`, `hrtime()`,
   `gettimeofday()`, `new \DateTime`/`\DateTimeImmutable`) at any depth, or —
   for an unconditional loop (`while (true)`, `do { ... } while (true)`,

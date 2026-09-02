@@ -7,7 +7,7 @@ namespace Atoms\PHPStan\Tests\Fixtures\Dispatch;
 use Atoms\Atom;
 use Atoms\PHPStan\Tests\Fixtures\Clean\RecordResult;
 
-/** World A. A correct dispatch, an incorrect one, and a non-job. */
+/** Atom-side. A correct dispatch, an incorrect one, and a non-job. */
 final class DispatchAtom extends Atom
 {
     public function legal(string $id): void

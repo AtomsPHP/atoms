@@ -107,9 +107,11 @@ final class DevCommand extends AbstractCommand
 
             if ($input->getOption('no-build') !== true) {
                 $output->writeln('Building bundle…');
-                // --fast: no PHP-Scoper stage. A dev loop reruns this on every
-                // restart, and scoping only affects the vendored tree.
-                $result = $this->builder->build($config, $config->rootDir . '/.atoms/build', fast: true);
+                // Full build: an app whose Atoms use atoms-composer.json
+                // packages needs the vendor tree in the dev bundle too. The
+                // vendor stage caches its resolution under .atoms/vendor-cache,
+                // so only the first run (or a lock change) pays for composer.
+                $result = $this->builder->build($config, $config->rootDir . '/.atoms/build');
                 $this->stager->stage($target, $result->bundlePath, $result->manifestPath);
             }
 

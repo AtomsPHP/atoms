@@ -1,23 +1,21 @@
 # Monorepo Conventions & Cross-Package Contracts
 
 This document pins every decision that more than one package depends on. If a
-package and this document disagree, the package is wrong. Read
-`docs/integration-plan.md` (the design rationale) and
-`docs/platform/api-contract.md` (the frozen platform HTTP contract) alongside it.
+package and this document disagree, the package is wrong.
 
 ## Decisions already made (do not reopen)
 
 - Vendor prefix: **`atoms/*`** — `atoms/core`, `atoms/client`, `atoms/laravel`,
-  `atoms/symfony`, `atoms/testing`, `atoms/phpstan-rules`, `atoms/cli`.
+  `atoms/symfony`, `atoms/testing`, `atoms/phpstan-rules`, `atoms/cli`,
+  `atoms/database-illuminate`.
 - PHP baseline: **`^8.3`**. No 8.4-only features (no property hooks, no
   asymmetric visibility) anywhere — `atoms/core` executes inside the platform's
   PHP 8.3 runtime image.
-- Scope: full Phase 1 of the integration plan (§11).
 - All packages: `declare(strict_types=1);`, final classes unless the class is
   explicitly designed for extension (`Atom`, `AtomMethods`, `AtomJob`).
-- Monorepo package versions are pinned at `0.1.0` in each package's
-  `composer.json`; inter-package constraints are `^0.1`. Release tooling will
-  own versions later — do not hand-edit them.
+- Monorepo package versions and inter-package constraints are coordinated from
+  `release/manifest.json`. Release tooling owns those fields — do not hand-edit
+  them.
 
 ## Layout
 
@@ -29,7 +27,8 @@ packages/
 ├── symfony/        atoms/symfony         namespace Atoms\Symfony\    Symfony adapter bundle
 ├── testing/        atoms/testing         namespace Atoms\Testing\    AtomHarness etc.
 ├── phpstan-rules/  atoms/phpstan-rules   namespace Atoms\PHPStan\    boundary rules
-└── cli/            atoms/cli             namespace Atoms\Cli\        `atoms` binary + build library
+├── cli/            atoms/cli             namespace Atoms\Cli\        `atoms` binary + build library
+└── database-illuminate/  atoms/database-illuminate  namespace Atoms\DatabaseIlluminate\  Illuminate bridge: query builder + Eloquent against the Atom's own SQLite
 ```
 
 Tests live in `packages/<pkg>/tests`, namespace `Atoms\<Pkg>\Tests\`
@@ -38,13 +37,14 @@ directory mappings are registered in the **root** `composer.json`
 `autoload-dev` (package `autoload-dev` sections are ignored by the root
 install — keep them present anyway for standalone package installs).
 
-### Layering (the §11 discipline)
+### Layering
 
 ```
 core  ←  client  ←  laravel
       ←  testing            ←  symfony (client only!)
       ←  phpstan-rules
       ←  cli
+      ←  database-illuminate
 ```
 
 - `atoms/core` depends on **nothing** framework-ish. `psr/*` interfaces only.
@@ -55,6 +55,8 @@ core  ←  client  ←  laravel
 - `atoms/testing` depends on core (+ phpunit). NOT on client.
 - `atoms/cli` depends on core (+ symfony/console, nikic/php-parser). NOT on
   client — it speaks the deploy HTTP API itself via ext-curl.
+- `atoms/database-illuminate` depends on core (+ illuminate/database). NOT on
+  client or the adapters.
 - Nothing ships in `atoms/laravel` that could live in `atoms/client` or
   `atoms/core`.
 
@@ -69,8 +71,8 @@ Everything below is wire-protocol-grade API. Implement exactly these
 signatures; additions are fine, changes are not.
 
 **Through the 0.x line, that freeze is a default, not a wall.** The packages
-are on Packagist — `atoms/core` 0.1.0 published 2026-08-14 — but they are
-explicitly pre-release, and a `^0.1` constraint promises nothing across a minor.
+are on Packagist, but they are explicitly pre-release, and Composer's pre-1.0
+caret constraints promise nothing across a minor.
 Publication is not the line; 1.0 is. Until then a signature that cannot be used
 correctly is worth fixing while fixing it is still cheap: `dispatch()` was
 changed in place that way, having taken an `AtomJob` instance that required a
@@ -112,8 +114,8 @@ abstract class Atom
     public function onDisconnect(Websocket\Connection $conn): void {}
 }
 
-abstract class AtomMethods {}   // World B base: callback methods, full framework access
-abstract class AtomJob {}       // World B base: constructor args are the contract;
+abstract class AtomMethods {}   // App-side base: callback methods, full framework access
+abstract class AtomJob {}       // App-side base: constructor args are the contract;
                                 // params MUST be promoted public properties with
                                 // serialization-algebra types. The class does NOT
                                 // ship, so Atom code dispatches it BY NAME:
@@ -220,8 +222,7 @@ Wire form of an AtomJob: `{"job": "FQCN", "args": {"param": value, ...}}`
 
 The Worker is single-tenant, so there is no customer prefix and no
 Atoms-operated service. `docs/cloudflare-toolchain.md` is normative for the
-decisions below; `docs/platform/api-contract.md` describes the retired Fly-era
-contract and is history only.
+decisions below.
 
 `atoms/client` calls the Worker:
 
@@ -232,7 +233,7 @@ contract and is history only.
   verifies against — no round trip. `docs/ws-ticket-protocol.md` is
   normative for the wire format, limits, expiry rule, and vectors; the
   Worker's `GET /ws/{type}/{id}` upgrade remains the strict, stateless
-  verifier, spec'd in `cloudflare/docs/mvp-spec.md` §Routing and auth.
+  verifier, spec'd in `cloudflare/docs/runtime-spec.md` §Routing and auth.
 - `Authorization: Bearer {bearer}`, where `{bearer}` is
   `HKDF(ATOMS_SHARED_SECRET, "atoms/bearer/v1")` — `AtomsConfig::$sharedSecret`
   is a required, validated string (`docs/shared-secret.md`), so the client
@@ -327,7 +328,7 @@ Methods resolution default: Atom class `App\Atoms\GameRoom` → Methods class
 
 The Cloudflare Worker is the production signer of this channel
 (`cloudflare/worker/src/callbacks.js`, HMAC-SHA256 WebCrypto — see
-`cloudflare/docs/mvp-spec.md` §The callback channel for headers and message
+`cloudflare/docs/runtime-spec.md` §The callback channel for headers and message
 construction, and `docs/shared-secret.md` for the key derivation). It omits
 `manifest_hash` from the `methods` body — a documented gap, safe today
 because `CallbackKernel::handleMethods()` never reads that key — and its
@@ -341,7 +342,7 @@ and declares no `ext-sodium` dependency.
 
 ## `atoms.json` (toolchain anchor) and `atoms-composer.json`
 
-Exactly as integration plan §1. The CLI must not assume `app/Atoms` — always
+The CLI must not assume `app/Atoms` — always
 read `paths.atoms` / `paths.shared` from `atoms.json`. `atoms-composer.json`
 is a normal composer.json restricted to `require` + `repositories`; the beta
 package allowlist lives in `packages/cli/resources/allowed-packages.json`.
@@ -355,8 +356,12 @@ default?}], return}], websocket: bool, migrations: {head: int, files:
 `{atom_type, class, methods: [...]}`), `jobs`
 (list of `{class, params: [...]}`), `shared` (list of `{class, properties:
 [{name, type}]}`), `toolchain` (`{core_version, php, extensions: [...],
-scoper_prefix}`), `content_hash` (sha256 of the bundle tarball, hex).
-`file` and `migrations.files[].path` are bundle-relative paths, added in M3:
+scoper_prefix}`), `vendor` (optional, present only when the build shipped
+`atoms-composer.json` packages: `{autoload, packages: {name: version}}`,
+where `autoload` is the bundle-relative path of the build-generated vendor
+autoload file — see `docs/cloudflare-toolchain.md` §3), `content_hash`
+(sha256 of the bundle tarball, hex).
+`file` and `migrations.files[].path` are bundle-relative paths:
 the Cloudflare Worker must `require` and migrate exactly those files, and
 `MigrationEntry::$name` keeps only the descriptive part of `NNN_name.sql`, so
 neither is reconstructable from the rest of the manifest.
@@ -398,15 +403,12 @@ runbooks, search boxes and support threads. So:
   a different kind of failure. Those break the promise.
 - **Updating the `message` or `fix` text of an existing code is allowed**, and
   is sometimes required: a code that is still thrown must describe the failure
-  as it is now. M3 rewrote E072's text when deploy credentials stopped being an
-  Atoms API key and became the user's own Cloudflare token — same failure, same
-  number, a credential that now exists. Leaving the old wording would have
-  pointed users at a service that no longer runs.
+  as it is now, under the same number.
 
 Through 0.x the bar for rewording stays low: the packages are published, but
-pre-release, and message text is not something a `^0.1` constraint promises. At
-1.0 the bar rises — a code's wording starts showing up in users' runbooks — but
-the two bullets above stay the rule either way.
+pre-release, and message text is not something a pre-1.0 minor constraint
+promises. At 1.0 the bar rises — a code's wording starts showing up in users'
+runbooks — but the two bullets above stay the rule either way.
 
 ## Testing & tooling
 

@@ -3,15 +3,15 @@
 namespace App\Pdo;
 
 /**
- * Weak-mode type boundaries (M1 review round 2, R5).
+ * Weak-mode type boundaries.
  *
  * Every other case in this differential matrix runs from {@see Cases}, which
  * declares `declare(strict_types=1)` — so a call boundary that behaves
  * differently under PHP's ordinary WEAK typing is never exercised anywhere
  * else in this matrix. `AtomsPDO::quote()`'s own `string $string` parameter
- * type (M1 review round 1, F-5) was added specifically so a call real PDO
+ * type exists specifically so a call real PDO
  * refuses at the argument boundary under `strict_types=1` is refused on our
- * side too — but that fix opened a DIFFERENT gap: under WEAK typing,
+ * side too — but that opens a DIFFERENT gap: under WEAK typing,
  * `quote(null)` on a real (internal/C) `\PDO::quote()` still coerces `null`
  * to the empty string (PHP's legacy leniency for internal functions passing
  * `null` to a non-nullable scalar parameter — deprecated as of 8.1, but not

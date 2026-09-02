@@ -13,8 +13,8 @@ use Symfony\Component\Console\Output\OutputInterface;
  * Base for the atoms:* console wrappers. Every subcommand shells out to the
  * real `atoms` binary rather than reimplementing CLI logic in the bundle —
  * doing the latter would pull atoms/cli into atoms/symfony, which is exactly
- * the layering violation this package exists to catch (integration-plan
- * §5.3). Binary discovery order: `vendor/bin/atoms`, then $PATH, then
+ * the layering violation this package exists to catch. Binary discovery
+ * order: `vendor/bin/atoms`, then $PATH, then
  * `packages/cli/bin/atoms` (monorepo dev checkouts).
  */
 abstract class AtomsBinaryCommand extends Command

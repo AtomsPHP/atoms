@@ -7,8 +7,8 @@ namespace Atoms\Symfony\Tests;
 use PHPUnit\Framework\TestCase;
 
 /**
- * integration-plan §5.3: "if the skeleton needs anything from atoms/laravel,
- * the layering is wrong." This is the mechanical check for that — atoms/symfony
+ * If the skeleton needs anything from atoms/laravel, the layering is
+ * wrong. This is the mechanical check for that — atoms/symfony
  * depends on atoms/client only, so no file under src/ may ever reference
  * Atoms\Laravel\* or Illuminate\* (docs/conventions.md, CLAUDE.md hard rules).
  */

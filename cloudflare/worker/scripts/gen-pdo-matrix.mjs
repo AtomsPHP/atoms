@@ -2,7 +2,7 @@
 
 /**
  * Generates `cloudflare/docs/pdo-compatibility.md` from a conformance run's
- * PDO differential report (M1 design §5).
+ * PDO differential report.
  *
  * `renderMatrixDoc(report, pins)` is a PURE function — no filesystem, no
  * clock, no randomness — so `test/conformance.mjs`'s check 30 can import it
@@ -12,7 +12,7 @@
  * `test/results/pdo-matrix.json` (written by check 28) and
  * `test/pdo-expected.json` (the pin file), render, print to stdout.
  *
- * Determinism (design §5.2): the rendered doc contains ONLY the guest PHP
+ * Determinism: the rendered doc contains ONLY the guest PHP
  * version, the case list (sorted by id within each group, groups in the
  * order they first appear in the report — which is Cases::groups()'s
  * declaration order, since that is how the report was assembled), each
@@ -27,7 +27,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Internal taxonomy -> published name (design §5.3). Renamed in exactly this
+ * Internal taxonomy -> published name. Renamed in exactly this
  * one place, so the internal classifier can stay precise while the doc reads
  * like a document.
  */
@@ -51,8 +51,8 @@ const LEGEND = [
 ];
 
 /**
- * Per-case-id explanations for the `informational` class (design §2.5),
- * committed here rather than measured. M1 review F-2 (BLOCKER): this MUST be
+ * Per-case-id explanations for the `informational` class,
+ * committed here rather than measured. This MUST be
  * a per-id lookup, never a blanket constant applied to every case the runner
  * happens to observe as `informational` — that would let 'informational'
  * become an unbounded escape hatch from the pin rules (which skip it
@@ -77,7 +77,7 @@ function informationalNote(id) {
         throw new Error(
             `renderMatrixDoc: no informational note registered for case id ${JSON.stringify(id)} — ` +
                 "'informational' is not a blanket status; add a reviewed entry to INFORMATIONAL_NOTES " +
-                'or give the case a real classification (M1 review F-2).'
+                'or give the case a real classification.'
         );
     }
 

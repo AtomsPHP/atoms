@@ -8,7 +8,7 @@ use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 use Atoms\PHPStan\AtomsRulesConfig;
 use Atoms\PHPStan\Rules\BoundarySignatureRule;
-use Atoms\PHPStan\WorldClassifier;
+use Atoms\PHPStan\SideClassifier;
 use PHPStan\Rules\Rule;
 use PHPStan\Testing\RuleTestCase;
 
@@ -24,7 +24,7 @@ final class BoundarySignatureRuleTest extends RuleTestCase
             sharedPaths: ['tests/Fixtures/Shared'],
         );
 
-        return new BoundarySignatureRule(new WorldClassifier($config), self::createReflectionProvider());
+        return new BoundarySignatureRule(new SideClassifier($config), self::createReflectionProvider());
     }
 
     public function testCleanAtomHasNoViolations(): void

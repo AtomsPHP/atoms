@@ -5,15 +5,17 @@ body:
   - type: markdown
     attributes:
       value: |
-        Atoms is pre-1.0 and unpublished, so "this API changed" is expected
-        rather than a bug — see CONTRIBUTING.md. If you have found a security
-        problem, do not file it here: see SECURITY.md for private reporting.
+        Atoms is pre-1.0, so a documented API change between minor releases is
+        expected rather than a bug — see CONTRIBUTING.md. If you have found a
+        security problem, do not file it here: see SECURITY.md for private
+        reporting.
 
-        Two things that are not bugs: `app()`, `dispatch()`, `broadcast()`,
-        WebSockets and alarms throw `AtomsNotSupported` in the Worker runtime
-        by design, and `cloudflare/docs/mvp-spec.md` has an appendix of
-        measured platform deviations that may already explain what you are
-        seeing.
+        The Worker deliberately throws `AtomsNotSupported` only for the PDO
+        shim corners documented in `cloudflare/worker/php/README.md`. `app()`,
+        `dispatch()`, `broadcast()`, WebSockets and alarms are implemented; an
+        `AtomsNotSupported` from one of those paths is a bug. The measured
+        platform behaviors in `cloudflare/docs/runtime-spec.md` may explain a
+        platform limitation without making it an Atoms defect.
 
   - type: textarea
     id: what-happened
@@ -55,6 +57,7 @@ body:
         - atoms/testing
         - atoms/phpstan-rules
         - atoms/cli
+        - atoms/database-illuminate
         - Cloudflare Worker runtime
         - deploy Action
         - not sure

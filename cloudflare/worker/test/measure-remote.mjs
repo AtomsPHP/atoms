@@ -183,7 +183,7 @@ async function main() {
 	const results = {
 		measured_at: new Date().toISOString(),
 		base_url: baseUrl,
-		worker: 'atoms-mvp-conformance',
+		worker: 'atoms-conformance',
 		deployment: await deployedVersionId(),
 		method: {
 			note:

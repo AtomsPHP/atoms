@@ -15,7 +15,7 @@ use Symfony\Component\Messenger\MessageBusInterface;
  * constructor arguments only, no object graphs on the bus — and hands it to
  * the app's own Messenger bus, so AtomJobs flow through whatever transports
  * the app already has configured (this is the Symfony analogue of the
- * Laravel adapter's ShouldQueue envelope, integration-plan §5.2).
+ * Laravel adapter's ShouldQueue envelope).
  */
 final class MessengerQueueBridge implements QueueBridge
 {

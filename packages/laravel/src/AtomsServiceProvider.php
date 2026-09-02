@@ -37,8 +37,7 @@ use Psr\Log\LoggerInterface;
  * Wires atoms/client into a Laravel app: config, the PSR-18/17 plumbing the
  * client needs, {@see AtomsManager} (the facade root), the inbound callback
  * route, and the Artisan wrappers. Nothing here re-implements transport,
- * signing, or serialization — that all stays in atoms/client and atoms/core
- * (docs/integration-plan.md §11).
+ * signing, or serialization — that all stays in atoms/client and atoms/core.
  */
 final class AtomsServiceProvider extends ServiceProvider
 {
@@ -174,7 +173,7 @@ final class AtomsServiceProvider extends ServiceProvider
                 try {
                     // Where the manifest lives is Laravel's question; what is
                     // inside it is the manifest's own shape, so atoms/client
-                    // reads it (docs/integration-plan.md §11).
+                    // reads it.
                     $resolver->registerManifest((new ManifestLoader())->load($fullPath));
                 } catch (\Throwable) {
                     // Best-effort: an unreadable/invalid manifest just means the

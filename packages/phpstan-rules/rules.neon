@@ -21,7 +21,7 @@ services:
 			sharedPaths: %atoms.sharedPaths%
 			allowedNamespaces: %atoms.allowedNamespaces%
 
-	- Atoms\PHPStan\WorldClassifier
+	- Atoms\PHPStan\SideClassifier
 	- Atoms\PHPStan\BoundaryReferenceInspector
 
 rules:

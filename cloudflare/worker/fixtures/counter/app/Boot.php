@@ -16,7 +16,7 @@ use Atoms\Atom;
  * moment from every other fixture's calls: the host has to have opened a
  * callback window (a budget and a delivery collector) BEFORE `php.run()`
  * starts, and has to await those deliveries inside the activation event rather
- * than letting them outlive it (mvp-spec.md §The turn deadline,
+ * than letting them outlive it (runtime-spec.md §The turn deadline,
  * §AtomDurableObject lifecycle).
  *
  * This is a SEPARATE type rather than a hook added to Counter/Vault/Room,

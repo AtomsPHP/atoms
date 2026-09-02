@@ -24,7 +24,7 @@ $result = $harness->call('startRound', [3]);           // invoke a public Atom m
 self::assertSame(3, $result->round);
 
 // Methods calls run the REAL Methods class in-process:
-$harness->withMethods(new GameRoom\Methods(/* test doubles for World B deps */));
+$harness->withMethods(new GameRoom\Methods(/* test doubles for App-side deps */));
 
 // dispatch()/broadcast() are recorded, not sent:
 $harness->assertDispatched(RecordGameResult::class, fn ($j) => $j->score === 100);

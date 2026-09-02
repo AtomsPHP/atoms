@@ -1,0 +1,314 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Atoms\Cli\Tests\Build;
+
+use Atoms\Cli\Build\VendorStage;
+use Atoms\Cli\Process\ProcessResult;
+use Atoms\Cli\Tests\Support\CannedComposer;
+use Atoms\Cli\Tests\Support\FakeProcessRunner;
+use Atoms\Cli\Tests\TestCase;
+use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCode;
+
+final class VendorStageTest extends TestCase
+{
+    public function testResolveShipsPhpAndLicensesPrunesTheRestAndWritesTheLockBack(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $tree = (new VendorStage(CannedComposer::runner()))->resolve($root);
+
+        $names = array_column($tree->entries, 'name');
+        self::assertContains('vendor/acme/lib/src/Greeter.php', $names);
+        self::assertContains('vendor/acme/lib/functions.php', $names);
+        self::assertContains('vendor/acme/lib/LICENSE', $names);
+        self::assertContains(VendorStage::AUTOLOAD_PATH, $names);
+        self::assertNotContains('vendor/acme/lib/readme.md', $names);
+        self::assertNotContains('vendor/autoload.php', $names);
+        self::assertNotContains('vendor/composer/autoload_classmap.php', $names);
+
+        self::assertSame($names, array_values(array_unique($names)));
+        $sorted = $names;
+        sort($sorted, SORT_STRING);
+        self::assertSame($sorted, $names, 'entries are sorted by name');
+
+        self::assertSame(['acme/lib' => '1.2.3'], $tree->packages);
+        self::assertTrue($tree->wroteLock);
+        self::assertSame("{\"canned\": true}\n", file_get_contents($root . '/atoms-composer.lock'));
+    }
+
+    public function testTheGeneratedAutoloadFileActuallyLoadsTheTree(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $tree = (new VendorStage(CannedComposer::runner()))->resolve($root);
+
+        $mount = $this->freshDir();
+        foreach ($tree->entries as $entry) {
+            $path = $mount . '/' . $entry['name'];
+            if (!is_dir(\dirname($path))) {
+                mkdir(\dirname($path), 0777, true);
+            }
+            file_put_contents($path, $entry['contents']);
+        }
+
+        require $mount . '/' . VendorStage::AUTOLOAD_PATH;
+
+        self::assertTrue(\function_exists('acme_vendor_greet'), 'function files are required eagerly');
+        self::assertSame('hello from a function file', \acme_vendor_greet());
+        self::assertTrue(class_exists('Acme\\Lib\\Greeter'), 'classmap classes autoload');
+        self::assertSame('hello from vendor', \Acme\Lib\Greeter::greet());
+    }
+
+    public function testASecondResolveWithTheLockPresentComesFromTheCacheWithoutComposer(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $runner = CannedComposer::runner();
+        $stage = new VendorStage($runner);
+
+        $first = $stage->resolve($root);
+        $composerRuns = \count($runner->runs);
+
+        $second = $stage->resolve($root);
+
+        self::assertSame($composerRuns, \count($runner->runs), 'the cache hit runs no subprocess');
+        self::assertSame(
+            array_column($first->entries, 'contents', 'name'),
+            array_column($second->entries, 'contents', 'name'),
+        );
+        self::assertSame($first->packages, $second->packages);
+        self::assertFalse($second->wroteLock);
+    }
+
+    public function testComposerRuntimeFilesReferencedByRealClassmapsAreKept(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $tree = (new VendorStage(CannedComposer::runner()))->resolve($root);
+
+        // Real optimized classmaps map Composer\InstalledVersions into
+        // vendor/composer/. Pruning the file while keeping the classmap
+        // entry breaks any dependency that uses Composer's runtime API.
+        $names = array_column($tree->entries, 'name');
+        self::assertContains('vendor/composer/InstalledVersions.php', $names);
+        self::assertContains('vendor/composer/installed.php', $names);
+
+        $autoload = array_column($tree->entries, 'contents', 'name')[VendorStage::AUTOLOAD_PATH];
+        self::assertStringContainsString("'Composer\\\\InstalledVersions'", $autoload);
+        self::assertStringContainsString('/composer/InstalledVersions.php', $autoload);
+    }
+
+    public function testAnUnreadableCacheFileIsAMissNotABuildFailure(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $runner = CannedComposer::runner();
+        $stage = new VendorStage($runner);
+
+        $stage->resolve($root);
+        $runsAfterFirst = \count($runner->runs);
+
+        // A read failure mid-cache — a permissions problem, or a concurrent
+        // replacement racing the reader — must degrade to a miss.
+        $caches = glob($root . '/.atoms/vendor-cache/*');
+        self::assertNotFalse($caches);
+        $victim = $caches[0] . '/files/vendor/acme/lib/src/Greeter.php';
+        self::assertTrue(chmod($victim, 0o000));
+        if (@file_get_contents($victim) !== false) {
+            chmod($victim, 0o644);
+            self::markTestSkipped('this user can read a mode-000 file (running as root?)');
+        }
+
+        try {
+            $tree = $stage->resolve($root);
+        } finally {
+            chmod($victim, 0o644);
+        }
+
+        self::assertGreaterThan($runsAfterFirst, \count($runner->runs), 'an unreadable cache must re-resolve through composer');
+        self::assertContains('vendor/acme/lib/src/Greeter.php', array_column($tree->entries, 'name'));
+    }
+
+    public function testAMisconfiguredComposerTimeoutRefusesWithTheCatalogCode(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        putenv('ATOMS_COMPOSER_TIMEOUT=-1');
+
+        try {
+            (new VendorStage(CannedComposer::runner()))->resolve($root);
+            self::fail('a non-positive timeout must refuse');
+        } catch (AtomsError $e) {
+            self::assertSame(ErrorCode::VendorResolutionFailed, $e->errorCode);
+            self::assertStringContainsString('ATOMS_COMPOSER_TIMEOUT', $e->getMessage());
+        } finally {
+            putenv('ATOMS_COMPOSER_TIMEOUT');
+        }
+    }
+
+    public function testATamperedCacheIsAMissThatReResolvesNotAPoisonedTree(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $runner = CannedComposer::runner();
+        $stage = new VendorStage($runner);
+
+        $stage->resolve($root);
+        $runsAfterFirst = \count($runner->runs);
+
+        // Alter a cached file without touching atoms-composer.json or the lock.
+        $caches = glob($root . '/.atoms/vendor-cache/*');
+        self::assertNotFalse($caches);
+        self::assertCount(1, $caches);
+        $victim = $caches[0] . '/files/vendor/acme/lib/src/Greeter.php';
+        self::assertFileExists($victim);
+        file_put_contents($victim, "<?php // poisoned\n");
+
+        $tree = $stage->resolve($root);
+
+        self::assertGreaterThan($runsAfterFirst, \count($runner->runs), 'a tampered cache must re-resolve through composer');
+        $contents = array_column($tree->entries, 'contents', 'name');
+        self::assertStringNotContainsString('poisoned', $contents['vendor/acme/lib/src/Greeter.php']);
+    }
+
+    public function testRelativePathRepositoriesAreRebasedAndForcedToCopy(): void
+    {
+        $staged = VendorStage::stagedComposerJson('/home/me/app', json_encode([
+            'require' => ['acme/local' => '*'],
+            'repositories' => [
+                ['type' => 'path', 'url' => 'packages/local'],
+                ['type' => 'path', 'url' => '/already/absolute'],
+                ['type' => 'composer', 'url' => 'https://example.test'],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $decoded = json_decode($staged, true, 16, JSON_THROW_ON_ERROR);
+
+        // Relative path urls resolve against the project root, not the temp
+        // dir composer runs in…
+        self::assertSame('/home/me/app/packages/local', $decoded['repositories'][0]['url']);
+        self::assertSame('/already/absolute', $decoded['repositories'][1]['url']);
+        // …and symlink installs forced off: a symlinked package directory is
+        // invisible to the tree walk and rejected by realpath().
+        self::assertFalse($decoded['repositories'][0]['options']['symlink']);
+        self::assertFalse($decoded['repositories'][1]['options']['symlink']);
+        self::assertArrayNotHasKey('options', $decoded['repositories'][2]);
+    }
+
+    /**
+     * Real composer, a relative path repository, packagist disabled — fully
+     * offline. Without the staging rewrite, resolve() succeeds with an empty
+     * tree and the bundle deploys unable to load the package.
+     */
+    public function testARealComposerPathRepositoryProducesAShippableTree(): void
+    {
+        $composer = (new \Symfony\Component\Process\ExecutableFinder())->find('composer');
+        if ($composer === null) {
+            self::markTestSkipped('composer is not on PATH; this leg drives the real binary (offline: path repo + packagist disabled).');
+        }
+
+        $root = $this->freshDir();
+        mkdir($root . '/packages/local/src', 0777, true);
+        file_put_contents($root . '/packages/local/composer.json', json_encode([
+            'name' => 'acme/local',
+            'version' => '1.0.0',
+            'autoload' => ['psr-4' => ['Acme\\Local\\' => 'src/']],
+        ], JSON_THROW_ON_ERROR));
+        file_put_contents(
+            $root . '/packages/local/src/Widget.php',
+            "<?php\n\nnamespace Acme\\Local;\n\nfinal class Widget\n{\n}\n",
+        );
+        file_put_contents($root . '/atoms-composer.json', json_encode([
+            'require' => ['acme/local' => '*'],
+            'repositories' => [
+                ['type' => 'path', 'url' => 'packages/local'],
+                ['packagist.org' => false],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $tree = (new VendorStage(new \Atoms\Cli\Process\SymfonyProcessRunner()))->resolve($root);
+
+        $names = array_column($tree->entries, 'name');
+        self::assertContains('vendor/acme/local/src/Widget.php', $names, 'the path package must ship as real files');
+        self::assertArrayHasKey('acme/local', $tree->packages);
+
+        $autoload = array_column($tree->entries, 'contents', 'name')[VendorStage::AUTOLOAD_PATH];
+        self::assertStringContainsString("'Acme\\\\Local\\\\Widget'", $autoload);
+        self::assertStringContainsString('/acme/local/src/Widget.php', $autoload);
+    }
+
+    public function testAFailedLockWriteBackRefusesInsteadOfClaimingReproducibility(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        // A directory squatting on the lock path makes the write-back fail.
+        mkdir($root . '/atoms-composer.lock');
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E079.*could not (read|write)/s');
+
+        (new VendorStage(CannedComposer::runner()))->resolve($root);
+    }
+
+    public function testANonUtf8VendorFileRefusesInsteadOfShippingBytesTheTranslatorWouldMangle(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $runner = CannedComposer::runner(['acme/lib/src/Latin1.php' => "<?php // caf\xE9\n"]);
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E079.*Latin1\.php is not valid UTF-8/s');
+
+        (new VendorStage($runner))->resolve($root);
+    }
+
+    public function testPrunedDataLookingFilesAreSurfacedByNameAndSurviveTheCache(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $runner = CannedComposer::runner([
+            'acme/lib/data/tlds.txt' => "com\norg\n",
+            'acme/lib/data/rules.json' => "{}\n",
+            'acme/lib/composer.json' => "{}\n",
+            'acme/lib/CHANGELOG.md' => "history\n",
+        ]);
+        $stage = new VendorStage($runner);
+
+        $tree = $stage->resolve($root);
+
+        // Data-looking prunes are named; metadata/docs prunes are not noise.
+        self::assertSame(
+            ['vendor/acme/lib/data/rules.json', 'vendor/acme/lib/data/tlds.txt'],
+            $tree->prunedDataFiles,
+        );
+        self::assertNotContains('vendor/acme/lib/data/tlds.txt', array_column($tree->entries, 'name'));
+
+        // A cache hit reports the same prunes — the notice must not vanish
+        // just because composer did not run this time.
+        $cached = $stage->resolve($root);
+        self::assertFalse($cached->wroteLock);
+        self::assertSame($tree->prunedDataFiles, $cached->prunedDataFiles);
+    }
+
+    public function testAFailedComposerInstallRefusesWithTheCatalogCode(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $runner = new FakeProcessRunner(
+            new ProcessResult(1, '', 'Your requirements could not be resolved.'),
+            onPath: ['composer' => '/usr/bin/composer'],
+        );
+
+        try {
+            (new VendorStage($runner))->resolve($root);
+            self::fail('a failed install should refuse');
+        } catch (AtomsError $e) {
+            self::assertSame(ErrorCode::VendorResolutionFailed, $e->errorCode);
+            self::assertStringContainsString('ATOMS-E079', $e->getMessage());
+            self::assertStringContainsString('could not be resolved', $e->getMessage());
+        }
+    }
+
+    public function testComposerMissingFromPathWithNoCacheRefusesLoudly(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $runner = new FakeProcessRunner(onPath: []);
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E079.*not on PATH/s');
+
+        (new VendorStage($runner))->resolve($root);
+    }
+}

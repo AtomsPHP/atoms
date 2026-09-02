@@ -4,7 +4,7 @@ The supported Symfony bundle for Atoms wires `Atoms\Client\AtomsClient`, the
 inbound callback stack (HMAC verification, Methods dispatch, AtomJob
 reconstruction), a Messenger-backed queue bridge, and thin console wrappers
 around the `atoms` binary — all on top of `atoms/client` alone.
-`atoms/client` is deliberately framework-free (integration-plan §5.3), so
+`atoms/client` is deliberately framework-free, so
 this bundle depends on `atoms/client` and Symfony components only; it never
 needs `Atoms\Laravel\*` or `Illuminate\*` (`tests/LayeringTest.php` is the
 mechanical check, and `docs/conventions.md` the rule it enforces).

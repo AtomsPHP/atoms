@@ -1,10 +1,74 @@
 # Changelog
 
-All notable changes to Atoms are documented here. The seven Composer packages,
+All notable changes to Atoms are documented here. The eight Composer packages,
 the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+- **Changed:** terminology — the two worlds are now named **Atom-side** and
+  **App-side** in docs, scaffolding, agent skills, and the E001/E012/E016
+  catalog fix lines. In `atoms/phpstan-rules` the `World` enum is now `Side`
+  (`AtomSide`/`Shared`/`AppSide`/`Other`) and `WorldClassifier` is
+  `SideClassifier`.
+- **Added:** support classes — a sanctioned home for Atom-side helpers that ship
+  with an Atom without being Atoms themselves (an Eloquent model, a value
+  object, a pure service). Any class under an Atom's `support/` directory
+  (sibling to its `migrations/`, e.g. `app/Atoms/GameRoom/support/`) ships in
+  the bundle and follows the same import rules as Atom code. Previously the
+  only arrangement that built was declaring the helper inside the Atom's own
+  file.
+- **Fixed:** referencing an unclassifiable class (`ATOMS-E001`) from Atom code
+  now fails the build with `ATOMS-E012`. It used to pass validation and fatal
+  in the guest with class-not-found, because the file never ships.
+
+## [0.4.0] - 2026-08-31
+
+- **Added:** `atoms/database-illuminate`: the Laravel query builder and Eloquent
+  models against an Atom's own SQLite database, as an optional bridge that
+  ships inside the Atom bundle. Nested `transaction()` calls reuse the outer
+  transaction (the runtime has no savepoints), schema work is refused
+  (`ATOMS-E106`), and `getServerVersion()` answers from connection config.
+- **Added:** `atoms build` now ships approved `atoms-composer.json` packages
+  in the bundle. The vendor stage (`Atoms\Cli\Build\VendorStage`) resolves
+  with `composer install --no-scripts --no-plugins` in an isolated directory,
+  writes `atoms-composer.lock` back for reproducibility, caches the pruned
+  tree under `.atoms/vendor-cache` (so `atoms dev` rebuilds stay offline),
+  ships every vendor `.php` + LICENSE file plus a generated classmap
+  autoloader, and records the additive manifest `vendor` key. Failures refuse
+  loudly with `ATOMS-E079`. The php-scoper stage is retired: the tree ships
+  unprefixed (prefixing vendor without rewriting the customer's call sites
+  would break the app; the guest has no co-tenant), documented in
+  `docs/cloudflare-toolchain.md` §3.
+- **Added:** `atoms build --fast` refuses (`ATOMS-E107`) when
+  `atoms-composer.json` declares packages — a vendor-less bundle would deploy
+  cleanly and fatal in the guest at the first vendor class. The vendor stage
+  also names any pruned data-looking files (`.json`, `.txt`, `.csv`, …) in
+  the build output, since the bundle ships vendor `.php` and LICENSE files
+  only.
+- **Fixed (pre-release):** an explicit `rollBack()` inside a nested bridge
+  `transaction()` silently committed every "rolled back" write; it now rolls
+  back the whole transaction and the enclosing wrappers fail loudly.
+- **Fixed (pre-release):** path repositories in `atoms-composer.json` shipped
+  empty vendor trees (relative urls resolved against the wrong directory;
+  symlinked installs were invisible to the tree walk). Urls are now rebased
+  to the project root and installed as copies.
+- **Fixed (pre-release):** `vendor/composer/InstalledVersions.php` and
+  `installed.php` now ship — real classmaps reference them.
+- **Fixed (pre-release):** the vendor cache now verifies an integrity digest
+  and writes atomically; an altered or half-written cache re-resolves through
+  composer instead of shipping. A failed `atoms-composer.lock` write-back
+  refuses instead of claiming reproducibility.
+- **Fixed (pre-release):** non-UTF-8 bundle entries are refused at build and
+  at translation — decoding them would deploy code that differs from what the
+  content hash names. `vendor.autoload` must be a plain `vendor/….php` path,
+  checked by the translator and again by the guest.
+- **Fixed (pre-release):** rebooting a cached bridge connection now repoints
+  Eloquent's global resolver. The composer timeout reads
+  `ATOMS_COMPOSER_TIMEOUT` (default 600s).
+- **Added:** The Worker honours the manifest's `vendor.autoload` key: the
+  vendor subtree is excluded from the line-scanning bundle autoloader and the
+  declared classmap loader is required at activation (conformance check 45;
+  `bundle_format` stays 0, absent key changes nothing).
 - **Added:** `Atoms\Serialization\Serializer::denormalizeNamedArguments(string $class, array $wireArgs)`
   binds a dispatched job's `{"job": FQCN, "args": {...}}` argument map to a
   constructor by parameter name — wire value, else declared default, else null
@@ -383,7 +447,7 @@ Initial open-source release of the Atoms programming model, Laravel and
 Symfony adapters, testing and PHPStan tooling, deterministic CLI build and
 deploy workflow, and the Cloudflare Durable Object PHP runtime.
 
-[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.3.1...main
+[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.4.0...main
 
 [0.1.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.0
 
@@ -394,3 +458,5 @@ deploy workflow, and the Cloudflare Durable Object PHP runtime.
 [0.3.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.3.0
 
 [0.3.1]: https://github.com/AtomsPHP/atoms/releases/tag/v0.3.1
+
+[0.4.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.4.0

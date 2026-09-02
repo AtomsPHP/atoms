@@ -1,0 +1,248 @@
+---
+// The hero's living system diagram: the logo's molecule grown up.
+// Atoms 2 and 3 appear after load; traffic is mostly client-led.
+---
+<div class="diagram-patch">
+  <svg id="diagram" viewBox="0 0 520 400" role="img" aria-label="Your Atoms, connected directly to your monolith and to clients"></svg>
+</div>
+
+<script is:inline>
+(function(){
+  'use strict';
+  var NS = 'http://www.w3.org/2000/svg';
+  var reduced = false;
+  try { reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch(e){}
+
+  function el(tag, attrs, parent){
+    var n = document.createElementNS(NS, tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+
+  var svg = document.getElementById('diagram');
+  if (!svg) return;
+
+  var app = { x: 96, y: 296, amp: 4, spd: 0.00030, ph: 0.0 };
+
+  // Atoms 2 and 3 appear a few seconds after load; some of their clients are
+  // their own, some are shared with atom 1.
+  var atoms = [
+    { x: 268, y: 148, r: 24, born: 0,    amp: 5, spd: 0.00022, ph: 2.1, clients: [0, 1, 2] },
+    { x: 300, y: 322, r: 18, born: 2600, amp: 4, spd: 0.00026, ph: 4.2, clients: [2, 3] },
+    { x: 142, y: 78,  r: 15, born: 5200, amp: 4, spd: 0.00028, ph: 0.9, clients: [0] }
+  ];
+  var clients = [
+    { x: 428, y: 84,  kind: 'laptop', born: 0,    amp: 6, spd: 0.00034, ph: 1.3 },
+    { x: 452, y: 190, kind: 'phone',  born: 0,    amp: 6, spd: 0.00040, ph: 3.0 },
+    { x: 396, y: 280, kind: 'laptop', born: 0,    amp: 6, spd: 0.00046, ph: 4.7 },
+    { x: 464, y: 352, kind: 'phone',  born: 2800, amp: 6, spd: 0.00038, ph: 5.6 }
+  ];
+
+  var root = el('g', {}, svg);
+  var appBonds = atoms.map(function(){
+    return el('line', { stroke:'#9A9DA5', 'stroke-width':1.6, 'stroke-linecap':'round' }, root);
+  });
+  var wsBonds = [];
+  atoms.forEach(function(a, ai){
+    a.clients.forEach(function(ci){
+      wsBonds.push({ a: ai, c: ci, born: Math.max(a.born, clients[ci].born),
+        el: el('line', { stroke:'#9A9DA5', 'stroke-width':1.4, 'stroke-linecap':'round',
+                         'stroke-dasharray':'4.5 5.5' }, root) });
+    });
+  });
+  var fxLayer = el('g', {}, root);
+
+  var appSize = 46;
+  var appRect = el('rect', { width:appSize, height:appSize, rx:10, fill:'#7C3AED' }, root);
+  var atomCs = atoms.map(function(){ return el('circle', { fill:'#EA580C', opacity:0 }, root); });
+
+  // Clients: laptops and phones, in the logo's flat charcoal.
+  var CH = '#44444B', PA = '#F3F1EB';
+  function clientGlyph(kind){
+    var g = document.createElementNS(NS, 'g');
+    if (kind === 'phone'){
+      el('rect', { x:-6.5, y:-12, width:13, height:24, rx:3, fill:CH }, g);
+      el('line', { x1:-3, y1:8.5, x2:3, y2:8.5, stroke:PA, 'stroke-width':1.2, 'stroke-linecap':'round' }, g);
+    } else {
+      el('rect', { x:-11, y:-12, width:22, height:14, rx:2, fill:CH }, g);
+      el('rect', { x:-14, y:3, width:28, height:3.2, rx:1.6, fill:CH }, g);
+    }
+    return g;
+  }
+  var clientGs = clients.map(function(c){
+    return root.appendChild(clientGlyph(c.kind));
+  });
+
+  var labApp  = el('text', { 'class':'dlabel', 'text-anchor':'middle' }, root);
+  labApp.textContent = 'YOUR PHP APP';
+  var labAtom = el('text', { 'class':'dlabel', 'text-anchor':'middle' }, root);
+  labAtom.textContent = 'AN ATOM';
+  var labCli  = el('text', { 'class':'dlabel', 'text-anchor':'end' }, root);
+  labCli.textContent = 'CLIENTS';
+  var plural = false;
+
+  function clamp01(k){ return k < 0 ? 0 : (k > 1 ? 1 : k); }
+  function backOut(k){
+    var c1 = 1.70158, c3 = c1 + 1;
+    return 1 + c3*Math.pow(k - 1, 3) + c1*Math.pow(k - 1, 2);
+  }
+  function birth(n, t){ return reduced ? 1 : clamp01((t - n.born) / 450); }
+
+  function pos(n, t){
+    if (reduced) return { x:n.x, y:n.y };
+    return { x: n.x + n.amp * Math.sin(t*n.spd + n.ph),
+             y: n.y + n.amp * 0.8 * Math.cos(t*n.spd*0.9 + n.ph*1.4) };
+  }
+
+  var packets = [], rings = [];
+  var nextEvent = 1400;
+  var nextAppCall = 900;
+  var seed = 0.734;
+  function rand(){ seed = (seed*9301 + 49297) % 233280; return seed/233280; }
+
+  function pickAtom(t){
+    var live = [];
+    atoms.forEach(function(a, i){ if (t > a.born + 700) live.push(i); });
+    return live.length ? live[Math.floor(rand()*live.length)] : -1;
+  }
+
+  // Packets start hidden: the frame loop places them, and a packet spawned
+  // from inside that loop is not reached until the next frame.
+  function spawnPacket(attrs, rec){
+    attrs.opacity = 0;
+    rec.el = el('circle', attrs, fxLayer);
+    packets.push(rec);
+  }
+
+  // The app's own lane: a steady background of calls into its Atoms, each
+  // answered by a value travelling back. Quieter than the client traffic.
+  function spawnAppCall(t){
+    var ai = pickAtom(t);
+    if (ai < 0) return;
+    spawnPacket({ r:5, fill:'#7C3AED' },
+      { atom:ai, src:'app', born:t, dur:1150, kind:'in' });
+  }
+
+  function spawnInbound(t){
+    var ai = pickAtom(t);
+    if (ai < 0) return;
+    var ready = atoms[ai].clients.filter(function(ci){ return t > clients[ci].born + 700; });
+    if (!ready.length) return;
+    // sometimes an atom pushes on its own — a timer fired, state changed
+    if (rand() < 0.18){ spawnBroadcast(t, ai); return; }
+    spawnPacket({ r:3.6, fill:'#44444B' },
+      { atom:ai, src: ready[Math.floor(rand()*ready.length)], born:t, dur:1150, kind:'in' });
+  }
+  function spawnBroadcast(t, ai){
+    var ring = el('circle', { r:atoms[ai].r, fill:'none', stroke:'#EA580C', 'stroke-width':2 }, fxLayer);
+    rings.push({ el:ring, atom:ai, born:t, dur:650 });
+    atoms[ai].clients.forEach(function(ci, i){
+      spawnPacket({ r:3.4, fill:'#EA580C' },
+        { atom:ai, src:ci, born: t + 90 + i*130, dur:1000, kind:'out' });
+    });
+  }
+
+  function frame(t){
+    var pa = pos(app, t);
+    var pAtoms = atoms.map(function(a){ return pos(a, t); });
+    var pcs = clients.map(function(c){ return pos(c, t); });
+
+    appRect.setAttribute('x', pa.x - appSize/2);
+    appRect.setAttribute('y', pa.y - appSize/2);
+
+    atoms.forEach(function(a, i){
+      var b = birth(a, t);
+      atomCs[i].setAttribute('cx', pAtoms[i].x);
+      atomCs[i].setAttribute('cy', pAtoms[i].y);
+      atomCs[i].setAttribute('r', Math.max(0, a.r * (b < 1 ? backOut(b) : 1)));
+      atomCs[i].setAttribute('opacity', b > 0 ? 1 : 0);
+
+      appBonds[i].setAttribute('x1', pa.x);
+      appBonds[i].setAttribute('y1', pa.y);
+      appBonds[i].setAttribute('x2', pa.x + (pAtoms[i].x - pa.x) * b);
+      appBonds[i].setAttribute('y2', pa.y + (pAtoms[i].y - pa.y) * b);
+      appBonds[i].setAttribute('opacity', b > 0 ? 1 : 0);
+    });
+
+    clients.forEach(function(c, i){
+      var b = birth(c, t);
+      var s = b < 1 ? Math.max(0, backOut(b)) : 1;
+      clientGs[i].setAttribute('transform',
+        'translate(' + pcs[i].x + ',' + pcs[i].y + ') scale(' + s + ')');
+      clientGs[i].setAttribute('opacity', b > 0 ? 1 : 0);
+    });
+
+    wsBonds.forEach(function(w){
+      var op = reduced ? 1 : clamp01((t - w.born - 250) / 400);
+      w.el.setAttribute('x1', pAtoms[w.a].x); w.el.setAttribute('y1', pAtoms[w.a].y);
+      w.el.setAttribute('x2', pcs[w.c].x);    w.el.setAttribute('y2', pcs[w.c].y);
+      w.el.setAttribute('opacity', op);
+    });
+
+    if (!plural && (reduced || t > atoms[1].born + 450)){
+      labAtom.textContent = 'ATOMS';
+      plural = true;
+    }
+    labApp.setAttribute('x', pa.x);
+    labApp.setAttribute('y', pa.y + appSize/2 + 22);
+    labAtom.setAttribute('x', pAtoms[0].x);
+    labAtom.setAttribute('y', pAtoms[0].y - atoms[0].r - 14);
+    labCli.setAttribute('x', pcs[0].x + 14);
+    labCli.setAttribute('y', pcs[0].y - 22);
+
+    if (!reduced){
+      if (t > nextEvent){
+        spawnInbound(t);
+        nextEvent = t + 1200 + rand()*1400;
+      }
+      if (t > nextAppCall){
+        spawnAppCall(t);
+        nextAppCall = t + 1800 + rand()*1200;
+      }
+      for (var i = packets.length - 1; i >= 0; i--){
+        var pk = packets[i];
+        var k = (t - pk.born) / pk.dur;
+        if (k < 0){ pk.el.setAttribute('opacity', 0); continue; }
+        if (k >= 1){
+          fxLayer.removeChild(pk.el);
+          packets.splice(i, 1);
+          if (pk.kind === 'in'){
+            if (pk.src === 'app'){
+              // an RPC: the atom pulses (it did work) and a value travels back
+              rings.push({ el: el('circle', { r:atoms[pk.atom].r, fill:'none',
+                stroke:'#EA580C', 'stroke-width':2 }, fxLayer), atom:pk.atom, born:t, dur:650 });
+              spawnPacket({ r:4, fill:'#7C3AED' },
+                { atom:pk.atom, src:'app', born:t + 260, dur:1000, kind:'ret' });
+            } else {
+              spawnBroadcast(t, pk.atom);
+            }
+          }
+          continue;
+        }
+        var e = k < 0.5 ? 2*k*k : 1 - Math.pow(-2*k + 2, 2)/2;
+        var from = pk.kind === 'in' ? (pk.src === 'app' ? pa : pcs[pk.src]) : pAtoms[pk.atom];
+        var to   = pk.kind === 'in' ? pAtoms[pk.atom]
+                 : pk.kind === 'ret' ? pa
+                 : pcs[pk.src];
+        pk.el.setAttribute('opacity', 1);
+        pk.el.setAttribute('cx', from.x + (to.x - from.x)*e);
+        pk.el.setAttribute('cy', from.y + (to.y - from.y)*e);
+      }
+      for (var j = rings.length - 1; j >= 0; j--){
+        var rg = rings[j];
+        var rk = (t - rg.born) / rg.dur;
+        if (rk >= 1){ fxLayer.removeChild(rg.el); rings.splice(j, 1); continue; }
+        rg.el.setAttribute('cx', pAtoms[rg.atom].x);
+        rg.el.setAttribute('cy', pAtoms[rg.atom].y);
+        rg.el.setAttribute('r', atoms[rg.atom].r + rk*26);
+        rg.el.setAttribute('opacity', (1 - rk)*0.8);
+      }
+    }
+  }
+
+  if (reduced){ frame(0); return; }
+  function loop(t){ frame(t); requestAnimationFrame(loop); }
+  requestAnimationFrame(loop);
+})();
+</script>

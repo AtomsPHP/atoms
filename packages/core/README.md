@@ -6,7 +6,7 @@ SQLite helpers, migrations, WebSocket and timer interfaces, and the canonical
 error catalog. It has no framework dependency and supports PHP 8.3 and later.
 
 ```sh
-composer require atoms/core:^0.1
+composer require atoms/core:^0.4
 ```
 
 Most applications should install `atoms/laravel` or `atoms/symfony`, which

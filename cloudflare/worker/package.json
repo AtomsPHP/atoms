@@ -1,28 +1,29 @@
 {
-  "name": "atoms-mvp-conformance",
-  "private": true,
-  "type": "module",
-  "version": "0.0.0",
-  "description": "Atoms-on-Cloudflare MVP: one generic AtomDurableObject hosting a parked PHP loop.",
-  "license": "MIT",
-  "dependencies": {
-    "@php-wasm/universal": "3.1.48",
-    "@php-wasm/web-8-3": "3.1.48"
-  },
-  "devDependencies": {
-    "wrangler": "4.118.0"
-  },
-  "scripts": {
-    "prepare": "node scripts/prepare-runtime.mjs --if-installed",
-    "prepare-runtime": "node scripts/prepare-runtime.mjs",
-    "bundle": "node scripts/build-bundle.mjs",
-    "bundle:cli": "node scripts/bundle-from-cli.mjs",
-    "package:runtime": "node scripts/pack-runtime.mjs",
-    "test:package": "node test/runtime-package.mjs",
-    "test:instance": "node test/atom-do-instance.mjs",
-    "dev": "wrangler dev",
-    "dev:callback": "node scripts/dev-with-callback.mjs",
-    "deploy": "wrangler deploy",
-    "test": "node test/conformance.mjs"
-  }
+	"name": "atoms-conformance",
+	"private": true,
+	"type": "module",
+	"version": "0.0.0",
+	"description": "Atoms on Cloudflare: one generic AtomDurableObject hosting a parked PHP loop.",
+	"license": "MIT",
+	"dependencies": {
+		"@php-wasm/universal": "3.1.48",
+		"@php-wasm/web-8-3": "3.1.48"
+	},
+	"devDependencies": {
+		"wrangler": "4.118.0"
+	},
+	"scripts": {
+		"prepare": "node scripts/prepare-runtime.mjs --if-installed",
+		"prepare-runtime": "node scripts/prepare-runtime.mjs",
+		"bundle": "node scripts/build-bundle.mjs",
+		"check:fresh": "npm run bundle && git diff --exit-code -- src/bundle.generated.js",
+		"bundle:cli": "node scripts/bundle-from-cli.mjs",
+		"package:runtime": "node scripts/pack-runtime.mjs",
+		"test:package": "node test/runtime-package.mjs",
+		"test:instance": "node test/atom-do-instance.mjs",
+		"dev": "wrangler dev",
+		"dev:callback": "node scripts/dev-with-callback.mjs",
+		"deploy": "wrangler deploy",
+		"test": "node test/conformance.mjs"
+	}
 }

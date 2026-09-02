@@ -4,8 +4,8 @@
         {
             "code": "ATOMS-E001",
             "title": "Unclassifiable file under the Atoms path",
-            "message": "File {file} under the Atoms path is neither an Atom, Methods, AtomJob, Shared DTO, nor a migration.",
-            "fix": "Move non-Atoms code out of the Atoms path, or make the class extend the appropriate atoms/core base class.",
+            "message": "File {file} under the Atoms path is neither an Atom, Methods, AtomJob, Shared DTO, support class, nor a migration.",
+            "fix": "Move non-Atoms code out of the Atoms path, make the class extend the appropriate atoms/core base class, or move an Atom-side helper into the Atom's support/ directory (e.g. app/Atoms/GameRoom/support/).",
             "severity": "warning",
             "phase": "build"
         },
@@ -37,7 +37,7 @@
             "code": "ATOMS-E012",
             "title": "Monolith class referenced inside Atom code",
             "message": "Reference to monolith class {symbol} inside Atom code. Atom code ships to the platform; your application's classes do not.",
-            "fix": "Pass data across the boundary as a Shared DTO (implement Atoms\\Serialization\\Payload) or call it via $this->app().",
+            "fix": "Pass data across the boundary as a Shared DTO (implement Atoms\\Serialization\\Payload), call it via $this->app(), or move an Atom-side helper into the Atom's support/ directory.",
             "severity": "error",
             "phase": "build"
         },
@@ -69,7 +69,7 @@
             "code": "ATOMS-E016",
             "title": "Shared class contains behavior",
             "message": "Shared class {class} method {method} looks like behavior (I/O or side effects), not data.",
-            "fix": "Shared classes are DTOs. Move behavior to the Atom (World A) or a Methods class (World B).",
+            "fix": "Shared classes are DTOs. Move behavior to the Atom (Atom-side) or a Methods class (App-side).",
             "severity": "warning",
             "phase": "build"
         },
@@ -378,6 +378,14 @@
             "phase": "build"
         },
         {
+            "code": "ATOMS-E079",
+            "title": "Vendor dependency resolution failed",
+            "message": "Could not resolve atoms-composer.json dependencies: {reason}.",
+            "fix": "`atoms build` installs atoms-composer.json's packages in an isolated directory (composer install --no-scripts --no-plugins) and ships the resulting PHP sources in the bundle. Check that composer is on PATH and the constraints are satisfiable. For reproducible builds, commit the atoms-composer.lock file the first successful resolution writes next to atoms-composer.json.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
             "code": "ATOMS-E080",
             "title": "Callback channel not configured",
             "message": "$this->app()/dispatch() requires the Worker's callback channel, which is not configured.",
@@ -480,6 +488,22 @@
             "fix": "Generate one with `openssl rand -base64 32` and configure the identical value on the app and the Worker (`wrangler secret put ATOMS_SHARED_SECRET`). The secret itself is never transmitted: clients authenticate with the bearer derived from it (`atoms token` prints it). ATOMS_SHARED_SECRET_PREVIOUS, when set for rotation, must satisfy the same format.",
             "severity": "error",
             "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E106",
+            "title": "Schema builder not available on the Atom database connection",
+            "message": "{member} is not available inside an Atom: Atoms migrations own the schema.",
+            "fix": "Ship DDL as Atom migrations (app/Atoms/<Atom>/migrations/NNN_*.sql or .php) — they run at activation, tracked in PRAGMA user_version. The atoms/database-illuminate bridge serves queries and models only, never DDL.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E107",
+            "title": "Fast build cannot ship declared dependencies",
+            "message": "`atoms build --fast` skips the vendor stage, but atoms-composer.json declares {count} package(s); the bundle would fail at runtime when an Atom first touches one.",
+            "fix": "Drop --fast: with an unchanged atoms-composer.lock the vendor stage resolves offline from .atoms/vendor-cache, so a full build costs no network and no composer run. Or remove the requires from atoms-composer.json. For a fast no-bundle check, use `atoms validate`.",
+            "severity": "error",
+            "phase": "build"
         }
     ]
 }

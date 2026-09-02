@@ -1,7 +1,7 @@
 {
     "name": "atoms/cli",
-    "description": "The `atoms` command-line tool: init, make, validate, build (closure walk + scoper), deploy, rollback, local, ai:install.",
-    "version": "0.3.1",
+    "description": "The `atoms` command-line tool: init, make, validate, build (closure walk + vendor stage), deploy, rollback, local, ai:install.",
+    "version": "0.4.0",
     "license": "MIT",
     "homepage": "https://atomsphp.dev",
     "support": {
@@ -19,7 +19,7 @@
         "php": "^8.3",
         "ext-curl": "*",
         "ext-json": "*",
-        "atoms/core": "^0.3",
+        "atoms/core": "^0.4",
         "colinodell/json5": "^2.3 || ^3.0",
         "nikic/php-parser": "^5.0",
         "symfony/console": "^6.4 || ^7.0",
@@ -27,7 +27,7 @@
         "symfony/process": "^6.4 || ^7.0"
     },
     "suggest": {
-        "humbug/php-scoper": "Required for full builds (`atoms build`); `atoms validate` and `--fast` builds work without it"
+        "composer/composer": "The vendor stage of `atoms build` shells out to a composer on PATH when atoms-composer.json declares packages and .atoms/vendor-cache has no current resolution; `atoms validate` and `--fast` builds work without it"
     },
     "bin": [
         "bin/atoms"

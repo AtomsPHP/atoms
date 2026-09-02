@@ -7,9 +7,9 @@ namespace Atoms\Cli\Build;
 use Atoms\Cli\Config\AtomsJson;
 
 /**
- * The deterministic set of files that ship in a bundle: every Atom and Shared
- * source file, every migration, and atoms-composer.json — sorted by their
- * repo-relative path.
+ * The deterministic set of files that ship in a bundle: every Atom, Shared,
+ * and Support source file, every migration, and atoms-composer.json — sorted
+ * by their repo-relative path.
  *
  * The set owns its bytes: each file is read from disk exactly once, on first
  * use, and memoized for every later consumer (the manifest's scoper_prefix via

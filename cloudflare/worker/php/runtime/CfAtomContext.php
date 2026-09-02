@@ -1,11 +1,11 @@
 <?php
 
 /**
- * `Atoms\Runtime\AtomContext` for the Cloudflare MVP — everything the customer's
- * Atom is allowed to reach, and the exact boundary of what the MVP implements.
+ * `Atoms\Runtime\AtomContext` for the Cloudflare runtime — everything the customer's
+ * Atom is allowed to reach, and the exact boundary of what the runtime implements.
  *
  * `db()`, `config()`, `app()`, `dispatch()`, `broadcast()` and `timers()` are
- * all real (M2 waves 1-3).
+ * all real.
  *
  * No declare(strict_types=1) — see the note in host.php.
  */
@@ -64,7 +64,7 @@ final class CfAtomContext implements AtomContext
 
     /**
      * Resolved by the host from an allowlisted view of the Worker's `env`
-     * (mvp-spec.md §Sync ops). Unknown keys are null, not an error — same as the
+     * (runtime-spec.md §Sync ops). Unknown keys are null, not an error — same as the
      * platform runtime.
      */
     public function config(string $key): mixed
@@ -154,7 +154,7 @@ final class CfAtomContext implements AtomContext
     /**
      * The GUEST builds the entire wire frame — `json_encode()` here, never a
      * structure handed to JS for `JSON.stringify()` — so a wide integer inside
-     * `$payload` stays exact all the way to the client (mvp-spec.md's int64 rule).
+     * `$payload` stays exact all the way to the client (runtime-spec.md's int64 rule).
      * The host never parses or re-encodes `$frame`: string in, same string out,
      * fanned to every socket tagged for `$channel`.
      *
@@ -196,7 +196,7 @@ final class CfAtomContext implements AtomContext
 
     /**
      * Named one-shot timers backed by the host's `__atoms_timers` table and
-     * a single multiplexed Durable Object alarm (M2 wave 3).
+     * a single multiplexed Durable Object alarm.
      */
     public function timers(): Timers
     {

@@ -8,7 +8,7 @@ use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 use Atoms\PHPStan\AtomsRulesConfig;
 use Atoms\PHPStan\Rules\AtomSleepCallRule;
-use Atoms\PHPStan\WorldClassifier;
+use Atoms\PHPStan\SideClassifier;
 use PHPStan\Rules\Rule;
 use PHPStan\Testing\RuleTestCase;
 
@@ -24,7 +24,7 @@ final class AtomSleepCallRuleTest extends RuleTestCase
             sharedPaths: ['tests/Fixtures/Shared'],
         );
 
-        return new AtomSleepCallRule(new WorldClassifier($config), self::createReflectionProvider());
+        return new AtomSleepCallRule(new SideClassifier($config), self::createReflectionProvider());
     }
 
     public function testFlagsEverySleepFamilyCall(): void
@@ -60,13 +60,13 @@ final class AtomSleepCallRuleTest extends RuleTestCase
         $this->analyse([__DIR__ . '/../Fixtures/Clock/CleanClockAtom.php'], []);
     }
 
-    public function testWorldBSleepMethodsHasNoViolations(): void
+    public function testAppSideSleepMethodsHasNoViolations(): void
     {
         $this->analyse([__DIR__ . '/../Fixtures/Clock/SleepMethods.php'], []);
     }
 
     /**
-     * A WORLD_A namespace that defines its own sleep()/usleep()/
+     * An ATOM_SIDE namespace that defines its own sleep()/usleep()/
      * time_nanosleep()/time_sleep_until() and calls each unqualified must
      * produce zero errors: PHP resolves the unqualified call to the
      * namespace-local function first, never reaching the dangerous global.

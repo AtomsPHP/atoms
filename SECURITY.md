@@ -26,13 +26,12 @@ for us to patch on your behalf.
 
 ## Supported versions
 
-Atoms is pre-1.0. The latest tagged 0.1.x release and the default branch are
-supported; fixes land on the default branch first. Before `v0.1.0` exists,
-only the default branch is supported.
+Atoms is pre-1.0. The latest tagged minor release and the default branch are
+supported; fixes land on the default branch first.
 
 ## What is in scope
 
-Everything in this repository: the seven PHP packages under `packages/`, the
+Everything in this repository: the eight PHP packages under `packages/`, the
 deploy Action in `action/`, and the Cloudflare Worker runtime under
 `cloudflare/`.
 

@@ -55,7 +55,8 @@ const BUNDLE_FORMAT = 0;
 
 /**
  * Test an exact semantic version against the generated caret range stamped
- * into this runtime. M7 ships ^0.1; accepting the general caret form here
+ * into this runtime. The current stamp is ^0.1; accepting the general
+ * caret form here
  * keeps the check correct when a later release tool advances that stamp.
  */
 function supportsCore(version, range) {
@@ -128,7 +129,18 @@ function readTar(buf) {
 		}
 
 		const start = offset + BLOCK;
-		files.set(prefix ? `${prefix}/${name}` : name, buf.subarray(start, start + size).toString('utf-8'));
+		const bytes = buf.subarray(start, start + size);
+		const text = bytes.toString('utf-8');
+		// The emitted module carries entries as JS strings, so the decode must
+		// be lossless. A non-UTF-8 byte would become a replacement character —
+		// deployed code differing from the archive its content_hash names.
+		if (!Buffer.from(text, 'utf-8').equals(bytes)) {
+			throw new Error(
+				`tar entry ${name} is not valid UTF-8; every bundle entry must be, ` +
+					'because the deploy module carries file contents as strings'
+			);
+		}
+		files.set(prefix ? `${prefix}/${name}` : name, text);
 
 		offset = start + Math.ceil(size / BLOCK) * BLOCK;
 	}
@@ -149,6 +161,32 @@ function readTar(buf) {
  * @param {any} cli
  * @returns {any}
  */
+/**
+ * Validate and guest-path the manifest's vendor.autoload value. The field
+ * names a file the guest requires and a subtree it stops autoloading, so
+ * only a normalized, relative `vendor/….php` path is accepted.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function vendorAutoloadPath(value) {
+	if (typeof value !== 'string' || value === '') {
+		throw new Error('manifest vendor.autoload must be a non-empty string');
+	}
+	const normalized = path.posix.normalize(value);
+	if (
+		normalized !== value ||
+		!normalized.startsWith('vendor/') ||
+		!normalized.endsWith('.php') ||
+		normalized.split('/').includes('..')
+	) {
+		throw new Error(
+			`manifest vendor.autoload ${JSON.stringify(value)} is not a plain vendor/….php bundle path`
+		);
+	}
+	return path.posix.join(APP_PREFIX, normalized);
+}
+
 function hostManifest(cli) {
 	if (cli.schema !== 1) {
 		throw new Error(`manifest.json has schema ${JSON.stringify(cli.schema)}; this script understands schema 1`);
@@ -208,6 +246,10 @@ function hostManifest(cli) {
 		bundle_format: BUNDLE_FORMAT,
 		abi: { php: cli.toolchain?.php ?? '8.3' },
 		atoms,
+		// Additive manifest field (docs/cloudflare-toolchain.md §3): the
+		// bundled vendor autoloader, validated and guest-pathed like
+		// atoms[].file. Spread like `websocket` above — absence stays absence.
+		...(cli.vendor?.autoload !== undefined ? { vendor: { autoload: vendorAutoloadPath(cli.vendor.autoload) } } : {}),
 		// Provenance, for `atoms status` and for reading a deployed Worker.
 		project: cli.project ?? null,
 		content_hash: cli.content_hash,
@@ -276,6 +318,9 @@ function main() {
 				throw new Error(`atom ${type} declares migration ${migration}, which is not in the bundle`);
 			}
 		}
+	}
+	if (manifest.vendor && !(manifest.vendor.autoload in appFiles)) {
+		throw new Error(`the manifest declares vendor autoload ${manifest.vendor.autoload}, which is not in the bundle`);
 	}
 
 	const all = { ...appFiles, ...runtimeFiles(PROJECT_ROOT) };

@@ -23,11 +23,13 @@ final class FakeProcessRunner implements ProcessRunner
 
     /**
      * Optional per-command override, tried before {@see $result}: given the
-     * argv, return a result to use, or null to fall through to $result. Lets a
-     * single fake answer two different commands (e.g. `git rev-parse` and
-     * `git check-ignore`) differently without complicating the common case.
+     * argv (and the cwd, for a fake that must materialize files where the
+     * command ran — the vendor stage's composer install), return a result to
+     * use, or null to fall through to $result. Lets a single fake answer two
+     * different commands (e.g. `git rev-parse` and `git check-ignore`)
+     * differently without complicating the common case.
      *
-     * @var (\Closure(list<string>): ?ProcessResult)|null
+     * @var (\Closure(list<string>, ?string): ?ProcessResult)|null
      */
     public ?\Closure $resultFor = null;
 
@@ -44,7 +46,7 @@ final class FakeProcessRunner implements ProcessRunner
     {
         $this->runs[] = ['command' => $command, 'cwd' => $cwd, 'env' => $env, 'stdin' => $stdin];
 
-        return ($this->resultFor !== null ? ($this->resultFor)($command) : null) ?? $this->result;
+        return ($this->resultFor !== null ? ($this->resultFor)($command, $cwd) : null) ?? $this->result;
     }
 
     public function runForeground(array $command, ?string $cwd = null, array $env = []): ProcessResult

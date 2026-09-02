@@ -9,7 +9,7 @@ use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 
 /**
- * The repo-root toolchain anchor (integration-plan.md §1). Parsed and validated;
+ * The repo-root toolchain anchor. Parsed and validated;
  * every structural problem surfaces as ATOMS-E070 with the catalog fix line.
  *
  * `endpoint` is the base URL the deployed Worker serves on — what `atoms/client`
@@ -204,8 +204,7 @@ final class AtomsJson
 
             $out[$name] = [
                 'endpoint' => rtrim($endpoint, '/'),
-                // Vestigial: the superseded platform placed Machines in a
-                // region. Cloudflare places a Durable Object itself. Still
+                // Vestigial: Cloudflare places a Durable Object itself. Still
                 // parsed so an older atoms.json loads, and ignored everywhere.
                 'region' => self::optionalString($env, 'region'),
                 'worker_name' => self::optionalString($env, 'worker_name'),

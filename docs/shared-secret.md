@@ -2,7 +2,7 @@
 
 **Status: accepted, 2026-08-15.** This document is the decision record and
 the normative contract for the single symmetric root on the app ↔ Worker
-boundary. `cloudflare/docs/mvp-spec.md` §The callback channel, §Routing and
+boundary. `cloudflare/docs/runtime-spec.md` §The callback channel, §Routing and
 auth and `docs/cloudflare-toolchain.md` restate the parts each half
 implements; where a restatement and this document disagree, this document
 wins. `docs/ws-ticket-protocol.md` is normative for the WebSocket ticket wire
@@ -273,7 +273,7 @@ then put that one value in three places:
 2. The Worker — the Action does this, after the deploy step because
    `wrangler secret put` needs the Worker to exist. A first deploy therefore
    serves `misconfigured` for the seconds between the two steps, then heals.
-3. Your app platform's environment (Fly, Heroku, ECS, …), under the same
+3. Your app platform's environment (Heroku, ECS, Kubernetes, …), under the same
    name. Nothing in this repository can reach that one; it is the step to
    put in your own runbook.
 

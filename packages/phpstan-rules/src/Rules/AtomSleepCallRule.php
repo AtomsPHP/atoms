@@ -6,8 +6,8 @@ namespace Atoms\PHPStan\Rules;
 
 use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
-use Atoms\PHPStan\World;
-use Atoms\PHPStan\WorldClassifier;
+use Atoms\PHPStan\Side;
+use Atoms\PHPStan\SideClassifier;
 use PhpParser\Node;
 use PhpParser\Node\Expr\FuncCall;
 use PhpParser\Node\Name;
@@ -19,7 +19,7 @@ use PHPStan\Rules\RuleErrorBuilder;
 
 /**
  * Flags sleep()/usleep()/time_nanosleep()/time_sleep_until() calls inside
- * WORLD_A code (ATOMS-E101).
+ * ATOM_SIDE code (ATOMS-E101).
  *
  * On deployed workerd the guest clock does not advance within a turn: a
  * sleep() or an elapsed-time wait inside an Atom is not slow code, it is a
@@ -30,7 +30,7 @@ use PHPStan\Rules\RuleErrorBuilder;
  * {@see ReflectionProvider::resolveFunctionName()} rather than compared by
  * rendered name: PHP itself resolves an unqualified call to a
  * namespace-local function of the same name first, only falling back to the
- * global built-in when no such local function exists. A WORLD_A namespace
+ * global built-in when no such local function exists. An ATOM_SIDE namespace
  * that defines its own `sleep()`/`time_nanosleep()`/etc. and calls it
  * unqualified never reaches the dangerous global — flagging that would be a
  * false positive. `\sleep()` (fully qualified) always targets the global
@@ -44,7 +44,7 @@ final class AtomSleepCallRule implements Rule
     private const SLEEP_FUNCTIONS = ['sleep', 'usleep', 'time_nanosleep', 'time_sleep_until'];
 
     public function __construct(
-        private readonly WorldClassifier $classifier,
+        private readonly SideClassifier $classifier,
         private readonly ReflectionProvider $reflectionProvider,
     ) {
     }
@@ -70,14 +70,14 @@ final class AtomSleepCallRule implements Rule
             return [];
         }
 
-        $world = $this->classifier->classify($classReflection, $scope);
-        if ($world !== World::WorldA) {
+        $side = $this->classifier->classify($classReflection, $scope);
+        if ($side !== Side::AtomSide) {
             return [];
         }
 
         // Resolve what the call actually targets — PHP checks a namespace-local
         // function of the same name before falling back to the global one, so a
-        // rendered-name comparison alone would false-positive on a WORLD_A
+        // rendered-name comparison alone would false-positive on an ATOM_SIDE
         // namespace that shadows sleep()/time_nanosleep()/etc.
         $resolvedName = $this->reflectionProvider->resolveFunctionName($node->name, $scope);
         if ($resolvedName === null) {

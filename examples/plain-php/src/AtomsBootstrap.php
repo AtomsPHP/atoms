@@ -50,7 +50,7 @@ use Psr\Log\LoggerInterface;
  * supply your own {@see NonceStore} (e.g. a shared cache) so replay checks
  * survive across requests/processes.
  */
-final class AtomsBootstrap
+class AtomsBootstrap
 {
     public static function create(
         string $endpoint,

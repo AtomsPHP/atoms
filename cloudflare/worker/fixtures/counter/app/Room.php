@@ -129,7 +129,7 @@ final class Room extends Atom
                 // broadcast() from INSIDE a committed transaction. `ws.*` are
                 // sync ops and the host's transaction guard only rejects park
                 // ops, so this executes immediately rather than at commit —
-                // the documented hazard in mvp-spec.md §WebSocket ops inside a
+                // the documented hazard in runtime-spec.md §WebSocket ops inside a
                 // transaction, and the measurement its appendix records. The
                 // conformance suite asserts the frame is delivered; the hazard
                 // (a frame already gone when the transaction rolls back) is

@@ -12,7 +12,8 @@ use PhpParser\Node\Stmt\TraitUse;
 
 /**
  * Stage 1 of the extraction pipeline: enumerate every `.php` class under the
- * Atoms path and classify it as an Atom, Methods, AtomJob, Shared DTO, or an
+ * Atoms path and classify it as an Atom, Methods, AtomJob, Shared DTO, a
+ * Support class (Atom-side helper under an Atom's `support/` directory), or an
  * unclassifiable file (ATOMS-E001). Two files declaring one FQCN is
  * ATOMS-E002. Purely static — files are parsed, never included.
  */
@@ -76,9 +77,10 @@ final class Discovery
         // gone from the index but is still one of the classes the warning pass
         // below reads, and an unclassified one there reads as Unknown and
         // convicts its file of ATOMS-E001.
+        $supportDirs = $this->supportDirs($parsed, $raw);
         foreach ($parsed as $entry) {
             foreach ($entry['classes'] as $class) {
-                $class->classifyAs($this->classify($class, $raw, $sharedDir));
+                $class->classifyAs($this->classify($class, $raw, $sharedDir, $supportDirs));
             }
         }
 
@@ -113,14 +115,25 @@ final class Discovery
 
     /**
      * @param array<string, DiscoveredClass> $all
+     * @param list<string>                   $supportDirs
      */
-    private function classify(DiscoveredClass $class, array $all, string $sharedDir): ClassKind
+    private function classify(DiscoveredClass $class, array $all, string $sharedDir, array $supportDirs): ClassKind
     {
         if ($this->extendsBase($class, self::ATOM_BASE, $all)) {
             return ClassKind::Atom;
         }
 
-        $isMethodsByConvention = basename($class->absolutePath) === 'Methods.php';
+        $underSupport = false;
+        foreach ($supportDirs as $dir) {
+            if (str_starts_with($class->absolutePath, $dir)) {
+                $underSupport = true;
+                break;
+            }
+        }
+
+        // The Methods.php filename convention does not reach into support
+        // directories: a support file named Methods.php is support code.
+        $isMethodsByConvention = !$underSupport && basename($class->absolutePath) === 'Methods.php';
         if ($isMethodsByConvention || $this->extendsBase($class, self::METHODS_BASE, $all)) {
             return ClassKind::Methods;
         }
@@ -134,7 +147,38 @@ final class Discovery
             return ClassKind::Shared;
         }
 
+        if ($underSupport) {
+            return ClassKind::Support;
+        }
+
         return ClassKind::Unknown;
+    }
+
+    /**
+     * The `support/` directories of every discovered Atom — the sanctioned home
+     * for Atom-side helper classes (an Eloquent model, a value object, a pure
+     * service) that ship with the Atom but are not Atoms themselves. Sibling to
+     * the Atom's migrations directory: `app/Atoms/GameRoom/support/` for
+     * `app/Atoms/GameRoom.php`. Computed before the classification pass because
+     * an Atom is recognizable from its parent chain alone.
+     *
+     * @param list<array{file: PhpFile, classes: list<DiscoveredClass>}> $parsed
+     * @param array<string, DiscoveredClass>                             $all
+     * @return list<string> absolute directory prefixes, trailing slash included
+     */
+    private function supportDirs(array $parsed, array $all): array
+    {
+        $dirs = [];
+        foreach ($parsed as $entry) {
+            foreach ($entry['classes'] as $class) {
+                if ($this->extendsBase($class, self::ATOM_BASE, $all)) {
+                    $dirs[] = \dirname($class->absolutePath) . '/'
+                        . basename($class->absolutePath, '.php') . '/support/';
+                }
+            }
+        }
+
+        return $dirs;
     }
 
     /**

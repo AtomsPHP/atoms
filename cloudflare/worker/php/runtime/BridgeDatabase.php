@@ -1,7 +1,7 @@
 <?php
 
 /**
- * `Atoms\Database` over the Durable Object's own SQLite (mvp-spec.md
+ * `Atoms\Database` over the Durable Object's own SQLite (runtime-spec.md
  * §PHP-side db()).
  *
  * This is the platform-side implementation the customer's Atom actually gets

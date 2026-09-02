@@ -133,6 +133,28 @@ jobs:
           node-version: '22'
           registry-url: https://registry.npmjs.org
 
+      # This job holds no npm credential: it authenticates to the registry by
+      # exchanging the job's OIDC token, against the trusted publisher
+      # configured on the package (this repository, this workflow file, the
+      # `release` environment). npm only takes that path from 11.5.1, and the
+      # npm bundled with Node 22 is older, so upgrade before publishing and
+      # assert the floor — a too-old npm would otherwise fall through to an
+      # anonymous publish and fail as a misleading registry 404.
+      - name: Upgrade npm to a version that speaks OIDC
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g npm@latest
+          npm --version
+          node -e '
+            const [major, minor, patch] = process.argv[1].split(".").map(Number);
+            const ok = major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1)));
+            if (!ok) {
+              console.error(`::error::npm ${process.argv[1]} predates trusted publishing; 11.5.1+ is required.`);
+              process.exit(1);
+            }
+          ' "$(npm --version)"
+
       - id: registry
         name: Check whether npm version is already published
         env:
@@ -168,13 +190,14 @@ jobs:
         working-directory: cloudflare/worker
         run: npm run package:runtime
 
+      # No `--provenance`: under trusted publishing npm attests by default, and
+      # no NODE_AUTH_TOKEN, because there is no longer a token to carry.
       - name: Publish the runtime package
         if: steps.registry.outputs.publish == 'true'
         working-directory: cloudflare/worker
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PACKAGE_VERSION: ${{ needs.preflight.outputs.version }}
-        run: npm publish "./dist/atomsphp-runtime-cloudflare-${PACKAGE_VERSION}.tgz" --access public --provenance
+        run: npm publish "./dist/atomsphp-runtime-cloudflare-${PACKAGE_VERSION}.tgz" --access public
 
   sync-mirrors:
     if: >-
@@ -206,9 +229,10 @@ jobs:
             testing
             phpstan-rules
             cli
+            database-illuminate
           permission-contents: write
 
-      - name: Derive and push the seven package histories
+      - name: Derive and push the eight package histories
         env:
           MIRROR_TOKEN: ${{ steps.mirror-token.outputs.token }}
           VERSION: ${{ needs.preflight.outputs.version }}
@@ -216,7 +240,7 @@ jobs:
         run: |
           set -euo pipefail
           auth="$(printf 'x-access-token:%s' "$MIRROR_TOKEN" | base64 | tr -d '\n')"
-          for package in core client laravel symfony testing phpstan-rules cli; do
+          for package in core client laravel symfony testing phpstan-rules cli database-illuminate; do
             split_commit="$(git subtree split --prefix="packages/$package" "$GITHUB_SHA")"
             remote="https://github.com/AtomsPHP/$package.git"
             git -c "http.extraheader=AUTHORIZATION: basic $auth" \

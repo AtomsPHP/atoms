@@ -7,7 +7,7 @@ namespace App\Atoms\Jobs;
 use Atoms\AtomJob;
 
 /**
- * World B. handle() runs in the monolith; the constructor signature is the
+ * App-side. handle() runs in the monolith; the constructor signature is the
  * dispatch contract captured in the manifest.
  */
 final class RecordGameResult extends AtomJob

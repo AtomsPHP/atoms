@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Atoms\PHPStan\Rules;
 
 use Atoms\PHPStan\BoundaryReferenceInspector;
-use Atoms\PHPStan\WorldClassifier;
+use Atoms\PHPStan\SideClassifier;
 use PhpParser\Node;
 use PhpParser\Node\Expr\New_;
 use PHPStan\Analyser\Scope;
@@ -13,7 +13,7 @@ use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleError;
 
 /**
- * Flags `new SomeClass()` inside WORLD_A/SHARED code when SomeClass is not a
+ * Flags `new SomeClass()` inside ATOM_SIDE/SHARED code when SomeClass is not a
  * legal boundary reference (docs/conventions.md, ATOMS-E010/E012/E014/E015).
  *
  * @implements Rule<New_>
@@ -23,7 +23,7 @@ final class BoundaryNewRule implements Rule
     use BoundaryReferenceCheckTrait;
 
     public function __construct(
-        private readonly WorldClassifier $classifier,
+        private readonly SideClassifier $classifier,
         private readonly BoundaryReferenceInspector $inspector,
     ) {
     }

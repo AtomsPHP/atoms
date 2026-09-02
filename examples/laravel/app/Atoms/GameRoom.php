@@ -13,7 +13,7 @@ use Atoms\Websocket\Message;
  * One durable game room. Each room id gets its own serialized instance and
  * SQLite database in a Cloudflare Durable Object.
  */
-final class GameRoom extends Atom
+class GameRoom extends Atom
 {
     public function join(string $playerId): int
     {

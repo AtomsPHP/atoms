@@ -5,7 +5,7 @@ the WebSocket connection ticket wire format: its byte layout, its
 serialization rule, its limits, and its expiry rule. It does not own key
 material — `docs/shared-secret.md` is supreme for the secret, its derivation,
 and rotation, and this document defers to it for the `atoms/ws-ticket/v1` row
-of the derivation table. `cloudflare/docs/mvp-spec.md` remains binding for the
+of the derivation table. `cloudflare/docs/runtime-spec.md` remains binding for the
 Worker's observable verification behaviour at `GET /ws/{type}/{id}` and
 cross-references this document for the format it verifies. Where this
 document and a restatement elsewhere disagree on the wire format or the

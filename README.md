@@ -15,7 +15,7 @@ namespace App\Atoms;
 
 use Atoms\Atom;
 
-final class GameRoom extends Atom
+class GameRoom extends Atom
 {
     public function join(string $player): int
     {
@@ -35,17 +35,17 @@ the consistency boundary.
 
 ## Status
 
-**Pre-1.0. The first coordinated release line is 0.1.x.**
+**Pre-1.0. Releases are coordinated across the PHP packages, Worker runtime,
+and deploy Action.**
 
-- Release tags are the source of truth for registry availability. Before the
-  `v0.1.0` tag exists, contributors install from this monorepo; after it exists,
-  applications install the seven packages from Packagist and the Worker
-  template from npm.
+- `release/manifest.json` is the version source inside the repository; release
+  tags are the source of truth for registry availability. Applications install
+  the eight packages from Packagist and the matching Worker template from npm.
 - The Cloudflare runtime is validated by its conformance suite locally and
   against a real deployed Worker. It is not a managed service; you deploy it
   to your own account.
 - `app()`, `dispatch()`, `broadcast()`, WebSockets and timers/alarms are
-  implemented in the Worker runtime (M2). The one remaining typed
+  implemented in the Worker runtime. The one remaining typed
   `AtomsNotSupported` surface is the permanently-unsupported corner of the
   `db()->pdo()` shim (see `cloudflare/worker/php/README.md` §Documented leaks
   and limits) — a restriction, not a stub.
@@ -58,11 +58,12 @@ the consistency boundary.
 
 | Directory | Contents |
 |---|---|
-| [`packages/`](packages/) | The seven PHP packages — see the table below |
+| [`packages/`](packages/) | The eight PHP packages — see the table below |
 | [`cloudflare/`](cloudflare/) | The Cloudflare Worker runtime: a PHP interpreter in WebAssembly parked inside a SQLite-backed Durable Object, plus its spec, conformance suite and licence files |
-| [`docs/`](docs/) | Architecture and contracts: [`conventions.md`](docs/conventions.md) (normative), [`adapters.md`](docs/adapters.md) (the contracts each host adapter supplies and the conformance suite), [`cloudflare-toolchain.md`](docs/cloudflare-toolchain.md) (deploy, runtime auth, bundles), [`integration-plan.md`](docs/integration-plan.md), [`two-worlds.md`](docs/two-worlds.md), [`errors.md`](docs/errors.md) |
+| [`docs/`](docs/) | Architecture and contracts: [`conventions.md`](docs/conventions.md) (normative), [`adapters.md`](docs/adapters.md) (the contracts each host adapter supplies and the conformance suite), [`cloudflare-toolchain.md`](docs/cloudflare-toolchain.md) (deploy, runtime auth, bundles), [`two-worlds.md`](docs/two-worlds.md), [`errors.md`](docs/errors.md) |
 | [`action/`](action/) | The deploy GitHub Action |
 | [`tests/`](tests/) | Cross-package integration tests |
+| [`site/`](site/) | The public marketing site (Astro) |
 
 | Package | Purpose |
 |---|---|
@@ -73,6 +74,7 @@ the consistency boundary.
 | `atoms/testing` | `AtomHarness` and fakes for fast, infrastructure-free tests. |
 | `atoms/phpstan-rules` | Boundary enforcement in your IDE and CI. |
 | `atoms/cli` | The `atoms` binary: `init`, `make:atom`, `validate`, `build`, `deploy`, `dev`, `status`, `diff`, `rollback`, `secrets:*`, `ai:install`. |
+| `atoms/database-illuminate` | The Laravel query builder and Eloquent models against an Atom's own SQLite database (optional, ships inside the Atom bundle via `atoms-composer.json`). |
 
 Every failure in every package carries a stable `ATOMS-E###` code and a fix
 line — see [`docs/errors.md`](docs/errors.md).
@@ -83,10 +85,10 @@ Laravel applications install the adapter and its CLI, then scaffold the
 release-matched Worker project:
 
 ```sh
-composer require atoms/laravel:^0.1
-composer require --dev atoms/cli:^0.1 atoms/phpstan-rules:^0.1 atoms/testing:^0.1
+composer require atoms/laravel:^0.4
+composer require --dev atoms/cli:^0.4 atoms/phpstan-rules:^0.4 atoms/testing:^0.4
 php artisan atoms:install
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.4.0 -- \
   atoms-runtime-cloudflare init .atoms/worker
 cd .atoms/worker && npm ci
 ```
