@@ -1783,8 +1783,8 @@ answers 200 `{ok: true}` (`loadConfig()` stays total) and `/invoke`,
 `POST /tickets` leg, which pins that the configuration gate precedes
 routing even for an unrouted path: a Worker missing its secret
 must not leak which routes it has. It runs only under
-`ATOMS_EXPECT_MISCONFIGURED=1`, which is the whole of that short posture's
-run. **42.** the config deny list, untouched: with the Worker started with
+`ATOMS_EXPECT_MISCONFIGURED=1`, and that one check is the whole of that run.
+**42.** the config deny list, untouched: with the Worker started with
 `ATOMS_CONFIG_ENV_KEYS` naming `ATOMS_SHARED_SECRET` and
 `ATOMS_SHARED_SECRET_PREVIOUS`, a guest `$this->config()` of either name
 resolves `null` (`Counter::configProbe()` reports what the guest sees), while
@@ -1804,8 +1804,8 @@ This is the spec §"The shared secret" requirement "set but malformed →
 misconfigured": check 40 exercises only a well-formed
 overlap and check 41 only a missing current secret, so this is the one
 place it is pinned. It runs only under
-`ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1`, which is the whole of its short
-posture's run (`ATOMS_ONLY=44`).
+`ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1`, and that one check is the whole
+of that run (`ATOMS_ONLY=44`).
 
 **45.** the vendor tree: `Vendor::viaVendor()` resolves a vendor class the
 line-scanning autoloader **cannot** index (declared indented inside a

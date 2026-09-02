@@ -52,13 +52,13 @@ This directory contains the conformance test suite for the Atoms runtime on Clou
 44. **malformed rotation overlap** — booted with a **valid** current secret but a malformed `ATOMS_SHARED_SECRET_PREVIOUS`, the Worker is exactly as loudly broken as check 41's: `/healthz` answers 200 `{ok:true}` and `/invoke`, `/tickets`, `/debug` and `/ws` all answer HTTP 500 `misconfigured` — and each refusal message names `ATOMS_SHARED_SECRET_PREVIOUS`, which is what proves the gate tripped on the overlap and not on the current secret. Pins the spec's "set but malformed → misconfigured" requirement that checks 40 (valid overlap) and 41 (no current secret) cannot see
 45. **vendor tree autoload** — the manifest's `vendor.autoload` classmap loads a vendor class the line-scanning bundle autoloader cannot index (`Acme\Greeter\Greeter` is declared indented inside a conditional, on purpose), and a Composer-style function file is already loaded before the class is first touched, proving "files" entries are required eagerly at activation
 
-### Postures
+### Configurations
 
-The suite runs against a Worker in one of the postures below; the runner is
-told which one through `ATOMS_BEARER_AUTH` (the two misconfigured postures are
+The suite runs against a Worker in one of the configurations below; the runner is
+told which one through `ATOMS_BEARER_AUTH` (the two misconfigured runs are
 named by their `ATOMS_EXPECT_MISCONFIGURED*` flag instead):
 
-| posture | Worker env | what it exercises |
+| configuration | Worker env | what it exercises |
 |---|---|---|
 | bearer required (default) | `ATOMS_SHARED_SECRET` set, `ATOMS_BEARER_AUTH` unset or `required` | everything, including 35–38 and check 39's live leg |
 | bearer disabled | `ATOMS_SHARED_SECRET` set, `ATOMS_BEARER_AUTH=disabled` | everything except the bearer-gated checks; tickets are still signed and callbacks are still signed |
