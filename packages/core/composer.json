@@ -1,7 +1,7 @@
 {
     "name": "atoms/core",
     "description": "The Atoms runtime API: everything an Atom class can touch. Zero framework dependencies.",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "license": "MIT",
     "homepage": "https://atomsphp.dev",
     "support": {

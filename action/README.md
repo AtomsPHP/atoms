@@ -5,7 +5,7 @@ Worker **in your own Cloudflare account**. There is no Atoms-hosted service: the
 action installs the Atoms CLI, which shells out to a pinned, locally installed
 Wrangler and talks to Cloudflare's API directly with the credentials you supply.
 
-Use the immutable `AtomsPHP/atoms/action@v0.4.0` release tag, or pin the action
+Use the immutable `AtomsPHP/atoms/action@v0.5.0` release tag, or pin the action
 to its full commit SHA for maximum reproducibility.
 
 ## Credentials
@@ -42,7 +42,7 @@ id, and how rotation works. Two things are specific to CI:
 ## Usage
 
 ```yaml
-- uses: AtomsPHP/atoms/action@v0.4.0
+- uses: AtomsPHP/atoms/action@v0.5.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -158,7 +158,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms/action@v0.4.0
+      - uses: AtomsPHP/atoms/action@v0.5.0
         with:
           environment: production
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -170,7 +170,7 @@ jobs:
 ```yaml
 - uses: actions/checkout@v4
 - run: atoms build --output my-bundle.tar.gz
-- uses: AtomsPHP/atoms/action@v0.4.0
+- uses: AtomsPHP/atoms/action@v0.5.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -193,7 +193,7 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms/action@v0.4.0
+      - uses: AtomsPHP/atoms/action@v0.5.0
         with:
           environment: staging
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -206,7 +206,7 @@ jobs:
 - uses: actions/checkout@v4
 - run: npm ci
   working-directory: .atoms/worker
-- uses: AtomsPHP/atoms/action@v0.4.0
+- uses: AtomsPHP/atoms/action@v0.5.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
