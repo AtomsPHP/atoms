@@ -3,7 +3,7 @@
 All notable changes to Atoms are documented here. The eight Composer packages,
 the Cloudflare runtime, and deploy Action use one coordinated version.
 
-## [Unreleased]
+## [0.5.0] - 2026-09-02
 
 - **Changed:** terminology — the frozen `atoms/core` surface is described as an
   **API**, not an ABI, in docs and comments. An ABI is a binary-level contract;
@@ -452,7 +452,7 @@ Initial open-source release of the Atoms programming model, Laravel and
 Symfony adapters, testing and PHPStan tooling, deterministic CLI build and
 deploy workflow, and the Cloudflare Durable Object PHP runtime.
 
-[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.4.0...main
+[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.5.0...main
 
 [0.1.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.0
 
@@ -465,3 +465,5 @@ deploy workflow, and the Cloudflare Durable Object PHP runtime.
 [0.3.1]: https://github.com/AtomsPHP/atoms/releases/tag/v0.3.1
 
 [0.4.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.4.0
+
+[0.5.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.5.0
