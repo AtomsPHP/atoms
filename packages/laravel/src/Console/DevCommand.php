@@ -14,7 +14,7 @@ final class DevCommand extends AtomsBinaryCommand
     protected $signature = 'atoms:dev
         {--env= : Environment whose settings to use (default: staging)}
         {--port= : Port for wrangler dev (default: 8787)}
-        {--callback-url= : Monolith callback URL (else atoms.json callback_url)}
+        {--callback-url= : Monolith callback URL (else ATOMS_CALLBACK_URL, else atoms.json callback_url)}
         {--worker-dir= : Worker project directory (else atoms.json)}
         {--no-build : Serve the bundle already staged in the Worker project}';
 

@@ -221,4 +221,50 @@ final class DevCommandTest extends TestCase
         // Enabling a debug surface must be visible at startup.
         self::assertStringContainsString('ATOMS_DEBUG_ENDPOINTS=1', $tester->getDisplay());
     }
+
+    /**
+     * `ATOMS_CALLBACK_URL` in the shell that runs `atoms dev` overrides
+     * atoms.json's `callback_url`, and `--callback-url` overrides both — the
+     * `account_id` precedence, so a per-machine tunnel URL never has to be
+     * committed or wrapped into every invocation.
+     */
+    public function testCallbackUrlFromTheEnvironmentBeatsAtomsJsonAndTheFlagBeatsBoth(): void
+    {
+        putenv(DevCommand::CALLBACK_VAR . '=https://tunnel.example.test/atoms/callback');
+        try {
+            $wrangler = new FakeWrangler();
+            $tester = $this->execute($this->workerDir(), $wrangler);
+
+            self::assertSame(0, $tester->getStatusCode(), $tester->getDisplay());
+            $dev = $wrangler->lastCall('dev');
+            self::assertNotNull($dev);
+            self::assertSame(
+                [DevCommand::CALLBACK_VAR => 'https://tunnel.example.test/atoms/callback'],
+                $dev['args']['vars'],
+            );
+            self::assertStringContainsString(
+                DevCommand::CALLBACK_VAR . '=https://tunnel.example.test/atoms/callback',
+                $tester->getDisplay(),
+            );
+
+            $wrangler = new FakeWrangler();
+            $tester = new CommandTester(new DevCommand($wrangler, processRunner: new FakeProcessRunner()));
+            $tester->execute([
+                '--root' => $this->fixtureDir('sample-app'),
+                '--env' => 'production',
+                '--worker-dir' => $this->workerDir(),
+                '--no-build' => true,
+                '--callback-url' => 'http://127.0.0.1:8000/atoms/callback',
+            ]);
+
+            $dev = $wrangler->lastCall('dev');
+            self::assertNotNull($dev);
+            self::assertSame(
+                [DevCommand::CALLBACK_VAR => 'http://127.0.0.1:8000/atoms/callback'],
+                $dev['args']['vars'],
+            );
+        } finally {
+            putenv(DevCommand::CALLBACK_VAR);
+        }
+    }
 }

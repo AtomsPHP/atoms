@@ -291,11 +291,20 @@ travel to the Worker by two different, deliberately asymmetric paths
 (`packages/cli/src/Command/DevCommand.php`):
 
 - **`ATOMS_CALLBACK_URL`** — not a secret, the monolith's callback endpoint.
-  `atoms dev --callback-url <url>` (or `atoms.json`'s
-  `callback_url.<env>`) passes it to `wrangler dev` as an ordinary
+  Both `atoms dev` and `atoms deploy` pass it to Wrangler as an ordinary
   `--var ATOMS_CALLBACK_URL:<url>`, exactly the way any other var reaches the
-  Worker. `DevCommand` echoes the URL it wired at startup, so it is visible in
-  the same terminal that started the dev server.
+  Worker, and both echo the URL they wired so it is visible in the terminal
+  that started the dev server or ran the deploy. It resolves the way
+  `account_id` does (`CloudflareTarget::resolve()`):
+  `--callback-url` > `ATOMS_CALLBACK_URL` in the CLI's own process
+  environment > `atoms.json`'s `callback_url.<env>`. The environment slot is
+  the one for a value that differs per machine — a tunnel host, a local
+  port — so it never has to be committed or wrapped into every invocation.
+  The name is deliberately the Worker's own: setting it in the shell that
+  runs `atoms dev` reads as "give the Worker this var", and one name for
+  one concept beats a second `ATOMS_DEV_*` spelling. A deploy that resolves
+  no URL at all still deploys — the var may be set on the Cloudflare side —
+  but says so, naming `ATOMS-E080`.
 - **The callback signing key** — HKDF-derived on the Worker from
   `ATOMS_SHARED_SECRET` (info `atoms/callback/v1`), not a variable of its own.
   The CLI **never** passes the secret. In production it is
@@ -696,10 +705,11 @@ Nothing in this sequence contacts a service operated by Atoms.
 
 ## Known gaps
 
-- **`atoms dev`'s callback URL is wired.** `--callback-url` (or
-  `atoms.json`'s `callback_url.<env>`) reaches the Worker as an
-  `ATOMS_CALLBACK_URL` var via `wrangler dev --var`, and the Worker half is
-  real: `Atom::app()`/`dispatch()` call back through it (`cloudflare/docs/
+- **The callback URL is wired on both paths.** `--callback-url`,
+  `ATOMS_CALLBACK_URL` in the environment, or `atoms.json`'s
+  `callback_url.<env>` reaches the Worker as an `ATOMS_CALLBACK_URL` var via
+  `wrangler dev --var` and `wrangler deploy --var` alike, and the Worker half
+  is real: `Atom::app()`/`dispatch()` call back through it (`cloudflare/docs/
   runtime-spec.md` §The callback channel). `DevCommand` prints the URL it wired
   and provisions the Worker project's `.dev.vars` with a per-machine
   `ATOMS_SHARED_SECRET` if one is not already there, so `app()`/`dispatch()`

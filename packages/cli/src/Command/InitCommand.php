@@ -74,6 +74,12 @@ final class InitCommand extends AbstractCommand
                     'debug_endpoints' => false,
                 ],
             ],
+            // Where the Worker reaches the app for $this->app()/dispatch().
+            // Forwarded by both `atoms dev` and `atoms deploy` as the
+            // ATOMS_CALLBACK_URL var, so each entry is live for its
+            // environment. A value that differs per machine (a tunnel host)
+            // is better left to `ATOMS_CALLBACK_URL` in the environment or
+            // `--callback-url`, both of which beat this file.
             'callback_url' => [
                 'production' => 'https://example.com/atoms/callback',
                 'staging' => 'https://staging.example.com/atoms/callback',
@@ -102,7 +108,8 @@ final class InitCommand extends AbstractCommand
 
         $output->writeln('<info>✓ Wrote atoms.json and atoms-composer.json.</info>');
         $output->writeln('  Next: atoms make:atom GameRoom --with-methods --with-migration');
-        $output->writeln('  Then, to deploy: set each environment\'s "endpoint" and "account_id",');
+        $output->writeln('  Then, to deploy: set each environment\'s "endpoint", "account_id" and "callback_url"');
+        $output->writeln('  (or export ATOMS_CALLBACK_URL / pass --callback-url, which beat atoms.json),');
         $output->writeln('  install the release-matched Worker project:');
         $output->writeln('  ' . RuntimeVersion::scaffoldCommand());
         $output->writeln('  cd .atoms/worker && npm ci');

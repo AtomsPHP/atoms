@@ -55,12 +55,28 @@ final class CloudflareTarget
     public const DEBUG_ENDPOINTS_VAR = 'ATOMS_DEBUG_ENDPOINTS';
 
     /**
+     * The Worker var carrying the monolith's callback endpoint — where
+     * `$this->app()` and `$this->dispatch()` reach the app. Not a secret.
+     *
+     * Resolved the way `account_id` is, and for the same reason: a callback
+     * URL is per deployment and often per developer (a tunnel host, a local
+     * port, a staging domain that differs by machine), so a committed value
+     * is the wrong default. An explicit `--callback-url` wins, then this same
+     * name in the CLI's own process environment, then atoms.json's
+     * `callback_url.<env>`. The name is deliberately the Worker's: it is what
+     * the value is called everywhere else, and setting it in the shell that
+     * runs `atoms dev` reads as "give the Worker this var".
+     */
+    public const CALLBACK_VAR = 'ATOMS_CALLBACK_URL';
+
+    /**
      * @param string      $endpoint   Base URL the deployed Worker serves on; what `atoms/client` calls.
      * @param string      $workerName `wrangler --name`.
      * @param string      $accountId  Cloudflare account id; '' when unresolved.
      * @param string|null $apiToken   Cloudflare API token; null when unresolved.
      * @param string      $workerDir  Absolute path to the Worker project (holds wrangler + src/).
      * @param bool        $debugEndpoints Whether atoms.json enables the Worker's /debug routes for this environment.
+     * @param string|null $callbackUrl The monolith's callback endpoint; null when nothing configures one.
      */
     public function __construct(
         public readonly string $environment,
@@ -70,6 +86,7 @@ final class CloudflareTarget
         public readonly ?string $apiToken,
         public readonly string $workerDir,
         public readonly bool $debugEndpoints = false,
+        public readonly ?string $callbackUrl = null,
     ) {
     }
 
@@ -87,6 +104,10 @@ final class CloudflareTarget
      * commands that never touch Cloudflare's API used it to opt out of checks
      * that no longer exist.
      *
+     * @param string|null $callbackUrl An explicit `--callback-url`; beats
+     *                                 `ATOMS_CALLBACK_URL` in the environment,
+     *                                 which beats atoms.json's `callback_url`.
+     *
      * @throws AtomsError E070 (unknown environment),
      *                    E076 (unusable Worker directory)
      */
@@ -95,6 +116,7 @@ final class CloudflareTarget
         string $environment,
         ?string $apiToken = null,
         ?string $workerDir = null,
+        ?string $callbackUrl = null,
     ): self {
         $env = $config->environment($environment);
 
@@ -105,6 +127,12 @@ final class CloudflareTarget
 
         $dir = self::firstNonEmpty($workerDir, $env['worker_dir']) ?? self::DEFAULT_WORKER_DIR;
 
+        $callback = self::firstNonEmpty(
+            $callbackUrl,
+            self::env(self::CALLBACK_VAR),
+            $config->callbackUrls[$environment] ?? null,
+        );
+
         return new self(
             environment: $environment,
             endpoint: $env['endpoint'],
@@ -113,21 +141,31 @@ final class CloudflareTarget
             apiToken: $token,
             workerDir: self::absolute($config->rootDir, $dir),
             debugEndpoints: $env['debug_endpoints'],
+            callbackUrl: $callback,
         );
     }
 
     /**
-     * Worker vars this environment's atoms.json asks for, in the shape
-     * Wrangler's `--var` takes. Both `atoms dev` and `atoms deploy` pass these
-     * through, which is what makes atoms.json the single declaration: the
-     * scaffolded Worker directory is gitignored and regenerated, so a var that
-     * only lived in its wrangler.jsonc would not survive CI.
+     * Worker vars this environment asks for, in the shape Wrangler's `--var`
+     * takes: the debug-endpoints switch and the callback URL. Both `atoms dev`
+     * and `atoms deploy` pass these through, which is what makes atoms.json
+     * the single declaration: the scaffolded Worker directory is gitignored
+     * and regenerated, so a var that only lived in its wrangler.jsonc would
+     * not survive CI. Neither var is a secret, so `--var` (argv) is fine.
      *
      * @return array<string, string>
      */
     public function runtimeVars(): array
     {
-        return $this->debugEndpoints ? [self::DEBUG_ENDPOINTS_VAR => '1'] : [];
+        $vars = [];
+        if ($this->debugEndpoints) {
+            $vars[self::DEBUG_ENDPOINTS_VAR] = '1';
+        }
+        if ($this->callbackUrl !== null) {
+            $vars[self::CALLBACK_VAR] = $this->callbackUrl;
+        }
+
+        return $vars;
     }
 
     /**

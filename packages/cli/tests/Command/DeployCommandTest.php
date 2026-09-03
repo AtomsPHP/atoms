@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Cli\Tests\Command;
 
 use Atoms\Cli\Cloudflare\BundleStager;
+use Atoms\Cli\Cloudflare\CloudflareTarget;
 use Atoms\Cli\Command\DeployCommand;
 use Atoms\Cli\Process\ProcessResult;
 use Atoms\Cli\Tests\Support\FakeProcessRunner;
@@ -52,11 +53,13 @@ final class DeployCommandTest extends TestCase
         // every process on the machine. The environment is the only inlet.
         putenv('CLOUDFLARE_API_TOKEN=cf-token');
         putenv('CLOUDFLARE_ACCOUNT_ID');
+        putenv(CloudflareTarget::CALLBACK_VAR);
     }
 
     protected function tearDown(): void
     {
         putenv('CLOUDFLARE_API_TOKEN');
+        putenv(CloudflareTarget::CALLBACK_VAR);
         parent::tearDown();
     }
 
@@ -85,9 +88,91 @@ final class DeployCommandTest extends TestCase
         $deploy = $wrangler->lastCall('deploy');
         self::assertNotNull($deploy);
         self::assertSame('acme-games', $deploy['target']->workerName);
-        // The fixture does not enable debug endpoints, so no --var overrides
-        // ride along: what ships is exactly what the Worker config declares.
+        // The fixture does not enable debug endpoints, so the only --var that
+        // rides along is the callback URL atoms.json declares for production.
+        // Before this was forwarded, `callback_url.production` was inert: a
+        // value the user believed configured, and ATOMS-E080 at runtime.
+        self::assertSame(
+            [CloudflareTarget::CALLBACK_VAR => 'https://acme.example.com'],
+            $deploy['args']['vars'],
+        );
+        self::assertStringContainsString(
+            CloudflareTarget::CALLBACK_VAR . '=https://acme.example.com',
+            $tester->getDisplay(),
+            'the deploy log must show which callback URL shipped',
+        );
+    }
+
+    /**
+     * The callback URL resolves for `atoms deploy` exactly as for `atoms dev`:
+     * `--callback-url`, then `ATOMS_CALLBACK_URL` in the environment, then
+     * atoms.json. One chain, so the two commands never disagree.
+     */
+    public function testCallbackUrlFromTheEnvironmentOrFlagBeatsAtomsJsonOnDeploy(): void
+    {
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://app.example.test/atoms/callback');
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        $deploy = $wrangler->lastCall('deploy');
+        self::assertNotNull($deploy);
+        self::assertSame(
+            [CloudflareTarget::CALLBACK_VAR => 'https://app.example.test/atoms/callback'],
+            $deploy['args']['vars'],
+        );
+
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+            '--callback-url' => 'https://flag.example.test/atoms/callback',
+        ]);
+
+        $deploy = $wrangler->lastCall('deploy');
+        self::assertNotNull($deploy);
+        self::assertSame(
+            [CloudflareTarget::CALLBACK_VAR => 'https://flag.example.test/atoms/callback'],
+            $deploy['args']['vars'],
+        );
+    }
+
+    /**
+     * A deploy with no callback URL anywhere still deploys — the Worker var
+     * may be set on the Cloudflare side — but says so, naming the error the
+     * first `$this->app()` would otherwise raise out of nowhere.
+     */
+    public function testDeployWithNoCallbackUrlWarnsAndForwardsNothing(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        unset($config['callback_url']);
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        $deploy = $wrangler->lastCall('deploy');
+        self::assertNotNull($deploy);
         self::assertSame([], $deploy['args']['vars']);
+        self::assertStringContainsString('ATOMS-E080', $tester->getDisplay());
+        self::assertStringContainsString('--callback-url', $tester->getDisplay());
     }
 
     /**
@@ -116,7 +201,10 @@ final class DeployCommandTest extends TestCase
         self::assertSame(0, $exit, $tester->getDisplay());
         $deploy = $wrangler->lastCall('deploy');
         self::assertNotNull($deploy);
-        self::assertSame(['ATOMS_DEBUG_ENDPOINTS' => '1'], $deploy['args']['vars']);
+        self::assertSame(
+            ['ATOMS_DEBUG_ENDPOINTS' => '1', CloudflareTarget::CALLBACK_VAR => 'https://acme.example.com'],
+            $deploy['args']['vars'],
+        );
         // Enabling a debug surface must be visible in the deploy log.
         self::assertStringContainsString('ATOMS_DEBUG_ENDPOINTS=1', $tester->getDisplay());
     }
