@@ -42,7 +42,7 @@ To use Eloquent inside your Atom (with Atom-specific models only!), you need to 
 Add the static rules that protect the PHP↔Worker boundary:
 
 ```bash
-composer require --dev atoms/phpstan-rules:^0.4
+composer require --dev atoms/phpstan-rules:^0.5
 ```
 
 Then include its configuration from your PHPStan config:
@@ -61,13 +61,27 @@ vendor/bin/atoms init
 The `init` command creates `atoms.json` and `atoms-composer.json`. It also prints a command that scaffolds the matching version of the Cloudflare Worker runtime:
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.4.0 -- \
-  atoms-runtime-cloudflare init .atoms/worker
-cd .atoms/worker
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
+  atoms-runtime-cloudflare init atoms-worker
+cd atoms-worker
 npm ci
+cd ..
+git add atoms-worker
 ```
 
-You now have a `.atoms/worker` directory holding the Cloudflare Worker your Atoms run in, and its dependencies. It is generated and gitignored — `atoms build` and `atoms deploy` manage it from here.
+Commit `atoms-worker/` alongside `atoms.json`. It contains the Worker runtime,
+its dependency lockfile, and your `wrangler.jsonc`. The same directory is used
+for every environment and by the deploy Action.
+
+Edit `atoms-worker/wrangler.jsonc` for routes, custom domains, logging, and
+runtime settings. Keep the entries marked `RUNTIME-REQUIRED`. Set
+`debug_endpoints` per environment in `atoms.json`; the CLI forwards that value
+when running or deploying the Worker.
+
+The scaffold ignores dependencies, local secrets, and generated bundles.
+Commit the remaining files, including `atoms-runtime.json`, which records the
+runtime version. See [Upgrade the runtime](/guides/deploy/#upgrade-the-runtime)
+when updating your Atoms packages.
 
 ## Fill in `atoms.json`
 
@@ -89,7 +103,6 @@ Fill out the necessary details in the generated `atoms.json`:
             "worker_name": "my-app",
             // Your Cloudflare account id:
             "account_id": "",                 
-            "worker_dir": ".atoms/worker",
             "debug_endpoints": false          
         },
         // ... additional environments
@@ -102,6 +115,10 @@ Fill out the necessary details in the generated `atoms.json`:
 ```
 
 The `environments` block configures deploys; `callback_url` is read only by `atoms dev`, which passes it to the local Worker. A deployed Worker gets its callback URL from the `ATOMS_CALLBACK_URL` variable you set with Wrangler — see the [Callbacks guide](/guides/callbacks/#callback-url).
+
+The CLI finds `atoms-worker/` beside `atoms.json`. For another location, pass
+`--worker-dir` to commands that use the Worker and set the Action's
+`worker-directory` input. The directory is not configured in `atoms.json`.
 
 ## Next
 

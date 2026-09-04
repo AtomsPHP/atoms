@@ -3,9 +3,9 @@ title: PDO compatibility
 description: How the Atoms PDO shim differs from native pdo_sqlite.
 ---
 
-The Cloudflare runtime exposes `$this->db()->pdo()` for compatible PDO-style code, but the SQL engine is a Durable Object across a PHP↔JavaScript bridge. Atoms refuses behavior it cannot reproduce honestly.
+`$this->db()->pdo()` runs queries against the Atom's SQLite database through the Cloudflare runtime. It supports part of the native PDO API; unsupported operations throw `PDOException`.
 
-The complete case matrix is generated from a differential run against native in-guest `pdo_sqlite`. Worker conformance verifies that the published matrix is fresh. Read the [generated matrix in the repository](https://github.com/AtomsPHP/atoms/blob/main/cloudflare/docs/pdo-compatibility.md) for member-by-member results.
+The [compatibility matrix](https://github.com/AtomsPHP/atoms/blob/main/cloudflare/docs/pdo-compatibility.md) records tests that run the same operations against Atoms and native `pdo_sqlite`. Use it to check individual methods and fetch modes.
 
 ## Status vocabulary
 
@@ -20,10 +20,15 @@ The complete case matrix is generated from a differential run against native in-
 ## Important differences
 
 - SQLite extension callbacks such as `sqliteCreateFunction()`, aggregates, and collations are permanently unavailable: PHP callbacks cannot run inside the Durable Object SQL engine.
-- Driver metadata that would describe the wrong SQLite binary is refused.
-- Duplicate column names destroy positional information at the current wire boundary. Alias columns distinctly before using positional or grouping fetch modes.
+- `getAttribute(PDO::ATTR_SERVER_VERSION)` and `getAttribute(PDO::ATTR_CLIENT_VERSION)` throw: the PHP runtime and Durable Object use different SQLite builds.
+- Give each result column a unique name. Duplicate names lose information when query results cross from SQLite into PHP; this also affects positional and grouping fetch modes.
 - Whole-number REAL values can cross back as PHP integers because workerd exposes INTEGER and REAL through the same JavaScript number type.
 - Wide INTEGER results must be selected with `CAST(column AS TEXT)` to preserve values above JavaScript’s safe integer range.
-- Non-empty driver option arrays passed to `prepare()` are refused rather than silently ignored.
+- `prepare()` accepts an empty options array or `[PDO::ATTR_CURSOR => PDO::CURSOR_FWDONLY]`. Other options throw.
 
-The shim’s public reflection surface is also checked against the guest’s native PDO classes. A method that appears to exist must have a deliberate implementation or a typed refusal.
+For example, alias both `id` columns in a join:
+
+```sql
+SELECT players.id AS player_id, teams.id AS team_id
+FROM players JOIN teams ON teams.id = players.team_id;
+```

@@ -53,6 +53,7 @@ export default defineConfig({
           { label: 'Limits', slug: 'reference/limits' },
           { label: 'PDO compatibility', slug: 'reference/pdo' },
           { label: 'CLI', slug: 'reference/cli' },
+          { label: 'Client calls', slug: 'reference/client' },
           { label: 'Error catalog', slug: 'reference/errors' },
         ]},
       ],

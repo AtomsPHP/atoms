@@ -1,24 +1,29 @@
 ---
 title: Compatibility
-description: The coordinated versions and supported host toolchain for Atoms 0.4.
+description: The coordinated versions and supported host toolchain for Atoms 0.5.
 ---
 
 Atoms releases its PHP packages, Worker runtime, and deployment Action as one compatible line.
 
-| Component | 0.4 support |
+| Component | 0.5 support |
 |---|---|
-| `atoms/core` | `^0.4` frozen, additive API |
-| `atoms/client`, adapters, testing, rules, CLI | `^0.4` |
-| `atoms/database-illuminate` | `^0.4`, installed Atom-side through `atoms-composer.json` |
-| `@atomsphp/runtime-cloudflare` | `0.4.0`, co-versioned with the release |
-| Deploy Action | immutable `AtomsPHP/atoms/action@v0.4.0` |
+| `atoms/core` | `^0.5` frozen, additive API |
+| `atoms/client`, adapters, testing, rules, CLI | `^0.5` |
+| `atoms/database-illuminate` | `^0.5`, installed Atom-side through `atoms-composer.json` |
+| `@atomsphp/runtime-cloudflare` | `0.5.0`, co-versioned with the release |
+| Deploy Action | immutable `AtomsPHP/atoms/action@v0.5.0` |
 | Host PHP | `^8.3`; tested on PHP 8.3 and PHP 8.4 |
 | Guest PHP | PHP 8.3 WebAssembly |
 | Node.js | 22 |
 | Wrangler | 4.118.0 (exact runtime-template pin) |
 
-Use matching 0.4 release artifacts. The CLI stamps the core API version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043) instead of attempting to run it.
+Use matching 0.5 release artifacts. The CLI stamps the core API version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043) instead of attempting to run it.
 
-The runtime scaffold command printed by `atoms init` and used by the deploy Action is generated from the same release manifest as the tag. It is not an independently moving “latest” dependency.
+The committed `atoms-worker/atoms-runtime.json` must name the exact same
+release as the CLI. `atoms dev` and `atoms deploy` check it before building
+and report [ATOMS-E108](/reference/errors/#atoms-e108) for a missing stamp or
+version mismatch. Follow [Upgrade the runtime](/guides/deploy/#upgrade-the-runtime)
+after updating the PHP packages. The deploy Action installs dependencies in
+the committed directory.
 
 Pre-1.0 APIs outside `atoms/core` may change between minor versions. Package patch releases remain within the declared Composer constraints; use lockfiles for repeatable application and Worker installs.

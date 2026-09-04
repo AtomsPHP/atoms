@@ -74,14 +74,14 @@ use Atoms\Laravel\Facades\Atoms;
 $count = Atoms::get(GameRoom::class, 'room-42')->join('ada');
 ```
 
-Pass an `Atoms\Client\CallOptions` as a third argument to `get()` to control retry-on-timeout, the idempotency key, or the trace header for one call — see [Per-call options](/reference/limits/#per-call-options).
+Pass an `Atoms\Client\CallOptions` as a third argument to `get()` to control retry-on-timeout, the idempotency key, or the trace header for one call — see [Per-call options](/reference/client/#per-call-options).
 
 ## Test it without Cloudflare
 
 Use `atoms/testing` for fast local tests of Atom behavior, migrations, callbacks, broadcasts, and timers:
 
 ```bash
-composer require --dev atoms/testing:^0.4
+composer require --dev atoms/testing:^0.5
 ```
 
 ```php
