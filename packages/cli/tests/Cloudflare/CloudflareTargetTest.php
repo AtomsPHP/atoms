@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Atoms\Cli\Tests\Cloudflare;
 
 use Atoms\Cli\Cloudflare\CloudflareTarget;
+use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Cloudflare\WranglerBinary;
 use Atoms\Cli\Config\AtomsJson;
+use Atoms\Cli\Release\RuntimeVersion;
 use Atoms\Cli\Tests\Support\FakeProcessRunner;
 use Atoms\Cli\Tests\TestCase;
 use Atoms\Errors\AtomsError;
@@ -32,10 +34,9 @@ final class CloudflareTargetTest extends TestCase
     }
 
     /**
-     * The callback URL has the same shape as `account_id`: an explicit value
-     * beats the environment, which beats atoms.json. A callback URL is often
-     * per machine (a tunnel host, a local port), so the committed file must
-     * not be its only home.
+     * An explicit callback URL beats the environment, which beats atoms.json.
+     * A callback URL is often per machine (a tunnel host, a local port), so
+     * the committed file must not be its only home.
      */
     public function testCallbackUrlResolvesFlagThenEnvironmentThenAtomsJson(): void
     {
@@ -153,6 +154,7 @@ final class CloudflareTargetTest extends TestCase
         $config = $this->sampleApp();
 
         $target = CloudflareTarget::resolve($config, 'production', 'token');
+        self::assertSame('atoms-worker', CloudflareTarget::DEFAULT_WORKER_DIR);
         self::assertSame($config->rootDir . '/' . CloudflareTarget::DEFAULT_WORKER_DIR, $target->workerDir);
 
         $target = CloudflareTarget::resolve($config, 'production', 'token', 'vendor/worker');
@@ -228,6 +230,62 @@ final class CloudflareTargetTest extends TestCase
             'https://acme-games.example.workers.dev/invoke/GameRoom/g-1/ping',
             $target->invokeUrl('GameRoom', 'g-1', 'ping'),
         );
+    }
+
+    public function testRuntimeVersionMatchesTheStamp(): void
+    {
+        $dir = $this->freshDir();
+        file_put_contents($dir . '/' . RuntimeStamp::FILE, json_encode(['version' => RuntimeVersion::VERSION], JSON_THROW_ON_ERROR));
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production', 'token', $dir);
+
+        $target->assertRuntimeVersion();
+        self::assertTrue(true);
+    }
+
+    public function testRuntimeVersionMismatchIsE108WithTheExactUpgradeCommand(): void
+    {
+        $config = $this->sampleApp();
+        $dir = $config->rootDir . '/atoms-worker-skewed';
+        mkdir($dir);
+        try {
+            file_put_contents($dir . '/' . RuntimeStamp::FILE, json_encode(['version' => '0.0.1-other'], JSON_THROW_ON_ERROR));
+            $target = CloudflareTarget::resolve($config, 'production', 'token', 'atoms-worker-skewed');
+
+            $target->assertRuntimeVersion();
+            self::fail('expected ATOMS-E108');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E108', $e->getMessage());
+            self::assertStringContainsString('0.0.1-other', $e->getMessage());
+            // The command is version-pinned to this CLI and names the directory.
+            self::assertStringContainsString(RuntimeVersion::upgradeCommand($dir), $e->getMessage());
+        } finally {
+            @unlink($dir . '/' . RuntimeStamp::FILE);
+            @rmdir($dir);
+        }
+    }
+
+    /**
+     * The scaffold and upgrade commands are printed for a human to paste, and
+     * --worker-dir exists precisely for unusual locations — which may hold a
+     * space or a shell metacharacter.
+     */
+    public function testPrintedCommandsQuoteADirectoryThatNeedsIt(): void
+    {
+        self::assertStringEndsWith(' init atoms-worker', RuntimeVersion::scaffoldCommand());
+        self::assertStringEndsWith(' upgrade infra/atoms-worker', RuntimeVersion::upgradeCommand('infra/atoms-worker'));
+        self::assertStringEndsWith(" upgrade 'my dir/it'\\''s'", RuntimeVersion::upgradeCommand("my dir/it's"));
+        self::assertStringEndsWith(" upgrade 'a;rm -rf b'", RuntimeVersion::upgradeCommand('a;rm -rf b'));
+    }
+
+    public function testAnUnreadableStampIsE076NotE108(): void
+    {
+        $dir = $this->freshDir();
+        file_put_contents($dir . '/' . RuntimeStamp::FILE, '{not json');
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production', 'token', $dir);
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E076/');
+        $target->assertRuntimeVersion();
     }
 
     public function testWorkerDirWithoutAWranglerConfigIsE076(): void

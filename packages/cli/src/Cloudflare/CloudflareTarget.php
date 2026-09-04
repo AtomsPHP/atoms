@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Cli\Cloudflare;
 
 use Atoms\Cli\Config\AtomsJson;
+use Atoms\Cli\Release\RuntimeVersion;
 use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
@@ -42,15 +43,21 @@ use Atoms\Errors\ErrorCode;
  */
 final class CloudflareTarget
 {
-    /** Where the Worker project lives when atoms.json does not say. */
-    public const DEFAULT_WORKER_DIR = '.atoms/worker';
+    /**
+     * Where the Worker project lives: a committed directory beside atoms.json.
+     * Its location is a convention, like atoms.json's own, rather than a
+     * setting — atoms.json does not name it. `--worker-dir` is the explicit
+     * per-invocation override for an unusual layout.
+     */
+    public const DEFAULT_WORKER_DIR = 'atoms-worker';
 
     /**
      * The Worker var gating the `/debug` routes. Off by default in the Worker
-     * (`worker/src/config.js`) and absent from the scaffolded wrangler.jsonc;
-     * atoms.json's per-environment `debug_endpoints` is the one switch, and it
-     * reaches Wrangler as a `--var` so it survives the Worker directory being
-     * regenerated.
+     * (`worker/src/config.js`) and absent from the scaffolded wrangler.jsonc.
+     * atoms.json's per-environment `debug_endpoints` is the supported switch,
+     * forwarded as a `--var`: wrangler.jsonc is one file for every
+     * environment, and this flag is the one setting that must be able to
+     * differ between staging and production.
      */
     public const DEBUG_ENDPOINTS_VAR = 'ATOMS_DEBUG_ENDPOINTS';
 
@@ -58,9 +65,8 @@ final class CloudflareTarget
      * The Worker var carrying the monolith's callback endpoint — where
      * `$this->app()` and `$this->dispatch()` reach the app. Not a secret.
      *
-     * Resolved the way `account_id` is, and for the same reason: a callback
-     * URL is per deployment and often per developer (a tunnel host, a local
-     * port, a staging domain that differs by machine), so a committed value
+     * A callback URL is per deployment and often per developer (a tunnel host,
+     * a local port, a staging domain that differs by machine), so a committed value
      * is the wrong default. An explicit `--callback-url` wins, then this same
      * name in the CLI's own process environment, then atoms.json's
      * `callback_url.<env>`. The name is deliberately the Worker's: it is what
@@ -92,6 +98,11 @@ final class CloudflareTarget
 
     /**
      * Resolve from atoms.json plus explicit overrides plus the environment.
+     *
+     * The Worker directory is `$workerDir` when given, else
+     * {@see DEFAULT_WORKER_DIR} under the repository root. atoms.json has no
+     * say: one directory serves every environment, so every environment
+     * deploys the same runtime.
      *
      * Nothing about credentials fails here any more. Neither half is Atoms'
      * to adjudicate: the token may be a `wrangler login` session this process
@@ -125,7 +136,7 @@ final class CloudflareTarget
         $token = self::firstNonEmpty($apiToken, self::env('CLOUDFLARE_API_TOKEN'));
         $accountId = self::firstNonEmpty($env['account_id'], self::env('CLOUDFLARE_ACCOUNT_ID')) ?? '';
 
-        $dir = self::firstNonEmpty($workerDir, $env['worker_dir']) ?? self::DEFAULT_WORKER_DIR;
+        $dir = self::firstNonEmpty($workerDir) ?? self::DEFAULT_WORKER_DIR;
 
         $callback = self::firstNonEmpty(
             $callbackUrl,
@@ -146,12 +157,11 @@ final class CloudflareTarget
     }
 
     /**
-     * Worker vars this environment asks for, in the shape Wrangler's `--var`
-     * takes: the debug-endpoints switch and the callback URL. Both `atoms dev`
-     * and `atoms deploy` pass these through, which is what makes atoms.json
-     * the single declaration: the scaffolded Worker directory is gitignored
-     * and regenerated, so a var that only lived in its wrangler.jsonc would
-     * not survive CI. Neither var is a secret, so `--var` (argv) is fine.
+     * Worker vars for this environment, in Wrangler's `--var` format:
+     * the debug-endpoints switch and the resolved callback URL. Both `atoms dev`
+     * and `atoms deploy` pass these through. The committed wrangler.jsonc is
+     * shared by every environment; atoms.json holds per-environment settings.
+     * Neither var is a secret, so both can be passed in argv.
      *
      * @return array<string, string>
      */
@@ -191,6 +201,45 @@ final class CloudflareTarget
         }
 
         throw $this->workerDirError("{$this->workerDir} has no wrangler.jsonc, wrangler.json or wrangler.toml");
+    }
+
+    /**
+     * Assert the Worker directory was scaffolded by this CLI's release.
+     *
+     * The Worker directory is committed and co-versioned with the CLI and the
+     * Composer packages, so upgrading one without the other is the ordinary
+     * way for them to drift. A mismatch is refused before anything is built
+     * or shipped (ATOMS-E108), naming both versions and the exact
+     * version-pinned upgrade command. Exact equality is the rule: every
+     * release publishes a new runtime package, and a range would let a
+     * "close enough" runtime deploy against packages it was never tested
+     * with. A directory with no stamp at all — scaffolded before stamps
+     * existed — is the same finding with "unknown" for the version.
+     *
+     * Checked by the two commands that stage a bundle into the directory,
+     * `deploy` and `dev`; `status`, `rollback` and the secrets commands ship
+     * no code and read only wrangler.jsonc.
+     *
+     * @throws AtomsError E108 on a mismatch or a missing stamp,
+     *                    E076 when the stamp exists but is unreadable
+     */
+    public function assertRuntimeVersion(): void
+    {
+        $found = RuntimeStamp::version($this->workerDir, $this->environment);
+        if ($found === RuntimeVersion::VERSION) {
+            return;
+        }
+
+        throw new AtomsError(
+            ErrorCode::WorkerRuntimeVersionMismatch,
+            ErrorCatalog::format(ErrorCode::WorkerRuntimeVersionMismatch, [
+                'dir' => $this->workerDir,
+                'package' => RuntimeVersion::PACKAGE,
+                'found' => $found ?? 'an unknown release (no ' . RuntimeStamp::FILE . ')',
+                'expected' => RuntimeVersion::VERSION,
+                'command' => RuntimeVersion::upgradeCommand($this->workerDir),
+            ]),
+        );
     }
 
     /**

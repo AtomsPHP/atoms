@@ -58,9 +58,9 @@ use Symfony\Component\Console\Output\OutputInterface;
  * The callback URL is passed to the Worker as an `ATOMS_CALLBACK_URL` var, and
  * the Worker calls back through it for `$this->app()` and `$this->dispatch()`.
  * It resolves as `--callback-url`, then `ATOMS_CALLBACK_URL` in this process's
- * environment, then atoms.json's `callback_url.<env>` — the same shape
- * `account_id` has, and for the same reason: the value is usually per machine
- * (a tunnel host, a local port), so a committed file is the wrong only home.
+ * environment, then atoms.json's `callback_url.<env>`. The environment override
+ * lets developers use a per-machine tunnel host or local port without
+ * committing that value.
  * {@see CloudflareTarget::resolve()} owns that chain, so `atoms deploy`
  * forwards the identical value.
  */
@@ -110,6 +110,11 @@ final class DevCommand extends AbstractCommand
             );
 
             $target->assertWorkerDir();
+            // Same check as deploy, for the same reason: a Worker directory
+            // from another release would run a runtime the PHP packages on
+            // this machine do not match, and the confusion would surface as
+            // a guest error rather than as the skew it is.
+            $target->assertRuntimeVersion();
             $this->ensureDevSecret($config->rootDir, $target->workerDir, $output);
 
             if ($input->getOption('no-build') !== true) {
@@ -122,12 +127,10 @@ final class DevCommand extends AbstractCommand
                 $this->stager->stage($target, $result->bundlePath, $result->manifestPath);
             }
 
-            // atoms.json is the durable home for Worker settings — the Worker
-            // project directory is gitignored and regenerated, so its
-            // wrangler.jsonc is not. Forwarded here and on deploy, so dev and
-            // deploy agree on what one declaration means. The callback URL
-            // rides along, already resolved through --callback-url, the
-            // environment and atoms.json.
+            // atoms.json holds per-environment settings; the committed
+            // wrangler.jsonc is shared by every environment. Dev and deploy
+            // forward the same vars, including the callback URL resolved from
+            // --callback-url, the process environment, or atoms.json.
             $vars = $target->runtimeVars();
             $callback = $target->callbackUrl;
 

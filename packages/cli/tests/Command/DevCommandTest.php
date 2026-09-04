@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Tests\Command;
 
+use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Command\DevCommand;
 use Atoms\Cli\Process\ProcessResult;
+use Atoms\Cli\Release\RuntimeVersion;
 use Atoms\Cli\Tests\Support\FakeProcessRunner;
 use Atoms\Cli\Tests\Support\FakeWrangler;
 use Atoms\Cli\Tests\TestCase;
@@ -23,14 +25,29 @@ final class DevCommandTest extends TestCase
 {
     /**
      * A Worker project that looks real enough for CloudflareTarget's checks: a
-     * wrangler config. Nothing is executed — Wrangler itself is faked.
+     * wrangler config and the release stamp. Nothing is executed — Wrangler
+     * itself is faked.
      */
     private function workerDir(): string
     {
         $dir = $this->freshDir();
         file_put_contents($dir . '/wrangler.jsonc', json_encode(['name' => 'w'], JSON_THROW_ON_ERROR));
+        self::stamp($dir);
 
         return $dir;
+    }
+
+    /**
+     * The stamp `atoms-runtime-cloudflare init` writes; deploy and dev refuse
+     * a directory whose stamp names another release (ATOMS-E108), so a test
+     * Worker directory carries the current one.
+     */
+    private static function stamp(string $dir, string $version = RuntimeVersion::VERSION): void
+    {
+        file_put_contents(
+            $dir . '/' . RuntimeStamp::FILE,
+            json_encode(['package' => RuntimeVersion::PACKAGE, 'version' => $version], JSON_THROW_ON_ERROR),
+        );
     }
 
     private function execute(string $workerDir, FakeWrangler $wrangler, ?FakeProcessRunner $runner = null): CommandTester
@@ -186,6 +203,28 @@ final class DevCommandTest extends TestCase
     }
 
     /**
+     * `dev` runs the committed runtime locally, so it makes the same skew
+     * check deploy does: a directory from another release is refused before
+     * a dev secret is provisioned or wrangler dev starts.
+     */
+    public function testAWorkerDirectoryFromAnotherReleaseIsE108BeforeWranglerDevStarts(): void
+    {
+        $dir = $this->workerDir();
+        self::stamp($dir, '0.0.1-other');
+        $wrangler = new FakeWrangler();
+
+        $tester = $this->execute($dir, $wrangler);
+
+        self::assertSame(1, $tester->getStatusCode());
+        self::assertStringContainsString('ATOMS-E108', $tester->getDisplay());
+        self::assertStringContainsString('atoms-runtime-cloudflare upgrade', $tester->getDisplay());
+        self::assertSame([], $wrangler->calls, 'the refusal comes before Wrangler is invoked');
+        // The refusal also comes before the dev secret is provisioned: the
+        // directory holds exactly what the test put there.
+        self::assertSame(['atoms-runtime.json', 'wrangler.jsonc'], array_values(array_diff(scandir($dir), ['.', '..'])));
+    }
+
+    /**
      * The one supported, re-scaffold-proof way to turn the Worker's /debug
      * routes on — atoms.json's per-environment `debug_endpoints` — must reach
      * `wrangler dev` as a --var, without displacing the callback var.
@@ -224,9 +263,9 @@ final class DevCommandTest extends TestCase
 
     /**
      * `ATOMS_CALLBACK_URL` in the shell that runs `atoms dev` overrides
-     * atoms.json's `callback_url`, and `--callback-url` overrides both — the
-     * `account_id` precedence, so a per-machine tunnel URL never has to be
-     * committed or wrapped into every invocation.
+     * atoms.json's `callback_url`, and `--callback-url` overrides both. This lets
+     * developers set a per-machine tunnel URL without committing it or
+     * passing it on every invocation.
      */
     public function testCallbackUrlFromTheEnvironmentBeatsAtomsJsonAndTheFlagBeatsBoth(): void
     {

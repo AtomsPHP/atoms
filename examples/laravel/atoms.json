@@ -9,8 +9,7 @@
         "production": {
             "endpoint": "https://atoms-laravel-example.<your-subdomain>.workers.dev",
             "worker_name": "atoms-laravel-example",
-            "account_id": "",
-            "worker_dir": ".atoms/worker"
+            "account_id": ""
         }
     },
     "callback_url": {

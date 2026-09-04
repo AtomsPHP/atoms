@@ -24,8 +24,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * The Worker vars atoms.json declares for the environment — `debug_endpoints`
  * and `callback_url.<env>` — ride along as `wrangler deploy --var`, the same
- * way `atoms dev` forwards them, so one declaration means one thing in both
- * places. The callback URL resolves exactly as it does for `atoms dev`:
+ * way `atoms dev` forwards them, so both commands use the same settings. The callback URL resolves exactly as it does for `atoms dev`:
  * `--callback-url`, then `ATOMS_CALLBACK_URL` in this process's environment,
  * then atoms.json ({@see CloudflareTarget::resolve()}). It is not a secret,
  * so argv is a fine road for it; `ATOMS_SHARED_SECRET` is not forwarded here
@@ -71,6 +70,13 @@ final class DeployCommand extends AbstractCommand
                 self::stringOption($input, 'callback-url'),
             );
 
+            // Before the build, not after it: a Worker directory that is
+            // missing (E076) or scaffolded by another release (E108) fails
+            // here, in seconds, rather than after a build and a vendor
+            // resolution that were never going to ship.
+            $target->assertWorkerDir();
+            $target->assertRuntimeVersion();
+
             $bundleOpt = self::stringOption($input, 'bundle');
             if ($bundleOpt !== null) {
                 $bundlePath = $bundleOpt;
@@ -97,7 +103,9 @@ final class DeployCommand extends AbstractCommand
                 // check — but under ATOMS_BEARER_AUTH=disabled (an
                 // authenticating proxy in front of the Worker), the flag is
                 // the only thing in front of /debug, so enabling it deserves
-                // a visible line in the deploy log.
+                // a visible line in the deploy log. atoms.json is where it
+                // is declared, per environment; the committed wrangler.jsonc
+                // is shared by every environment and must not carry it.
                 $output->writeln(
                     '  ' . $target::DEBUG_ENDPOINTS_VAR . '=1 (debug endpoints enabled by atoms.json '
                     . '"debug_endpoints" for ' . $env . ')'

@@ -57,7 +57,7 @@ id, and how rotation works. Two things are specific to CI:
 | `cloudflare-api-token` | Yes | — | Cloudflare API token with Workers Scripts:Edit on the target account |
 | `cloudflare-account-id` | Yes | — | Cloudflare account id to deploy into |
 | `working-directory` | No | `.` | Working directory containing `atoms.json` |
-| `worker-directory` | No | `.atoms/worker` | Existing custom Worker directory, relative to `working-directory`. The default is scaffolded automatically when missing or empty. |
+| `worker-directory` | No | `atoms-worker` | The committed Worker directory, relative to `working-directory`. It must exist in the checkout. |
 | `bundle` | No | — | Path to a prebuilt bundle. If omitted, builds locally. |
 | `shared-secret` | No | — | `ATOMS_SHARED_SECRET` for the Worker (32 random bytes, base64). Stored after the deploy, and only when the Worker does not already have one. |
 | `shared-secret-previous` | No | — | `ATOMS_SHARED_SECRET_PREVIOUS`, the rotation overlap value. |
@@ -115,33 +115,66 @@ rotation runbook.
 2. **Sets up PHP** (default 8.3) with `pdo_sqlite` and `curl`.
 3. **Sets up Node** (default 22) — Wrangler is a Node program.
 4. **Installs the matching Atoms CLI version** via Composer.
-5. **Scaffolds the pinned Worker runtime** at `.atoms/worker` when the default is missing or empty.
-6. **Runs `npm ci`** from the runtime's shipped lockfile.
-7. **Runs `atoms deploy --env <environment>`** in `working-directory`, with the
-   Cloudflare credentials in the environment.
-8. **Configures the shared secret**, when `shared-secret` or
+5. **Runs `npm ci`** in your committed Worker directory, from the
+   `package-lock.json` committed there. It fails with a clear message when
+   the directory is missing.
+6. **Runs `atoms deploy --env <environment>`** in `working-directory`, with the
+   Cloudflare credentials in the environment. The CLI refuses, before
+   building, a Worker directory scaffolded by a different release than the
+   CLI (`ATOMS-E108`).
+7. **Configures the shared secret**, when `shared-secret` or
    `shared-secret-previous` is set — after the deploy, because
    `wrangler secret put` needs the Worker to exist.
-9. **Retires the previous shared secret**, when
+8. **Retires the previous shared secret**, when
    `retire-shared-secret-previous` is `true`.
 
 ## The Worker directory
 
+Your Worker directory is committed. Scaffold it once, on a workstation, with
+the command `atoms init` prints:
+
+```sh
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
+  atoms-runtime-cloudflare init atoms-worker
+cd atoms-worker && npm ci
+git add atoms-worker
+```
+
+From then on it is part of the repository, like `atoms.json`. The action
+checks it out with the rest of your code, runs `npm ci` from the
+`package-lock.json` committed inside it, and deploys. Everything it fetches
+is pinned by that lockfile.
+
 Wrangler is **pinned and locally installed**: the CLI runs
 `node_modules/.bin/wrangler` from the Worker directory. Atoms never downloads
 Wrangler at deploy time — no `npx` fetch, no unpinned version drifting into a
-production deploy. So the Worker directory must have had `npm ci` run in it
-before `atoms deploy` executes.
+production deploy.
 
-When `worker-directory` is omitted, the action uses `.atoms/worker`. If that
-directory is missing or empty, it installs the version of
-`@atomsphp/runtime-cloudflare` stamped into the action release and scaffolds the
-Worker before running `npm ci`. The shipped `package-lock.json` pins Wrangler,
-php-wasm, and every transitive dependency.
+**When the directory is missing**, the action fails before deploying, with a
+message that says to commit one. Passing `worker-directory` names a directory
+that lives somewhere other than `atoms-worker/`; it does not change what the
+action does with it.
 
-Passing `worker-directory` opts into a caller-managed Worker. The action never
-scaffolds or replaces it; the directory must already exist and contain its own
-`package-lock.json`. The action still runs its locked `npm ci` before deploy.
+**When you upgrade the Atoms packages**, upgrade the Worker directory too.
+The two are released together, and `atoms deploy` refuses a directory
+scaffolded by another release (`ATOMS-E108`) rather than shipping a runtime
+your PHP packages do not match. The error prints the exact command:
+
+```sh
+npm exec --yes --package=@atomsphp/runtime-cloudflare@<version> -- \
+  atoms-runtime-cloudflare upgrade atoms-worker
+```
+
+Run it on a workstation, review the diff, run `npm ci` in the directory, and
+commit. It rewrites the files the runtime owns and leaves your
+`wrangler.jsonc` alone; the directory's own `README.md` lists which is which.
+
+**Migrating from a gitignored `.atoms/worker`.** Earlier releases scaffolded
+the directory into `.atoms/worker`, gitignored, and this action recreated it
+on every run. Scaffold `atoms-worker/` as above, carry across any change you
+had made to the old `wrangler.jsonc`, delete `.atoms/worker`, and remove the
+`worker_dir` key from `atoms.json`, which the CLI reads as an ordinary
+unknown key.
 
 ## Examples
 
@@ -200,27 +233,29 @@ jobs:
           cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
 ```
 
-### Bring your own Worker install
+### A Worker directory that is not at `atoms-worker/`
 
 ```yaml
 - uses: actions/checkout@v4
-- run: npm ci
-  working-directory: .atoms/worker
 - uses: AtomsPHP/atoms/action@v0.5.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-    worker-directory: .atoms/worker
+    worker-directory: infra/atoms-worker
 ```
+
+Pass the same path as `--worker-dir` to every `atoms` command you run
+locally; the CLI does not read it from `atoms.json`.
 
 ## Troubleshooting
 
 | Code | Means | Do |
 |------|-------|----|
 | `ATOMS-E072` | Wrangler found no credentials at all | Supply `cloudflare-api-token`; check the secret exists in this repository/environment. A runner has no `wrangler login` session to fall back on, so the token is the only inlet here. |
-| `ATOMS-E073` | Wrangler not found | Restore the default runtime scaffold, or ensure a custom Worker contains its locked Wrangler install. |
+| `ATOMS-E073` | Wrangler not found | The Worker directory's `npm ci` did not run or did not install Wrangler; check the step above the deploy and the committed `package-lock.json`. |
 | `ATOMS-E074` | Wrangler command failed | Read Wrangler's own output; it reports Cloudflare's rejection verbatim. Usually a token missing **Workers Scripts:Edit** on that account. |
 | `ATOMS-E075` | Wrangler could not choose between several accounts | Supply `cloudflare-account-id`, or set `account_id` for the environment in `atoms.json`. Only raised when the token reaches more than one account. |
 | `ATOMS-E105` | Shared secret missing or malformed | The `shared-secret` input is not 32 bytes of base64. Regenerate with `openssl rand -base64 32`. |
-| `ATOMS-E076` | Worker directory missing or incomplete | Remove an incomplete default scaffold so the action can recreate it, or repair the caller-managed Worker directory. |
+| `ATOMS-E076` | Worker directory missing or incomplete | Commit the Worker directory (§The Worker directory), or point `worker-directory` at where it lives. |
+| `ATOMS-E108` | Worker directory does not match the CLI release | The Atoms packages moved without the Worker directory. Run the `atoms-runtime-cloudflare upgrade` command the error prints, review, `npm ci`, commit. |

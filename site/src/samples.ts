@@ -174,11 +174,11 @@ ws.send(JSON.stringify({ piece: <span class="tok-s">'rook'</span>, square: <span
 <span class="tok-c">$ # If you're working in Laravel:</span>
 <span class="tok-c">$</span> php artisan atoms:install
 
-<span class="tok-c">$</span> <span class="tok-c"># Scaffold the Worker project:</span>
+<span class="tok-c">$</span> <span class="tok-c"># Scaffold the Worker directory (commit it):</span>
 <span class="tok-c">$</span> npm exec --yes --package=@atomsphp/runtime-cloudflare -- \\
-    atoms-runtime-cloudflare init .atoms/worker
+    atoms-runtime-cloudflare init atoms-worker
 <span class="tok-c">$</span> <span class="tok-c"># Install JavaScript dependencies:</span>
-<span class="tok-c">$</span> (cd .atoms/worker &amp;&amp; npm ci)
+<span class="tok-c">$</span> (cd atoms-worker &amp;&amp; npm ci)
 
 <span class="tok-c">$</span> vendor/bin/atoms dev
 <span class="tok-c">$</span> vendor/bin/atoms deploy`,
