@@ -32,7 +32,7 @@ import { bootPHP, composeBootCode, guestMemoryBytes, mkdirp, writeGuestFile } fr
 import { TimersHost } from './timers.js';
 import { WebSocketHost, WS_ATTACHMENT_VERSION, buildAttachment, readAttachment, attachmentByteLength } from './websockets.js';
 
-/** Wire version of the boot payload handed to the PHP runtime prelude. */
+/** Wire version of the boot payload handed to the guest runtime. */
 const BOOT_PROTOCOL = 1;
 
 /**
@@ -452,7 +452,7 @@ export class AtomDurableObject extends DurableObject {
 		} else if (this.wsDisconnected.has(att.id)) {
 			// A frame that arrived after this connection's onDisconnect already
 			// ran. Dispatching it would call onMessage() on a connection the
-			// Atom has been told is gone — an ordering the ABI does not allow —
+			// Atom has been told is gone — an ordering the API does not allow —
 			// so it is dropped rather than delivered late.
 			this.log('debug', { msg: 'atoms.ws.message_after_disconnect', conn: att.id });
 			return;
@@ -810,7 +810,7 @@ export class AtomDurableObject extends DurableObject {
 	 *
 	 * Activation is itself a callback window (§The turn deadline): the guest
 	 * code it runs — the bootstrap, the migrations, and `onActivation()`, which
-	 * is customer code on the legal ABI — may call `app()` and `dispatch()`.
+	 * is customer code on the legal API — may call `app()` and `dispatch()`.
 	 * The window is opened BEFORE `php.run()` starts and settled in a `finally`
 	 * before this method returns, so activation-time deliveries are awaited
 	 * inside the activation event rather than orphaned across it. The settle
@@ -917,7 +917,7 @@ export class AtomDurableObject extends DurableObject {
 	}
 
 	/**
-	 * Everything the PHP runtime prelude needs to bootstrap itself.
+	 * Everything the guest runtime needs to bootstrap itself.
 	 *
 	 * @param {string} type
 	 * @param {string} id
@@ -929,8 +929,8 @@ export class AtomDurableObject extends DurableObject {
 			host: 'cloudflare-do',
 			atom: { type, id },
 			manifest: bundle?.manifest ?? {},
-			// Guest paths the host wrote into MEMFS. The prelude indexes these
-			// for its bundle-class autoloader (php/README.md §3).
+			// Guest paths the host wrote into MEMFS. The guest runtime indexes
+			// these for its bundle-class autoloader (php/README.md §3).
 			files: Object.keys(bundle?.files ?? {}),
 			paths: {
 				boot_payload: this.config.bootPayloadPath,

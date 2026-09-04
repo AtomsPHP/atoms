@@ -1,0 +1,35 @@
+# The .gitignore of a committed Atoms Worker directory. Runtime-owned:
+# `atoms-runtime-cloudflare upgrade` rewrites it, so add project-level ignores
+# to your repository's root .gitignore (as `atoms-worker/<path>`) rather than
+# here.
+#
+# Everything the Atoms CLI writes into this directory at build, dev or deploy
+# time is listed below, so a deploy never leaves the directory dirty. The
+# committed files are the runtime and your wrangler.jsonc; see README.md for
+# which is which.
+
+# Written by `atoms deploy` and `atoms dev` from your `atoms build` output
+# (scripts/bundle-from-cli.mjs). It embeds your app; regenerate it, never
+# commit it.
+/src/bundle.generated.js
+
+# Installed by `npm ci` from the committed package-lock.json.
+/node_modules/
+
+# The php-wasm runtime, fetched from npm and staged by
+# scripts/prepare-runtime.mjs during `npm ci`. It is a large upstream artifact
+# under its own licence; the lockfile pins it, and the staging step verifies
+# its size and SHA-256. Never commit it.
+/.php-wasm/
+
+# The local-dev vehicle for ATOMS_SHARED_SECRET, written by `atoms dev` from
+# your app's dotenv file. It is the per-machine root every key on the app <->
+# Worker boundary derives from. Never commit it: a committed dev secret is a
+# known master key.
+/.dev.vars
+
+# Wrangler's own local state (`wrangler dev` storage, logs, caches).
+/.wrangler/
+
+# `npm pack` output, if you ever pack this directory.
+/dist/

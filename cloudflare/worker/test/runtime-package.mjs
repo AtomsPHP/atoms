@@ -3,12 +3,12 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { stageRuntimePackage } from '../scripts/pack-runtime.mjs';
+import { RUNTIME_STAMP, USER_OWNED_FILES, stageRuntimePackage } from '../scripts/pack-runtime.mjs';
 
 const workerRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const release = JSON.parse(readFileSync(resolve(workerRoot, '../../release/manifest.json'), 'utf8'));
@@ -32,7 +32,7 @@ try {
 	const target = join(temporaryRoot, 'worker');
 	mkdirSync(packed);
 
-	const { packageManifest, templateManifest } = stageRuntimePackage(stage);
+	const { packageManifest, templateManifest, stamp } = stageRuntimePackage(stage);
 	assert.equal(packageManifest.name, '@atomsphp/runtime-cloudflare');
 	assert.equal(packageManifest.version, release.runtime.version);
 	assert.equal(packageManifest.license, 'MIT');
@@ -40,6 +40,45 @@ try {
 	assert.equal(templateManifest.devDependencies.wrangler, release.runtime.wrangler);
 	assert.ok(existsSync(join(stage, 'template', 'package-lock.json')));
 	assert.ok(!existsSync(join(stage, 'template', 'src', 'bundle.generated.js')));
+
+	// The stamp: the CLI reads its version (ATOMS-E108), upgrade reads its
+	// ownership split. Every template file is accounted for exactly once, as
+	// runtime-owned or as user-owned, and the split is the one pack-runtime
+	// declares — wrangler.jsonc is the user's, nothing else is.
+	const stagedStamp = JSON.parse(readFileSync(join(stage, 'template', RUNTIME_STAMP), 'utf8'));
+	assert.deepEqual(stagedStamp, stamp);
+	assert.equal(stamp.version, release.runtime.version);
+	assert.equal(stamp.package, '@atomsphp/runtime-cloudflare');
+	assert.deepEqual(stamp.user_owned, ['wrangler.jsonc']);
+	assert.deepEqual(USER_OWNED_FILES, ['wrangler.jsonc']);
+	for (const required of ['.gitignore', 'package.json', 'package-lock.json', 'src/index.js', 'scripts/bundle-from-cli.mjs', 'php/runtime/bootstrap.php', 'release/supported-core', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md']) {
+		assert.ok(stamp.runtime_owned.includes(required), `${required} must be runtime-owned in the stamp`);
+	}
+	assert.deepEqual(stamp.runtime_owned, [...stamp.runtime_owned].sort(), 'the stamp is deterministic: sorted');
+	// runtime_owned and user_owned partition the template exactly: every file
+	// the scaffold receives is in one list, the stamp itself in neither.
+	const templateFiles = (dir, prefix = '') => readdirSync(join(dir, prefix), { withFileTypes: true }).flatMap((entry) => {
+		const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+		return entry.isDirectory() ? templateFiles(dir, relative) : [relative === 'gitignore' ? '.gitignore' : relative];
+	});
+	assert.deepEqual(
+		[...stamp.runtime_owned, ...stamp.user_owned].sort(),
+		templateFiles(join(stage, 'template')).filter((file) => file !== RUNTIME_STAMP).sort(),
+	);
+
+	// A scaffolded directory is committed, so everything the CLI generates
+	// inside it must be ignored there — or every deploy dirties the tree.
+	const templateGitignore = readFileSync(join(stage, 'template', 'gitignore'), 'utf8');
+	for (const generated of ['/src/bundle.generated.js', '/node_modules/', '/.php-wasm/', '/.dev.vars', '/.wrangler/']) {
+		assert.ok(
+			templateGitignore.split(/\r?\n/).includes(generated),
+			`the scaffold .gitignore must ignore ${generated}`,
+		);
+	}
+	assert.ok(
+		!templateGitignore.includes('test/.dev-secret.json'),
+		'the scaffold .gitignore is not the monorepo worker\'s .gitignore',
+	);
 
 	// What customers scaffold is the scaffold config, not the conformance
 	// harness's: debug endpoints must default off (the flag is absent, so the
@@ -105,7 +144,19 @@ try {
 	assert.ok(existsSync(join(target, '.gitignore')));
 	assert.ok(existsSync(join(target, 'LICENSE')));
 	assert.ok(existsSync(join(target, 'THIRD_PARTY_NOTICES.md')));
+	assert.ok(existsSync(join(target, 'README.md')));
 	assert.ok(!existsSync(join(target, 'src', 'bundle.generated.js')));
+	assert.deepEqual(JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')), stamp);
+	assert.equal(readFileSync(join(target, '.gitignore'), 'utf8'), templateGitignore);
+	assert.ok(
+		!existsSync(join(target, 'gitignore')),
+		'the template\'s dotless gitignore must be restored to .gitignore, not copied alongside it',
+	);
+	assert.match(
+		readFileSync(join(target, 'wrangler.jsonc'), 'utf8'),
+		/YOUR FILE/,
+		'the scaffolded wrangler.jsonc must say it is user-owned',
+	);
 
 	const emptyTar = Buffer.alloc(1024);
 	const bundle = join(temporaryRoot, 'bundle.tar.gz');
@@ -168,6 +219,127 @@ try {
 	assert.ok(incompatible.stderr.includes(release.core.supported));
 	assert.ok(!existsSync(workerBundle), 'an incompatible bundle must not be emitted');
 
+	// ---- upgrade -------------------------------------------------------------
+	// The committed directory is moved to a new release by `upgrade`, which
+	// writes every file the release ships except user-owned ones that exist,
+	// removes runtime-owned files the previous release shipped and this one
+	// does not, and leaves everything else alone. Simulated by hand-editing
+	// the scaffold as an older release would have left it.
+	const upgradeArgs = ['exec', '--yes', `--package=${tarball}`, '--', 'atoms-runtime-cloudflare', 'upgrade', target];
+	const userWrangler = readFileSync(join(target, 'wrangler.jsonc'), 'utf8')
+		.replace('"ATOMS_LOG_LEVEL": "info"', '"ATOMS_LOG_LEVEL": "debug", "USER_VAR": "kept"');
+	writeFileSync(join(target, 'wrangler.jsonc'), userWrangler);
+	writeFileSync(join(target, 'src', 'config.js'), '// locally edited runtime-owned file\n');
+	mkdirSync(join(target, 'src', 'legacy'), { recursive: true });
+	writeFileSync(join(target, 'src', 'legacy', 'old-module.js'), 'export {};\n');
+	writeFileSync(join(target, 'my-notes.md'), 'not the runtime\'s, left alone\n');
+	const olderStamp = { ...stamp, version: '0.0.1-older', runtime_owned: [...stamp.runtime_owned, 'src/legacy/old-module.js'] };
+	writeFileSync(join(target, RUNTIME_STAMP), `${JSON.stringify(olderStamp, null, 2)}\n`);
+
+	const upgraded = run('npm', upgradeArgs, { env: npmEnvironment });
+	assert.match(upgraded.stdout, /0\.0\.1-older -> /);
+	assert.match(upgraded.stdout, /removed \(no longer shipped\): src\/legacy\/old-module\.js/);
+	assert.match(upgraded.stdout, /left alone \(yours\): wrangler\.jsonc/);
+	assert.equal(
+		readFileSync(join(target, 'src', 'config.js'), 'utf8'),
+		readFileSync(join(stage, 'template', 'src', 'config.js'), 'utf8'),
+		'a runtime-owned file is restored to the release\'s copy',
+	);
+	assert.deepEqual(
+		readdirSync(join(target, 'src')).sort(),
+		readdirSync(join(stage, 'template', 'src')).sort(),
+		'a stale runtime-owned file and its emptied directory are removed: src/ holds exactly what the release ships',
+	);
+	assert.equal(readFileSync(join(target, 'wrangler.jsonc'), 'utf8'), userWrangler, 'wrangler.jsonc is never rewritten by upgrade');
+	assert.equal(readFileSync(join(target, 'my-notes.md'), 'utf8'), 'not the runtime\'s, left alone\n', 'unknown files are left alone');
+	assert.deepEqual(JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')), stamp, 'the stamp is rewritten');
+
+	// The stamp is rewritten last, after the removals: an upgrade that fails
+	// part-way leaves the old version in place, so the CLI keeps refusing the
+	// half-moved tree. Forced here with a stale path whose lstat fails — a
+	// segment longer than the filesystem allows — after every runtime file
+	// has already been written.
+	writeFileSync(join(target, 'src', 'config.js'), '// locally edited again\n');
+	mkdirSync(join(target, 'stale'));
+	const crashingStamp = { ...stamp, version: '0.0.1-older', runtime_owned: [...stamp.runtime_owned, `stale/${'x'.repeat(300)}`] };
+	writeFileSync(join(target, RUNTIME_STAMP), `${JSON.stringify(crashingStamp, null, 2)}\n`);
+	const crashed = run('npm', upgradeArgs, { expectFailure: true, env: npmEnvironment });
+	assert.notEqual(crashed.status, 0);
+	assert.equal(
+		readFileSync(join(target, 'src', 'config.js'), 'utf8'),
+		readFileSync(join(stage, 'template', 'src', 'config.js'), 'utf8'),
+		'runtime files were written before the failure',
+	);
+	assert.deepEqual(
+		JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')),
+		crashingStamp,
+		'the stamp is rewritten last: a failure after the writes leaves the old version in place',
+	);
+	rmSync(join(target, 'stale'), { recursive: true });
+	writeFileSync(join(target, RUNTIME_STAMP), `${JSON.stringify(stamp, null, 2)}\n`);
+
+	// Idempotent: a second run at the same release is a no-op in git terms.
+	const again = run('npm', upgradeArgs, { env: npmEnvironment });
+	assert.match(again.stdout, /is already .*; runtime-owned files rewritten/);
+	assert.match(again.stdout, /removed \(no longer shipped\): none/);
+
+	// A deleted user-owned file is seeded from the template.
+	rmSync(join(target, 'wrangler.jsonc'));
+	const seeded = run('npm', upgradeArgs, { env: npmEnvironment });
+	assert.match(seeded.stdout, /left alone \(yours\): none/);
+	assert.ok(existsSync(join(target, 'wrangler.jsonc')));
+
+	// The committed stamp is user-controlled input and the only thing read
+	// from it is the list of files to consider for removal. Removal is
+	// confined to a plain file at a canonical relative path under the
+	// directory: a path that escapes, a symlink, or a directory is left
+	// where it is, and nothing outside the directory is touched.
+	const victim = join(temporaryRoot, 'victim.txt');
+	writeFileSync(victim, 'not yours\n');
+	const outsideDir = join(temporaryRoot, 'outside-dir');
+	mkdirSync(outsideDir);
+	writeFileSync(join(outsideDir, 'keep.txt'), 'keep\n');
+	mkdirSync(join(target, 'stale-dir'));
+	writeFileSync(join(target, 'stale-dir', 'inner.txt'), 'inner\n');
+	symlinkSync(victim, join(target, 'stale-link.txt'));
+	symlinkSync(outsideDir, join(target, 'stale-dir-link'));
+	const hostileStamp = {
+		...stamp,
+		version: '0.0.2-older',
+		runtime_owned: [
+			...stamp.runtime_owned,
+			'../victim.txt',
+			`/${victim.replace(/^\//, '')}`,
+			'src/../../victim.txt',
+			'stale-link.txt',
+			'stale-dir',
+			'stale-dir-link',
+			'stale-dir-link/keep.txt',
+		],
+	};
+	writeFileSync(join(target, RUNTIME_STAMP), `${JSON.stringify(hostileStamp, null, 2)}\n`);
+	const hostile = run('npm', upgradeArgs, { env: npmEnvironment });
+	assert.match(hostile.stdout, /removed \(no longer shipped\): none/);
+	assert.equal(readFileSync(victim, 'utf8'), 'not yours\n', 'a stamp path must not reach outside the directory');
+	assert.equal(readFileSync(join(outsideDir, 'keep.txt'), 'utf8'), 'keep\n', 'a symlinked directory must not be traversed');
+	assert.ok(lstatSync(join(target, 'stale-link.txt')).isSymbolicLink(), 'a symlink is not removed');
+	assert.ok(lstatSync(join(target, 'stale-dir-link')).isSymbolicLink());
+	assert.equal(readFileSync(join(target, 'stale-dir', 'inner.txt'), 'utf8'), 'inner\n', 'a directory is not removed');
+	assert.deepEqual(JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')), stamp);
+	rmSync(join(target, 'stale-link.txt'));
+	rmSync(join(target, 'stale-dir-link'));
+	rmSync(join(target, 'stale-dir'), { recursive: true });
+
+	// A directory with no stamp is not upgradable: the old scaffold has no
+	// record of what is whose, and guessing is how a user file gets clobbered.
+	const unstamped = join(temporaryRoot, 'unstamped');
+	mkdirSync(unstamped);
+	writeFileSync(join(unstamped, 'wrangler.jsonc'), '{}\n');
+	const refuseUnstamped = run('npm', ['exec', '--yes', `--package=${tarball}`, '--', 'atoms-runtime-cloudflare', 'upgrade', unstamped], { expectFailure: true, env: npmEnvironment });
+	assert.notEqual(refuseUnstamped.status, 0);
+	assert.match(refuseUnstamped.stderr, new RegExp(`has no ${RUNTIME_STAMP}`));
+	assert.equal(readFileSync(join(unstamped, 'wrangler.jsonc'), 'utf8'), '{}\n');
+
 	const secondRun = run('npm', [
 		'exec',
 		'--yes',
@@ -179,6 +351,7 @@ try {
 	], { expectFailure: true, env: npmEnvironment });
 	assert.notEqual(secondRun.status, 0);
 	assert.match(secondRun.stderr, /refusing to overwrite/);
+	assert.match(secondRun.stderr, /atoms-runtime-cloudflare upgrade/, 'init on a scaffolded directory must point at upgrade');
 
 	const nonempty = join(temporaryRoot, 'nonempty');
 	mkdirSync(nonempty);
@@ -195,7 +368,7 @@ try {
 	assert.notEqual(refuseUserFile.status, 0);
 	assert.equal(readFileSync(join(nonempty, 'owned-by-user.txt'), 'utf8'), 'keep\n');
 
-	console.log('runtime package allowlist and local-tarball scaffold: ok');
+	console.log('runtime package allowlist, local-tarball scaffold and upgrade: ok');
 } finally {
 	rmSync(temporaryRoot, { recursive: true, force: true });
 }

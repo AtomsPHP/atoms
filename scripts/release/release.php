@@ -75,7 +75,7 @@ function checkRelease(string $root): void
         $errors[] = "core.supported must be {$internalConstraint} for {$version}";
     }
     if (($php['constraint'] ?? null) !== '^8.3') {
-        $errors[] = 'php.constraint must remain ^8.3 for the frozen PHP 8.3 ABI';
+        $errors[] = 'php.constraint must remain ^8.3: the frozen core API targets PHP 8.3';
     }
 
     $listedPackages = $composer['packages'] ?? null;
@@ -190,11 +190,62 @@ function checkRelease(string $root): void
         $errors[] = 'the generated compatibility page is stale; run the release generator';
     }
 
+    $errors = array_merge(
+        $errors,
+        validateCurrentReleaseReferences($root, $version, $internalConstraint),
+    );
+
     if ($errors !== []) {
         throw new RuntimeException("release metadata is inconsistent:\n- " . implode("\n- ", $errors));
     }
 
     fwrite(STDOUT, "Release {$version} ({$manifest['status']}) is internally consistent.\n");
+}
+
+/** @return list<string> */
+function validateCurrentReleaseReferences(string $root, string $version, string $constraint): array
+{
+    $relativePaths = [
+        'README.md',
+        'action/README.md',
+        'docs/cloudflare-toolchain.md',
+        'examples/laravel/README.md',
+        'examples/laravel/composer.json',
+        'examples/laravel/.github/workflows/deploy-atoms.yml',
+        'examples/plain-php/README.md',
+        'examples/plain-php/composer.json',
+    ];
+    foreach (PACKAGE_NAMES as $packageName) {
+        $relativePaths[] = 'packages/' . packageSlug($packageName) . '/README.md';
+    }
+    $errors = [];
+
+    foreach ($relativePaths as $relativePath) {
+        $contents = (string) file_get_contents("{$root}/{$relativePath}");
+
+        preg_match_all('/@atomsphp\/runtime-cloudflare@(\d+\.\d+\.\d+)/', $contents, $runtimeMatches);
+        foreach ($runtimeMatches[1] as $referencedVersion) {
+            if ($referencedVersion !== $version) {
+                $errors[] = "{$relativePath} references runtime {$referencedVersion}; expected {$version}";
+            }
+        }
+
+        preg_match_all('/AtomsPHP\/atoms\/action@v(\d+\.\d+\.\d+)/', $contents, $actionMatches);
+        foreach ($actionMatches[1] as $referencedVersion) {
+            if ($referencedVersion !== $version) {
+                $errors[] = "{$relativePath} references Action {$referencedVersion}; expected {$version}";
+            }
+        }
+
+        preg_match_all('/\^0\.\d+(?:\.\d+)?/', $contents, $constraintMatches);
+        foreach ($constraintMatches[0] as $referencedConstraint) {
+            if ($referencedConstraint !== $constraint) {
+                $errors[] = "{$relativePath} references {$referencedConstraint}; expected {$constraint}";
+            }
+        }
+    }
+
+    return $errors;
 }
 
 function generateReleaseArtifacts(string $root): void
@@ -429,7 +480,7 @@ function validateManifest(array $manifest): array
         $errors[] = 'runtime.wrangler must match the pinned Worker lockfile';
     }
     if (($manifest['runtime']['guest_php'] ?? null) !== '8.3') {
-        $errors[] = 'runtime.guest_php must be 8.3 for the frozen ABI';
+        $errors[] = 'runtime.guest_php must be 8.3, the frozen core API\'s PHP target';
     }
     if (($manifest['php']['tested'] ?? null) !== ['8.3', '8.4']) {
         $errors[] = 'php.tested must match the CI matrix: 8.3 and 8.4';
@@ -499,7 +550,7 @@ Atoms releases its PHP packages, Worker runtime, and deployment Action as one co
 
 | Component | {$releaseLine} support |
 |---|---|
-| `atoms/core` | `{$core['supported']}` frozen, additive ABI |
+| `atoms/core` | `{$core['supported']}` frozen, additive API |
 | `atoms/client`, adapters, testing, rules, CLI | `{$core['supported']}` |
 | `{$runtime['package']}` | `{$runtime['version']}`, co-versioned with the release |
 | Deploy Action | immutable `AtomsPHP/atoms/action@v{$version}` |
@@ -508,7 +559,7 @@ Atoms releases its PHP packages, Worker runtime, and deployment Action as one co
 | Node.js | {$runtime['node']} |
 | Wrangler | {$runtime['wrangler']} (exact runtime-template pin) |
 
-Use matching {$releaseLine} release artifacts. The CLI stamps the core ABI version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043) instead of attempting to run it.
+Use matching {$releaseLine} release artifacts. The CLI stamps the core API version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043) instead of attempting to run it.
 
 The runtime scaffold command printed by `atoms init` and used by the deploy Action is generated from the same release manifest as the tag. It is not an independently moving “latest” dependency.
 
@@ -531,6 +582,8 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Release;
 
+use Atoms\Cli\Process\ShellArg;
+
 /**
  * Generated from release/manifest.json. Do not edit by hand.
  */
@@ -542,13 +595,26 @@ final class RuntimeVersion
 
     public const CORE_VERSION = '{$version}';
 
-    public static function scaffoldCommand(string \$target = '.atoms/worker'): string
+    /** The committed Worker directory, relative to atoms.json. */
+    public const WORKER_DIR = 'atoms-worker';
+
+    public static function scaffoldCommand(string \$target = self::WORKER_DIR): string
     {
         return sprintf(
             'npm exec --yes --package=%s@%s -- atoms-runtime-cloudflare init %s',
             self::PACKAGE,
             self::VERSION,
-            \$target,
+            ShellArg::quote(\$target),
+        );
+    }
+
+    public static function upgradeCommand(string \$target = self::WORKER_DIR): string
+    {
+        return sprintf(
+            'npm exec --yes --package=%s@%s -- atoms-runtime-cloudflare upgrade %s',
+            self::PACKAGE,
+            self::VERSION,
+            ShellArg::quote(\$target),
         );
     }
 }

@@ -35,12 +35,12 @@ the consistency boundary.
 
 ## Status
 
-**Pre-1.0. The first coordinated release line is 0.1.x.**
+**Pre-1.0. Releases are coordinated across the PHP packages, Worker runtime,
+and deploy Action.**
 
-- Release tags are the source of truth for registry availability. Before the
-  `v0.1.0` tag exists, contributors install from this monorepo; after it exists,
-  applications install the eight packages from Packagist and the Worker
-  template from npm.
+- `release/manifest.json` is the version source inside the repository; release
+  tags are the source of truth for registry availability. Applications install
+  the eight packages from Packagist and the matching Worker template from npm.
 - The Cloudflare runtime is validated by its conformance suite locally and
   against a real deployed Worker. It is not a managed service; you deploy it
   to your own account.
@@ -51,8 +51,8 @@ the consistency boundary.
   and limits) — a restriction, not a stub.
 - `atoms/client`, `atoms/cli`, the Laravel adapter, the Symfony bundle, and the
   plain-PHP integration all target the self-hosted Cloudflare Worker contract.
-- APIs may change until 1.0, except the `atoms/core` ABI, which is frozen and
-  only grows.
+- Every public API may change until 1.0 except `atoms/core`, which is frozen
+  and only grows.
 
 ## Layout
 
@@ -67,7 +67,7 @@ the consistency boundary.
 
 | Package | Purpose |
 |---|---|
-| `atoms/core` | The runtime ABI: `Atom` base class, serialization, migrations, error catalog. Framework-free, PHP 8.3. |
+| `atoms/core` | The frozen runtime API: `Atom` base class, serialization, migrations, error catalog. Framework-free, PHP 8.3. |
 | `atoms/client` | Framework-agnostic monolith SDK: stub proxies, RPC transport, callback kernel. |
 | `atoms/laravel` | Laravel adapter: service provider, `Atoms` facade, queue bridge, Artisan wrappers. |
 | `atoms/symfony` | Supported Symfony bundle: DI, route loader, Messenger bridge, and console wrappers. |
@@ -82,15 +82,16 @@ line — see [`docs/errors.md`](docs/errors.md).
 ## Install
 
 Laravel applications install the adapter and its CLI, then scaffold the
-release-matched Worker project:
+release-matched Worker directory and commit it:
 
 ```sh
-composer require atoms/laravel:^0.1
-composer require --dev atoms/cli:^0.1 atoms/phpstan-rules:^0.1 atoms/testing:^0.1
+composer require atoms/laravel:^0.5
+composer require --dev atoms/cli:^0.5 atoms/phpstan-rules:^0.5 atoms/testing:^0.5
 php artisan atoms:install
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
-  atoms-runtime-cloudflare init .atoms/worker
-cd .atoms/worker && npm ci
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
+  atoms-runtime-cloudflare init atoms-worker
+cd atoms-worker && npm ci && cd ..
+git add atoms-worker
 ```
 
 The complete Laravel, Symfony and plain-PHP paths live at

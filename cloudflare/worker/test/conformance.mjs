@@ -63,7 +63,7 @@
  *     shared secret: run check 41, which asserts the `misconfigured` posture)
  *   ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1 (the Worker under test was booted
  *     with a VALID current secret and a MALFORMED ATOMS_SHARED_SECRET_PREVIOUS:
- *     run check 44, which asserts that posture — spec §"The shared secret")
+ *     run check 44, which asserts that setup — spec §"The shared secret")
  */
 
 import { createHmac, hkdfSync, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -121,7 +121,8 @@ const REQUIRE_DENY_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_
 // except /healthz answers `misconfigured`. Check 41 is the whole run in that
 // posture (ATOMS_ONLY=41); everything else expects a configured Worker.
 const EXPECT_MISCONFIGURED = /^(1|true|yes|on)$/i.test(process.env.ATOMS_EXPECT_MISCONFIGURED || '');
-// Same posture device, one step along the rotation axis — see CHECK 44.
+// Same device as ATOMS_EXPECT_MISCONFIGURED, one step along the rotation
+// axis — see CHECK 44.
 const EXPECT_MISCONFIGURED_PREVIOUS = /^(1|true|yes|on)$/i.test(
     process.env.ATOMS_EXPECT_MISCONFIGURED_PREVIOUS || ''
 );
@@ -2512,7 +2513,7 @@ checks.push(async () => {
 });
 
 // CHECK 23: timers fire, are consumed, are transactional, cancel works,
-// errors are contained (Durable Object alarms behind the Timers ABI).
+// errors are contained (Durable Object alarms behind the Timers API).
 checks.push(async () => {
     const checkNum = 23;
     const name = 'timers: fire, consume, transactional, cancel, errors contained';
@@ -4469,7 +4470,7 @@ checks.push(async () => {
 // missing-current one; neither can see this leg (40's overlap is valid, 41's
 // Worker has no current secret at all). This check runs against a Worker
 // holding a perfectly good CURRENT secret and a garbage previous one, so the
-// refusal can only be about the overlap. Its own short posture:
+// refusal can only be about the overlap. It runs alone:
 // ATOMS_ONLY=44, ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1.
 checks.push(async () => {
     const checkNum = 44;

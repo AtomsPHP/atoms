@@ -10,8 +10,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      # The checkout must include the committed Worker directory
+      # (atoms-worker/, scaffolded once as the README describes); the action
+      # installs its pinned dependencies and deploys from it, never
+      # scaffolding one.
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms/action@v0.1.0
+      - uses: AtomsPHP/atoms/action@v0.5.0
         with:
           environment: production
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}

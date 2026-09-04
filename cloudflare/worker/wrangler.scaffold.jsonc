@@ -1,45 +1,57 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 
-	// The customer-facing Wrangler config: `scripts/pack-runtime.mjs` ships this
-	// file as `wrangler.jsonc` in the @atomsphp/runtime-cloudflare template,
-	// which `atoms init`/the deploy Action scaffold into `.atoms/worker`. The
-	// sibling `wrangler.jsonc` in this repository is the conformance-harness
-	// config and is NOT what customers receive — keep the two in sync when
-	// changing anything module- or DO-shaped, and keep the differences (worker
-	// name, debug endpoints) deliberate.
+	// YOUR FILE. This is the one file in the Atoms Worker directory that you
+	// own: `atoms-runtime-cloudflare init` writes it once, and
+	// `atoms-runtime-cloudflare upgrade` leaves it as it is. Edit it, commit
+	// it, and your edits are durable — the directory is part of your repository.
+	// (See README.md in this directory for the full runtime/user split.)
 	//
-	// NOTE: in a customer project this file lives in a gitignored, regenerated
-	// directory (`.atoms/worker`), so local edits do not survive a re-scaffold.
-	// Durable configuration belongs in atoms.json: `atoms dev` and
-	// `atoms deploy` forward the settings there (for example
-	// `"debug_endpoints": true`) as `wrangler --var` overrides.
+	// The keys marked RUNTIME-REQUIRED below are what the runtime needs from
+	// this file to load at all. A release that changes one says so in its
+	// changelog rather than changing it behind your back. Everything else —
+	// name, vars, observability, routes, custom domains, placement, limits —
+	// is yours to set.
 	//
-	// The name is cosmetic for `atoms deploy`, which selects the real Worker
-	// with `--name` from atoms.json (`worker_name`, defaulting to the project).
+	// (Monorepo note: this is `wrangler.scaffold.jsonc`, which
+	// `scripts/pack-runtime.mjs` ships as the template's `wrangler.jsonc`. The
+	// sibling `wrangler.jsonc` in the monorepo is the conformance-harness config
+	// and is NOT what customers receive — keep the two in sync structurally,
+	// and keep the differences (worker name, debug endpoints) deliberate.)
+
+	// Cosmetic for `atoms deploy`, which selects the real Worker with `--name`
+	// from atoms.json (`worker_name`, defaulting to the project).
 	"name": "atoms-worker",
+
+	// RUNTIME-REQUIRED: the Worker entrypoint the runtime ships.
 	"main": "src/index.js",
+
+	// RUNTIME-REQUIRED as a floor: a newer date is fine, an older one is not.
 	"compatibility_date": "2026-08-01",
 
-	// REQUIRED: the php-wasm Emscripten glue takes the ENVIRONMENT_IS_NODE
-	// branch under workerd (process.release.name === 'node') and require()s
-	// 'events'. Without nodejs_compat the module fails to load.
+	// RUNTIME-REQUIRED: the php-wasm Emscripten glue takes the
+	// ENVIRONMENT_IS_NODE branch under workerd (process.release.name === 'node')
+	// and require()s 'events'. Without nodejs_compat the module fails to load.
+	// Add flags of your own; do not remove this one.
 	"compatibility_flags": ["nodejs_compat"],
 
-	// The pinned PHP runtime is bundled as a precompiled wasm module
-	// (workerd forbids compiling bytes at runtime) and handed to Emscripten
-	// through the instantiateWasm hook in src/php-host.js.
+	// RUNTIME-REQUIRED: the pinned PHP runtime is bundled as a precompiled wasm
+	// module (workerd forbids compiling bytes at runtime) and handed to
+	// Emscripten through the instantiateWasm hook in src/php-host.js.
 	"rules": [
 		{ "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true },
 		{ "type": "Text", "globs": ["**/*.php"], "fallthrough": true },
 		{ "type": "Data", "globs": ["**/*.data", "**/*.so"], "fallthrough": true }
 	],
 
-	// One generic SQLite-backed Durable Object class for every Atom type:
-	// atom type and id are application data, not DO class names.
+	// RUNTIME-REQUIRED: one generic SQLite-backed Durable Object class for
+	// every Atom type — atom type and id are application data, not DO class
+	// names. The binding name and class name are what src/index.js looks up.
 	"durable_objects": {
 		"bindings": [{ "name": "ATOMS", "class_name": "AtomDurableObject" }]
 	},
+	// RUNTIME-REQUIRED: Wrangler migrations are append-only. A later release
+	// may need a new tag here; its changelog will say which.
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["AtomDurableObject"] }],
 
 	// Operational values live in env, with defaults resolved in src/config.js.
@@ -58,10 +70,13 @@
 	// Cloudflare Access; it turns off the bearer comparison only, and tickets
 	// and callbacks stay signed.
 	//
-	// ATOMS_DEBUG_ENDPOINTS is deliberately NOT set here: the /debug routes
-	// default off (src/config.js). To turn them on, set
-	// `"debug_endpoints": true` on the environment in atoms.json — not in this
-	// file, which a re-scaffold overwrites.
+	// ATOMS_DEBUG_ENDPOINTS is deliberately NOT set here, and should stay out:
+	// this file is shared by every environment you deploy (the CLI selects the
+	// Worker with `--name`, never `-e`), so a var here would turn the /debug
+	// routes on for staging and production alike. Set
+	// `"debug_endpoints": true` on one environment in atoms.json instead; the
+	// CLI forwards it as a `--var` on `atoms dev` and `atoms deploy`. Under
+	// ATOMS_BEARER_AUTH=disabled that flag is the only gate in front of /debug.
 	"vars": {
 		"ATOMS_LOG_LEVEL": "info"
 	},

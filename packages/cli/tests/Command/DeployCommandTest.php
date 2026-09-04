@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Atoms\Cli\Tests\Command;
 
 use Atoms\Cli\Cloudflare\BundleStager;
+use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Command\DeployCommand;
 use Atoms\Cli\Process\ProcessResult;
+use Atoms\Cli\Release\RuntimeVersion;
 use Atoms\Cli\Tests\Support\FakeProcessRunner;
 use Atoms\Cli\Tests\Support\FakeWrangler;
 use Atoms\Cli\Tests\TestCase;
@@ -25,8 +27,8 @@ final class DeployCommandTest extends TestCase
 
     /**
      * A Worker project that looks real enough for CloudflareTarget's checks: a
-     * wrangler config and the staging script. Nothing is executed — the process
-     * runner is faked — so the files may be empty.
+     * wrangler config, the staging script, and the release stamp. Nothing is
+     * executed — the process runner is faked — so the files may be empty.
      */
     private function workerDir(): string
     {
@@ -34,8 +36,22 @@ final class DeployCommandTest extends TestCase
         file_put_contents($dir . '/wrangler.jsonc', '{}');
         mkdir($dir . '/scripts', 0777, true);
         file_put_contents($dir . '/' . BundleStager::SCRIPT, '');
+        self::stamp($dir);
 
         return $dir;
+    }
+
+    /**
+     * The stamp `atoms-runtime-cloudflare init` writes; deploy and dev refuse
+     * a directory whose stamp names another release (ATOMS-E108), so a test
+     * Worker directory carries the current one.
+     */
+    private static function stamp(string $dir, string $version = RuntimeVersion::VERSION): void
+    {
+        file_put_contents(
+            $dir . '/' . RuntimeStamp::FILE,
+            json_encode(['package' => RuntimeVersion::PACKAGE, 'version' => $version], JSON_THROW_ON_ERROR),
+        );
     }
 
     private function stager(?FakeProcessRunner $runner = null): BundleStager
@@ -91,10 +107,10 @@ final class DeployCommandTest extends TestCase
     }
 
     /**
-     * The one supported, re-scaffold-proof way to turn the Worker's /debug
-     * routes on: atoms.json's per-environment `debug_endpoints`, forwarded as
-     * a Wrangler `--var`. The Worker directory is gitignored and regenerated
-     * in CI, so a var living only in its wrangler.jsonc would not survive.
+     * The one supported way to turn the Worker's /debug routes on for ONE
+     * environment: atoms.json's per-environment `debug_endpoints`, forwarded
+     * as a Wrangler `--var`. The committed wrangler.jsonc is shared by every
+     * environment, so a var living there would enable it everywhere.
      */
     public function testDebugEndpointsInAtomsJsonAreForwardedAsAVar(): void
     {
@@ -119,6 +135,61 @@ final class DeployCommandTest extends TestCase
         self::assertSame(['ATOMS_DEBUG_ENDPOINTS' => '1'], $deploy['args']['vars']);
         // Enabling a debug surface must be visible in the deploy log.
         self::assertStringContainsString('ATOMS_DEBUG_ENDPOINTS=1', $tester->getDisplay());
+    }
+
+    /**
+     * The Worker directory is committed and co-versioned with the CLI, so a
+     * CLI that moved on without it must refuse before anything is built or
+     * shipped — naming both releases and the exact upgrade command.
+     */
+    public function testAWorkerDirectoryFromAnotherReleaseIsE108BeforeAnythingIsStagedOrDeployed(): void
+    {
+        $dir = $this->workerDir();
+        self::stamp($dir, '0.0.1-other');
+        $runner = new FakeProcessRunner();
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $dir,
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(1, $exit);
+        $display = $tester->getDisplay();
+        self::assertStringContainsString('ATOMS-E108', $display);
+        self::assertStringContainsString('0.0.1-other', $display);
+        self::assertStringContainsString(RuntimeVersion::VERSION, $display);
+        self::assertStringContainsString('atoms-runtime-cloudflare upgrade', $display);
+        self::assertSame([], $runner->runs, 'the refusal comes before staging');
+        self::assertSame([], $wrangler->calls, 'the refusal comes before Wrangler is invoked');
+    }
+
+    /**
+     * A directory with no stamp at all was scaffolded before stamps existed:
+     * the same finding, with the version reported as unknown rather than
+     * guessed.
+     */
+    public function testAnUnstampedWorkerDirectoryIsE108Too(): void
+    {
+        $dir = $this->workerDir();
+        unlink($dir . '/' . RuntimeStamp::FILE);
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $dir,
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E108', $tester->getDisplay());
+        self::assertStringContainsString('unknown release', $tester->getDisplay());
+        self::assertSame([], $wrangler->calls);
     }
 
     /**

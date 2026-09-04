@@ -25,6 +25,10 @@ final class DevCommandEnvSyncTest extends TestCase
     {
         $dir = $this->freshDir();
         file_put_contents($dir . '/wrangler.jsonc', json_encode(['name' => 'w'], JSON_THROW_ON_ERROR));
+        file_put_contents(
+            $dir . '/' . \Atoms\Cli\Cloudflare\RuntimeStamp::FILE,
+            json_encode(['version' => \Atoms\Cli\Release\RuntimeVersion::VERSION], JSON_THROW_ON_ERROR),
+        );
 
         return $dir;
     }

@@ -2362,7 +2362,7 @@ final class Cases
                 'stmt.debug_dump_params.rebind_int_string_alias',
                 $g,
                 'PDOStatement::debugDumpParams()',
-                'debugDumpParams() after a positional param bound by int and rebound by its equal string key, exact captured-output byte comparison (audit F24)',
+                'debugDumpParams() after a positional param bound by int and rebound by its equal string key, exact captured-output byte comparison',
                 static function (\PDO $p) {
                     $stmt = $p->prepare('SELECT * FROM probe_rows WHERE i = ?');
                     // Our shim treats int 1 and string '1' as the same

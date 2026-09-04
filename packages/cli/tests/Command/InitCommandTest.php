@@ -29,7 +29,13 @@ final class InitCommandTest extends TestCase
             RuntimeVersion::scaffoldCommand(),
             $tester->getDisplay(),
         );
-        self::assertStringContainsString('cd .atoms/worker && npm ci', $tester->getDisplay());
+        self::assertStringContainsString('cd atoms-worker && npm ci', $tester->getDisplay());
+        self::assertStringContainsString('atoms-runtime-cloudflare upgrade', $tester->getDisplay());
+        // The Worker directory is committed beside atoms.json, so an
+        // environment holds exactly its own settings.
+        foreach ($config['environments'] as $environment) {
+            self::assertSame(['endpoint', 'worker_name', 'account_id', 'debug_endpoints'], array_keys($environment));
+        }
 
         // Second run must refuse rather than overwrite.
         $second = $tester->execute(['--root' => $dir]);

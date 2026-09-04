@@ -5,7 +5,7 @@
 ## Scope
 
 In scope: one Worker hosting a generic `AtomDurableObject`; a persistent
-parked PHP loop per active DO; the real `atoms/core` PHP ABI running unmodified
+parked PHP loop per active DO; the real `atoms/core` PHP API running unmodified
 inside the guest; `db()` (query/execute/transaction + a documented-leaky
 `pdo()`), `config()`, migrations, lossless int64; `app()`/`dispatch()` over a
 signed callback channel to the monolith; WebSockets (`onConnect`/`onMessage`/
@@ -49,7 +49,7 @@ One wasm import, dispatched on the first byte of the message string:
   Used for the turn loop and transactions.
 - anything else: stock php-wasm behavior (unused by us).
 
-Guest-side helpers (in the runtime prelude, not customer-visible):
+Guest-side helpers (in the `Atoms\Cf\` runtime, not customer-visible):
 `\Atoms\Cf\host_sync(array $req): array` and
 `\Atoms\Cf\host_park(array $req): array` — JSON-encode with `'!'`/`'~'`
 prefix, JSON-decode the reply. Every reply is an object with `ok: true` or
@@ -182,14 +182,15 @@ which propagates out through `Database::transaction()`'s own catch, which
 issues `tx.rollback`, which the machine accepts — the existing mechanism
 handles it end to end. `CallbackAppProxy` also refuses guest-side, before
 encoding anything, so in the ordinary case no request ever reaches this
-host-side check at all; it exists as defence in depth against a prelude bug.
+host-side check at all; it exists as defence in depth against a bug in the
+guest runtime.
 
 `turn.await` is the one park op that is *not* rejected there, because it is the
 turn boundary rather than a protocol violation: rejecting it would strand a
 guest that has nowhere else to park. A turn that ends with a transaction still
 open (a customer forgetting `commit()`, or catching an exception above the
 frame that opened it) is settled instead — the write set is discarded and the
-turn reports `atom_exception`. The runtime prelude does this itself before it
+turn reports `atom_exception`. The guest runtime does this itself before it
 reaches the boundary; the host's handling of `turn.await` inside an open
 transaction is the defence in depth, and reports `internal`. Neither path may
 poison the residency: an application bug the host cannot see must not become a
@@ -265,7 +266,7 @@ invalidate the signature computed over the corrupted bytes. The one guard is
 a check for a lone UTF-16 surrogate (which `TextEncoder` would otherwise
 silently replace with U+FFFD, making sent ≢ what PHP built even though
 signed ≡ sent stayed true) — PHP's `json_encode()` cannot produce one, so
-this can only ever fire on a prelude bug, and it fails the op with
+this can only ever fire on a guest runtime bug, and it fails the op with
 `callback_body_invalid` rather than sending a corrupted body. `broadcast()`'s
 `frame` follows the identical rule for a different reason: the guest builds
 the complete wire frame with `json_encode()` and the host only fans the
@@ -440,7 +441,7 @@ catalog — unlike `AtomsNotSupported`, which predates the catalog and does not.
 `CallbackAppProxy::__call()` before anything is encoded (the customer gets a
 clean exception and no request ever leaves the Worker), and host-side when the
 `tx_state` reply is mapped by `CallbackChannel::exceptionFor()` (defence in
-depth against a prelude bug).
+depth against a guest runtime bug).
 
 ### `manifest_hash` — deliberately absent
 
@@ -485,7 +486,7 @@ Atom stays resident and healthy.
   budget exists before any guest code can consume it, for `invoke`, `ws.*` and
   `timer` turns alike.
 - **Activation is a callback window of its own.** `onActivation()` is customer
-  code on the frozen ABI: it may call `$this->app()` and `$this->dispatch()`
+  code on the frozen API: it may call `$this->app()` and `$this->dispatch()`
   like any other method, and the runtime supports it. Because it runs during
   the activation gate — before any turn exists — `activate()` opens its own
   window (a delivery collector and a budget) **before `php.run()` starts**, so
@@ -658,9 +659,9 @@ cloudflare/worker/
     int64.js        # tagging codec (JS side)
     config.js       # env-derived settings with defaults
   php/
-    runtime/        # Atoms\Cf\* prelude: host_sync/host_park, bootstrap loop,
-                    # BridgeDatabase, AtomsPDO, CfAtomContext, int64 codec,
-                    # dispatcher, error envelope, CallbackAppProxy/
+    runtime/        # Atoms\Cf\* guest runtime: host_sync/host_park, bootstrap
+                    # loop, BridgeDatabase, AtomsPDO, CfAtomContext, int64
+                    # codec, dispatcher, error envelope, CallbackAppProxy/
                     # CallbackChannel + CallbackError subclasses (app()/
                     # dispatch()), CfConnection/CfMessage/ConnectionClosed
                     # (WebSockets), CfTimers + its typed exceptions (timers)
@@ -1064,7 +1065,7 @@ awaited event: the DO is never evicted mid-event, only between them.
 
 `Atom::onConnect/onMessage/onDisconnect` and `AtomContext::broadcast()`,
 implemented in `src/websockets.js`'s `WebSocketHost` (one instance per DO) plus
-the prelude's `CfConnection`/`CfMessage`.
+the guest runtime's `CfConnection`/`CfMessage`.
 
 ### The attachment format and its versioning rule
 
@@ -1265,7 +1266,7 @@ a duplicate. That is a real but narrow best-effort gap, not a guarantee it
 cannot happen. A close that arrives while the residency is hibernating still
 wakes it (measured — §Appendix — and pinned by conformance check 25). An
 inbound frame whose connection is already in the set is **dropped**, not
-dispatched: `onMessage` after `onDisconnect` is an ordering the ABI does not
+dispatched: `onMessage` after `onDisconnect` is an ordering the API does not
 allow.
 
 **Honesty caveat.** The host can only detect "gone" when the id resolves to no
@@ -1782,8 +1783,8 @@ answers 200 `{ok: true}` (`loadConfig()` stays total) and `/invoke`,
 `POST /tickets` leg, which pins that the configuration gate precedes
 routing even for an unrouted path: a Worker missing its secret
 must not leak which routes it has. It runs only under
-`ATOMS_EXPECT_MISCONFIGURED=1`, which is the whole of that short posture's
-run. **42.** the config deny list, untouched: with the Worker started with
+`ATOMS_EXPECT_MISCONFIGURED=1`, and that one check is the whole of that run.
+**42.** the config deny list, untouched: with the Worker started with
 `ATOMS_CONFIG_ENV_KEYS` naming `ATOMS_SHARED_SECRET` and
 `ATOMS_SHARED_SECRET_PREVIOUS`, a guest `$this->config()` of either name
 resolves `null` (`Counter::configProbe()` reports what the guest sees), while
@@ -1803,8 +1804,8 @@ This is the spec §"The shared secret" requirement "set but malformed →
 misconfigured": check 40 exercises only a well-formed
 overlap and check 41 only a missing current secret, so this is the one
 place it is pinned. It runs only under
-`ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1`, which is the whole of its short
-posture's run (`ATOMS_ONLY=44`).
+`ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1`, and that one check is the whole
+of that run (`ATOMS_ONLY=44`).
 
 **45.** the vendor tree: `Vendor::viaVendor()` resolves a vendor class the
 line-scanning autoloader **cannot** index (declared indented inside a
@@ -2118,13 +2119,14 @@ with `ATOMS_DEBUG_ENDPOINTS=1` and an `ATOMS_SHARED_SECRET` secret set via
 `wrangler secret put ATOMS_SHARED_SECRET`.
 
 That `wrangler.jsonc` is the conformance harness's config only. What
-customers scaffold (via `@atomsphp/runtime-cloudflare`) is built from
-`wrangler.scaffold.jsonc`: worker name `atoms-worker` (cosmetic — `atoms
-deploy` selects the real Worker with `--name`), and no
-`ATOMS_DEBUG_ENDPOINTS`, so `/debug` follows `config.js`'s off default. The
-supported enable path is atoms.json's per-environment
-`"debug_endpoints": true`, which the CLI forwards to Wrangler as a `--var`
-on both `atoms dev` and `atoms deploy` (see `docs/cloudflare-toolchain.md`
-§Debug endpoints). The flag is defense in depth behind the Worker's auth
+customers scaffold (via `@atomsphp/runtime-cloudflare`, into a committed
+`atoms-worker/` directory) is built from `wrangler.scaffold.jsonc`: worker
+name `atoms-worker` (cosmetic — `atoms deploy` selects the real Worker with
+`--name`), and no `ATOMS_DEBUG_ENDPOINTS`, so `/debug` follows `config.js`'s
+off default. The scaffolded file is user-owned and its edits are durable,
+but it is shared by every environment, so the supported enable path stays
+atoms.json's per-environment `"debug_endpoints": true`, which the CLI
+forwards to Wrangler as a `--var` on both `atoms dev` and `atoms deploy`
+(see `docs/cloudflare-toolchain.md` §Debug endpoints). The flag is defense in depth behind the Worker's auth
 check (§Routing and auth); under `ATOMS_BEARER_AUTH=disabled` — the
 authenticating-proxy posture — it is the only gate in front of `/debug`.

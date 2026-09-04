@@ -8,7 +8,8 @@
  * Raised from two places: {@see CallbackAppProxy::__call()} (guest-side,
  * primary — the customer gets a clean exception and no request ever leaves
  * the Worker) and {@see CallbackChannel::exceptionFor()} mapping the host's
- * `tx_state` reply (defence in depth, should a prelude bug let one through).
+ * `tx_state` reply (defence in depth, should a guest runtime bug let one
+ * through).
  *
  * No declare(strict_types=1) — see the note in host.php.
  */

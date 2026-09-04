@@ -333,7 +333,7 @@
             "code": "ATOMS-E073",
             "title": "Wrangler not found",
             "message": "Could not find a Wrangler executable for environment {environment}: {reason}.",
-            "fix": "Run `npm install` in the Worker directory so node_modules/.bin/wrangler exists, or set ATOMS_WRANGLER_BIN to an absolute path. Atoms never downloads Wrangler for you.",
+            "fix": "Run `npm ci` in the Worker directory (atoms-worker/ beside atoms.json, unless you pass --worker-dir) so node_modules/.bin/wrangler exists, or set ATOMS_WRANGLER_BIN to an absolute path. Atoms never downloads Wrangler for you.",
             "severity": "error",
             "phase": "cli"
         },
@@ -357,7 +357,7 @@
             "code": "ATOMS-E076",
             "title": "Worker directory missing or incomplete",
             "message": "The Atoms Worker project for environment {environment} is not usable: {reason}.",
-            "fix": "Point \"worker_dir\" in atoms.json at a checkout of the Atoms Cloudflare Worker (cloudflare/worker), and run `npm ci` inside it.",
+            "fix": "The Worker directory is a committed part of your repository, atoms-worker/ beside atoms.json unless you pass --worker-dir. Scaffold it once with the `atoms-runtime-cloudflare init atoms-worker` command `atoms init` prints, run `npm ci` inside it, and commit it.",
             "severity": "error",
             "phase": "cli"
         },
@@ -504,6 +504,14 @@
             "fix": "Drop --fast: with an unchanged atoms-composer.lock the vendor stage resolves offline from .atoms/vendor-cache, so a full build costs no network and no composer run. Or remove the requires from atoms-composer.json. For a fast no-bundle check, use `atoms validate`.",
             "severity": "error",
             "phase": "build"
+        },
+        {
+            "code": "ATOMS-E108",
+            "title": "Worker directory does not match the CLI release",
+            "message": "The Worker directory {dir} was scaffolded from {package} {found}, but this CLI is release {expected}; deploying would ship a runtime that does not match your PHP packages. Run: {command}",
+            "fix": "Bring the committed Worker directory up to the CLI's release with the `atoms-runtime-cloudflare upgrade` command printed in the message (it rewrites runtime-owned files and leaves wrangler.jsonc alone), review the diff, run `npm ci` inside the directory, and commit. If the Worker directory is the newer side, update the atoms/* Composer packages to its version instead.",
+            "severity": "error",
+            "phase": "cli"
         }
     ]
 }

@@ -33,7 +33,7 @@ use PHPStan\Rules\RuleErrorBuilder;
  * (docs/conventions.md "Serialization type algebra"):
  *
  *  - ATOM_SIDE public methods (the Atom's RPC surface; constructors are final
- *    ABI on Atoms\Atom and are never overridable, so they are skipped)
+ *    API on Atoms\Atom and are never overridable, so they are skipped)
  *  - AtomMethods public methods (the $this->app() callback surface)
  *  - AtomJob's constructor only (its promoted properties ARE the dispatch
  *    contract; AtomJob's other methods, e.g. handle(), run in the monolith
@@ -116,7 +116,7 @@ final class BoundarySignatureRule implements Rule
     private function shouldCheck(Side $side, ClassReflection $classReflection, ClassMethod $methodNode, bool $isConstructor): bool
     {
         if ($side === Side::AtomSide) {
-            // Atom::__construct is final ABI; subclasses cannot redeclare it.
+            // Atom::__construct is final API; subclasses cannot redeclare it.
             if ($isConstructor) {
                 return false;
             }

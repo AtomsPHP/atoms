@@ -680,7 +680,7 @@ export class TransactionMachine {
 	 * The guest reached the turn boundary with a transaction still open, and the
 	 * write set has just been discarded by the sentinel.
 	 *
-	 * The runtime prelude settles an abandoned transaction itself (`run_turn()`
+	 * The guest runtime settles an abandoned transaction itself (`run_turn()`
 	 * rolls it back and reports `atom_exception`), so this is the host's
 	 * defence in depth for a guest that did not. It must not answer the park:
 	 * `turn.await` is the turn boundary, so the park is handed back to

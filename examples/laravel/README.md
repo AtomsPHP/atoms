@@ -15,12 +15,17 @@ composer install
 cp .env.example .env
 php artisan key:generate
 php artisan atoms:install
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.1.0 -- \
-  atoms-runtime-cloudflare init .atoms/worker
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
+  atoms-runtime-cloudflare init atoms-worker
+(cd atoms-worker && npm ci)
+git add atoms-worker
 ```
 
-Fill in the Cloudflare account id, Worker endpoint and callback URL in
-`atoms.json`. Authenticate with Cloudflare — export `CLOUDFLARE_API_TOKEN`, or
+The Worker directory is part of your repository from here on; this example
+does not ship one, because it is a copy of the runtime this monorepo already
+holds under `cloudflare/worker`, so run the scaffold command above before
+deploying. Fill in the Cloudflare account id, Worker endpoint and callback
+URL in `atoms.json`. Authenticate with Cloudflare — export `CLOUDFLARE_API_TOKEN`, or
 use the `wrangler login` session you already have — then deploy:
 
 ```sh
@@ -52,6 +57,6 @@ migration and proving that repeated calls persist state.
 Copy `.github/workflows/deploy-atoms.yml` to the root workflow directory of
 your application and add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as
 repository secrets, which is what the example reads. The example pins the
-immutable `AtomsPHP/atoms/action@v0.1.0` release. See
+immutable `AtomsPHP/atoms/action@v0.5.0` release. See
 `docs/cloudflare-toolchain.md` §Getting a token for which permissions the
 token needs, and where to keep it on a workstation.
