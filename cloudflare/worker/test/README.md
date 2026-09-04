@@ -101,7 +101,7 @@ Two files here run without a Worker, a network, or `npm ci`:
 
 | File | `npm run` | What it holds |
 |---|---|---|
-| `runtime-package.mjs` | `test:package` | the public runtime scaffold's shape |
+| `runtime-package.mjs` | `test:package` | the public runtime scaffold's shape, its `atoms-runtime.json` stamp and `.gitignore`, and the `upgrade` command's ownership rules |
 | `atom-do-instance.mjs` | `test:instance` | a discarded PHP instance cannot report onto a live one |
 
 `atom-do-instance.mjs` exists because the conformance suite cannot express its

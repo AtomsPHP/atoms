@@ -15,11 +15,13 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
 	cpSync,
 	existsSync,
 	mkdtempSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
@@ -57,7 +59,10 @@ const UNPACKAGED_PREFIXES = [
 
 /** Non-module inputs, which no import graph can discover. */
 const STATIC_FILES = [
-	'.gitignore',
+	// Ships as the template's .gitignore. The repository's own .gitignore is
+	// the monorepo's (it commits src/bundle.generated.js as the conformance
+	// fixture, which a customer directory must never do) and stays here.
+	'gitignore.scaffold',
 	'php/atoms-core',
 	'php/runtime',
 	'release/supported-core',
@@ -66,6 +71,25 @@ const STATIC_FILES = [
 	// name atoms-conformance) and deliberately never enters the tarball.
 	'wrangler.scaffold.jsonc',
 ];
+
+/**
+ * The ownership split of a scaffolded Worker directory, recorded in its
+ * `atoms-runtime.json` stamp. Everything the template ships is runtime-owned
+ * — rewritten by `atoms-runtime-cloudflare upgrade` — except the files named
+ * here, which `init` writes once and `upgrade` never touches. Keep this list
+ * in step with the "What you own" table in runtime-package/README.md.
+ */
+export const USER_OWNED_FILES = ['wrangler.jsonc'];
+
+/** The stamp's file name; the Atoms CLI reads `version` out of it (ATOMS-E108). */
+export const RUNTIME_STAMP = 'atoms-runtime.json';
+
+/**
+ * npm strips `.gitignore` from a published package, so the template carries
+ * it as `gitignore` and `init`/`upgrade` restore the dot. The stamp records
+ * the scaffolded name.
+ */
+export const TEMPLATE_RENAMES = { gitignore: '.gitignore' };
 
 // `from '…'`, `import '…'`, `import('…')` — and the `import('./x.js')` inside a
 // JSDoc type, which is a real dependency of anyone type-checking the package.
@@ -170,7 +194,7 @@ export function stageRuntimePackage(stageRoot) {
 	);
 
 	const RENAMES = {
-		'.gitignore': 'gitignore',
+		'gitignore.scaffold': 'gitignore',
 		'wrangler.scaffold.jsonc': 'wrangler.jsonc',
 	};
 	for (const file of PRODUCTION_FILES) {
@@ -179,6 +203,11 @@ export function stageRuntimePackage(stageRoot) {
 	}
 	for (const [source, destination] of ROOT_PACKAGE_FILES) {
 		copy(join(cloudflareRoot, source), join(stageRoot, destination));
+	}
+	// The template is the whole scaffold: the licence and notices ship inside
+	// the directory a customer commits, not only at the package root.
+	for (const file of ['LICENSE', 'THIRD_PARTY_NOTICES.md']) {
+		copy(join(stageRoot, file), join(stageRoot, 'template', file));
 	}
 	const provenanceReadme = join(stageRoot, 'corresponding-source', 'README.md');
 	writeFileSync(
@@ -232,8 +261,52 @@ export function stageRuntimePackage(stageRoot) {
 	const readme = readFileSync(join(workerRoot, 'runtime-package', 'README.md'), 'utf8')
 		.replaceAll('@VERSION@', release.runtime.version);
 	writeFileSync(join(stageRoot, 'README.md'), readme);
+	writeFileSync(join(stageRoot, 'template', 'README.md'), readme);
 
-	return { packageManifest, templateManifest };
+	// Last, because it hashes everything above: the stamp `init` copies into
+	// the scaffold and `upgrade` reads back. Paths are recorded as they land
+	// in a scaffolded directory (`.gitignore`, not `gitignore`), sorted, so
+	// the stamp is a deterministic function of the template.
+	const stamp = runtimeStamp(join(stageRoot, 'template'), release.runtime);
+	writeFileSync(join(stageRoot, 'template', RUNTIME_STAMP), `${JSON.stringify(stamp, null, 2)}\n`);
+
+	return { packageManifest, templateManifest, stamp };
+}
+
+/**
+ * @param {string} templateRoot
+ * @param {{package: string, version: string}} runtime
+ */
+export function runtimeStamp(templateRoot, runtime) {
+	const runtimeOwned = {};
+	for (const file of filesUnder(templateRoot)) {
+		const scaffolded = TEMPLATE_RENAMES[file] ?? file;
+		if (USER_OWNED_FILES.includes(scaffolded)) continue;
+		runtimeOwned[scaffolded] = createHash('sha256').update(readFileSync(join(templateRoot, file))).digest('hex');
+	}
+	return {
+		$comment:
+			'Written by `atoms-runtime-cloudflare init` and `upgrade`; do not edit. The Atoms CLI reads '
+			+ '`version` to refuse deploying a Worker directory that does not match its own release '
+			+ '(ATOMS-E108). `upgrade` reads `runtime_owned` to know which files it rewrites and which '
+			+ 'stale ones it removes, and leaves every `user_owned` file alone.',
+		package: runtime.package,
+		version: runtime.version,
+		runtime_owned: runtimeOwned,
+		user_owned: [...USER_OWNED_FILES].sort(),
+	};
+}
+
+/** Every file under `root`, as sorted root-relative POSIX paths. */
+function filesUnder(root, prefix = '') {
+	const result = [];
+	for (const entry of readdirSync(join(root, prefix), { withFileTypes: true })) {
+		const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+		if (entry.isDirectory()) result.push(...filesUnder(root, relative));
+		else if (entry.isFile()) result.push(relative);
+		else throw new Error(`runtime template contains unsupported entry ${relative}`);
+	}
+	return result.sort();
 }
 
 function option(name, fallback) {

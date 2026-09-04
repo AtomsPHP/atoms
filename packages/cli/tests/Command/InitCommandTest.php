@@ -29,7 +29,13 @@ final class InitCommandTest extends TestCase
             RuntimeVersion::scaffoldCommand(),
             $tester->getDisplay(),
         );
-        self::assertStringContainsString('cd .atoms/worker && npm ci', $tester->getDisplay());
+        self::assertStringContainsString('cd atoms-worker && npm ci', $tester->getDisplay());
+        self::assertStringContainsString('atoms-runtime-cloudflare upgrade', $tester->getDisplay());
+        // The Worker directory is committed beside atoms.json; atoms.json no
+        // longer names it, and a generated file must not carry the refused key.
+        foreach ($config['environments'] as $environment) {
+            self::assertArrayNotHasKey('worker_dir', $environment);
+        }
 
         // Second run must refuse rather than overwrite.
         $second = $tester->execute(['--root' => $dir]);

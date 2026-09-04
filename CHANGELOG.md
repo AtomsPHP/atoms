@@ -3,6 +3,47 @@
 All notable changes to Atoms are documented here. The eight Composer packages,
 the Cloudflare runtime, and deploy Action use one coordinated version.
 
+## [Unreleased]
+
+- **Changed:** the Worker directory is now a **committed** part of your
+  repository, at `atoms-worker/` beside `atoms.json`, instead of a gitignored
+  `.atoms/worker` regenerated per checkout. Edits to its `wrangler.jsonc` are
+  durable. `atoms init` prints the `atoms-runtime-cloudflare init atoms-worker`
+  command; run it once, `npm ci`, commit. The deploy Action no longer
+  scaffolds a directory: it checks out, runs `npm ci` in the committed one,
+  and deploys, failing with a clear message when none is committed. Its
+  `worker-directory` input keeps its name; the default is now `atoms-worker`
+  and the directory must exist.
+- **Removed:** the per-environment `worker_dir` key in `atoms.json`. It is
+  refused (`ATOMS-E109`) rather than ignored, with the migration steps in the
+  fix line. `--worker-dir` remains the per-command override for a directory
+  kept elsewhere; there is no top-level replacement key (rationale in
+  `docs/cloudflare-toolchain.md` §The Worker directory).
+- **Added:** version skew is refused. The scaffold carries an
+  `atoms-runtime.json` stamp naming the release that wrote it; `atoms deploy`
+  and `atoms dev` compare it with the CLI's release before building and
+  refuse a mismatch (`ATOMS-E108`), printing the exact
+  `atoms-runtime-cloudflare upgrade atoms-worker` command. Equality is exact.
+- **Added:** `atoms-runtime-cloudflare upgrade <dir>`. Rewrites runtime-owned
+  files to the release's copies, removes runtime-owned files the release no
+  longer ships, seeds absent user-owned files, never touches `wrangler.jsonc`,
+  and checks that file for the runtime's structural requirements (entry
+  point, compatibility date floor, flags, module rules, the `ATOMS` Durable
+  Object binding, migration tags), exiting non-zero with a list when a release
+  needs an edit there. The ownership split is recorded in the stamp and
+  documented in the scaffold's `README.md` and `wrangler.jsonc` header.
+- **Changed:** the scaffold ships its own `.gitignore` (from
+  `gitignore.scaffold`), covering `src/bundle.generated.js`, `node_modules/`,
+  `.php-wasm/`, `.dev.vars` and `.wrangler/`, so a deploy never dirties the
+  committed directory.
+- **Kept:** `debug_endpoints` in `atoms.json`. The forwarding survives on a
+  different justification: `wrangler.jsonc` is one file for every
+  environment, so the setting that must differ between staging and
+  production stays per-environment in `atoms.json`; the scaffold's
+  `wrangler.jsonc` says to keep `ATOMS_DEBUG_ENDPOINTS` out of it.
+- **Changed:** `ATOMS-E073` and `ATOMS-E076` fix lines name the committed
+  directory.
+
 ## [0.5.0] - 2026-09-02
 
 - **Changed:** terminology — the frozen `atoms/core` surface is described as an

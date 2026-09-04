@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Tests\Command;
 
+use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Command\DevCommand;
 use Atoms\Cli\Process\ProcessResult;
+use Atoms\Cli\Release\RuntimeVersion;
 use Atoms\Cli\Tests\Support\FakeProcessRunner;
 use Atoms\Cli\Tests\Support\FakeWrangler;
 use Atoms\Cli\Tests\TestCase;
@@ -23,14 +25,29 @@ final class DevCommandTest extends TestCase
 {
     /**
      * A Worker project that looks real enough for CloudflareTarget's checks: a
-     * wrangler config. Nothing is executed — Wrangler itself is faked.
+     * wrangler config and the release stamp. Nothing is executed — Wrangler
+     * itself is faked.
      */
     private function workerDir(): string
     {
         $dir = $this->freshDir();
         file_put_contents($dir . '/wrangler.jsonc', json_encode(['name' => 'w'], JSON_THROW_ON_ERROR));
+        self::stamp($dir);
 
         return $dir;
+    }
+
+    /**
+     * The stamp `atoms-runtime-cloudflare init` writes; deploy and dev refuse
+     * a directory whose stamp names another release (ATOMS-E108), so a test
+     * Worker directory carries the current one.
+     */
+    private static function stamp(string $dir, string $version = RuntimeVersion::VERSION): void
+    {
+        file_put_contents(
+            $dir . '/' . RuntimeStamp::FILE,
+            json_encode(['package' => RuntimeVersion::PACKAGE, 'version' => $version], JSON_THROW_ON_ERROR),
+        );
     }
 
     private function execute(string $workerDir, FakeWrangler $wrangler, ?FakeProcessRunner $runner = null): CommandTester
@@ -183,6 +200,26 @@ final class DevCommandTest extends TestCase
         $dev = $wrangler->lastCall('dev');
         self::assertNotNull($dev);
         self::assertArrayNotHasKey('ATOMS_DEBUG_ENDPOINTS', $dev['args']['vars']);
+    }
+
+    /**
+     * `dev` runs the committed runtime locally, so it makes the same skew
+     * check deploy does: a directory from another release is refused before
+     * a dev secret is provisioned or wrangler dev starts.
+     */
+    public function testAWorkerDirectoryFromAnotherReleaseIsE108BeforeWranglerDevStarts(): void
+    {
+        $dir = $this->workerDir();
+        self::stamp($dir, '0.0.1-other');
+        $wrangler = new FakeWrangler();
+
+        $tester = $this->execute($dir, $wrangler);
+
+        self::assertSame(1, $tester->getStatusCode());
+        self::assertStringContainsString('ATOMS-E108', $tester->getDisplay());
+        self::assertStringContainsString('atoms-runtime-cloudflare upgrade', $tester->getDisplay());
+        self::assertNull($wrangler->lastCall('dev'));
+        self::assertFileDoesNotExist($dir . '/.dev.vars');
     }
 
     /**

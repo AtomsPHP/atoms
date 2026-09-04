@@ -76,4 +76,6 @@ enum ErrorCode: string
     case SharedSecretMissing = 'ATOMS-E105';
     case SchemaBuilderUnavailable = 'ATOMS-E106';
     case FastBuildWithDependencies = 'ATOMS-E107';
+    case WorkerRuntimeVersionMismatch = 'ATOMS-E108';
+    case WorkerDirKeyRemoved = 'ATOMS-E109';
 }

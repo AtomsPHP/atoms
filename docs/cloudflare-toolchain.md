@@ -111,7 +111,7 @@ never installs one. Resolution order, most explicit first
 (`Atoms\Cli\Cloudflare\WranglerBinary`):
 
 1. `$ATOMS_WRANGLER_BIN` — an absolute path, for unusual layouts and CI images.
-2. `{worker_dir}/node_modules/.bin/wrangler` — the pinned install. Normal.
+2. `{worker dir}/node_modules/.bin/wrangler` — the pinned install. Normal.
 3. `wrangler` on `PATH` — a global install. Honoured, but unpinned.
 
 Nothing found ⇒ **ATOMS-E073**, whose fix line says to run `npm ci` in the
@@ -127,31 +127,114 @@ deploy is the last place to discover that the toolchain moved. A missing
 Wrangler is a setup problem with a one-line fix, and saying so is better than
 papering over it.
 
-### The Worker project directory
+### The Worker directory
 
 Wrangler needs a project to run in: a wrangler config, `src/`, and
 `node_modules`. That directory is the Atoms Cloudflare Worker
-(`cloudflare/worker` in this repository). The CLI locates it from, in order:
-`--worker-dir`, `environments.<env>.worker_dir` in `atoms.json`, or the default
-`.atoms/worker`. An unusable directory is **ATOMS-E076**.
+(`cloudflare/worker` in this repository), scaffolded into your application as
+**`atoms-worker/`, beside `atoms.json`, and committed.** The CLI looks there
+unless you pass `--worker-dir`; the deploy Action looks there unless you set
+`worker-directory`. An unusable directory is **ATOMS-E076**.
 
-**Installing the Worker project.** Each release publishes a version-matched
-template and initializer. Run the exact command printed by `atoms init`:
+**It is committed, deliberately.** Earlier releases scaffolded it into a
+gitignored `.atoms/worker`, named per environment by `worker_dir` in
+`atoms.json`, and the deploy Action re-scaffolded it on every fresh checkout.
+That made every edit to its `wrangler.jsonc` non-durable — which is why
+settings such as `debug_endpoints` had to be forwarded from `atoms.json` as
+`--var`s — and it let two environments deploy two different runtimes. Now
+there is one directory, it is part of the repository like `composer.lock`,
+and its `wrangler.jsonc` is yours to edit. `atoms.json` no longer names it:
+`worker_dir` is refused (**ATOMS-E109**) rather than ignored, so a repository
+following the old docs hears that the directory moved instead of deploying
+from a default it never chose.
+
+**Rejected: a top-level `worker_dir` in atoms.json.** The location is a
+convention, like `atoms.json`'s own, and the per-environment form was the
+indirection this change removes. A committed override would mean two places
+to look, and the deploy Action would have to re-implement the CLI's
+resolution in shell to know where to run `npm ci`. The rare layout that
+needs another location names it explicitly, per command, with `--worker-dir`,
+and in CI with the `worker-directory` input — the same override that already
+existed.
+
+**Scaffolding it.** Run the exact command printed by `atoms init`; the
+version comes from the same release manifest as the CLI and the Action:
 
 ```sh
 npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
-  atoms-runtime-cloudflare init .atoms/worker
-cd .atoms/worker && npm ci
+  atoms-runtime-cloudflare init atoms-worker
+cd atoms-worker && npm ci
+git add atoms-worker
 ```
 
-The explicit package version comes from the same release manifest as the CLI
-and deploy Action. The initializer refuses to overwrite a non-empty directory,
-and the template carries its own `package-lock.json`; `npm ci` therefore
-installs the audited php-wasm and Wrangler pins rather than resolving current
-registry versions. This setup command is deliberately outside the PHP CLI:
-`atoms` itself still never downloads a toolchain. The deploy Action performs
-the same pinned scaffold automatically for its default `.atoms/worker` path;
-a custom Worker directory remains the caller's responsibility.
+The initializer refuses a non-empty directory, and the template carries its
+own `package-lock.json`; `npm ci` therefore installs the audited php-wasm and
+Wrangler pins rather than resolving current registry versions. This setup
+command is deliberately outside the PHP CLI: `atoms` itself still never
+downloads a toolchain, and the Action does not scaffold at all — it checks
+out, runs `npm ci` in the committed directory, and deploys.
+
+**Version skew.** The Worker directory is co-versioned with the CLI and the
+Composer packages, and committing it transfers the upgrade to you. So the
+directory carries a stamp, `atoms-runtime.json`, written by `init` and
+`upgrade`, recording the release that scaffolded it; `atoms deploy` and
+`atoms dev` compare it with the CLI's own release
+(`CloudflareTarget::assertRuntimeVersion()`) before anything is built, and
+refuse a mismatch with **ATOMS-E108**, naming both releases and the exact
+upgrade command. A directory with no stamp — scaffolded before stamps
+existed — is the same error with the version reported as unknown. Equality
+is exact: every release publishes a new runtime package, and a range would
+let a "close enough" runtime deploy against packages it was never tested
+with. `status`, `rollback` and the secrets commands ship no code and make
+no such check.
+
+**Upgrading it.** The error's command is the upgrade:
+
+```sh
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
+  atoms-runtime-cloudflare upgrade atoms-worker
+cd atoms-worker && npm ci
+```
+
+`upgrade` rewrites the runtime-owned files to the release's copies, removes
+runtime-owned files the release no longer ships (so a renamed module cannot
+linger and shadow its replacement), leaves user-owned files alone, and
+rewrites the stamp last — so an interrupted upgrade leaves the old version
+in place and the CLI still refusing to deploy the half-moved tree. It prints
+what it did, then checks `wrangler.jsonc` for what the runtime requires from
+it and exits non-zero with a list if the release needs an edit there. It
+never edits that file. Review the diff, commit.
+
+**The ownership split.** Recorded in the stamp (`runtime_owned`, with a
+sha256 per file, and `user_owned`), documented in the directory's own
+`README.md`, and stated in the header of `wrangler.jsonc` itself:
+
+- **User-owned:** `wrangler.jsonc`. Seeded once by `init`, never rewritten.
+  The keys the runtime depends on (`main`, `compatibility_date` as a floor,
+  `compatibility_flags`, `rules`, the `ATOMS` Durable Object binding, the
+  migration tags) are marked `RUNTIME-REQUIRED` in the file, and `upgrade`
+  derives its check from the template's copy so there is one statement of
+  the requirement.
+- **Runtime-owned:** everything else the template ships — `src/`, `php/`,
+  `scripts/`, `release/`, `package.json`, `package-lock.json`, `.gitignore`,
+  `README.md`, the licence files, and the stamp.
+- **Unknown files** — anything you add — are left alone.
+
+*Rejected: splitting `wrangler.jsonc` into a runtime part and a user part.*
+Wrangler has no include mechanism, so a split would mean the CLI merging two
+files into a third at deploy time, and `wrangler deploy` by hand would no
+longer see the same config. *Rejected: keeping `wrangler.jsonc`
+runtime-owned and forwarding every user setting from `atoms.json`.* That is
+the design being replaced. One file, owned by the user, with a machine
+check of the runtime's few structural needs, is the smallest honest shape.
+
+**Generated outputs are gitignored.** The scaffold's `.gitignore` (runtime-
+owned; shipped as `gitignore.scaffold` from this repository, distinct from
+the monorepo worker's own, which commits the conformance fixture's bundle)
+covers everything `deploy`, `dev` and `npm ci` write: `src/bundle.generated.js`,
+`node_modules/`, `.php-wasm/`, `.dev.vars`, `.wrangler/`. A deploy never
+leaves the committed directory dirty; `test/runtime-package.mjs` asserts the
+list.
 
 ### Credentials
 
@@ -379,17 +462,20 @@ declaration means, and both print an `ATOMS_DEBUG_ENDPOINTS=1` line when it
 is in force. It must be a JSON boolean; a string is refused (**ATOMS-E070**)
 rather than coerced, so `"false"` can never silently enable a debug surface.
 
-**Why atoms.json and not the Worker's wrangler.jsonc.** The default Worker
-directory `.atoms/worker` is gitignored (`atoms init` does that) and the
-deploy Action re-scaffolds it whenever it is missing or empty — which in CI
-is every fresh checkout. An edit to its `wrangler.jsonc` therefore does not
-survive a deploy. atoms.json is committed and is already where the
-environment's other durable settings live, and `--var` is already how the
-callback URL reaches `wrangler dev` — this reuses that channel on both
-paths. (The conformance harness in `cloudflare/worker` is intentionally
-different: its own `wrangler.jsonc` keeps the flag on because checks 5/10/12
-need it, and that file is not what customers receive —
-`wrangler.scaffold.jsonc` is.)
+**Why atoms.json and not the Worker's wrangler.jsonc.** The Worker
+directory is committed now, so an edit to its `wrangler.jsonc` is durable —
+the original reason for forwarding is gone. The reason that remains is that
+`wrangler.jsonc` is **one file for every environment**: the CLI selects the
+Worker with `--name` and never passes Wrangler's `-e`, so a var set there
+applies to staging and production alike, and this is the one setting that
+must be able to differ between them. atoms.json is already where the
+per-environment settings live, and `--var` is already how the callback URL
+reaches `wrangler dev` — this reuses that channel on both paths. The
+scaffold's `wrangler.jsonc` says so in its header, and the package test
+asserts the template does not set the var. (The conformance harness in
+`cloudflare/worker` is intentionally different: its own `wrangler.jsonc`
+keeps the flag on because checks 5/10/12 need it, and that file is not what
+customers receive — `wrangler.scaffold.jsonc` is.)
 
 ### Deploying does not mean deployed
 
@@ -672,23 +758,28 @@ translator and is the test that catches either half drifting away from it.
 atoms deploy --env production
 ```
 
-1. Load `atoms.json`; resolve the environment.
+1. Load `atoms.json`; resolve the environment. A `worker_dir` key is refused
+   here (E109).
 2. Resolve the Cloudflare target: worker name, account id, API token, worker
-   directory. No credential check happens here any more — a missing token may
-   be a `wrangler login` session, and a missing account id may be the only
-   account that session reaches. Both are knowable only at step 5.
-3. `atoms build` → `.atoms/build/bundle-{sha}.tar.gz` + `manifest.json`.
+   directory (`atoms-worker/`, or `--worker-dir`). No credential check happens
+   here any more — a missing token may be a `wrangler login` session, and a
+   missing account id may be the only account that session reaches. Both are
+   knowable only at step 6.
+3. Verify the Worker directory exists and has a Wrangler config (E076), and
+   that its `atoms-runtime.json` names this CLI's release (E108). Before the
+   build, so a stale directory costs seconds, not a build.
+4. `atoms build` → `.atoms/build/bundle-{sha}.tar.gz` + `manifest.json`.
    Deterministic; executes no customer code. (`--bundle` skips this and deploys
    a prebuilt one.)
-4. Verify the Worker directory (E076), then run
-   `node scripts/bundle-from-cli.mjs <bundle> <manifest> src/bundle.generated.js`
-   inside it. The translator refuses a manifest paired with the wrong bundle,
-   and refuses a manifest naming a file the bundle does not contain.
-5. `wrangler deploy --name {worker}` in that directory, with whatever
+5. Run `node scripts/bundle-from-cli.mjs <bundle> <manifest> src/bundle.generated.js`
+   inside the Worker directory. The translator refuses a manifest paired with
+   the wrong bundle, and refuses a manifest naming a file the bundle does not
+   contain. The output is gitignored there.
+6. `wrangler deploy --name {worker}` in that directory, with whatever
    credentials this process resolved in its environment — possibly none, in
    which case Wrangler uses its own login session — and Wrangler's own output
    passed through unedited.
-6. Non-zero exit ⇒ **ATOMS-E074**, with Wrangler's diagnosis already printed;
+7. Non-zero exit ⇒ **ATOMS-E074**, with Wrangler's diagnosis already printed;
    or **ATOMS-E072** when that diagnosis is that it had no credentials at all,
    or **ATOMS-E075** when it could not choose between several accounts.
 

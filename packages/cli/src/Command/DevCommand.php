@@ -103,6 +103,11 @@ final class DevCommand extends AbstractCommand
             );
 
             $target->assertWorkerDir();
+            // Same check as deploy, for the same reason: a Worker directory
+            // from another release would run a runtime the PHP packages on
+            // this machine do not match, and the confusion would surface as
+            // a guest error rather than as the skew it is.
+            $target->assertRuntimeVersion();
             $this->ensureDevSecret($config->rootDir, $target->workerDir, $output);
 
             if ($input->getOption('no-build') !== true) {
@@ -117,10 +122,10 @@ final class DevCommand extends AbstractCommand
 
             $callback = self::stringOption($input, 'callback-url') ?? $config->callbackUrls[$env] ?? null;
 
-            // atoms.json is the durable home for Worker settings — the Worker
-            // project directory is gitignored and regenerated, so its
-            // wrangler.jsonc is not. Forwarded here and on deploy, so dev and
-            // deploy agree on what one declaration means.
+            // atoms.json is the per-environment home for Worker settings; the
+            // committed wrangler.jsonc is shared by every environment.
+            // Forwarded here and on deploy, so dev and deploy agree on what
+            // one declaration means.
             $vars = $target->runtimeVars();
 
             $output->writeln('Starting wrangler dev on port ' . $port . '…');

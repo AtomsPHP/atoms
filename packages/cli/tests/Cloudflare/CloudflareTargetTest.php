@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Atoms\Cli\Tests\Cloudflare;
 
 use Atoms\Cli\Cloudflare\CloudflareTarget;
+use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Cloudflare\WranglerBinary;
+use Atoms\Cli\Release\RuntimeVersion;
 use Atoms\Cli\Tests\Support\FakeProcessRunner;
 use Atoms\Cli\Tests\TestCase;
 use Atoms\Errors\AtomsError;
@@ -103,6 +105,7 @@ final class CloudflareTargetTest extends TestCase
         $config = $this->sampleApp();
 
         $target = CloudflareTarget::resolve($config, 'production', 'token');
+        self::assertSame('atoms-worker', CloudflareTarget::DEFAULT_WORKER_DIR);
         self::assertSame($config->rootDir . '/' . CloudflareTarget::DEFAULT_WORKER_DIR, $target->workerDir);
 
         $target = CloudflareTarget::resolve($config, 'production', 'token', 'vendor/worker');
@@ -173,6 +176,102 @@ final class CloudflareTargetTest extends TestCase
             'https://acme-games.example.workers.dev/invoke/GameRoom/g-1/ping',
             $target->invokeUrl('GameRoom', 'g-1', 'ping'),
         );
+    }
+
+    /**
+     * The per-environment `worker_dir` key is gone, and gone loudly: a
+     * repository following the old docs has a gitignored Worker directory
+     * where a committed one now belongs, and must hear that rather than
+     * deploy from a default it never chose.
+     */
+    public function testAPerEnvironmentWorkerDirIsRefusedAsE109(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        $json['environments']['production']['worker_dir'] = '.atoms/worker';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+
+        try {
+            \Atoms\Cli\Config\AtomsJson::load($root . '/atoms.json');
+            self::fail('expected ATOMS-E109');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E109', $e->getMessage());
+            self::assertStringContainsString("on environment 'production'", $e->getMessage());
+            self::assertStringContainsString('atoms-worker/', $e->getMessage());
+            self::assertStringContainsString('--worker-dir', $e->getMessage());
+        }
+    }
+
+    public function testATopLevelWorkerDirIsRefusedAsE109(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        $json['worker_dir'] = 'infra/worker';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E109.*at the top level/s');
+        \Atoms\Cli\Config\AtomsJson::load($root . '/atoms.json');
+    }
+
+    public function testAMissingWorkerDirNamesTheLegacyScaffoldWhenOneExists(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        mkdir($root . '/' . CloudflareTarget::LEGACY_WORKER_DIR, 0777, true);
+        $target = CloudflareTarget::resolve(\Atoms\Cli\Config\AtomsJson::load($root . '/atoms.json'), 'production', 'token');
+
+        try {
+            $target->assertWorkerDir();
+            self::fail('expected ATOMS-E076');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E076', $e->getMessage());
+            self::assertStringContainsString('.atoms/worker', $e->getMessage());
+            self::assertStringContainsString('now committed', $e->getMessage());
+        }
+    }
+
+    public function testRuntimeVersionMatchesTheStamp(): void
+    {
+        $dir = $this->freshDir();
+        file_put_contents($dir . '/' . RuntimeStamp::FILE, json_encode(['version' => RuntimeVersion::VERSION], JSON_THROW_ON_ERROR));
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production', 'token', $dir);
+
+        $target->assertRuntimeVersion();
+        self::assertTrue(true);
+    }
+
+    public function testRuntimeVersionMismatchIsE108WithTheExactUpgradeCommand(): void
+    {
+        $config = $this->sampleApp();
+        $dir = $config->rootDir . '/atoms-worker-skewed';
+        mkdir($dir);
+        try {
+            file_put_contents($dir . '/' . RuntimeStamp::FILE, json_encode(['version' => '0.0.1-other'], JSON_THROW_ON_ERROR));
+            $target = CloudflareTarget::resolve($config, 'production', 'token', 'atoms-worker-skewed');
+
+            $target->assertRuntimeVersion();
+            self::fail('expected ATOMS-E108');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E108', $e->getMessage());
+            self::assertStringContainsString('0.0.1-other', $e->getMessage());
+            // The command is version-pinned to this CLI and names the directory
+            // as the user would type it, relative to the repository root.
+            self::assertStringContainsString(RuntimeVersion::upgradeCommand('atoms-worker-skewed'), $e->getMessage());
+        } finally {
+            @unlink($dir . '/' . RuntimeStamp::FILE);
+            @rmdir($dir);
+        }
+    }
+
+    public function testAnUnreadableStampIsE076NotE108(): void
+    {
+        $dir = $this->freshDir();
+        file_put_contents($dir . '/' . RuntimeStamp::FILE, '{not json');
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production', 'token', $dir);
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E076/');
+        $target->assertRuntimeVersion();
     }
 
     public function testWorkerDirWithoutAWranglerConfigIsE076(): void

@@ -15,10 +15,23 @@ final class RuntimeVersion
 
     public const CORE_VERSION = '0.5.0';
 
-    public static function scaffoldCommand(string $target = '.atoms/worker'): string
+    /** The committed Worker directory, relative to atoms.json. */
+    public const WORKER_DIR = 'atoms-worker';
+
+    public static function scaffoldCommand(string $target = self::WORKER_DIR): string
     {
         return sprintf(
             'npm exec --yes --package=%s@%s -- atoms-runtime-cloudflare init %s',
+            self::PACKAGE,
+            self::VERSION,
+            $target,
+        );
+    }
+
+    public static function upgradeCommand(string $target = self::WORKER_DIR): string
+    {
+        return sprintf(
+            'npm exec --yes --package=%s@%s -- atoms-runtime-cloudflare upgrade %s',
             self::PACKAGE,
             self::VERSION,
             $target,
