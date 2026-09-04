@@ -45,6 +45,7 @@ final class ConsoleCommandsTest extends TestCase
             '--bundle' => '/tmp/bundle.tar.gz',
             '--manifest' => '/tmp/manifest.json',
             '--worker-dir' => '/srv/worker',
+            '--callback-url' => 'https://app.example.test/atoms/callback',
         ])->assertExitCode(0);
 
         self::assertSame([[
@@ -53,6 +54,7 @@ final class ConsoleCommandsTest extends TestCase
             '--bundle', '/tmp/bundle.tar.gz',
             '--manifest', '/tmp/manifest.json',
             '--worker-dir', '/srv/worker',
+            '--callback-url', 'https://app.example.test/atoms/callback',
         ]], $this->runner->calls);
     }
 

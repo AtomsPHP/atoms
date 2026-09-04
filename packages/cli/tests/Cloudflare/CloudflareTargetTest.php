@@ -7,6 +7,7 @@ namespace Atoms\Cli\Tests\Cloudflare;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
 use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Cloudflare\WranglerBinary;
+use Atoms\Cli\Config\AtomsJson;
 use Atoms\Cli\Release\RuntimeVersion;
 use Atoms\Cli\Tests\Support\FakeProcessRunner;
 use Atoms\Cli\Tests\TestCase;
@@ -19,6 +20,7 @@ final class CloudflareTargetTest extends TestCase
         parent::setUp();
         putenv('CLOUDFLARE_API_TOKEN');
         putenv('CLOUDFLARE_ACCOUNT_ID');
+        putenv(CloudflareTarget::CALLBACK_VAR);
         putenv(WranglerBinary::ENV_OVERRIDE);
     }
 
@@ -26,8 +28,55 @@ final class CloudflareTargetTest extends TestCase
     {
         putenv('CLOUDFLARE_API_TOKEN');
         putenv('CLOUDFLARE_ACCOUNT_ID');
+        putenv(CloudflareTarget::CALLBACK_VAR);
         putenv(WranglerBinary::ENV_OVERRIDE);
         parent::tearDown();
+    }
+
+    /**
+     * An explicit callback URL beats the environment, which beats atoms.json.
+     * A callback URL is often per machine (a tunnel host, a local port), so
+     * the committed file must not be its only home.
+     */
+    public function testCallbackUrlResolvesFlagThenEnvironmentThenAtomsJson(): void
+    {
+        $fromJson = CloudflareTarget::resolve($this->sampleApp(), 'staging');
+        self::assertSame('https://staging.acme.example.com', $fromJson->callbackUrl);
+        self::assertSame(
+            [CloudflareTarget::CALLBACK_VAR => 'https://staging.acme.example.com'],
+            $fromJson->runtimeVars(),
+        );
+
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://tunnel.example.test/atoms/callback');
+        $fromEnv = CloudflareTarget::resolve($this->sampleApp(), 'staging');
+        self::assertSame('https://tunnel.example.test/atoms/callback', $fromEnv->callbackUrl);
+
+        $fromFlag = CloudflareTarget::resolve(
+            $this->sampleApp(),
+            'staging',
+            callbackUrl: 'http://127.0.0.1:8000/atoms/callback',
+        );
+        self::assertSame('http://127.0.0.1:8000/atoms/callback', $fromFlag->callbackUrl);
+    }
+
+    public function testCallbackUrlIsPerEnvironmentAndAbsentWhenNothingConfiguresIt(): void
+    {
+        self::assertSame(
+            'https://acme.example.com',
+            CloudflareTarget::resolve($this->sampleApp(), 'production')->callbackUrl,
+        );
+
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        unset($json['callback_url']);
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+
+        $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+        self::assertNull($target->callbackUrl);
+        // An empty environment value is "unset", not a URL.
+        putenv(CloudflareTarget::CALLBACK_VAR . '=');
+        self::assertNull(CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production')->callbackUrl);
+        self::assertSame([], $target->runtimeVars());
     }
 
     public function testExplicitTokenBeatsTheEnvironment(): void
@@ -135,7 +184,9 @@ final class CloudflareTargetTest extends TestCase
         $target = CloudflareTarget::resolve($this->sampleApp(), 'production', 'token');
 
         self::assertFalse($target->debugEndpoints);
-        self::assertSame([], $target->runtimeVars());
+        // The fixture's callback_url still rides along; the point is that no
+        // debug var does.
+        self::assertArrayNotHasKey(CloudflareTarget::DEBUG_ENDPOINTS_VAR, $target->runtimeVars());
     }
 
     public function testDebugEndpointsFromAtomsJsonBecomeTheWranglerVar(): void
@@ -152,7 +203,10 @@ final class CloudflareTargetTest extends TestCase
         );
 
         self::assertTrue($target->debugEndpoints);
-        self::assertSame(['ATOMS_DEBUG_ENDPOINTS' => '1'], $target->runtimeVars());
+        self::assertSame(
+            ['ATOMS_DEBUG_ENDPOINTS' => '1', CloudflareTarget::CALLBACK_VAR => 'https://acme.example.com'],
+            $target->runtimeVars(),
+        );
     }
 
     public function testANonBooleanDebugEndpointsIsRefusedNotCoerced(): void

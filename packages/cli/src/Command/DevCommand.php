@@ -55,8 +55,14 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * ## The callback channel
  *
- * `--callback-url` is passed to the Worker as an `ATOMS_CALLBACK_URL` var, and
+ * The callback URL is passed to the Worker as an `ATOMS_CALLBACK_URL` var, and
  * the Worker calls back through it for `$this->app()` and `$this->dispatch()`.
+ * It resolves as `--callback-url`, then `ATOMS_CALLBACK_URL` in this process's
+ * environment, then atoms.json's `callback_url.<env>`. The environment override
+ * lets developers use a per-machine tunnel host or local port without
+ * committing that value.
+ * {@see CloudflareTarget::resolve()} owns that chain, so `atoms deploy`
+ * forwards the identical value.
  */
 #[AsCommand(name: 'dev', description: 'Run the Atoms Worker locally with wrangler dev')]
 final class DevCommand extends AbstractCommand
@@ -65,7 +71,7 @@ final class DevCommand extends AbstractCommand
      * The Worker var carrying the monolith's callback endpoint. The Worker
      * consumes this for the signed callback channel (`$this->app()`/`dispatch()`).
      */
-    public const CALLBACK_VAR = 'ATOMS_CALLBACK_URL';
+    public const CALLBACK_VAR = CloudflareTarget::CALLBACK_VAR;
 
     private const DEFAULT_PORT = '8787';
 
@@ -83,7 +89,7 @@ final class DevCommand extends AbstractCommand
         parent::configure();
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Environment whose settings to use', 'staging');
         $this->addOption('port', null, InputOption::VALUE_REQUIRED, 'Port for wrangler dev', self::DEFAULT_PORT);
-        $this->addOption('callback-url', null, InputOption::VALUE_REQUIRED, 'Monolith callback URL (else atoms.json callback_url)');
+        $this->addOption('callback-url', null, InputOption::VALUE_REQUIRED, 'Monolith callback URL (else ATOMS_CALLBACK_URL in the environment, else atoms.json callback_url)');
         $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
         $this->addOption('no-build', null, InputOption::VALUE_NONE, 'Use the bundle already staged in the Worker project');
     }
@@ -100,6 +106,7 @@ final class DevCommand extends AbstractCommand
                 $env,
                 null,
                 self::stringOption($input, 'worker-dir'),
+                self::stringOption($input, 'callback-url'),
             );
 
             $target->assertWorkerDir();
@@ -120,13 +127,12 @@ final class DevCommand extends AbstractCommand
                 $this->stager->stage($target, $result->bundlePath, $result->manifestPath);
             }
 
-            $callback = self::stringOption($input, 'callback-url') ?? $config->callbackUrls[$env] ?? null;
-
-            // atoms.json is the per-environment home for Worker settings; the
-            // committed wrangler.jsonc is shared by every environment.
-            // Forwarded here and on deploy, so dev and deploy agree on what
-            // one declaration means.
+            // atoms.json holds per-environment settings; the committed
+            // wrangler.jsonc is shared by every environment. Dev and deploy
+            // forward the same vars, including the callback URL resolved from
+            // --callback-url, the process environment, or atoms.json.
             $vars = $target->runtimeVars();
+            $callback = $target->callbackUrl;
 
             $output->writeln('Starting wrangler dev on port ' . $port . '…');
             if ($target->debugEndpoints) {
@@ -139,10 +145,6 @@ final class DevCommand extends AbstractCommand
             if ($callback !== null) {
                 $output->writeln('  ' . self::CALLBACK_VAR . '=' . $callback);
                 $output->writeln('  The Worker will call back to this URL for $this->app() and $this->dispatch().');
-            }
-
-            if ($callback !== null) {
-                $vars[self::CALLBACK_VAR] = $callback;
             }
 
             $result = $this->wrangler->dev($target, $port, $vars);

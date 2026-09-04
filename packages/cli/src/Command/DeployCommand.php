@@ -21,6 +21,14 @@ use Symfony\Component\Console\Output\OutputInterface;
  * There is no Atoms-hosted service in this path. The user's Cloudflare
  * credentials go straight into Wrangler's process environment and nowhere
  * else — Atoms never proxies or retains them.
+ *
+ * The Worker vars atoms.json declares for the environment — `debug_endpoints`
+ * and `callback_url.<env>` — ride along as `wrangler deploy --var`, the same
+ * way `atoms dev` forwards them, so both commands use the same settings. The callback URL resolves exactly as it does for `atoms dev`:
+ * `--callback-url`, then `ATOMS_CALLBACK_URL` in this process's environment,
+ * then atoms.json ({@see CloudflareTarget::resolve()}). It is not a secret,
+ * so argv is a fine road for it; `ATOMS_SHARED_SECRET` is not forwarded here
+ * and never will be — that is `atoms shared-secret:set`.
  */
 #[AsCommand(name: 'deploy', description: 'Deploy an Atoms bundle to your Cloudflare account')]
 final class DeployCommand extends AbstractCommand
@@ -40,6 +48,7 @@ final class DeployCommand extends AbstractCommand
         $this->addOption('bundle', null, InputOption::VALUE_REQUIRED, 'Deploy a prebuilt bundle instead of building');
         $this->addOption('manifest', null, InputOption::VALUE_REQUIRED, 'Manifest for --bundle (default: manifest.json beside it)');
         $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
+        $this->addOption('callback-url', null, InputOption::VALUE_REQUIRED, 'Monolith callback URL (else ATOMS_CALLBACK_URL in the environment, else atoms.json callback_url)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -58,6 +67,7 @@ final class DeployCommand extends AbstractCommand
                 $env,
                 null,
                 self::stringOption($input, 'worker-dir'),
+                self::stringOption($input, 'callback-url'),
             );
 
             // Before the build, not after it: a Worker directory that is
@@ -99,6 +109,20 @@ final class DeployCommand extends AbstractCommand
                 $output->writeln(
                     '  ' . $target::DEBUG_ENDPOINTS_VAR . '=1 (debug endpoints enabled by atoms.json '
                     . '"debug_endpoints" for ' . $env . ')'
+                );
+            }
+            if ($target->callbackUrl !== null) {
+                // Visible for the same reason `atoms dev` prints it: a wrong
+                // callback URL only surfaces later, as ATOMS-E083 from inside
+                // an Atom, and this line is where to look first.
+                $output->writeln('  ' . $target::CALLBACK_VAR . '=' . $target->callbackUrl);
+                $output->writeln('  The Worker will call back to this URL for $this->app() and $this->dispatch().');
+            } else {
+                $output->writeln(
+                    '  No callback URL configured: $this->app() and $this->dispatch() will fail with '
+                    . 'ATOMS-E080 unless ' . $target::CALLBACK_VAR . ' is set on the Worker some other way. '
+                    . 'Set atoms.json "callback_url"."' . $env . '", ' . $target::CALLBACK_VAR
+                    . ' in the environment, or pass --callback-url.'
                 );
             }
             $wrangler = $this->wrangler->deploy($target, $target->runtimeVars());
