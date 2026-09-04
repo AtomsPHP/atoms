@@ -84,23 +84,30 @@ export function assertConfinedPath(path, describe) {
 }
 
 /**
- * Refuse to write to or remove a path whose destination is a symlink, or
- * whose parent resolves outside the Worker directory: a committed symlink
- * could otherwise turn a runtime-owned write into a write anywhere.
+ * Refuse to write to or remove a path when any component of it, from the
+ * Worker directory down to the destination itself, is a symbolic link: a
+ * committed symlink could otherwise turn a runtime-owned write into a write
+ * anywhere. Every component is inspected with `lstat`, never `exists`,
+ * because `exists` follows links and answers false for a dangling one — the
+ * exact case that would let `copyFileSync` create the link's target outside
+ * the directory. The walk stops at the first component that is absent; a
+ * component that is neither a directory nor the final file is refused too.
  */
 function assertConfinedDestination(target, relative) {
-	const destination = join(target, relative);
-	if (existsSync(destination) && lstatSync(destination).isSymbolicLink()) {
-		throw new Error(`atoms: refusing to touch ${relative}: it is a symbolic link`);
+	const segments = relative.split('/');
+	let current = target;
+	for (let i = 0; i < segments.length; i++) {
+		current = join(current, segments[i]);
+		const stat = lstatSync(current, { throwIfNoEntry: false });
+		if (stat === undefined) break;
+		if (stat.isSymbolicLink()) {
+			throw new Error(`atoms: refusing to touch ${relative}: ${segments.slice(0, i + 1).join('/')} is a symbolic link`);
+		}
+		if (i < segments.length - 1 && !stat.isDirectory()) {
+			throw new Error(`atoms: refusing to touch ${relative}: ${segments.slice(0, i + 1).join('/')} is not a directory`);
+		}
 	}
-	let parent = dirname(destination);
-	while (!existsSync(parent)) parent = dirname(parent);
-	const root = realpathSync(target);
-	const resolved = realpathSync(parent);
-	if (resolved !== root && !resolved.startsWith(root + '/')) {
-		throw new Error(`atoms: refusing to touch ${relative}: its directory resolves outside the Worker directory`);
-	}
-	return destination;
+	return join(target, relative);
 }
 
 /** `target` as a shell argument: bare when it needs no quoting, else single-quoted. */

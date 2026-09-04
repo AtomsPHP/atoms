@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -325,12 +325,45 @@ try {
 	symlinkSync(victim, join(target, 'src', 'config.js'));
 	const viaLink = run('npm', upgradeArgs, { expectFailure: true, env: npmEnvironment });
 	assert.notEqual(viaLink.status, 0);
-	assert.match(viaLink.stderr, /refusing to touch src\/config\.js: it is a symbolic link/);
+	assert.match(viaLink.stderr, /refusing to touch src\/config\.js: src\/config\.js is a symbolic link/);
 	assert.equal(readFileSync(victim, 'utf8'), 'not yours\n', 'a symlinked runtime-owned path must not be written through');
 	rmSync(join(target, 'src', 'config.js'));
+
+	// A DANGLING symlink is the sharper case: `exists` follows the link and
+	// answers false, so a guard gated on it would let copyFileSync follow the
+	// link and create its target outside the directory.
+	const outsideCreated = join(temporaryRoot, 'outside-created.txt');
+	symlinkSync(outsideCreated, join(target, 'src', 'config.js'));
+	const dangling = run('npm', upgradeArgs, { expectFailure: true, env: npmEnvironment });
+	assert.notEqual(dangling.status, 0);
+	assert.match(dangling.stderr, /refusing to touch src\/config\.js: src\/config\.js is a symbolic link/);
+	assert.ok(!existsSync(outsideCreated), 'a dangling symlink must not be written through');
+	assert.equal(JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')).version, '0.0.4-older', 'a refused upgrade must not advance the stamp');
+	rmSync(join(target, 'src', 'config.js'));
+
+	// A symlinked DIRECTORY component is refused the same way, whether or
+	// not it dangles: every component is inspected, not only the leaf.
+	const outsideDir = join(temporaryRoot, 'outside-dir');
+	mkdirSync(outsideDir);
+	rmSync(join(target, 'scripts'), { recursive: true });
+	symlinkSync(outsideDir, join(target, 'scripts'));
+	const viaDir = run('npm', upgradeArgs, { expectFailure: true, env: npmEnvironment });
+	assert.notEqual(viaDir.status, 0);
+	assert.match(viaDir.stderr, /refusing to touch scripts\/[^:]+: scripts is a symbolic link/);
+	assert.deepEqual(readdirSync(outsideDir), [], 'a symlinked directory component must not be written through');
+	rmSync(join(target, 'scripts'));
+	rmSync(join(target, 'scripts-dangling'), { force: true });
+	symlinkSync(join(temporaryRoot, 'never-created'), join(target, 'scripts'));
+	const viaDanglingDir = run('npm', upgradeArgs, { expectFailure: true, env: npmEnvironment });
+	assert.notEqual(viaDanglingDir.status, 0);
+	assert.match(viaDanglingDir.stderr, /scripts is a symbolic link/);
+	assert.ok(!existsSync(join(temporaryRoot, 'never-created')));
+	rmSync(join(target, 'scripts'));
+
 	writeFileSync(join(target, 'src', 'config.js'), '');
 	run('npm', upgradeArgs, { env: npmEnvironment });
 	assert.deepEqual(JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')), stamp);
+	assert.ok(existsSync(join(target, 'scripts', 'bundle-from-cli.mjs')), 'the removed scripts/ tree is restored by the upgrade');
 
 	// Printed commands are for pasting: a directory named on the command
 	// line may hold a space, so it is quoted when it needs to be.
