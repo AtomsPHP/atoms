@@ -73,18 +73,12 @@ function readStamp(directory, describe) {
 	return stamp;
 }
 
-/**
- * The template as a map of scaffolded path → template file. The stamp is
- * ordered last: it is what the CLI reads, so a crash mid-copy leaves the old
- * version in place and the CLI still refusing to deploy the half-moved tree.
- */
+/** The template as a map of scaffolded path → template file. */
 function templateFiles() {
 	const files = new Map();
 	for (const file of filesUnder(templateRoot)) {
-		if (file === RUNTIME_STAMP) continue;
 		files.set(TEMPLATE_RENAMES[file] ?? file, join(templateRoot, file));
 	}
-	files.set(RUNTIME_STAMP, join(templateRoot, RUNTIME_STAMP));
 	return files;
 }
 
@@ -141,11 +135,14 @@ function scaffold(targetArg) {
 // ---------------------------------------------------------------------------
 
 /**
- * Every write comes from this package's template, never from the committed
- * stamp. The old stamp is read for one thing only: the list of files the
- * previous release owned, so the ones this release no longer ships can be
- * removed — and removal is confined to a plain, non-symlinked file at a
- * canonical relative path under the directory.
+ * Every write comes from this package's template. The committed stamp is
+ * read for one thing: the list of files the previous release owned, so the
+ * ones absent from this release can be removed — and removal is confined to
+ * a plain file at a canonical relative path under the directory.
+ *
+ * The stamp is written last, after the removals. It is what the CLI reads,
+ * so an upgrade that fails part-way leaves the old version in place and the
+ * CLI still refusing to deploy the half-moved tree.
  */
 function upgrade(targetArg) {
 	const target = resolve(targetArg);
@@ -170,8 +167,9 @@ function upgrade(targetArg) {
 	const leftAlone = [];
 
 	// User-owned files are seeded only when absent; everything else in the
-	// template is written. The stamp is last in the map.
+	// template is written, the stamp excepted until the end.
 	for (const [path, source] of template) {
+		if (path === RUNTIME_STAMP) continue;
 		if (next.user_owned.includes(path) && existsSync(join(target, path))) {
 			leftAlone.push(path);
 			continue;
@@ -187,6 +185,9 @@ function upgrade(targetArg) {
 		pruneEmptyDirectories(target, dirname(path));
 		removed.push(path);
 	}
+
+	copyInto(target, RUNTIME_STAMP, template.get(RUNTIME_STAMP));
+	written.push(RUNTIME_STAMP);
 
 	console.log(
 		previous.version === next.version

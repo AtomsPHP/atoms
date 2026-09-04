@@ -15,7 +15,7 @@ use Atoms\Errors\ErrorCode;
  * The Worker directory is a committed part of the user's repository, and it
  * is co-versioned with this CLI and the Composer packages: a repository whose
  * CLI moved on without its Worker directory would otherwise deploy a runtime
- * the PHP side no longer matches, and nothing at deploy time would say so.
+ * the PHP side does not match, and nothing at deploy time would say so.
  * The stamp records which release scaffolded the directory, so the CLI can
  * refuse that deploy loudly and early (ATOMS-E108) and name the upgrade.
  *

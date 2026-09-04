@@ -3,8 +3,8 @@
 
 	// YOUR FILE. This is the one file in the Atoms Worker directory that you
 	// own: `atoms-runtime-cloudflare init` writes it once, and
-	// `atoms-runtime-cloudflare upgrade` never rewrites it. Edit it, commit it,
-	// and your edits are durable — the directory is part of your repository.
+	// `atoms-runtime-cloudflare upgrade` leaves it as it is. Edit it, commit
+	// it, and your edits are durable — the directory is part of your repository.
 	// (See README.md in this directory for the full runtime/user split.)
 	//
 	// The keys marked RUNTIME-REQUIRED below are what the runtime needs from

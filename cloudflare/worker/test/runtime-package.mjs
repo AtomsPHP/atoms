@@ -242,6 +242,30 @@ try {
 	assert.equal(readFileSync(join(target, 'my-notes.md'), 'utf8'), 'not the runtime\'s, left alone\n', 'unknown files are left alone');
 	assert.deepEqual(JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')), stamp, 'the stamp is rewritten');
 
+	// The stamp is rewritten last, after the removals: an upgrade that fails
+	// part-way leaves the old version in place, so the CLI keeps refusing the
+	// half-moved tree. Forced here with a stale path whose lstat fails — a
+	// segment longer than the filesystem allows — after every runtime file
+	// has already been written.
+	writeFileSync(join(target, 'src', 'config.js'), '// locally edited again\n');
+	mkdirSync(join(target, 'stale'));
+	const crashingStamp = { ...stamp, version: '0.0.1-older', runtime_owned: [...stamp.runtime_owned, `stale/${'x'.repeat(300)}`] };
+	writeFileSync(join(target, RUNTIME_STAMP), `${JSON.stringify(crashingStamp, null, 2)}\n`);
+	const crashed = run('npm', upgradeArgs, { expectFailure: true, env: npmEnvironment });
+	assert.notEqual(crashed.status, 0);
+	assert.equal(
+		readFileSync(join(target, 'src', 'config.js'), 'utf8'),
+		readFileSync(join(stage, 'template', 'src', 'config.js'), 'utf8'),
+		'runtime files were written before the failure',
+	);
+	assert.deepEqual(
+		JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')),
+		crashingStamp,
+		'the stamp is rewritten last: a failure after the writes leaves the old version in place',
+	);
+	rmSync(join(target, 'stale'), { recursive: true });
+	writeFileSync(join(target, RUNTIME_STAMP), `${JSON.stringify(stamp, null, 2)}\n`);
+
 	// Idempotent: a second run at the same release is a no-op in git terms.
 	const again = run('npm', upgradeArgs, { env: npmEnvironment });
 	assert.match(again.stdout, /is already .*; runtime-owned files rewritten/);

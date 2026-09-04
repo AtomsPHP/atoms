@@ -46,17 +46,16 @@ final class CloudflareTarget
     /**
      * Where the Worker project lives: a committed directory beside atoms.json.
      * Its location is a convention, like atoms.json's own, rather than a
-     * setting — atoms.json no longer names it (the per-environment
-     * `worker_dir` key is refused, ATOMS-E109). `--worker-dir` remains the
-     * explicit per-invocation override for an unusual layout.
+     * setting — atoms.json does not name it (a `worker_dir` key is refused,
+     * ATOMS-E109). `--worker-dir` is the explicit per-invocation override for
+     * an unusual layout.
      */
     public const DEFAULT_WORKER_DIR = 'atoms-worker';
 
     /**
-     * Where the pre-committed scaffold used to live, gitignored and
-     * regenerated per checkout. Only consulted to make a migration error
-     * more specific: a repository with this directory and no committed one
-     * is following the old docs.
+     * The gitignored, per-checkout location earlier releases scaffolded into.
+     * Consulted only to make a migration error more specific: a repository
+     * with this directory and no committed one is following the old docs.
      */
     public const LEGACY_WORKER_DIR = '.atoms/worker';
 
@@ -94,9 +93,8 @@ final class CloudflareTarget
      *
      * The Worker directory is `$workerDir` when given, else
      * {@see DEFAULT_WORKER_DIR} under the repository root. atoms.json has no
-     * say: it used to carry a per-environment `worker_dir`, which let two
-     * environments deploy two different runtimes and made the directory
-     * something to regenerate rather than commit.
+     * say: one directory serves every environment, so every environment
+     * deploys the same runtime.
      *
      * Nothing about credentials fails here any more. Neither half is Atoms'
      * to adjudicate: the token may be a `wrangler login` session this process

@@ -45,7 +45,7 @@ The directory is released with the CLI. After updating the atoms/* packages,
 `atoms deploy` and `atoms dev` refuse a directory from another release
 (ATOMS-E108) and print the `atoms-runtime-cloudflare upgrade` command; run
 it, `npm ci`, review the diff, commit. It rewrites runtime-owned files and
-never touches wrangler.jsonc, which is the user's.
+leaves wrangler.jsonc, which is the user's, as it is.
 
 The Worker's `/debug` routes are off by default. To enable them for an
 environment, set `"debug_endpoints": true` on that environment in atoms.json —

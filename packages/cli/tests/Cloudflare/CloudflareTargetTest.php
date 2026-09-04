@@ -179,10 +179,9 @@ final class CloudflareTargetTest extends TestCase
     }
 
     /**
-     * The per-environment `worker_dir` key is gone, and gone loudly: a
-     * repository following the old docs has a gitignored Worker directory
-     * where a committed one now belongs, and must hear that rather than
-     * deploy from a default it never chose.
+     * A `worker_dir` key is refused loudly: a repository following older
+     * docs has a gitignored Worker directory where a committed one belongs,
+     * and must hear that rather than deploy from a default it did not choose.
      */
     public function testAPerEnvironmentWorkerDirIsRefusedAsE109(): void
     {

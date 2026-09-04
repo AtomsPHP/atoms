@@ -32,7 +32,7 @@ at its root, which `init` and `upgrade` write:
 
 | Files | Owner | On `upgrade` |
 |---|---|---|
-| `wrangler.jsonc` | **You.** Seeded once by `init`. | Never rewritten. The keys marked `RUNTIME-REQUIRED` in it are what the runtime needs; a release that changes one says so in its changelog. |
+| `wrangler.jsonc` | **You.** Seeded once by `init`. | Left as it is. The keys marked `RUNTIME-REQUIRED` in it are what the runtime needs; a release that changes one says so in its changelog. |
 | `src/`, `php/`, `scripts/`, `release/`, `package.json`, `package-lock.json`, `.gitignore`, `README.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `atoms-runtime.json` | **The runtime.** | Rewritten to the release's copy. Files the release no longer ships are removed. A local edit is overwritten; `git diff` shows it, and it stays in your history. |
 | Anything else you add | You. | Left alone. |
 

@@ -21,10 +21,10 @@ use Atoms\Errors\ErrorCode;
  *
  * The Worker directory is not a setting: it is a committed part of the
  * repository at `atoms-worker/` beside this file
- * ({@see \Atoms\Cli\Cloudflare\CloudflareTarget::DEFAULT_WORKER_DIR}). The
- * per-environment `worker_dir` key that used to name it is refused with
- * ATOMS-E109 rather than ignored: a repository following the old docs must
- * hear that the directory moved, not deploy from a default it never chose.
+ * ({@see \Atoms\Cli\Cloudflare\CloudflareTarget::DEFAULT_WORKER_DIR}). A
+ * `worker_dir` key is refused with ATOMS-E109 rather than ignored: a
+ * repository following older docs must hear that the directory moved, rather
+ * than deploy from a default it did not choose.
  *
  * `debug_endpoints` is the per-environment switch for the Worker's `/debug`
  * routes: wrangler.jsonc is one file for every environment, so the setting
@@ -275,10 +275,9 @@ final class AtomsJson
     /**
      * The one key this loader refuses rather than ignores. Unknown keys are
      * otherwise tolerated (a newer atoms.json loads under an older CLI), but
-     * `worker_dir` is not unknown: it used to steer every Cloudflare command,
-     * and a repository still setting it has a gitignored Worker directory
-     * where a committed one now belongs. Silently deploying from the new
-     * default would be the wrong kind of quiet.
+     * a repository setting `worker_dir` has a gitignored Worker directory
+     * where a committed one belongs. Silently deploying from the default
+     * would be the wrong kind of quiet.
      */
     private static function workerDirRemoved(string $where): AtomsError
     {

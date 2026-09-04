@@ -75,7 +75,7 @@ const STATIC_FILES = [
  * The ownership split of a scaffolded Worker directory, recorded in its
  * `atoms-runtime.json` stamp. Everything the template ships is runtime-owned
  * — rewritten by `atoms-runtime-cloudflare upgrade` — except the files named
- * here, which `init` writes once and `upgrade` never touches. Keep this list
+ * here, which `init` writes once and `upgrade` leaves as they are. Keep this list
  * in step with the "What you own" table in runtime-package/README.md.
  */
 export const USER_OWNED_FILES = ['wrangler.jsonc'];

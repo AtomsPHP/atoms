@@ -143,10 +143,10 @@ That made every edit to its `wrangler.jsonc` non-durable — which is why
 settings such as `debug_endpoints` had to be forwarded from `atoms.json` as
 `--var`s — and it let two environments deploy two different runtimes. Now
 there is one directory, it is part of the repository like `composer.lock`,
-and its `wrangler.jsonc` is yours to edit. `atoms.json` no longer names it:
+and its `wrangler.jsonc` is yours to edit. `atoms.json` does not name it:
 `worker_dir` is refused (**ATOMS-E109**) rather than ignored, so a repository
 following the old docs hears that the directory moved instead of deploying
-from a default it never chose.
+from a default it did not choose.
 
 **Rejected: a top-level `worker_dir` in atoms.json.** The location is a
 convention, like `atoms.json`'s own, and the per-environment form was the
@@ -171,8 +171,8 @@ The initializer refuses a non-empty directory, and the template carries its
 own `package-lock.json`; `npm ci` therefore installs the audited php-wasm and
 Wrangler pins rather than resolving current registry versions. This setup
 command is deliberately outside the PHP CLI: `atoms` itself still never
-downloads a toolchain, and the Action does not scaffold at all — it checks
-out, runs `npm ci` in the committed directory, and deploys.
+downloads a toolchain, and the Action's whole job is to check out, run
+`npm ci` in the committed directory, and deploy.
 
 **Version skew.** The Worker directory is co-versioned with the CLI and the
 Composer packages, and committing it transfers the upgrade to you. So the
@@ -211,7 +211,7 @@ it. Review the diff, commit.
 `user_owned`, two file lists), documented in the directory's own
 `README.md`, and stated in the header of `wrangler.jsonc` itself:
 
-- **User-owned:** `wrangler.jsonc`. Seeded once by `init`, never rewritten.
+- **User-owned:** `wrangler.jsonc`. Seeded once by `init`, then left as it is.
   The keys the runtime depends on (`main`, `compatibility_date` as a floor,
   `compatibility_flags`, `rules`, the `ATOMS` Durable Object binding, the
   migration tags) are marked `RUNTIME-REQUIRED` in the file. A release that
@@ -468,9 +468,9 @@ is in force. It must be a JSON boolean; a string is refused (**ATOMS-E070**)
 rather than coerced, so `"false"` can never silently enable a debug surface.
 
 **Why atoms.json and not the Worker's wrangler.jsonc.** The Worker
-directory is committed now, so an edit to its `wrangler.jsonc` is durable —
-the original reason for forwarding is gone. The reason that remains is that
-`wrangler.jsonc` is **one file for every environment**: the CLI selects the
+directory is committed, so an edit to its `wrangler.jsonc` is durable. The
+reason for forwarding is that `wrangler.jsonc` is **one file for every
+environment**: the CLI selects the
 Worker with `--name` and never passes Wrangler's `-e`, so a var set there
 applies to staging and production alike, and this is the one setting that
 must be able to differ between them. atoms.json is already where the

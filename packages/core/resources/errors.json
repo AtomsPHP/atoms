@@ -515,8 +515,8 @@
         },
         {
             "code": "ATOMS-E109",
-            "title": "atoms.json sets a Worker directory key this release no longer reads",
-            "message": "atoms.json sets \"worker_dir\" {where}. The Worker directory is now a committed part of your repository at {default} beside atoms.json, and atoms.json no longer names it.",
+            "title": "atoms.json names a Worker directory",
+            "message": "atoms.json sets \"worker_dir\" {where}, but the Worker directory is a committed part of your repository at {default} beside atoms.json, and atoms.json does not name it.",
             "fix": "Delete the \"worker_dir\" key. If your Worker project still lives in a gitignored .atoms/worker, scaffold a fresh one with the `atoms-runtime-cloudflare init atoms-worker` command `atoms init` prints, carry over any wrangler.jsonc changes, run `npm ci` inside it, commit it, and delete .atoms/worker. A Worker directory kept anywhere else is named per command with --worker-dir.",
             "severity": "error",
             "phase": "cli"

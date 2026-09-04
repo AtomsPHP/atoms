@@ -18,8 +18,8 @@ inputs:
     description: >-
       The committed Atoms Worker directory, relative to working-directory.
       It must exist in the checkout: the action installs its pinned
-      dependencies and deploys from it, and never scaffolds one. Scaffold it
-      once with `atoms-runtime-cloudflare init` and commit it.
+      dependencies and deploys from it. Scaffold it once with
+      `atoms-runtime-cloudflare init` and commit it.
     required: false
     default: 'atoms-worker'
   bundle:
@@ -117,14 +117,12 @@ runs:
         echo "$(composer global config bin-dir --absolute)" >> "$GITHUB_PATH"
 
     # The Worker directory is a committed part of the repository — the
-    # runtime's files plus the caller's wrangler.jsonc — so there is nothing
-    # to scaffold here, and nothing to fetch but the pinned dependencies its
-    # own package-lock.json names. A missing directory is a checkout that
-    # never committed one, and the fix is to commit it, not for the action to
-    # invent one: an action-scaffolded directory would be the one place the
-    # deployed runtime could differ from the repository's. Version skew
-    # between that directory and the CLI is the CLI's check (ATOMS-E108),
-    # made before anything is built.
+    # runtime's files plus the caller's wrangler.jsonc — so this step fetches
+    # exactly the pinned dependencies its own package-lock.json names. A
+    # missing directory is a checkout without one, and the fix is to commit
+    # it: the repository is the one source of the deployed runtime. Version
+    # skew between that directory and the CLI is the CLI's check
+    # (ATOMS-E108), made before anything is built.
     - name: Install Worker dependencies
       id: worker
       shell: bash
@@ -143,7 +141,7 @@ runs:
           exit 1
         fi
         if [ ! -d "$WORKER_DIR" ]; then
-          echo "::error::No Atoms Worker directory at $WORKER_DIR. The Worker directory is part of your repository: scaffold it once with the \`atoms-runtime-cloudflare init\` command \`atoms init\` prints, run \`npm ci\` inside it, and commit it. The action no longer scaffolds one. If yours lives elsewhere, set the worker-directory input."
+          echo "::error::No Atoms Worker directory at $WORKER_DIR. The Worker directory is part of your repository: scaffold it once with the \`atoms-runtime-cloudflare init\` command \`atoms init\` prints, run \`npm ci\` inside it, and commit it. If yours lives elsewhere, set the worker-directory input."
           exit 1
         fi
         for required in package-lock.json atoms-runtime.json wrangler.jsonc; do

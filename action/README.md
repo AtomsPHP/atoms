@@ -57,7 +57,7 @@ id, and how rotation works. Two things are specific to CI:
 | `cloudflare-api-token` | Yes | — | Cloudflare API token with Workers Scripts:Edit on the target account |
 | `cloudflare-account-id` | Yes | — | Cloudflare account id to deploy into |
 | `working-directory` | No | `.` | Working directory containing `atoms.json` |
-| `worker-directory` | No | `atoms-worker` | The committed Worker directory, relative to `working-directory`. It must exist in the checkout; the action never scaffolds one. |
+| `worker-directory` | No | `atoms-worker` | The committed Worker directory, relative to `working-directory`. It must exist in the checkout. |
 | `bundle` | No | — | Path to a prebuilt bundle. If omitted, builds locally. |
 | `shared-secret` | No | — | `ATOMS_SHARED_SECRET` for the Worker (32 random bytes, base64). Stored after the deploy, and only when the Worker does not already have one. |
 | `shared-secret-previous` | No | — | `ATOMS_SHARED_SECRET_PREVIOUS`, the rotation overlap value. |
@@ -117,7 +117,7 @@ rotation runbook.
 4. **Installs the matching Atoms CLI version** via Composer.
 5. **Runs `npm ci`** in your committed Worker directory, from the
    `package-lock.json` committed there. It fails with a clear message when
-   the directory is missing; it never scaffolds one.
+   the directory is missing.
 6. **Runs `atoms deploy --env <environment>`** in `working-directory`, with the
    Cloudflare credentials in the environment. The CLI refuses, before
    building, a Worker directory scaffolded by a different release than the
@@ -142,8 +142,8 @@ git add atoms-worker
 
 From then on it is part of the repository, like `atoms.json`. The action
 checks it out with the rest of your code, runs `npm ci` from the
-`package-lock.json` committed inside it, and deploys. It never scaffolds a
-directory and never fetches anything that lockfile does not pin.
+`package-lock.json` committed inside it, and deploys. Everything it fetches
+is pinned by that lockfile.
 
 Wrangler is **pinned and locally installed**: the CLI runs
 `node_modules/.bin/wrangler` from the Worker directory. Atoms never downloads
@@ -171,10 +171,10 @@ commit. It rewrites the files the runtime owns and leaves your
 
 **Migrating from a gitignored `.atoms/worker`.** Earlier releases scaffolded
 the directory into `.atoms/worker`, gitignored, and this action recreated it
-on every run. That no longer happens. Scaffold `atoms-worker/` as above, carry
-across any change you had made to the old `wrangler.jsonc`, delete
-`.atoms/worker`, and remove the `worker_dir` key from `atoms.json` — the CLI
-refuses it (`ATOMS-E109`) rather than deploy from a location you never chose.
+on every run. Scaffold `atoms-worker/` as above, carry across any change you
+had made to the old `wrangler.jsonc`, delete `.atoms/worker`, and remove the
+`worker_dir` key from `atoms.json` — the CLI refuses it (`ATOMS-E109`) so the
+move is explicit rather than a silent change of location.
 
 ## Examples
 
