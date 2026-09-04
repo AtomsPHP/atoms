@@ -14,17 +14,22 @@ use Atoms\Errors\ErrorCode;
  *
  * `endpoint` is the base URL the deployed Worker serves on — what `atoms/client`
  * calls, and what `atoms status` reports. The Cloudflare keys (`worker_name`,
- * `account_id`, `worker_dir`) are optional here because each has a fallback:
- * the project name, `$CLOUDFLARE_ACCOUNT_ID`, and `.atoms/worker` respectively.
- * An account id in particular is better supplied by the environment than
- * committed, which is why atoms.json only offers to hold it.
+ * `account_id`) are optional here because each has a fallback: the project
+ * name and `$CLOUDFLARE_ACCOUNT_ID` respectively. An account id in particular
+ * is better supplied by the environment than committed, which is why
+ * atoms.json only offers to hold it.
  *
- * `debug_endpoints` is the durable switch for the Worker's `/debug` routes:
- * the scaffolded Worker project is gitignored and regenerated, so the setting
- * lives here, in a file the user owns, and `atoms dev`/`atoms deploy` forward
- * it to Wrangler as a `--var` override. Off unless explicitly true.
+ * The Worker directory is not a setting: it is a committed part of the
+ * repository at `atoms-worker/` beside this file
+ * ({@see \Atoms\Cli\Cloudflare\CloudflareTarget::DEFAULT_WORKER_DIR}).
  *
- * @phpstan-type Environment array{endpoint: string, region: string, worker_name: string, account_id: string, worker_dir: string, debug_endpoints: bool}
+ * `debug_endpoints` is the per-environment switch for the Worker's `/debug`
+ * routes: wrangler.jsonc is one file for every environment, so the setting
+ * that must differ between staging and production lives here, and
+ * `atoms dev`/`atoms deploy` forward it to Wrangler as a `--var` override.
+ * Off unless explicitly true.
+ *
+ * @phpstan-type Environment array{endpoint: string, region: string, worker_name: string, account_id: string, debug_endpoints: bool}
  */
 final class AtomsJson
 {
@@ -209,7 +214,6 @@ final class AtomsJson
                 'region' => self::optionalString($env, 'region'),
                 'worker_name' => self::optionalString($env, 'worker_name'),
                 'account_id' => self::optionalString($env, 'account_id'),
-                'worker_dir' => self::optionalString($env, 'worker_dir'),
                 'debug_endpoints' => self::optionalBool($env, "environment '{$name}'", 'debug_endpoints'),
             ];
         }

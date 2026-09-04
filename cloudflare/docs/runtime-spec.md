@@ -2119,13 +2119,14 @@ with `ATOMS_DEBUG_ENDPOINTS=1` and an `ATOMS_SHARED_SECRET` secret set via
 `wrangler secret put ATOMS_SHARED_SECRET`.
 
 That `wrangler.jsonc` is the conformance harness's config only. What
-customers scaffold (via `@atomsphp/runtime-cloudflare`) is built from
-`wrangler.scaffold.jsonc`: worker name `atoms-worker` (cosmetic — `atoms
-deploy` selects the real Worker with `--name`), and no
-`ATOMS_DEBUG_ENDPOINTS`, so `/debug` follows `config.js`'s off default. The
-supported enable path is atoms.json's per-environment
-`"debug_endpoints": true`, which the CLI forwards to Wrangler as a `--var`
-on both `atoms dev` and `atoms deploy` (see `docs/cloudflare-toolchain.md`
-§Debug endpoints). The flag is defense in depth behind the Worker's auth
+customers scaffold (via `@atomsphp/runtime-cloudflare`, into a committed
+`atoms-worker/` directory) is built from `wrangler.scaffold.jsonc`: worker
+name `atoms-worker` (cosmetic — `atoms deploy` selects the real Worker with
+`--name`), and no `ATOMS_DEBUG_ENDPOINTS`, so `/debug` follows `config.js`'s
+off default. The scaffolded file is user-owned and its edits are durable,
+but it is shared by every environment, so the supported enable path stays
+atoms.json's per-environment `"debug_endpoints": true`, which the CLI
+forwards to Wrangler as a `--var` on both `atoms dev` and `atoms deploy`
+(see `docs/cloudflare-toolchain.md` §Debug endpoints). The flag is defense in depth behind the Worker's auth
 check (§Routing and auth); under `ATOMS_BEARER_AUTH=disabled` — the
 authenticating-proxy posture — it is the only gate in front of `/debug`.

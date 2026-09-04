@@ -16,11 +16,16 @@ cp .env.example .env
 php artisan key:generate
 php artisan atoms:install
 npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
-  atoms-runtime-cloudflare init .atoms/worker
+  atoms-runtime-cloudflare init atoms-worker
+(cd atoms-worker && npm ci)
+git add atoms-worker
 ```
 
-Fill in the Cloudflare account id, Worker endpoint and callback URL in
-`atoms.json`. Authenticate with Cloudflare — export `CLOUDFLARE_API_TOKEN`, or
+The Worker directory is part of your repository from here on; this example
+does not ship one, because it is a copy of the runtime this monorepo already
+holds under `cloudflare/worker`, so run the scaffold command above before
+deploying. Fill in the Cloudflare account id, Worker endpoint and callback
+URL in `atoms.json`. Authenticate with Cloudflare — export `CLOUDFLARE_API_TOKEN`, or
 use the `wrangler login` session you already have — then deploy:
 
 ```sh

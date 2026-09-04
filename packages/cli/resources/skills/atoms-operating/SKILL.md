@@ -34,20 +34,26 @@ Wrangler; Atoms never proxies or retains it. In CI, supply them to the deploy
 action as `cloudflare-api-token` / `cloudflare-account-id`: a runner has no
 login session to fall back on.
 
-Deploy needs a Worker project directory (`worker_dir` in atoms.json, default
-`.atoms/worker`) with `npm ci` already run in it. `atoms init` prints the exact
-version-matched `@atomsphp/runtime-cloudflare` scaffold command; run that once,
-then `npm ci` in the generated directory. Atoms runs the pinned Wrangler it
-finds there and never downloads one during deploy. Missing: ATOMS-E073.
+Deploy needs the committed Worker directory, `atoms-worker/` beside atoms.json
+(or `--worker-dir`; atoms.json does not name it), with `npm ci` already run in
+it. `atoms init` prints
+the exact version-matched `@atomsphp/runtime-cloudflare init` command; run it
+once, `npm ci`, and commit the directory. Atoms runs the pinned Wrangler it
+finds there and never downloads one during deploy. Missing: ATOMS-E073/E076.
+
+The directory is released with the CLI. After updating the atoms/* packages,
+`atoms deploy` and `atoms dev` refuse a directory from another release
+(ATOMS-E108) and print the `atoms-runtime-cloudflare upgrade` command; run
+it, `npm ci`, review the diff, commit. It rewrites runtime-owned files and
+leaves wrangler.jsonc, which is the user's, as it is.
 
 The Worker's `/debug` routes are off by default. To enable them for an
 environment, set `"debug_endpoints": true` on that environment in atoms.json —
-never by editing the Worker directory's wrangler.jsonc, which is gitignored
-and regenerated, so the edit would not survive a deploy. `atoms dev` and
-`atoms deploy` both forward the setting to Wrangler as a `--var`. The routes
-sit behind the Worker's bearer check under the default
-`ATOMS_BEARER_AUTH=required`; under `ATOMS_BEARER_AUTH=disabled` (an
-authenticating proxy in front of the Worker) the flag is the only gate.
+not in wrangler.jsonc, which is shared by every environment and would enable
+them everywhere. `atoms dev` and `atoms deploy` both forward the setting to
+Wrangler as a `--var`. The routes sit behind the Worker's bearer check under
+the default `ATOMS_BEARER_AUTH=required`; under `ATOMS_BEARER_AUTH=disabled`
+(an authenticating proxy in front of the Worker) the flag is the only gate.
 
 `atoms secrets:set PAYMENTS_API_KEY` stores the Worker secret
 `ATOMS_CONFIG_PAYMENTS_API_KEY`, because that is the name the Worker's config
@@ -103,7 +109,10 @@ back **schema**.
   validate` locally reproduces it exactly.
 - `ATOMS-E043` (unsupported core version) — the bundle's `atoms/core` version
   is outside the Worker runtime's supported release line. Update the PHP
-  packages and Worker scaffold to compatible versions, then rebuild.
+  packages and Worker directory to compatible versions, then rebuild.
+- `ATOMS-E108` (Worker directory does not match the CLI release) — the
+  committed `atoms-worker/` was scaffolded by another release. Run the
+  `atoms-runtime-cloudflare upgrade` command in the message, `npm ci`, commit.
 
 ## This project's environments
 

@@ -30,6 +30,7 @@ reason the Cloudflare runtime can claim the real API runs inside the guest.
 | Re-verified | 2026-08-31, on the support-class classification — `resources/errors.json` re-vendored (E001 and E012 reworded: both now name the Atom's `support/` directory, the sanctioned home for World-A helper classes shipping with an Atom). No code added or removed; still 24 files total, the other 23 digests are unchanged |
 | Re-verified | 2026-08-31, on the terminology pivot from "World A"/"World B" to "Atom-side"/"App-side" — `Atom.php`, `AtomJob.php`, `AtomMethods.php` and `resources/errors.json` re-vendored (docblocks reworded; E001, E012 and E016 fix lines reworded to the new terms). Comment- and message-only; no signature changed. Still 24 files total, the other 20 digests are unchanged |
 | Re-verified | 2026-08-31, on the "ABI" → "API" terminology change — `Atom.php`, `Database.php` and `Migrations/MigrationEntry.php` re-vendored (docblocks reworded; the frozen surface is a source-level API, not a binary one). Comment-only; no signature changed. Still 24 files total, the other 21 digests are unchanged |
+| Re-verified | 2026-09-04, on the committed Worker directory — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E108 added: Worker directory does not match the CLI release, raised by the CLI's deploy/dev skew check against the directory's `atoms-runtime.json` stamp; E073 and E076 fix lines reworded to name the committed `atoms-worker/` directory). Nothing in the guest raises it; the copy carries them because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -104,15 +105,15 @@ of `Atoms\Database` in this runtime. It is still the reference for
 
 ```
 db2bf7c102e5b172d70b82ab784786197d7cb3a591feff011f502efe47945c7a  Atom.php
-e1cf8cea48ad7525422c43e4c7422c250ed66028b9d4cf3bf97f5fce5fe9e624  AtomJob.php
-4a4da51d856e552242a045b68d04e7e5754e48b1825c708d0736a0b8fadc87e9  AtomMethods.php
+a397c698037de1692e8dd0a28087b56c5b2140973a12b6601f976f041b280bdf  AtomJob.php
+1b6233888ae5e6e66c899a4fc9be79fbfe3491c486d2dcafaf59b8c6cbe4820f  AtomMethods.php
 efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/MethodsFor.php
 5239bdac78cdf7d4d9b6af62cd2827f807cd7b6892cf2d20c377de736b677124  Attributes/SharedWithAtoms.php
 bdccde339e844104309093d66577483269595946973cba4a77abb1d10bc1401c  Database.php
 7c996f6c31cff9bf210040f311bb534a140e79ae3c62b721c6266ad6d78353e2  Errors/AtomsError.php
 0b4bfcf9ea74ed277614139157b03696f4eae42dc85f420120f96663cf654283  Errors/CatalogEntry.php
 3d1a122b24f6e3dd88104816b2b3b96b846690a9acd9316cd142d16afb71c411  Errors/ErrorCatalog.php
-825b602772a7bf2142352f79f477d3037ee4b24e4b38b4b48b243805e7e6200c  Errors/ErrorCode.php
+513c73971051c947ff0ebe5901d89b3ea437923384c9635fa16eab7a5db6e239  Errors/ErrorCode.php
 e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Migration.php
 6ad41de5de3dcc255650f6d9dd29d80fc1c01625f90c8c8f5129cbb965a04069  Migrations/MigrationEntry.php
 addfe71f9472e7f2e76422227ef06586818b546e09842cdcba8e8a97a1dcd690  Migrations/MigrationSet.php
@@ -126,7 +127,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
 a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
 b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
-485fc2c05376570b89b3fea49c1c517ca86984a95206774589aef53b7c40a7da  resources/errors.json
+a6be81314368c67d43ac85d15e2c530774c12945ed480dd5643da4da01e731eb  resources/errors.json
 ```
 
 Verify with, from this directory:

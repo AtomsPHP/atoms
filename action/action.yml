@@ -16,11 +16,12 @@ inputs:
     default: '.'
   worker-directory:
     description: >-
-      Existing custom Worker directory, relative to working-directory. When
-      omitted, the action uses .atoms/worker and scaffolds the release-matched
-      Atoms runtime there if it is missing or empty.
+      The committed Atoms Worker directory, relative to working-directory.
+      It must exist in the checkout: the action installs its pinned
+      dependencies and deploys from it. Scaffold it once with
+      `atoms-runtime-cloudflare init` and commit it.
     required: false
-    default: ''
+    default: 'atoms-worker'
   bundle:
     description: Path to a prebuilt bundle (optional; if omitted, builds locally)
     required: false
@@ -115,42 +116,40 @@ runs:
         composer global require "atoms/cli:$release_version" --no-interaction
         echo "$(composer global config bin-dir --absolute)" >> "$GITHUB_PATH"
 
-    - name: Prepare Worker runtime
+    # The Worker directory is a committed part of the repository — the
+    # runtime's files plus the caller's wrangler.jsonc — so this step fetches
+    # exactly the pinned dependencies its own package-lock.json names. A
+    # missing directory is a checkout without one, and the fix is to commit
+    # it: the repository is the one source of the deployed runtime. Version
+    # skew between that directory and the CLI is the CLI's check
+    # (ATOMS-E108), made before anything is built.
+    - name: Install Worker dependencies
       id: worker
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         INPUT_WORKER_DIR: ${{ inputs.worker-directory }}
-        RUNTIME_VERSION_FILE: ${{ github.action_path }}/runtime-version
       run: |
         set -euo pipefail
-        if [ -n "$INPUT_WORKER_DIR" ]; then
-          WORKER_DIR="$INPUT_WORKER_DIR"
-          if [ ! -d "$WORKER_DIR" ]; then
-            echo "::error::Custom Worker directory does not exist: $WORKER_DIR"
-            exit 1
-          fi
-        else
-          WORKER_DIR='.atoms/worker'
-          if [ -e "$WORKER_DIR" ] && [ ! -d "$WORKER_DIR" ]; then
-            echo "::error::Default Worker path exists but is not a directory: $WORKER_DIR"
-            exit 1
-          fi
-          if [ ! -d "$WORKER_DIR" ] || [ -z "$(ls -A -- "$WORKER_DIR" 2>/dev/null)" ]; then
-            runtime_version="$(tr -d '\r\n' < "$RUNTIME_VERSION_FILE")"
-            npm exec --yes \
-              --package="@atomsphp/runtime-cloudflare@$runtime_version" \
-              -- atoms-runtime-cloudflare init "$WORKER_DIR"
-          fi
+        WORKER_DIR="$INPUT_WORKER_DIR"
+        if [ -z "$WORKER_DIR" ]; then
+          echo "::error::worker-directory must not be empty."
+          exit 1
         fi
         if [[ "$WORKER_DIR" == *$'\n'* || "$WORKER_DIR" == *$'\r'* ]]; then
           echo "::error::Worker directory must not contain a newline."
           exit 1
         fi
-        if [ ! -f "$WORKER_DIR/package-lock.json" ]; then
-          echo "::error::No package-lock.json in $WORKER_DIR. Custom Worker directories are caller-managed and must include their lockfile."
+        if [ ! -d "$WORKER_DIR" ]; then
+          echo "::error::No Atoms Worker directory at $WORKER_DIR. The Worker directory is part of your repository: scaffold it once with the \`atoms-runtime-cloudflare init\` command \`atoms init\` prints, run \`npm ci\` inside it, and commit it. If yours lives elsewhere, set the worker-directory input."
           exit 1
         fi
+        for required in package-lock.json atoms-runtime.json wrangler.jsonc; do
+          if [ ! -f "$WORKER_DIR/$required" ]; then
+            echo "::error::$WORKER_DIR has no $required, so it is not a committed Atoms Worker directory. Scaffold one with \`atoms-runtime-cloudflare init\` and commit it, or upgrade a pre-stamp directory as docs/cloudflare-toolchain.md §The Worker directory describes."
+            exit 1
+          fi
+        done
         cd -- "$WORKER_DIR"
         npm ci
         echo "directory=$WORKER_DIR" >> "$GITHUB_OUTPUT"
