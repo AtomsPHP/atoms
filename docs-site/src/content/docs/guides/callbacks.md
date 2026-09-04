@@ -26,18 +26,15 @@ adapter verifies the signature before your Methods class or job runs. See
 [`docs/shared-secret.md`](https://github.com/AtomsPHP/atoms/blob/main/docs/shared-secret.md)
 for more details.
 
-After saving the shared secret and loading it into your shell environment,
-set it on the deployed Worker with `atoms shared-secret:set`, which reads the
-value from stdin so it never appears in a command line or process listing:
+With your application's shared secret loaded into the shell environment,
+set it on the deployed Worker:
 
 ```bash
 printf '%s' "$ATOMS_SHARED_SECRET" | vendor/bin/atoms shared-secret:set --env production
 ```
 
-Use this dedicated CLI command for `ATOMS_SHARED_SECRET`; `atoms secrets:set`
-refuses it. See
-[Deploy](/guides/deploy/#configure-callbacks-and-application-secrets) for
-setting the secret from CI.
+See [Deploy](/guides/deploy/#configure-callbacks-and-application-secrets) for
+initial setup and CI configuration.
 
 ## Callback URL
 
@@ -56,10 +53,8 @@ printf '%s' "$ATOMS_CALLBACK_URL" | \
 cd ..
 ```
 
-Use the `worker_name` from that environment's `atoms.json` entry. The Worker
-must already be deployed. `atoms deploy --env production` selects an Atoms
-environment, not a Wrangler `[env]` section; `callback_url` in `atoms.json`
-only configures local development.
+Run this after deploying, using the `worker_name` from that environment's
+`atoms.json` entry.
 
 ## Synchronous `app()`
 

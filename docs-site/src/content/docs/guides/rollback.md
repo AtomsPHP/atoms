@@ -26,12 +26,11 @@ schema changes compatible with every code version you may need to restore.
 
 If a migration applied successfully but produced an unwanted schema, add a
 corrective migration. If a migration failed to apply, resolve that failure
-first: the migrator stops there and cannot reach a later correction. See
+first: the migrator stops at the failed migration. See
 [ATOMS-E053](/reference/errors/#atoms-e053).
 
-Rollbacks take time to reach running Atoms. Check application behavior after
-rolling back; `atoms status` lists Worker versions but cannot confirm that
-every Atom is running the selected version.
+Rollbacks take time to reach running Atoms. Verify application behavior
+after rolling back.
 
 ## Data recovery
 

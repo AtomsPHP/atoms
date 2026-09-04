@@ -6,8 +6,7 @@ description: Runtime limits, configuration defaults, and Cloudflare constraints.
 ## Configurable runtime limits
 
 These defaults come from the runtime's `src/config.js`. Set overrides in the
-`vars` section of `atoms-worker/wrangler.jsonc`. That file is shared by every
-environment you deploy.
+`vars` section of `atoms-worker/wrangler.jsonc`.
 
 | Setting | Default | Applies to |
 |---|---|---|
@@ -30,15 +29,13 @@ environment you deploy.
 | `ATOMS_TIMER_NAME_MAX_BYTES` | 256 bytes | One timer name |
 | `ATOMS_TIMERS_MAX_PER_ALARM` | 100 timers | One alarm event; remaining work is rescheduled |
 
-These settings do not increase Cloudflare's platform limits. In particular,
-the callback deadline does not limit PHP CPU execution. The platform enforces
-its own CPU and memory limits. Check the
+Cloudflare also enforces platform limits, including CPU and memory. Check the
 [Durable Objects limits](https://developers.cloudflare.com/durable-objects/platform/limits/)
 for your deployment.
 
 ## The clock does not advance inside a turn
 
-On the deployed runtime, the PHP clock does not advance during CPU work or synchronous SQL. `sleep()`, `usleep()`, and elapsed-time loops can block until Cloudflare resets the Atom for exceeding its CPU limit. The Atoms callback deadline cannot interrupt them.
+On the deployed runtime, the PHP clock does not advance during CPU work or synchronous SQL. `sleep()`, `usleep()`, and elapsed-time loops can block until Cloudflare resets the Atom for exceeding its CPU limit.
 
 Install the PHPStan rules:
 
@@ -57,7 +54,7 @@ Use a named [timer](/guides/websockets-timers/#timers) to act in a later turn, o
 
 ## Read large integers as text
 
-Cloudflare’s SQLite API exposes numeric results to JavaScript as numbers. An INTEGER above `2^53-1` may already be rounded before the Atoms bridge sees it, so the default runtime refuses the ambiguous result instead of returning a wrong value.
+Cloudflare’s SQLite API exposes numeric results to JavaScript as numbers. An INTEGER above `2^53-1` may already be rounded before the Atoms bridge sees it, so the default runtime rejects the result with an `int64_precision` error.
 
 Store signed 64-bit integers normally, but select them as text when reading:
 
@@ -83,7 +80,7 @@ Binary values crossing JSON are tagged and base64 encoded. WebSocket binary fram
 - A timer is one-shot and at-most-once; handler failure is not retried automatically.
 - WebSocket sends are not part of a SQL transaction and remain visible after rollback.
 - `app()` cannot run inside a database transaction.
-- Deployments and secret changes take time to reach running Atoms. Atoms cannot report when every Atom has received a change.
+- Deployments and secret changes take time to reach running Atoms.
 
 ## Memory and persistence
 

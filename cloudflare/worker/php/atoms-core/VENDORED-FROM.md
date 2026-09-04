@@ -127,7 +127,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
 a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
 b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
-f809ef746c71bc594423ca7fdbd2681c6efa2aff342eaffd33af11dec4d90302  resources/errors.json
+7def654248dd68b2892c36bdce6307002cc3ad0568030c269280287751daa082  resources/errors.json
 ```
 
 Verify with, from this directory:

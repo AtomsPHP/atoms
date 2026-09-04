@@ -66,22 +66,10 @@ npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
 cd atoms-worker
 npm ci
 cd ..
-git add atoms-worker
 ```
 
-Commit `atoms-worker/` alongside `atoms.json`. It contains the Worker runtime,
-its dependency lockfile, and your `wrangler.jsonc`. The same directory is used
-for every environment and by the deploy Action.
-
 Edit `atoms-worker/wrangler.jsonc` for routes, custom domains, logging, and
-runtime settings. Keep the entries marked `RUNTIME-REQUIRED`. Set
-`debug_endpoints` per environment in `atoms.json`; the CLI forwards that value
-when running or deploying the Worker.
-
-The scaffold ignores dependencies, local secrets, and generated bundles.
-Commit the remaining files, including `atoms-runtime.json`, which records the
-runtime version. See [Upgrade the runtime](/guides/deploy/#upgrade-the-runtime)
-when updating your Atoms packages.
+runtime settings. Set `debug_endpoints` per environment in `atoms.json`.
 
 ## Fill in `atoms.json`
 
@@ -99,26 +87,22 @@ Fill out the necessary details in the generated `atoms.json`:
     "environments": {
         "production": {
             // A Cloudflare workers.dev subdomain or a custom domain
-            "endpoint": "https://my-app.<your-subdomain>.workers.dev",  
+            "endpoint": "https://my-app.<your-subdomain>.workers.dev",
             "worker_name": "my-app",
             // Your Cloudflare account id:
-            "account_id": "",                 
-            "debug_endpoints": false          
+            "account_id": "",
+            "debug_endpoints": false
         },
         // ... additional environments
     },
     "callback_url": {
         // where your app mounts the callback route (read by `atoms dev` only)
-        "production": "https://example.com/atoms/callback",          
+        "production": "https://example.com/atoms/callback",
     }
 }
 ```
 
 The `environments` block configures deploys; `callback_url` is read only by `atoms dev`, which passes it to the local Worker. A deployed Worker gets its callback URL from the `ATOMS_CALLBACK_URL` variable you set with Wrangler — see the [Callbacks guide](/guides/callbacks/#callback-url).
-
-The CLI finds `atoms-worker/` beside `atoms.json`. For another location, pass
-`--worker-dir` to commands that use the Worker and set the Action's
-`worker-directory` input. The directory is not configured in `atoms.json`.
 
 ## Next
 

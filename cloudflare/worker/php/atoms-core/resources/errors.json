@@ -229,7 +229,7 @@
             "code": "ATOMS-E053",
             "title": "Migration failed at activation",
             "message": "Migration {version} for {type}/{id} failed: {reason}.",
-            "fix": "The Atom stays deactivated, and the failed migration is rolled back. Check the reported cause and resolve it before retrying activation. Later migrations cannot run until this one succeeds. Keep shipped migrations unchanged; a corrective migration can repair a schema change that applied successfully, but cannot bypass a failing migration.",
+            "fix": "The Atom stays deactivated, and the failed migration is rolled back. Resolve the reported cause before retrying activation; later migrations run only after this one succeeds. Keep shipped migrations unchanged. Use a corrective migration for unwanted schema changes that applied successfully.",
             "severity": "error",
             "phase": "runtime"
         },
@@ -293,7 +293,7 @@
             "code": "ATOMS-E067",
             "title": "WebSocket ticket acquisition failed (retired)",
             "message": "Could not acquire a WebSocket connection ticket for {type}/{id}: {reason}.",
-            "fix": "This code appears in older logs. Applications now issue tickets locally with Atoms\\Client\\Tickets\\TicketIssuer. Invalid claims report ATOMS-E068; a missing or malformed shared secret reports ATOMS-E105.",
+            "fix": "Issue tickets locally with Atoms\\Client\\Tickets\\TicketIssuer. Invalid claims report ATOMS-E068; a missing or malformed shared secret reports ATOMS-E105.",
             "severity": "error",
             "phase": "runtime"
         },
@@ -485,7 +485,7 @@
             "code": "ATOMS-E105",
             "title": "Shared secret missing or malformed",
             "message": "ATOMS_SHARED_SECRET is missing or is not a base64-encoded value that decodes to exactly 32 bytes.",
-            "fix": "Generate one value with `openssl rand -base64 32`, save it in your secret manager, and configure the identical value on the application and Worker (`atoms shared-secret:set` reads it from stdin). The secret is not a bearer token: use `atoms token` to derive a token for requests. ATOMS_SHARED_SECRET_PREVIOUS uses the same format.",
+            "fix": "Generate one value with `openssl rand -base64 32` and configure it on the application and Worker (`atoms shared-secret:set` reads it from stdin). Use `atoms token` to derive the bearer token for requests. ATOMS_SHARED_SECRET_PREVIOUS uses the same format.",
             "severity": "error",
             "phase": "runtime"
         },

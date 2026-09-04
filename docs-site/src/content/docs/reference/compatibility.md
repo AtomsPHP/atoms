@@ -17,13 +17,12 @@ Atoms releases its PHP packages, Worker runtime, and deployment Action as one co
 | Node.js | 22 |
 | Wrangler | 4.118.0 (exact runtime-template pin) |
 
-Use matching 0.5 release artifacts. The CLI stamps the core API version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043) instead of attempting to run it.
+Use matching 0.5 release artifacts. The CLI stamps the core API version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043).
 
-The committed `atoms-worker/atoms-runtime.json` must name the exact same
+`atoms-worker/atoms-runtime.json` must name the exact same
 release as the CLI. `atoms dev` and `atoms deploy` check it before building
 and report [ATOMS-E108](/reference/errors/#atoms-e108) for a missing stamp or
 version mismatch. Follow [Upgrade the runtime](/guides/deploy/#upgrade-the-runtime)
-after updating the PHP packages. The deploy Action installs dependencies in
-the committed directory.
+after updating the PHP packages.
 
 Pre-1.0 APIs outside `atoms/core` may change between minor versions. Package patch releases remain within the declared Composer constraints; use lockfiles for repeatable application and Worker installs.

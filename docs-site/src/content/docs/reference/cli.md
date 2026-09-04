@@ -33,8 +33,8 @@ vendor/bin/atoms make:atom GameRoom --with-methods --with-migration
 vendor/bin/atoms dev --env staging --callback-url http://127.0.0.1:8000/atoms/callback
 ```
 
-`dev` builds the bundle before starting the Worker. Use `atoms validate` for
-a check without a bundle, or `atoms build` to create one without starting a Worker.
+`dev` builds the bundle and starts the Worker. `validate` checks your Atom
+code; `build` produces a bundle.
 
 ## Deployment
 
@@ -59,7 +59,7 @@ To restore a selected Worker version, follow [Rollback](/guides/rollback/).
 - **`status`**, **`secrets:list`**, **`shared-secret:unset`** — `--env` (required), `--worker-dir`.
 - **`rollback [VERSION]`** — `--env` (required), `--message`/`-m`, `--worker-dir`. `VERSION` defaults to the previous version.
 - **`secrets:set KEY [VALUE]`** — `--env` (required), `--worker-dir`. Reads the value from stdin when the `VALUE` argument is omitted.
-- **`shared-secret:set`** — `--env` (required), `--worker-dir`, `--previous` to target `ATOMS_SHARED_SECRET_PREVIOUS` instead of `ATOMS_SHARED_SECRET`, `--force` to overwrite an existing value. Always reads the secret from stdin, never an argument. Leaves an existing secret unchanged unless you pass `--force`.
+- **`shared-secret:set`** — `--env` (required), `--worker-dir`, `--previous` to target `ATOMS_SHARED_SECRET_PREVIOUS` instead of `ATOMS_SHARED_SECRET`, `--force` to overwrite an existing value. Reads the secret from stdin. Leaves an existing secret unchanged unless you pass `--force`.
 - **`token`** — `--env` (defaults to `staging`, used only to resolve a fallback `.dev.vars`), `--worker-dir`.
 
 ## The shared secret
@@ -74,13 +74,12 @@ printf '%s' "$ATOMS_SHARED_SECRET" | \
   vendor/bin/atoms shared-secret:set --env production
 ```
 
-The Worker must already exist. The command leaves an existing secret unchanged
-unless you pass `--force`; it does not compare the stored and supplied values.
+Run this after deploying the Worker. To replace an existing secret, pass
+`--force`.
 See [Deploy](/guides/deploy/#configure-callbacks-and-application-secrets) for
 first-time setup and [secret rotation](/guides/deploy/#rotate-the-shared-secret).
 
-The shared secret is not a bearer token. Use `atoms token` to derive the bearer
-for a manual request. This example calls the `join` method from the
+Use `atoms token` to derive a bearer token for a manual request. This example calls the `join` method from the
 [overview](/), which adds a player to the specified room:
 
 ```bash
@@ -90,9 +89,8 @@ curl -H "Authorization: Bearer $(vendor/bin/atoms token --env production)" \
   https://your-worker.example.workers.dev/invoke/GameRoom/room-42/join
 ```
 
-`token` reads the local secret; it does not fetch the deployed Worker's value.
-Set `ATOMS_SHARED_SECRET` to the production value before using this example.
-The public `/healthz` route does not check bearer authentication.
+Set `ATOMS_SHARED_SECRET` in your shell to the production value before
+running this example.
 
 `ATOMS_BEARER_AUTH` defaults to `required`. Use `disabled` only behind an
 authenticating proxy. The shared secret is required in either case, and
@@ -100,10 +98,8 @@ WebSocket tickets and callbacks remain signed.
 
 ## Worker directory
 
-Commands use `atoms-worker/` beside `atoms.json`, or the directory supplied
-with `--worker-dir`. Commit this directory, including `wrangler.jsonc`,
-`package-lock.json`, and `atoms-runtime.json`. `atoms.json` does not configure
-its location.
+`--worker-dir` overrides the default Worker directory, `atoms-worker/` beside
+`atoms.json`.
 
 `dev` and `deploy` check that the runtime stamp matches the CLI's exact
 release before building. See [Upgrade the runtime](/guides/deploy/#upgrade-the-runtime)
@@ -117,12 +113,12 @@ Deployment commands use, in order:
 2. `node_modules/.bin/wrangler` under the selected Worker directory;
 3. a global `wrangler` on `PATH`.
 
-The CLI never invokes `npx` and never installs tooling. Run `npm ci` in the scaffolded Worker directory first.
+Run `npm ci` in the Worker directory to install its pinned Wrangler version.
 
 ## Credentials
 
-`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` pass directly to Wrangler’s environment. The CLI does not accept a token argument, write it to disk, or retain it.
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` pass directly to Wrangler’s environment.
 
-`secrets:set NAME` maps application-facing names through the Worker’s configured allowlist prefix, normally `ATOMS_CONFIG_`. It cannot set `ATOMS_SHARED_SECRET` or its rotation overlap; use `shared-secret:set`/`shared-secret:unset` for those.
+`secrets:set NAME` maps application-facing names through the Worker’s configured allowlist prefix, normally `ATOMS_CONFIG_`. Use `shared-secret:set` and `shared-secret:unset` to manage authentication secrets.
 
 For data recovery limitations, see [Rollback](/guides/rollback/#data-recovery).
