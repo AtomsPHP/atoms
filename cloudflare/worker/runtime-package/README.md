@@ -77,10 +77,15 @@ cd atoms-worker && npm ci
 
 Then review `git diff`, and commit. `upgrade` prints what it updated, added,
 removed and kept. If the release needs something from your `wrangler.jsonc`
-— a new compatibility flag, a new migration tag — it says so and exits
-non-zero rather than editing the file. The check is exact: a directory from
-release A does not deploy with a CLI from release B, whatever the distance
-between them.
+— a new compatibility flag, a new migration tag — it says so, changes
+nothing, and exits non-zero; make the edit and run it again. Until then the
+directory still reports its old release and the CLI keeps refusing to deploy
+it. The version check is exact: a directory from release A does not deploy
+with a CLI from release B, whatever the distance between them.
+
+Every path the stamp names becomes a write or an unlink, so `upgrade` refuses
+a stamp naming a path outside the directory, and refuses to write through a
+symbolic link.
 
 `upgrade` needs the `atoms-runtime.json` that `init` writes. A directory
 scaffolded before that file existed cannot be upgraded in place: scaffold a

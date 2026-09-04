@@ -602,7 +602,7 @@ final class RuntimeVersion
             'npm exec --yes --package=%s@%s -- atoms-runtime-cloudflare init %s',
             self::PACKAGE,
             self::VERSION,
-            \$target,
+            self::shellArg(\$target),
         );
     }
 
@@ -612,8 +612,23 @@ final class RuntimeVersion
             'npm exec --yes --package=%s@%s -- atoms-runtime-cloudflare upgrade %s',
             self::PACKAGE,
             self::VERSION,
-            \$target,
+            self::shellArg(\$target),
         );
+    }
+
+    /**
+     * The commands above are printed for a human to paste. A directory named
+     * with --worker-dir may hold a space or a shell metacharacter, so it is
+     * quoted when it needs to be — and left bare when it does not, so the
+     * common case reads as a path rather than a quoted string.
+     */
+    private static function shellArg(string \$value): string
+    {
+        if (preg_match('/^[A-Za-z0-9_.\\/-]+$/', \$value) === 1) {
+            return \$value;
+        }
+
+        return "'" . str_replace("'", "'\\\\''", \$value) . "'";
     }
 }
 PHP;

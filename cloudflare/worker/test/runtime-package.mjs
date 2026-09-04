@@ -3,13 +3,13 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { RUNTIME_STAMP, USER_OWNED_FILES, stageRuntimePackage } from '../scripts/pack-runtime.mjs';
-import { checkWranglerConfig, parseJsonc } from '../runtime-package/atoms-runtime-cloudflare.mjs';
+import { assertConfinedPath, checkWranglerConfig, parseJsonc, shellArg } from '../runtime-package/atoms-runtime-cloudflare.mjs';
 
 const workerRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const release = JSON.parse(readFileSync(resolve(workerRoot, '../../release/manifest.json'), 'utf8'));
@@ -265,15 +265,81 @@ try {
 	assert.ok(existsSync(join(target, 'wrangler.jsonc')));
 
 	// wrangler.jsonc is the user's, so a release that needs something from it
-	// says so and exits non-zero — it never edits the file.
-	const missingBinding = readFileSync(join(target, 'wrangler.jsonc'), 'utf8')
+	// says so and exits non-zero — it never edits the file, and it changes
+	// NOTHING else: the stamp keeps the old version (so the CLI keeps
+	// refusing the directory, ATOMS-E108) and the runtime files stay as they
+	// were, rather than a half-upgraded tree that deploys.
+	const missingFlag = readFileSync(join(target, 'wrangler.jsonc'), 'utf8')
 		.replace('"compatibility_flags": ["nodejs_compat"]', '"compatibility_flags": []');
-	writeFileSync(join(target, 'wrangler.jsonc'), missingBinding);
+	writeFileSync(join(target, 'wrangler.jsonc'), missingFlag);
+	const preFailureStamp = { ...JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')), version: '0.0.2-older' };
+	writeFileSync(join(target, RUNTIME_STAMP), `${JSON.stringify(preFailureStamp, null, 2)}\n`);
+	writeFileSync(join(target, 'src', 'config.js'), '// would be overwritten by a successful upgrade\n');
 	const needsEdit = run('npm', upgradeArgs, { expectFailure: true, env: npmEnvironment });
 	assert.notEqual(needsEdit.status, 0);
+	assert.match(needsEdit.stdout, /NOT applied/);
 	assert.match(needsEdit.stdout, /ACTION REQUIRED: wrangler\.jsonc is yours and was not changed/);
 	assert.match(needsEdit.stdout, /"compatibility_flags" must include "nodejs_compat"/);
-	assert.equal(readFileSync(join(target, 'wrangler.jsonc'), 'utf8'), missingBinding);
+	assert.equal(readFileSync(join(target, 'wrangler.jsonc'), 'utf8'), missingFlag);
+	assert.deepEqual(
+		JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')),
+		preFailureStamp,
+		'a refused upgrade must not advance the stamp',
+	);
+	assert.equal(
+		readFileSync(join(target, 'src', 'config.js'), 'utf8'),
+		'// would be overwritten by a successful upgrade\n',
+		'a refused upgrade must not touch runtime-owned files',
+	);
+	// Fixing the file and re-running completes the upgrade.
+	writeFileSync(join(target, 'wrangler.jsonc'), missingFlag.replace('"compatibility_flags": []', '"compatibility_flags": ["nodejs_compat"]'));
+	const completed = run('npm', upgradeArgs, { env: npmEnvironment });
+	assert.match(completed.stdout, /0\.0\.2-older -> /);
+	assert.deepEqual(JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')), stamp);
+	assert.equal(readFileSync(join(target, 'src', 'config.js'), 'utf8'), readFileSync(join(stage, 'template', 'src', 'config.js'), 'utf8'));
+
+	// The committed stamp is user-controlled input and every path in it
+	// becomes a write or an unlink, so a path that escapes the directory is
+	// refused before anything is touched: no sibling file is deleted, no
+	// runtime file is rewritten, the stamp is not advanced.
+	const victim = join(temporaryRoot, 'victim.txt');
+	writeFileSync(victim, 'not yours\n');
+	const escapingStamp = { ...stamp, version: '0.0.3-older', runtime_owned: { ...stamp.runtime_owned, '../victim.txt': 'deadbeef' } };
+	writeFileSync(join(target, RUNTIME_STAMP), `${JSON.stringify(escapingStamp, null, 2)}\n`);
+	writeFileSync(join(target, 'src', 'config.js'), '// must survive a refused upgrade\n');
+	const escaped = run('npm', upgradeArgs, { expectFailure: true, env: npmEnvironment });
+	assert.notEqual(escaped.status, 0);
+	assert.match(escaped.stderr, /names a path outside the Worker directory: \.\.\/victim\.txt/);
+	assert.equal(readFileSync(victim, 'utf8'), 'not yours\n', 'a stamp path must not reach outside the directory');
+	assert.equal(readFileSync(join(target, 'src', 'config.js'), 'utf8'), '// must survive a refused upgrade\n');
+	assert.deepEqual(JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')), escapingStamp);
+	for (const bad of ['/etc/passwd', 'src/../../x', './src/a.js', 'src//a.js', 'src\\a.js', '', 'src/./a.js']) {
+		assert.throws(() => assertConfinedPath(bad, 'test'), `${JSON.stringify(bad)} must be refused`);
+	}
+	assert.equal(assertConfinedPath('src/index.js', 'test'), 'src/index.js');
+
+	// A committed symlink at a runtime-owned path would turn the rewrite into
+	// a write wherever it points; refused the same way.
+	writeFileSync(join(target, RUNTIME_STAMP), `${JSON.stringify({ ...stamp, version: '0.0.4-older' }, null, 2)}\n`);
+	rmSync(join(target, 'src', 'config.js'));
+	symlinkSync(victim, join(target, 'src', 'config.js'));
+	const viaLink = run('npm', upgradeArgs, { expectFailure: true, env: npmEnvironment });
+	assert.notEqual(viaLink.status, 0);
+	assert.match(viaLink.stderr, /refusing to touch src\/config\.js: it is a symbolic link/);
+	assert.equal(readFileSync(victim, 'utf8'), 'not yours\n', 'a symlinked runtime-owned path must not be written through');
+	rmSync(join(target, 'src', 'config.js'));
+	writeFileSync(join(target, 'src', 'config.js'), '');
+	run('npm', upgradeArgs, { env: npmEnvironment });
+	assert.deepEqual(JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')), stamp);
+
+	// Printed commands are for pasting: a directory named on the command
+	// line may hold a space, so it is quoted when it needs to be.
+	assert.equal(shellArg('atoms-worker'), 'atoms-worker');
+	assert.equal(shellArg('infra/atoms-worker'), 'infra/atoms-worker');
+	assert.equal(shellArg("my dir/it's"), "'my dir/it'\\''s'");
+	const spaced = join(temporaryRoot, 'spaced dir');
+	const spacedInit = run('npm', ['exec', '--yes', `--package=${tarball}`, '--', 'atoms-runtime-cloudflare', 'init', spaced], { env: npmEnvironment });
+	assert.ok(spacedInit.stdout.includes(`cd '${spaced}' && npm ci`), spacedInit.stdout);
 
 	// A directory with no stamp is not upgradable: the old scaffold has no
 	// record of what is whose, and guessing is how a user file gets clobbered.

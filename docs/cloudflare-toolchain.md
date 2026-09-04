@@ -196,14 +196,19 @@ npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
 cd atoms-worker && npm ci
 ```
 
-`upgrade` rewrites the runtime-owned files to the release's copies, removes
-runtime-owned files the release no longer ships (so a renamed module cannot
-linger and shadow its replacement), leaves user-owned files alone, and
-rewrites the stamp last — so an interrupted upgrade leaves the old version
-in place and the CLI still refusing to deploy the half-moved tree. It prints
-what it did, then checks `wrangler.jsonc` for what the runtime requires from
-it and exits non-zero with a list if the release needs an edit there. It
-never edits that file. Review the diff, commit.
+`upgrade` first checks `wrangler.jsonc` for what the runtime requires from
+it; if the release needs an edit there it prints the list, changes nothing,
+and exits non-zero, so the directory keeps its old stamp and the CLI keeps
+refusing it until the edit is made and the command is run again. It never
+edits that file. Otherwise it rewrites the runtime-owned files to the
+release's copies, removes runtime-owned files the release no longer ships
+(so a renamed module cannot linger and shadow its replacement), leaves
+user-owned files alone, and rewrites the stamp last — so an interrupted
+upgrade leaves the old version in place and the CLI still refusing to deploy
+the half-moved tree. Every path in either stamp is confined to the directory
+(no absolute or parent-traversing paths, no writes through a symlink) before
+the first write, because the committed stamp is user-controlled input. Review
+the diff, commit.
 
 **The ownership split.** Recorded in the stamp (`runtime_owned`, with a
 sha256 per file, and `user_owned`), documented in the directory's own

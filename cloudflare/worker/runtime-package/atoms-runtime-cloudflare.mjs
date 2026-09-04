@@ -66,6 +66,48 @@ function sha256(path) {
 	return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
+/**
+ * A stamp is committed, user-controlled input, and every path in it becomes
+ * a write or an unlink. So a path is accepted only in one canonical shape —
+ * relative, `/`-separated, no empty, `.` or `..` segments, no backslashes —
+ * and anything else is refused before the first write, whichever stamp it
+ * came from.
+ */
+export function assertConfinedPath(path, describe) {
+	if (typeof path !== 'string' || path === '' || path.includes('\\') || path.includes('\0')) {
+		throw new Error(`atoms: ${describe} names an invalid path ${JSON.stringify(path)}`);
+	}
+	if (path.startsWith('/') || path.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')) {
+		throw new Error(`atoms: ${describe} names a path outside the Worker directory: ${path}`);
+	}
+	return path;
+}
+
+/**
+ * Refuse to write to or remove a path whose destination is a symlink, or
+ * whose parent resolves outside the Worker directory: a committed symlink
+ * could otherwise turn a runtime-owned write into a write anywhere.
+ */
+function assertConfinedDestination(target, relative) {
+	const destination = join(target, relative);
+	if (existsSync(destination) && lstatSync(destination).isSymbolicLink()) {
+		throw new Error(`atoms: refusing to touch ${relative}: it is a symbolic link`);
+	}
+	let parent = dirname(destination);
+	while (!existsSync(parent)) parent = dirname(parent);
+	const root = realpathSync(target);
+	const resolved = realpathSync(parent);
+	if (resolved !== root && !resolved.startsWith(root + '/')) {
+		throw new Error(`atoms: refusing to touch ${relative}: its directory resolves outside the Worker directory`);
+	}
+	return destination;
+}
+
+/** `target` as a shell argument: bare when it needs no quoting, else single-quoted. */
+export function shellArg(value) {
+	return /^[A-Za-z0-9_./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 function readStamp(directory, describe) {
 	const path = join(directory, RUNTIME_STAMP);
 	if (!existsSync(path)) return null;
@@ -120,7 +162,7 @@ function scaffold(targetArg) {
 			throw new Error(
 				`atoms: scaffold target is not empty; refusing to overwrite: ${target}\n`
 					+ 'To move an existing Atoms Worker directory to this release, run '
-					+ `\`atoms-runtime-cloudflare upgrade ${targetArg}\` instead.`,
+					+ `\`atoms-runtime-cloudflare upgrade ${shellArg(targetArg)}\` instead.`,
 			);
 		}
 	}
@@ -141,8 +183,8 @@ function scaffold(targetArg) {
 
 	const stamp = readStamp(target, 'the scaffolded stamp');
 	console.log(`Atoms Cloudflare runtime ${stamp.version} initialized in ${target}`);
-	console.log(`Next: cd ${targetArg} && npm ci`);
-	console.log(`Then commit ${targetArg}: it is part of your repository from now on.`);
+	console.log(`Next: cd ${shellArg(targetArg)} && npm ci`);
+	console.log(`Then commit ${shellArg(targetArg)}: it is part of your repository from now on.`);
 	console.log(`You own ${stamp.user_owned.join(', ')}; every other file is the runtime's and`);
 	console.log('`atoms-runtime-cloudflare upgrade` rewrites it. README.md in the directory has the details.');
 }
@@ -170,7 +212,42 @@ function upgrade(targetArg) {
 	const next = readStamp(templateRoot, 'the template stamp');
 	const template = templateFiles();
 	for (const path of Object.keys(next.runtime_owned)) {
+		assertConfinedPath(path, 'the template stamp');
 		if (!template.has(path)) throw new Error(`atoms: template stamp names ${path}, which the template does not ship`);
+	}
+	for (const path of next.user_owned) {
+		assertConfinedPath(path, 'the template stamp');
+		if (!template.has(path)) throw new Error(`atoms: template stamp names ${path}, which the template does not ship`);
+	}
+	// Every path in the existing stamp is about to become a write or an
+	// unlink; a committed stamp is user-controlled input, so confine each one
+	// before anything is touched.
+	for (const path of [...Object.keys(previous.runtime_owned), ...previous.user_owned]) {
+		assertConfinedPath(path, `the existing ${RUNTIME_STAMP}`);
+	}
+	for (const path of new Set([...Object.keys(previous.runtime_owned), ...previous.user_owned, ...Object.keys(next.runtime_owned), ...next.user_owned])) {
+		assertConfinedDestination(target, path);
+	}
+
+	// Before any write: the one user-owned file the runtime depends on. If
+	// this release needs an edit there, say so and change nothing — an
+	// upgrade that rewrote the runtime and advanced the stamp would leave a
+	// directory the CLI deploys but the runtime cannot load. With the old
+	// stamp intact, `atoms deploy` keeps refusing it (ATOMS-E108) until the
+	// edit is made and this command is run again.
+	const wranglerPath = join(target, 'wrangler.jsonc');
+	const problems = checkWranglerConfig(
+		readFileSync(existsSync(wranglerPath) ? wranglerPath : template.get('wrangler.jsonc'), 'utf8'),
+		readFileSync(template.get('wrangler.jsonc'), 'utf8'),
+	);
+	if (problems.length > 0) {
+		console.log(`Atoms Cloudflare runtime in ${target}: ${previous.version} -> ${next.version} NOT applied.`);
+		console.log('');
+		console.log('ACTION REQUIRED: wrangler.jsonc is yours and was not changed, but this release needs:');
+		for (const problem of problems) console.log(`  - ${problem}`);
+		console.log('Edit wrangler.jsonc accordingly, then run this command again. Nothing else was changed;');
+		console.log(`the directory still reports ${previous.version} and the Atoms CLI keeps refusing to deploy it.`);
+		return 1;
 	}
 
 	const report = { updated: [], added: [], unchanged: [], removed: [], modified: [], kept: [], seeded: [], reowned: [] };
@@ -225,6 +302,7 @@ function upgrade(targetArg) {
 
 	// 4. The stamp itself, last, so a crash above leaves the old version in
 	//    place and the CLI still refusing to deploy the half-upgraded tree.
+	assertConfinedDestination(target, RUNTIME_STAMP);
 	copyFileSync(join(templateRoot, RUNTIME_STAMP), join(target, RUNTIME_STAMP));
 
 	const same = previous.version === next.version;
@@ -249,21 +327,7 @@ function upgrade(targetArg) {
 		console.log(`  note: ${path} is runtime-owned as of ${next.version} and was overwritten; your previous copy is in git history.`);
 	}
 
-	// 5. The one user-owned file the runtime depends on: say what it needs,
-	//    never change it.
-	const problems = checkWranglerConfig(
-		readFileSync(join(target, 'wrangler.jsonc'), 'utf8'),
-		readFileSync(template.get('wrangler.jsonc'), 'utf8'),
-	);
-	if (problems.length > 0) {
-		console.log('');
-		console.log('ACTION REQUIRED: wrangler.jsonc is yours and was not changed, but this release needs:');
-		for (const problem of problems) console.log(`  - ${problem}`);
-		console.log('Edit wrangler.jsonc accordingly, then run `npm ci` and commit.');
-		return 1;
-	}
-
-	console.log(`Next: cd ${targetArg} && npm ci, review the diff, and commit.`);
+	console.log(`Next: cd ${shellArg(targetArg)} && npm ci, review the diff, and commit.`);
 	return 0;
 }
 

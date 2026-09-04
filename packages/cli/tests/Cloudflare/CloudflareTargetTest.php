@@ -263,6 +263,19 @@ final class CloudflareTargetTest extends TestCase
         }
     }
 
+    /**
+     * The scaffold and upgrade commands are printed for a human to paste, and
+     * --worker-dir exists precisely for unusual locations — which may hold a
+     * space or a shell metacharacter.
+     */
+    public function testPrintedCommandsQuoteADirectoryThatNeedsIt(): void
+    {
+        self::assertStringEndsWith(' init atoms-worker', RuntimeVersion::scaffoldCommand());
+        self::assertStringEndsWith(' upgrade infra/atoms-worker', RuntimeVersion::upgradeCommand('infra/atoms-worker'));
+        self::assertStringEndsWith(" upgrade 'my dir/it'\\''s'", RuntimeVersion::upgradeCommand("my dir/it's"));
+        self::assertStringEndsWith(" upgrade 'a;rm -rf b'", RuntimeVersion::upgradeCommand('a;rm -rf b'));
+    }
+
     public function testAnUnreadableStampIsE076NotE108(): void
     {
         $dir = $this->freshDir();
