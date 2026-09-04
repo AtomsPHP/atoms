@@ -4,36 +4,40 @@ description: Requirements, PHP packages, the Cloudflare runtime, and initial pro
 ---
 
 :::caution[Pre-1.0]
-Atoms is released on the `0.4` line. The `atoms/core` runtime ABI is frozen and additive; other pre-1.0 APIs may still change between minor releases.
+Atoms is currently experimental and in early stages. The goal is to keep the current `atoms/core` runtime API frozen and only add to it.
 :::
 
 ## Requirements
 
-- PHP 8.3 or 8.4 on the application host.
-- Composer 2.
-- Node.js 22 for the Cloudflare Worker toolchain.
-- A Cloudflare Workers Paid account. Free-plan support is outside the 0.4 support boundary.
+- PHP 8.3 or 8.4 on the application host
+- Composer 2
+- Node.js 22 for the Cloudflare Worker toolchain
+- A Cloudflare Workers Paid account
 
-## Install the PHP side
+## PHP
 
 Choose the adapter for the application you already have:
 
 ```bash
 # Laravel
-composer require atoms/laravel:^0.4
+composer require atoms/laravel
 
 # Symfony
-composer require atoms/symfony:^0.4
+composer require atoms/symfony
 
-# Framework-free
-composer require atoms/client:^0.4
+# Vanilla PHP
+composer require atoms/client
 ```
 
 Install the CLI for development and deployment:
 
 ```bash
-composer require --dev atoms/cli:^0.4
+composer require --dev atoms/cli
 ```
+
+To use Eloquent inside your Atom (with Atom-specific models only!), you need to install a package that runs _inside_ your Atom. See [Eloquent and the query builder](/guides/eloquent/).
+
+## Static Analysis
 
 Add the static rules that protect the PHP↔Worker boundary:
 
@@ -48,15 +52,13 @@ includes:
     - vendor/atoms/phpstan-rules/rules.neon
 ```
 
-The Illuminate bridge, `atoms/database-illuminate`, runs inside the Atom rather than in your application; [Eloquent and the query builder](/guides/eloquent/) covers installing it.
-
 ## Initialize the project
 
 ```bash
 vendor/bin/atoms init
 ```
 
-The command creates `atoms.json` and `atoms-composer.json`. It does not download a deployment toolchain. Scaffold the exact co-versioned Worker runtime printed by `atoms init`:
+The `init` command creates `atoms.json` and `atoms-composer.json`. It also prints a command that scaffolds the matching version of the Cloudflare Worker runtime:
 
 ```bash
 npm exec --yes --package=@atomsphp/runtime-cloudflare@0.4.0 -- \
@@ -65,29 +67,41 @@ cd .atoms/worker
 npm ci
 ```
 
-The template includes its lockfile. `npm ci` fetches the pinned PHP/WebAssembly dependency, verifies its hashes, and stages it in a gitignored directory.
+You now have a `.atoms/worker` directory holding the Cloudflare Worker your Atoms run in, and its dependencies. It is generated and gitignored — `atoms build` and `atoms deploy` manage it from here.
 
-## Choose the source paths
+## Fill in `atoms.json`
 
-Keep Atom code separate from framework-only code. A typical Laravel project uses:
+Fill out the necessary details in the generated `atoms.json`:
 
-```json
+```jsonc
 {
-  "project": "my-app",
-  "paths": {
-    "atoms": "app/Atoms",
-    "shared": "app/Atoms/Shared"
-  },
-  "environments": {
-    "production": {
-      "worker_dir": ".atoms/worker",
-      "account_id": "your-cloudflare-account-id"
+    "project": "my-app",
+    "paths": {
+        "atoms": "app/Atoms",
+        // DTOs or other shared code used on the Atom side and the App side:
+        "shared": "app/Atoms/Shared"
+    },
+    "php": "8.3",
+    "environments": {
+        "production": {
+            // A Cloudflare workers.dev subdomain or a custom domain
+            "endpoint": "https://my-app.<your-subdomain>.workers.dev",  
+            "worker_name": "my-app",
+            // Your Cloudflare account id:
+            "account_id": "",                 
+            "worker_dir": ".atoms/worker",
+            "debug_endpoints": false          
+        },
+        // ... additional environments
+    },
+    "callback_url": {
+        // where your app mounts the callback route (read by `atoms dev` only)
+        "production": "https://example.com/atoms/callback",          
     }
-  }
 }
 ```
 
-Treat the generated files as configuration, not credentials. Cloudflare tokens stay in environment variables and are passed directly to Wrangler.
+The `environments` block configures deploys; `callback_url` is read only by `atoms dev`, which passes it to the local Worker. A deployed Worker gets its callback URL from the `ATOMS_CALLBACK_URL` variable you set with Wrangler — see the [Callbacks guide](/guides/callbacks/#callback-url).
 
 ## Next
 

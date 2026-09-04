@@ -1,6 +1,6 @@
 ---
 title: Laravel quickstart
-description: Create, call, migrate, and test an Atom from a Laravel application.
+description: Create, call, migrate, test, and run an Atom locally from a Laravel application.
 ---
 
 The maintained example lives at [`examples/laravel/`](https://github.com/AtomsPHP/atoms/tree/main/examples/laravel). It is the executable companion to this guide.
@@ -76,8 +76,6 @@ $count = Atoms::get(GameRoom::class, 'room-42')->join('ada');
 
 Pass an `Atoms\Client\CallOptions` as a third argument to `get()` to control retry-on-timeout, the idempotency key, or the trace header for one call — see [Per-call options](/reference/limits/#per-call-options).
 
-Calls with the same Atom type and id are serialized by the Durable Object. Different ids can execute independently.
-
 ## Test it without Cloudflare
 
 Use `atoms/testing` for fast local tests of Atom behavior, migrations, callbacks, broadcasts, and timers:
@@ -97,6 +95,25 @@ self::assertSame(2, $room->invoke('join', ['ada']));
 ```
 
 Before deploying, run PHPStan with `vendor/atoms/phpstan-rules/rules.neon` included. It catches values that cannot cross the boundary and the frozen-clock hazards described in [Limits](/reference/limits/#the-clock-does-not-advance-inside-a-turn).
+
+## Run it locally
+
+`atoms dev` builds your Atoms and serves them through the real Worker runtime you scaffolded on your machine in the "Install" step. No Cloudflare account is needed:
+
+```bash
+vendor/bin/atoms dev --callback-url http://127.0.0.1:8000/atoms/callback
+```
+
+Point the application at the local Worker while it runs:
+
+```dotenv
+ATOMS_ENDPOINT=http://127.0.0.1:8787
+ATOMS_ENVIRONMENT=staging
+```
+
+The shared secret takes care of itself locally: `atoms dev` generates one into `.env` when it is absent and projects it into the Worker's `.dev.vars` whenever the two differ, so the local Worker and the application always agree without you handling the value.
+
+`--callback-url` tells the local Worker where your application's callback endpoint lives, so `app()` and `dispatch()` work against the `php artisan serve` process; set `callback_url` in `atoms.json` once and `atoms dev` picks it up automatically. `--port` moves the Worker off 8787, and `--no-build` reuses the bundle from the last build. See the [CLI reference](/reference/cli/) for the full option surface.
 
 ## Build and deploy
 

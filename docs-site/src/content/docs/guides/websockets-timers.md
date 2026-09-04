@@ -5,38 +5,45 @@ description: Durable connections, broadcasts, and named one-shot timers.
 
 ## WebSockets
 
-Override the lifecycle handlers on an Atom. Channel membership is fixed for
-the life of a connection by the `?channels=` query parameter on the upgrade
-request:
+An Atom receives WebSocket events through three lifecycle handlers:
+`onConnect()`, `onMessage()`, and `onDisconnect()`. The base Atoms class
+defines no behavior for these methods. Override them when your Atom needs to
+react to an event. If you only need to broadcast to all connected clients - for
+example, a real-time read-only dashboard - you don't need any of these.
+
+Client connections are grouped into channels. A client names its channels in the
+`?channels=` query parameter when it connects, comma-separated when there is
+more than one (`?channels=lobby,game`). The Atom can then call
+`broadcast('lobby', ...)` to send a message to every connection that joined
+`lobby`.
 
 ```php
 public function onConnect(Connection $connection, array $params): void
 {
-    // $params holds every query key sent on the upgrade — except the
+    // $params holds every query key from the connection URL — except the
     // reserved `ticket` key — merged with any claims a verified ticket
     // carried.
 }
 
 public function onMessage(Connection $connection, Message $message): void
 {
-    $this->broadcast('room', ['message' => $message->payload()]);
+    // Runs when a message is received from a connected client
+    $this->broadcast('lobby', ['message' => $message->payload()]);
 }
 
 public function onDisconnect(Connection $connection): void
 {
-    // Best-effort presence cleanup.
+    // You can attempt cleanup here
 }
 ```
 
-`Connection` exposes `id()`, `send(string $payload)`, `sendJson(array $payload)`, and `close()`. `send()` writes the given bytes verbatim; `sendJson()` normalizes and encodes an array as a bare JSON object with no envelope, the same encoder `broadcast()` uses to build its `{"kind":"broadcast",...}` frame. To reach every connection at once, have each of them join a channel your application names, such as `channels=all`.
-
 ### Connecting
 
-A server-to-server caller connects like any other authenticated request, with the same `Authorization: Bearer` header, to `wss://your-worker.example.workers.dev/ws/GameRoom/room-42?channels=lobby`.
-
-A browser's `new WebSocket(url)` cannot set that header, so it authenticates with a short-lived connection ticket instead. Your application mints the ticket itself — a local, synchronous computation, with no request to the Worker — and builds the connection URL from it:
+A browser authenticates with a short-lived connection ticket carried in the URL. Your application mints the ticket
+and builds the connection URL from it:
 
 ```php
+# Laravel - Symfony and plain PHP examples are at the bottom of this page.
 use App\Atoms\GameRoom;
 use Atoms\Laravel\Facades\Atoms;
 
@@ -47,21 +54,39 @@ $url = Atoms::wsUrl(GameRoom::class, $roomId, [
 ]);
 ```
 
-Outside Laravel, the same two calls are `Atoms\Client\Tickets\TicketIssuer::issue()` and `Atoms\Client\AtomsClient::wsUrl()` (both reachable through `Atoms\Symfony\AtomsBundle`'s `atoms.ticket_issuer`/`atoms.client` services, or through `AtomsBootstrap::create()`'s `PlainPhpApp::tickets()` in a plain-PHP host). Hand the resulting URL to the browser and connect directly.
+A ticket is a string signed with a key derived from the shared secret, scoped to one Atom instance and valid for 60 seconds by default.
 
-A ticket is a signed `v1.<payload>.<sig>` string, scoped to one `{type, id}` pair, valid for 60 seconds by default (`AtomsConfig::$wsTicketTtlMs`, or a per-call `$ttlMs` argument to `issue()`/`ticket()`). It is reusable until it expires — not single-use — so a reconnect inside that window can retry the same URL without minting a new one. Its claims, `client_id` above, are merged over the browser's own query parameters on connect, server wins, so `onConnect()`'s `$params` carries a value the browser could not forge itself. Issuance throws `Atoms\Client\Exception\InvalidTicketClaims` ([ATOMS-E068](/reference/errors/#atoms-e068)) only for a scope or claims map that does not fit the protocol (at most 16 claims, 2048 bytes total). On any connection failure, issue a fresh ticket — a browser cannot see why an upgrade was rejected.
+Ticket claims — `client_id` above — are merged over the browser's own query parameters on connect, so a browser cannot replace them in the `$params` given to an Atom's `onConnect()` method. A ticket holds at most 16 claims totaling 2048 bytes.
 
-The Worker verifies a ticket's signature and expiry at the edge, before completing the upgrade. Minting stays in your application, where the secret already lives.
+The Worker verifies a ticket's signature and expiry at the edge, before accepting the connection.
+
+### Sending and receiving messages
+
+`Connection` exposes `id()`, `send(string $payload)`, `sendJson(array $payload)`, and `close()`.
+
+There are multiple ways to send messages, and each one delivers a different shape to the client:
+  - `send()` sends a raw string to a single connection
+  - `sendJson()` encodes an array as a bare JSON object, and sends it to a single connection
+  - `broadcast()` messages all connections on a given channel
+    - these message frames are wrapped in an envelope — `{"kind":"broadcast","channel":"lobby","payload":{...}}` — so a client listening on several channels can tell which one a frame came from.
+
+To reach every connection at once, choose a global channel name and have all connections join it (e.g. `channels=all`).
+
+A client message arrives in `onMessage()` as a `Message`. `payload()` returns its content as a string, and `json()` decodes a JSON payload to an array — the inbound half of `sendJson()`. Clients may also send binary frames: `payload()` carries the raw bytes, and `isBinary()` says which kind arrived. In the other direction, `send()` produces a text frame for a valid UTF-8 payload and a binary frame for anything else.
 
 ### Behavior
 
-Connections use Cloudflare’s Hibernation API and can wake an evicted Atom on a frame or close event. Text and binary frames preserve their distinct wire formats. Binary application payloads crossing the JSON bridge are base64 encoded.
+Connections use Cloudflare's Hibernation API, so an open socket survives an eviction and a frame or close event wakes the Atom back up.
 
-WebSocket sends are not transactional. A frame sent inside a database transaction may already be visible even if the transaction later rolls back. A send accepted during `onDisconnect()` can still be dropped by the closing socket.
+A WebSocket message sent inside a database transaction will send even if the transaction later rolls back. A send accepted during `onDisconnect()` can still be dropped by the closing socket.
+
+An inbound message over the size cap (128 KiB by default) closes the socket with code `1009` instead of reaching `onMessage()`.
+
+`onDisconnect()` normally fires exactly once per connection, but an eviction can land between the platform's duplicate close events and deliver it a second time. Make cleanup safe to run twice.
 
 ## Timers
 
-Timers are named, durable, one-shot alarms. `schedule()` takes a `\DateTimeImmutable`, not a raw timestamp:
+A timer is a named, durable, one-shot alarm. Schedule one with a name and a `\DateTimeImmutable` due time, and handle it in `onTimer()`:
 
 ```php
 $this->timers()->schedule('expire-lobby', new \DateTimeImmutable('+10 minutes'));
@@ -74,8 +99,60 @@ protected function onTimer(string $name): void
 }
 ```
 
-Scheduling the same name replaces its due time. Canceling a missing name is a successful no-op. Cloudflare stores one physical alarm per Durable Object; Atoms multiplexes the named timers in SQLite and drains due work within the alarm event.
+Scheduling a name that already exists replaces its due time. Canceling a name that doesn't exist is a no-op. Scheduling joins the surrounding database transaction: if the transaction rolls back, the timer is never created. You can schedule as many named timers as you need; Atoms tracks them in the Atom's database and fires each one when it comes due.
 
-Timer delivery is at-most-once. An uncaught handler failure is logged, but that timer is not retried. Make handlers safe to run once and schedule a new timer explicitly if the domain needs another attempt.
+A timer fires at most once. If the handler throws, the failure is logged and the timer is finished. Write handlers that are safe to run once, and schedule a new timer when you need another attempt.
 
-Use timers instead of `sleep()` or elapsed-time loops. The guest clock does not advance inside a deployed turn; the static rules raise [ATOMS-E101](/reference/errors/#atoms-e101) and [ATOMS-E102](/reference/errors/#atoms-e102).
+Use a timer wherever you would reach for `sleep()` or a polling loop. On the deployed runtime the clock does not advance during a turn, and the bundled PHPStan rules flag both patterns.
+
+## Minting tickets in Symfony
+
+`Atoms\Client\AtomsClient` and `Atoms\Client\Tickets\TicketIssuer` are both autowireable (service ids `atoms.client` and `atoms.ticket_issuer`). `TicketIssuer::issue()` takes the wire type name — the Atom class basename — which `AtomsClient::wireType()` derives:
+
+```php
+use App\Atoms\GameRoom;
+use Atoms\Client\AtomsClient;
+use Atoms\Client\Tickets\TicketIssuer;
+
+class GameRoomController
+{
+    public function __construct(
+        private AtomsClient $atoms,
+        private TicketIssuer $tickets,
+    ) {}
+
+    public function connectUrl(string $roomId, string $userId): string
+    {
+        $ticket = $this->tickets->issue(
+            AtomsClient::wireType(GameRoom::class),
+            $roomId,
+            ['client_id' => $userId],
+        );
+
+        return $this->atoms->wsUrl(GameRoom::class, $roomId, [
+            'channels' => ['lobby'],
+            'ticket' => (string) $ticket,
+        ]);
+    }
+}
+```
+
+## Minting tickets in plain PHP
+
+The [plain-PHP example](https://github.com/AtomsPHP/atoms/tree/main/examples/plain-php) builds an `AtomsClient` and a `TicketIssuer` through its `AtomsBootstrap` class and exposes them as `client()` and `tickets()`:
+
+```php
+use App\Atoms\GameRoom;
+use Atoms\Client\AtomsClient;
+
+$ticket = $app->tickets()->issue(
+    AtomsClient::wireType(GameRoom::class),
+    $roomId,
+    ['client_id' => $userId],
+);
+
+$url = $app->client()->wsUrl(GameRoom::class, $roomId, [
+    'channels' => ['lobby'],
+    'ticket' => (string) $ticket,
+]);
+```

@@ -3,11 +3,13 @@ title: Lifecycle and persistence
 description: How identity, activation, serialized turns, migrations, and hibernation fit together.
 ---
 
-An Atom is identified by its PHP type and application-chosen id. Every pair maps deterministically to one Cloudflare Durable Object and one SQLite database.
+An Atom instance is identified by its PHP class name and an ID that you give it.
 
 ## A turn at a time
 
-An invocation, WebSocket event, or timer is a turn. The runtime serializes turns for one Atom residency, so two callers cannot concurrently mutate the same Atom. Different ids remain independent and can run in parallel.
+An invocation (from your PHP app), a WebSocket event, or a [timer](/guides/websockets-timers/#timers) is a turn. Durable Objects serialize turns, so two callers of an Atom instance with ID "Document-123" cannot concurrently mutate that document's state.
+
+## Transactions
 
 Use SQLite transactions when several writes must succeed or roll back together:
 
@@ -20,20 +22,24 @@ return $this->db()->transaction(function (): int {
 });
 ```
 
-`app()` is rejected inside a transaction because the synchronous callback would hold the Durable Object storage callback open across an HTTP round trip. `dispatch()` is buffered until commit and discarded on rollback. WebSocket sends are immediate and are **not** rolled back with SQL.
+### Transaction behavior
+
+`app()` is rejected inside a transaction because of a runtime limitation: the synchronous callback would hold the Durable Object storage callback open across an HTTP round trip. `dispatch()` is buffered until commit and discarded on rollback. WebSocket sends are immediate and are **not** rolled back with SQL.
 
 ## Activation and hibernation
 
-The Worker constructs PHP when an Atom becomes resident, applies pending migrations, and calls `onActivation()`. Cloudflare may later evict idle compute while retaining SQLite and hibernatable WebSockets. On the next invocation, frame, close event, or alarm, the runtime reconstructs the Atom from its durable state.
+The Worker constructs PHP when an Atom wakes up, applies pending migrations, and calls `onActivation()`. Cloudflare may later evict idle compute while retaining SQLite and hibernatable WebSockets. On the next invocation, frame, close event, or alarm, the runtime reconstructs the Atom from its durable state.
 
 `onDeactivation()` is best-effort cleanup, not a durability hook. Do not depend on it for writes that must happen.
 
 ## Migrations
 
-Migrations are ordered files named `NNN_name.sql` or `NNN_name.php` beside an Atom. They are hashed into the build manifest and applied once, in ascending order, before user code runs.
+An Atom's schema lives in a `migrations/` directory next to its class: a numbered series like `001_create_events.sql`, `002_add_round_index.sql`. When an Atom wakes up, the runtime applies new migrations before your code runs.
 
-Once deployed, migrations are append-only. Editing an applied migration changes its hash and raises a stable migration error instead of silently rewriting history. Add the next numbered migration for every schema change.
+Migrations can also be a `.php` file (same naming convention as the `.sql` files) returning an object with an `up()` method.
+
+Once deployed, migrations are append-only. Editing an applied migration changes its hash and would cause an error when migrations are next applied.
 
 ## State belongs in SQLite
 
-PHP object properties disappear when the residency is evicted. Durable state belongs in `$this->db()`. In-memory fields are only per-residency caches and must always be reconstructible.
+PHP in-memory state (object properties, etc) disappears when the Atom shuts down or hibernates, which can happen at any time. Durable state belongs in the SQLite database, and it can be used to regenerate in-memory state when an Atom reactivates.

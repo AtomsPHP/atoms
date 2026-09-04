@@ -1,79 +1,75 @@
 ---
 title: Deploy
-description: Build an Atom bundle and deploy its Worker through the pinned local Wrangler.
+description: Build an Atom bundle and deploy its Worker through Wrangler.
 ---
 
-Atoms deploys into your Cloudflare account. It does not proxy credentials through an Atoms service.
+Atoms are deployed directly to your Cloudflare account.
 
 ## Prepare the Worker
 
-Scaffold the co-versioned runtime once and install its lockfile:
-
-```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.4.0 -- \
-  atoms-runtime-cloudflare init .atoms/worker
-(cd .atoms/worker && npm ci)
-```
+Deploying from your own machine needs the Cloudflare Worker runtime scaffolded locally in `.atoms/worker` — follow [Initialize the project](/getting-started/install/#initialize-the-project) on the Install page if you have not already. If you deploy from [GitHub Actions](#deploy-from-github-actions) instead, the Action scaffolds the runtime for you.
 
 The CLI resolves Wrangler from `ATOMS_WRANGLER_BIN`, then `.atoms/worker/node_modules/.bin/wrangler`, then `PATH`. It never uses `npx` or downloads Wrangler during a deployment.
 
 ## Configure an environment
 
-Add the Worker directory, account id, name, and endpoint to the environment in `atoms.json`. Export credentials for Wrangler:
+Add the Worker directory, account id, name, and endpoint to the environment in `atoms.json`.
+
+On your own machine, authenticate once with `wrangler login`. The Atoms CLI passes nothing when `CLOUDFLARE_API_TOKEN` is unset, so Wrangler uses its own login session and no credential ever passes through the Atoms process.
+
+For headless or scripted deploys, set an API token in the environment instead:
 
 ```bash
 export CLOUDFLARE_API_TOKEN='…'
-export CLOUDFLARE_ACCOUNT_ID='…'
 ```
 
-The token needs permission to edit Workers Scripts in the target account. Do not place it in `atoms.json`, command arguments, or committed environment files.
+If you are using a token, it needs permission to edit Workers Scripts in the target account. Do not commit it to your repository.
 
-## Validate, build, deploy
+## Build and deploy
 
 ```bash
-vendor/bin/atoms validate
 vendor/bin/atoms build
 vendor/bin/atoms deploy --env production
 ```
 
-`build` discovers the configured Atom tree, validates Atom-side code, ships the packages named in `atoms-composer.json`, and emits a deterministic bundle plus manifest, all without executing customer code. `deploy` translates that artifact into the Worker module and invokes the pinned Wrangler.
+`build` discovers the configured Atom tree, validates Atom-side code against the boundary rules, ships the packages named in `atoms-composer.json`, and emits a deterministic bundle plus manifest. `deploy` embeds the bundle into the Worker's JavaScript module and invokes Wrangler to ship everything to Cloudflare.
+
+You can validate without a build with `atoms validate`. Pass the `--json` flag for JSON output.
 
 ## Dependencies that ship with the Atom
 
-Packages listed in `atoms-composer.json` are resolved with `composer install --no-scripts --no-plugins` in an isolated directory, written back to `atoms-composer.lock` for reproducibility, and cached under `.atoms/vendor-cache` so repeat builds and `atoms dev` stay offline. The resolved tree ships unprefixed: each package's `.php` and licence files, plus a generated classmap autoloader the runtime requires at activation.
-
-A resolution failure stops the build with `ATOMS-E079`. `atoms build --fast` skips the vendor stage, so it refuses with `ATOMS-E107` while `atoms-composer.json` declares packages — a vendor-less bundle deploys cleanly and then fatals in the guest at the first vendor class.
+Packages listed in `atoms-composer.json` are resolved with `composer install --no-scripts --no-plugins` in an isolated directory, written back to `atoms-composer.lock` for reproducibility, and cached under `.atoms/vendor-cache`.
 
 ## Configure callbacks and application secrets
 
-The Worker needs exactly one operational secret, `ATOMS_SHARED_SECRET`: 32
-random bytes, base64-encoded, identical on the Worker and the application.
-Every credential on that boundary — the `Authorization` bearer, WebSocket
-ticket verification, and callback signing — is derived from it. Set it with
-the dedicated CLI command, which reads the value from stdin so it never
-appears in a command line or a log:
+The Worker needs the same `ATOMS_SHARED_SECRET` you provide to your application: 32
+random bytes, base64-encoded. Set it with the dedicated CLI command, which reads the
+value from stdin so it never appears in a command line or a log:
 
 ```bash
 openssl rand -base64 32 | vendor/bin/atoms shared-secret:set --env production
 ```
 
-`shared-secret:set` is idempotent: it leaves an existing value alone unless
-you pass `--force`, so running it on every deploy does not mint a new Worker
-version each time. `--force` is also how you apply a rotation — set the new
-value with `--force`, and pass `--previous` to set
-`ATOMS_SHARED_SECRET_PREVIOUS` to the old one during the overlap window, then
-run `atoms shared-secret:unset --env production` once every instance on both
-sides holds the new secret. Without this secret configured, every Worker
-route except `GET /healthz` answers `misconfigured` — a first deploy that
-skips this step looks healthy but rejects every invocation, callback, and
-WebSocket upgrade.
+`shared-secret:set` does not overwrite an existing secret unless you pass
+`--force`, so running it on every deploy does not mint a new Worker version
+each time. When using `--force` to rotate the secret, pass `--previous` to
+set `ATOMS_SHARED_SECRET_PREVIOUS` to the old one during the overlap window.
+Then run `atoms shared-secret:unset --env production` once every instance on
+both sides holds the new secret. If you rotate without `--previous`, every
+interaction with existing Workers will fail until they restart.
 
-`ATOMS_BEARER_AUTH` (`required`, the default, or `disabled`) is the explicit
-posture for the `Authorization` header on invocation and WebSocket routes.
-Leave it `required` unless an authenticating proxy such as Cloudflare Access
-already sits in front of the Worker — `disabled` turns off only the bearer
-comparison; the shared secret stays mandatory and tickets and callbacks stay
-signed either way.
+The Worker environment variable `ATOMS_BEARER_AUTH` controls whether the
+Worker checks the `Authorization` bearer your application sends automatically.
+Leave it at the default, `required`; set it to `disabled` only when an
+authenticating proxy such as Cloudflare Access already sits in front of the
+Worker. `ATOMS_SHARED_SECRET` stays mandatory in either posture, and browser
+connections are unaffected: they authenticate with a short-lived
+[ticket](/guides/websockets-timers/) either way.
+
+If your Atoms call `app()` or `dispatch()`, the deployed Worker also needs
+`ATOMS_CALLBACK_URL` set to your application's callback endpoint. Set it as a
+Worker variable with Wrangler — `atoms.json`'s `callback_url` is read only by
+`atoms dev`. See the [Callbacks guide](/guides/callbacks/#callback-url).
 
 Use the Atoms CLI for values your Atom reads through `$this->config()`:
 
@@ -83,10 +79,9 @@ printf '%s' "$PAYMENTS_API_KEY" | \
 ```
 
 That stores the configured Worker-prefixed name, normally
-`ATOMS_CONFIG_PAYMENTS_API_KEY`. `secrets:set` refuses `ATOMS_SHARED_SECRET`
-itself ([ATOMS-E077](/reference/errors/#atoms-e077)): that command's
-namespace is exactly what Atom code can read back through `$this->config()`,
-and the boundary root must never live there.
+`ATOMS_CONFIG_PAYMENTS_API_KEY`. The `secrets:set` command
+refuses `ATOMS_SHARED_SECRET` itself - use the dedicated
+`shared-secret:set` command instead.
 
 To curl a deployed Worker without ever pasting the secret into a header,
 print the bearer it derives to instead:

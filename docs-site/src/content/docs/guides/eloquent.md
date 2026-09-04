@@ -22,7 +22,7 @@ The bridge runs inside the Atom, which means it belongs in `atoms-composer.json`
 
 ## Boot the bridge inside a method
 
-`EloquentBridge::boot()` takes the Atom's own `Database` and returns a connection registered as Eloquent's default. It caches per `Database` instance, so the first turn of a residency pays for the boot and later turns reuse it:
+`EloquentBridge::boot()` takes the Atom's database and returns a connection you can call query builder methods on. It also registers that connection as Eloquent's default, so call it before touching a model.
 
 ```php
 namespace App\Atoms;
@@ -52,14 +52,26 @@ Models are Atom-side classes: keep them in the Atom's `support/` directory, wher
 
 Return array shapes from Atom methods. An Eloquent model carries a connection and behavior, so it is not a value that crosses the boundary — call `->toArray()`, or map to a [shared DTO](/concepts/two-worlds/), before returning.
 
-## Three deliberate differences
+## Differences from Eloquent in Laravel
 
-The bridge inherits the semantics of the runtime the Atom executes in, so three behaviors differ from a stock Laravel connection.
+The bridge runs against the Atom's own database, inside the runtime, so a few behaviors differ from the connection you'd get in a Laravel app.
 
-**Nested transactions reuse the outer transaction.** The runtime has no savepoints, so an inner `transaction()` joins the one already open — the same semantics as `$this->db()->transaction()`. Roll back by throwing. A hand-called `rollBack()` inside a nested `transaction()` discards the entire write set, and the enclosing wrappers then fail loudly on the closed transaction. `afterCommit()` and `afterRollBack()` hooks throw, because the bridge installs no transactions manager.
+### Transactions don't nest
 
-**Schema work is refused with `ATOMS-E106`.** Atoms migrations own DDL: ship schema changes as append-only files under the Atom's `migrations/` directory, where they run at activation and are tracked in `PRAGMA user_version`. The bridge serves queries and models.
+An inner `transaction()` joins the transaction already open, the same way `$this->db()->transaction()` does. To roll back, throw from inside the closure. Don't call `rollBack()` by hand inside a nested `transaction()` — it discards every write since the outermost transaction began, and the enclosing wrappers then fail because the transaction is already closed. `afterCommit()` and `afterRollBack()` hooks throw, because the bridge installs no transactions manager.
 
-**`getServerVersion()` answers from configuration.** The runtime cannot ask the engine, so the value comes from the `server_version` connection config key, which `EloquentBridge::boot()` accepts as its second argument.
+### Schema changes go through Atoms migrations
 
-Integer columns hold the same wide-integer caveat as any other Atom read; [limits](/reference/limits/) covers the read shape that keeps values above 2^53-1 exact.
+The bridge is for queries and models, and it refuses Laravel's schema builder — `Schema::create()` and everything else that goes through `getSchemaBuilder()` throws. To change an Atom's schema, add a migration file to the Atom's `migrations/` directory; the runtime applies it the next time the Atom wakes up. See [lifecycle](/concepts/lifecycle/#migrations) for how migrations run.
+
+### Model events don't fire
+
+The bridge installs no event dispatcher, so `creating`, `saved`, and the other model events never fire, and observers never run. Timestamps, casts, and relationships work as usual.
+
+### `getServerVersion()` doesn't reach the database
+
+The runtime can't ask SQLite for its version, so the bridge reports a recent one by default. If you need it to specify a specific version, pass `['server_version' => '...']` as the second argument to the bridge's`boot()` method.
+
+### Very large integers lose precision
+
+Reading an integer column holds the same caveat as any other Atom read: values above 2^53-1 come back imprecise unless you read them as text. [Limits](/reference/limits/) covers the workaround.

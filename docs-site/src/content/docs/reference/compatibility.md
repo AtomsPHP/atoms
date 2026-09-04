@@ -7,7 +7,7 @@ Atoms releases its PHP packages, Worker runtime, and deployment Action as one co
 
 | Component | 0.4 support |
 |---|---|
-| `atoms/core` | `^0.4` frozen, additive ABI |
+| `atoms/core` | `^0.4` frozen, additive API |
 | `atoms/client`, adapters, testing, rules, CLI | `^0.4` |
 | `atoms/database-illuminate` | `^0.4`, installed Atom-side through `atoms-composer.json` |
 | `@atomsphp/runtime-cloudflare` | `0.4.0`, co-versioned with the release |
@@ -17,7 +17,7 @@ Atoms releases its PHP packages, Worker runtime, and deployment Action as one co
 | Node.js | 22 |
 | Wrangler | 4.118.0 (exact runtime-template pin) |
 
-Use matching 0.4 release artifacts. The CLI stamps the core ABI version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043) instead of attempting to run it.
+Use matching 0.4 release artifacts. The CLI stamps the core API version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043) instead of attempting to run it.
 
 The runtime scaffold command printed by `atoms init` and used by the deploy Action is generated from the same release manifest as the tag. It is not an independently moving “latest” dependency.
 
