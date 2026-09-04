@@ -254,9 +254,8 @@ final class CloudflareTargetTest extends TestCase
         } catch (AtomsError $e) {
             self::assertStringContainsString('ATOMS-E108', $e->getMessage());
             self::assertStringContainsString('0.0.1-other', $e->getMessage());
-            // The command is version-pinned to this CLI and names the directory
-            // as the user would type it, relative to the repository root.
-            self::assertStringContainsString(RuntimeVersion::upgradeCommand('atoms-worker-skewed'), $e->getMessage());
+            // The command is version-pinned to this CLI and names the directory.
+            self::assertStringContainsString(RuntimeVersion::upgradeCommand($dir), $e->getMessage());
         } finally {
             @unlink($dir . '/' . RuntimeStamp::FILE);
             @rmdir($dir);

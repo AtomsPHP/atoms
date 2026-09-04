@@ -196,30 +196,27 @@ npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
 cd atoms-worker && npm ci
 ```
 
-`upgrade` first checks `wrangler.jsonc` for what the runtime requires from
-it; if the release needs an edit there it prints the list, changes nothing,
-and exits non-zero, so the directory keeps its old stamp and the CLI keeps
-refusing it until the edit is made and the command is run again. It never
-edits that file. Otherwise it rewrites the runtime-owned files to the
-release's copies, removes runtime-owned files the release no longer ships
-(so a renamed module cannot linger and shadow its replacement), leaves
-user-owned files alone, and rewrites the stamp last — so an interrupted
-upgrade leaves the old version in place and the CLI still refusing to deploy
-the half-moved tree. Every path in either stamp is confined to the directory
-(no absolute or parent-traversing paths, no writes through a symlink) before
-the first write, because the committed stamp is user-controlled input. Review
-the diff, commit.
+`upgrade` writes every file the release's template ships, except a
+user-owned file that already exists; removes runtime-owned files the previous
+release shipped and this one does not (so a renamed PHP file cannot linger
+and shadow its replacement in the guest autoloader); and writes the stamp
+last — so an interrupted upgrade leaves the old version in place and the CLI
+still refusing to deploy the half-moved tree. Every write comes from the
+template. The committed stamp is read for one thing, the previous release's
+file list, and removal is confined to a plain, non-symlinked file at a
+canonical relative path under the directory; the stamp cannot reach outside
+it. Review the diff, commit.
 
-**The ownership split.** Recorded in the stamp (`runtime_owned`, with a
-sha256 per file, and `user_owned`), documented in the directory's own
+**The ownership split.** Recorded in the stamp (`runtime_owned` and
+`user_owned`, two file lists), documented in the directory's own
 `README.md`, and stated in the header of `wrangler.jsonc` itself:
 
 - **User-owned:** `wrangler.jsonc`. Seeded once by `init`, never rewritten.
   The keys the runtime depends on (`main`, `compatibility_date` as a floor,
   `compatibility_flags`, `rules`, the `ATOMS` Durable Object binding, the
-  migration tags) are marked `RUNTIME-REQUIRED` in the file, and `upgrade`
-  derives its check from the template's copy so there is one statement of
-  the requirement.
+  migration tags) are marked `RUNTIME-REQUIRED` in the file. A release that
+  changes one says so in its changelog; Wrangler itself rejects a deploy
+  missing a migration for a new class.
 - **Runtime-owned:** everything else the template ships — `src/`, `php/`,
   `scripts/`, `release/`, `package.json`, `package-lock.json`, `.gitignore`,
   `README.md`, the licence files, and the stamp.
@@ -230,8 +227,11 @@ Wrangler has no include mechanism, so a split would mean the CLI merging two
 files into a third at deploy time, and `wrangler deploy` by hand would no
 longer see the same config. *Rejected: keeping `wrangler.jsonc`
 runtime-owned and forwarding every user setting from `atoms.json`.* That is
-the design being replaced. One file, owned by the user, with a machine
-check of the runtime's few structural needs, is the smallest honest shape.
+the design being replaced. *Rejected: a structural checker for the user's
+`wrangler.jsonc` in `upgrade`.* It would need a JSONC parser of our own and
+would check for changes no release has made yet; the changelog and Wrangler's
+own validation cover the day one does. One file, owned by the user, with its
+requirements marked in place, is the smallest honest shape.
 
 **Generated outputs are gitignored.** The scaffold's `.gitignore` (runtime-
 owned; shipped as `gitignore.scaffold` from this repository, distinct from

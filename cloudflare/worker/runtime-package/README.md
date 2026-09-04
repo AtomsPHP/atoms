@@ -32,8 +32,8 @@ at its root, which `init` and `upgrade` write:
 
 | Files | Owner | On `upgrade` |
 |---|---|---|
-| `wrangler.jsonc` | **You.** Seeded once by `init`. | Never rewritten. `upgrade` checks the keys marked `RUNTIME-REQUIRED` in it and tells you what a new release needs. |
-| `src/`, `php/`, `scripts/`, `release/`, `package.json`, `package-lock.json`, `.gitignore`, `README.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `atoms-runtime.json` | **The runtime.** | Rewritten to the release's copy. Files the release no longer ships are removed. A local edit is overwritten, and named in the output — the edit stays in your git history. |
+| `wrangler.jsonc` | **You.** Seeded once by `init`. | Never rewritten. The keys marked `RUNTIME-REQUIRED` in it are what the runtime needs; a release that changes one says so in its changelog. |
+| `src/`, `php/`, `scripts/`, `release/`, `package.json`, `package-lock.json`, `.gitignore`, `README.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `atoms-runtime.json` | **The runtime.** | Rewritten to the release's copy. Files the release no longer ships are removed. A local edit is overwritten; `git diff` shows it, and it stays in your history. |
 | Anything else you add | You. | Left alone. |
 
 Put project settings in `wrangler.jsonc`: routes, custom domains,
@@ -75,17 +75,12 @@ npm exec --yes --package=@atomsphp/runtime-cloudflare@@VERSION@ -- \
 cd atoms-worker && npm ci
 ```
 
-Then review `git diff`, and commit. `upgrade` prints what it updated, added,
-removed and kept. If the release needs something from your `wrangler.jsonc`
-— a new compatibility flag, a new migration tag — it says so, changes
-nothing, and exits non-zero; make the edit and run it again. Until then the
-directory still reports its old release and the CLI keeps refusing to deploy
-it. The version check is exact: a directory from release A does not deploy
-with a CLI from release B, whatever the distance between them.
-
-Every path the stamp names becomes a write or an unlink, so `upgrade` refuses
-a stamp naming a path outside the directory, and refuses to write through a
-symbolic link.
+Then review `git diff`, and commit. `upgrade` prints how many files it
+wrote, which it removed, and which it left alone. If a release needs
+something from your `wrangler.jsonc` — a new compatibility flag, a new
+migration tag — its changelog entry says so. The version check is exact: a
+directory from release A does not deploy with a CLI from release B, whatever
+the distance between them.
 
 `upgrade` needs the `atoms-runtime.json` that `init` writes. A directory
 scaffolded before that file existed cannot be upgraded in place: scaffold a

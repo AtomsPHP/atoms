@@ -77,7 +77,6 @@ final class CloudflareTarget
      * @param string|null $apiToken   Cloudflare API token; null when unresolved.
      * @param string      $workerDir  Absolute path to the Worker project (holds wrangler + src/).
      * @param bool        $debugEndpoints Whether atoms.json enables the Worker's /debug routes for this environment.
-     * @param string      $rootDir    The repository root atoms.json was found in; '' when unknown.
      */
     public function __construct(
         public readonly string $environment,
@@ -87,7 +86,6 @@ final class CloudflareTarget
         public readonly ?string $apiToken,
         public readonly string $workerDir,
         public readonly bool $debugEndpoints = false,
-        public readonly string $rootDir = '',
     ) {
     }
 
@@ -137,7 +135,6 @@ final class CloudflareTarget
             apiToken: $token,
             workerDir: self::absolute($config->rootDir, $dir),
             debugEndpoints: $env['debug_endpoints'],
-            rootDir: $config->rootDir,
         );
     }
 
@@ -215,7 +212,7 @@ final class CloudflareTarget
                 'package' => RuntimeVersion::PACKAGE,
                 'found' => $found ?? 'an unknown release (no ' . RuntimeStamp::FILE . ')',
                 'expected' => RuntimeVersion::VERSION,
-                'command' => RuntimeVersion::upgradeCommand($this->workerDirForCommand()),
+                'command' => RuntimeVersion::upgradeCommand($this->workerDir),
             ]),
         );
     }
@@ -261,30 +258,14 @@ final class CloudflareTarget
     }
 
     /**
-     * The directory as a user would type it: relative to the repository root
-     * when it sits under one, else absolute.
-     */
-    private function workerDirForCommand(): string
-    {
-        if ($this->rootDir === '') {
-            return $this->workerDir;
-        }
-
-        $root = rtrim($this->rootDir, '/') . '/';
-        if (str_starts_with($this->workerDir, $root) && \strlen($this->workerDir) > \strlen($root)) {
-            return substr($this->workerDir, \strlen($root));
-        }
-
-        return $this->workerDir;
-    }
-
-    /**
      * A repository that still has the old gitignored scaffold, and nothing
-     * committed, is following the old docs — say so in the E076 reason.
+     * committed, is following the old docs — say so in the E076 reason. The
+     * default directory sits directly under the repository root, so the
+     * legacy one is looked for beside it.
      */
     private function legacyHint(): string
     {
-        $legacy = rtrim($this->rootDir, '/') . '/' . self::LEGACY_WORKER_DIR;
+        $legacy = \dirname($this->workerDir) . '/' . self::LEGACY_WORKER_DIR;
         if (!is_dir($legacy)) {
             return '';
         }

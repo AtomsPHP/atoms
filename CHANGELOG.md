@@ -20,18 +20,16 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   kept elsewhere; there is no top-level replacement key (rationale in
   `docs/cloudflare-toolchain.md` §The Worker directory).
 - **Added:** version skew is refused. The scaffold carries an
-  `atoms-runtime.json` stamp naming the release that wrote it; `atoms deploy`
-  and `atoms dev` compare it with the CLI's release before building and
-  refuse a mismatch (`ATOMS-E108`), printing the exact
+  `atoms-runtime.json` stamp naming the release that wrote it and the files
+  it owns; `atoms deploy` and `atoms dev` compare it with the CLI's release
+  before building and refuse a mismatch (`ATOMS-E108`), printing the exact
   `atoms-runtime-cloudflare upgrade atoms-worker` command. Equality is exact.
-- **Added:** `atoms-runtime-cloudflare upgrade <dir>`. Rewrites runtime-owned
-  files to the release's copies, removes runtime-owned files the release no
-  longer ships, seeds absent user-owned files, never touches `wrangler.jsonc`,
-  and checks that file for the runtime's structural requirements (entry
-  point, compatibility date floor, flags, module rules, the `ATOMS` Durable
-  Object binding, migration tags), exiting non-zero with a list when a release
-  needs an edit there. The ownership split is recorded in the stamp and
-  documented in the scaffold's `README.md` and `wrangler.jsonc` header.
+- **Added:** `atoms-runtime-cloudflare upgrade <dir>`. Writes every file the
+  release ships except a `wrangler.jsonc` that already exists, removes
+  runtime-owned files the previous release shipped and this one does not,
+  and writes the stamp last. The ownership split is recorded in the stamp
+  and documented in the scaffold's `README.md` and `wrangler.jsonc` header,
+  whose `RUNTIME-REQUIRED` markers name the keys the runtime depends on.
 - **Changed:** the scaffold ships its own `.gitignore` (from
   `gitignore.scaffold`), covering `src/bundle.generated.js`, `node_modules/`,
   `.php-wasm/`, `.dev.vars` and `.wrangler/`, so a deploy never dirties the

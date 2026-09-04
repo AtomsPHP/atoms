@@ -15,7 +15,6 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import {
 	cpSync,
 	existsSync,
@@ -263,7 +262,7 @@ export function stageRuntimePackage(stageRoot) {
 	writeFileSync(join(stageRoot, 'README.md'), readme);
 	writeFileSync(join(stageRoot, 'template', 'README.md'), readme);
 
-	// Last, because it hashes everything above: the stamp `init` copies into
+	// Last, because it lists everything above: the stamp `init` copies into
 	// the scaffold and `upgrade` reads back. Paths are recorded as they land
 	// in a scaffolded directory (`.gitignore`, not `gitignore`), sorted, so
 	// the stamp is a deterministic function of the template.
@@ -278,18 +277,16 @@ export function stageRuntimePackage(stageRoot) {
  * @param {{package: string, version: string}} runtime
  */
 export function runtimeStamp(templateRoot, runtime) {
-	const runtimeOwned = {};
-	for (const file of filesUnder(templateRoot)) {
-		const scaffolded = TEMPLATE_RENAMES[file] ?? file;
-		if (USER_OWNED_FILES.includes(scaffolded)) continue;
-		runtimeOwned[scaffolded] = createHash('sha256').update(readFileSync(join(templateRoot, file))).digest('hex');
-	}
+	const runtimeOwned = filesUnder(templateRoot)
+		.map((file) => TEMPLATE_RENAMES[file] ?? file)
+		.filter((file) => !USER_OWNED_FILES.includes(file))
+		.sort();
 	return {
 		$comment:
 			'Written by `atoms-runtime-cloudflare init` and `upgrade`; do not edit. The Atoms CLI reads '
 			+ '`version` to refuse deploying a Worker directory that does not match its own release '
-			+ '(ATOMS-E108). `upgrade` reads `runtime_owned` to know which files it rewrites and which '
-			+ 'stale ones it removes, and leaves every `user_owned` file alone.',
+			+ '(ATOMS-E108). `upgrade` rewrites every file its release ships except the `user_owned` ones, '
+			+ 'and reads `runtime_owned` to remove files the previous release shipped and this one does not.',
 		package: runtime.package,
 		version: runtime.version,
 		runtime_owned: runtimeOwned,

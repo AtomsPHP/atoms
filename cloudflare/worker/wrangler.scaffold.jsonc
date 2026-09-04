@@ -8,10 +8,10 @@
 	// (See README.md in this directory for the full runtime/user split.)
 	//
 	// The keys marked RUNTIME-REQUIRED below are what the runtime needs from
-	// this file to load at all. `upgrade` checks them after every upgrade and
-	// tells you what a new release needs changed, rather than changing it
-	// behind your back. Everything else — name, vars, observability, routes,
-	// custom domains, placement, limits — is yours to set.
+	// this file to load at all. A release that changes one says so in its
+	// changelog rather than changing it behind your back. Everything else —
+	// name, vars, observability, routes, custom domains, placement, limits —
+	// is yours to set.
 	//
 	// (Monorepo note: this is `wrangler.scaffold.jsonc`, which
 	// `scripts/pack-runtime.mjs` ships as the template's `wrangler.jsonc`. The
@@ -51,7 +51,7 @@
 		"bindings": [{ "name": "ATOMS", "class_name": "AtomDurableObject" }]
 	},
 	// RUNTIME-REQUIRED: Wrangler migrations are append-only. A later release
-	// may need a new tag here; `upgrade` will tell you which.
+	// may need a new tag here; its changelog will say which.
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["AtomDurableObject"] }],
 
 	// Operational values live in env, with defaults resolved in src/config.js.
