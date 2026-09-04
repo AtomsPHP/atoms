@@ -143,10 +143,8 @@ That made every edit to its `wrangler.jsonc` non-durable — which is why
 settings such as `debug_endpoints` had to be forwarded from `atoms.json` as
 `--var`s — and it let two environments deploy two different runtimes. Now
 there is one directory, it is part of the repository like `composer.lock`,
-and its `wrangler.jsonc` is yours to edit. `atoms.json` does not name it:
-`worker_dir` is refused (**ATOMS-E109**) rather than ignored, so a repository
-following the old docs hears that the directory moved instead of deploying
-from a default it did not choose.
+and its `wrangler.jsonc` is yours to edit. `atoms.json` does not name it; a
+`worker_dir` key is an ordinary unknown key, tolerated like any other.
 
 **Rejected: a top-level `worker_dir` in atoms.json.** The location is a
 convention, like `atoms.json`'s own, and the per-environment form was the
@@ -763,8 +761,7 @@ translator and is the test that catches either half drifting away from it.
 atoms deploy --env production
 ```
 
-1. Load `atoms.json`; resolve the environment. A `worker_dir` key is refused
-   here (E109).
+1. Load `atoms.json`; resolve the environment.
 2. Resolve the Cloudflare target: worker name, account id, API token, worker
    directory (`atoms-worker/`, or `--worker-dir`). No credential check happens
    here any more — a missing token may be a `wrangler login` session, and a

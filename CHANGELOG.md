@@ -14,11 +14,11 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   and deploys, failing with a clear message when none is committed. Its
   `worker-directory` input keeps its name; the default is now `atoms-worker`
   and the directory must exist.
-- **Removed:** the per-environment `worker_dir` key in `atoms.json`. It is
-  refused (`ATOMS-E109`) rather than ignored, with the migration steps in the
-  fix line. `--worker-dir` remains the per-command override for a directory
-  kept elsewhere; there is no top-level replacement key (rationale in
-  `docs/cloudflare-toolchain.md` §The Worker directory).
+- **Removed:** the per-environment `worker_dir` key in `atoms.json`. The
+  loader tolerates it as an ordinary unknown key. `--worker-dir` remains the
+  per-command override for a directory kept elsewhere; there is no top-level
+  replacement key (rationale in `docs/cloudflare-toolchain.md` §The Worker
+  directory).
 - **Added:** version skew is refused. The scaffold carries an
   `atoms-runtime.json` stamp naming the release that wrote it and the files
   it owns; `atoms deploy` and `atoms dev` compare it with the CLI's release

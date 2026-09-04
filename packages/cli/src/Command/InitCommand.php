@@ -60,8 +60,8 @@ final class InitCommand extends AbstractCommand
             // must be able to differ between them; `atoms dev` and
             // `atoms deploy` both forward it to Wrangler as a --var.
             //
-            // There is no `worker_dir`: the Worker directory is committed at
-            // atoms-worker/ beside this file, and the key is refused (E109).
+            // The Worker directory is committed at atoms-worker/ beside this
+            // file, so no environment names one.
             'environments' => [
                 'production' => [
                     'endpoint' => 'https://' . $project . '.<your-subdomain>.workers.dev',

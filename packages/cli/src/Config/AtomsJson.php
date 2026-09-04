@@ -21,10 +21,7 @@ use Atoms\Errors\ErrorCode;
  *
  * The Worker directory is not a setting: it is a committed part of the
  * repository at `atoms-worker/` beside this file
- * ({@see \Atoms\Cli\Cloudflare\CloudflareTarget::DEFAULT_WORKER_DIR}). A
- * `worker_dir` key is refused with ATOMS-E109 rather than ignored: a
- * repository following older docs must hear that the directory moved, rather
- * than deploy from a default it did not choose.
+ * ({@see \Atoms\Cli\Cloudflare\CloudflareTarget::DEFAULT_WORKER_DIR}).
  *
  * `debug_endpoints` is the per-environment switch for the Worker's `/debug`
  * routes: wrangler.jsonc is one file for every environment, so the setting
@@ -151,10 +148,6 @@ final class AtomsJson
 
         $php = isset($decoded['php']) ? self::requireString($decoded, 'php') : '8.3';
 
-        if (\array_key_exists('worker_dir', $decoded)) {
-            throw self::workerDirRemoved('at the top level');
-        }
-
         $environments = self::parseEnvironments($decoded['environments'] ?? null);
 
         $callbackUrls = [];
@@ -213,9 +206,6 @@ final class AtomsJson
             if (!\is_string($endpoint) || $endpoint === '') {
                 throw self::invalid("environment '{$name}' is missing a string \"endpoint\"");
             }
-            if (\array_key_exists('worker_dir', $env)) {
-                throw self::workerDirRemoved("on environment '{$name}'");
-            }
 
             $out[$name] = [
                 'endpoint' => rtrim($endpoint, '/'),
@@ -270,24 +260,6 @@ final class AtomsJson
         }
 
         return $value;
-    }
-
-    /**
-     * The one key this loader refuses rather than ignores. Unknown keys are
-     * otherwise tolerated (a newer atoms.json loads under an older CLI), but
-     * a repository setting `worker_dir` has a gitignored Worker directory
-     * where a committed one belongs. Silently deploying from the default
-     * would be the wrong kind of quiet.
-     */
-    private static function workerDirRemoved(string $where): AtomsError
-    {
-        return new AtomsError(
-            ErrorCode::WorkerDirKeyRemoved,
-            ErrorCatalog::format(ErrorCode::WorkerDirKeyRemoved, [
-                'where' => $where,
-                'default' => \Atoms\Cli\Cloudflare\CloudflareTarget::DEFAULT_WORKER_DIR . '/',
-            ]),
-        );
     }
 
     private static function invalid(string $reason): AtomsError

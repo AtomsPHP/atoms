@@ -35,8 +35,8 @@ action as `cloudflare-api-token` / `cloudflare-account-id`: a runner has no
 login session to fall back on.
 
 Deploy needs the committed Worker directory, `atoms-worker/` beside atoms.json
-(or `--worker-dir`; atoms.json does not name it, and a `worker_dir` key is
-refused with ATOMS-E109), with `npm ci` already run in it. `atoms init` prints
+(or `--worker-dir`; atoms.json does not name it), with `npm ci` already run in
+it. `atoms init` prints
 the exact version-matched `@atomsphp/runtime-cloudflare init` command; run it
 once, `npm ci`, and commit the directory. Atoms runs the pinned Wrangler it
 finds there and never downloads one during deploy. Missing: ATOMS-E073/E076.

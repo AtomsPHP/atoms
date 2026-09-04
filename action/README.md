@@ -173,8 +173,8 @@ commit. It rewrites the files the runtime owns and leaves your
 the directory into `.atoms/worker`, gitignored, and this action recreated it
 on every run. Scaffold `atoms-worker/` as above, carry across any change you
 had made to the old `wrangler.jsonc`, delete `.atoms/worker`, and remove the
-`worker_dir` key from `atoms.json` — the CLI refuses it (`ATOMS-E109`) so the
-move is explicit rather than a silent change of location.
+`worker_dir` key from `atoms.json`, which the CLI reads as an ordinary
+unknown key.
 
 ## Examples
 
@@ -259,4 +259,3 @@ locally; the CLI does not read it from `atoms.json`.
 | `ATOMS-E105` | Shared secret missing or malformed | The `shared-secret` input is not 32 bytes of base64. Regenerate with `openssl rand -base64 32`. |
 | `ATOMS-E076` | Worker directory missing or incomplete | Commit the Worker directory (§The Worker directory), or point `worker-directory` at where it lives. |
 | `ATOMS-E108` | Worker directory does not match the CLI release | The Atoms packages moved without the Worker directory. Run the `atoms-runtime-cloudflare upgrade` command the error prints, review, `npm ci`, commit. |
-| `ATOMS-E109` | `atoms.json` still sets `worker_dir` | Delete the key and commit the Worker directory at `atoms-worker/` (§Migrating from a gitignored `.atoms/worker`). |

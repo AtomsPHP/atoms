@@ -46,18 +46,10 @@ final class CloudflareTarget
     /**
      * Where the Worker project lives: a committed directory beside atoms.json.
      * Its location is a convention, like atoms.json's own, rather than a
-     * setting — atoms.json does not name it (a `worker_dir` key is refused,
-     * ATOMS-E109). `--worker-dir` is the explicit per-invocation override for
-     * an unusual layout.
+     * setting — atoms.json does not name it. `--worker-dir` is the explicit
+     * per-invocation override for an unusual layout.
      */
     public const DEFAULT_WORKER_DIR = 'atoms-worker';
-
-    /**
-     * The gitignored, per-checkout location earlier releases scaffolded into.
-     * Consulted only to make a migration error more specific: a repository
-     * with this directory and no committed one is following the old docs.
-     */
-    public const LEGACY_WORKER_DIR = '.atoms/worker';
 
     /**
      * The Worker var gating the `/debug` routes. Off by default in the Worker
@@ -164,7 +156,7 @@ final class CloudflareTarget
     public function assertWorkerDir(): void
     {
         if (!is_dir($this->workerDir)) {
-            throw $this->workerDirError("{$this->workerDir} is not a directory" . $this->legacyHint());
+            throw $this->workerDirError("{$this->workerDir} is not a directory");
         }
 
         foreach (['wrangler.jsonc', 'wrangler.json', 'wrangler.toml'] as $candidate) {
@@ -253,24 +245,6 @@ final class CloudflareTarget
             rawurlencode($id),
             rawurlencode($method),
         );
-    }
-
-    /**
-     * A repository that still has the old gitignored scaffold, and nothing
-     * committed, is following the old docs — say so in the E076 reason. The
-     * default directory sits directly under the repository root, so the
-     * legacy one is looked for beside it.
-     */
-    private function legacyHint(): string
-    {
-        $legacy = \dirname($this->workerDir) . '/' . self::LEGACY_WORKER_DIR;
-        if (!is_dir($legacy)) {
-            return '';
-        }
-
-        return ' (a pre-commit scaffold exists at ' . $legacy . '; the Worker directory is now committed'
-            . ' at ' . self::DEFAULT_WORKER_DIR . '/ — scaffold it fresh there, commit it, and delete '
-            . self::LEGACY_WORKER_DIR . ')';
     }
 
     private function workerDirError(string $reason): AtomsError

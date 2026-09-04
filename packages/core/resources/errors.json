@@ -512,14 +512,6 @@
             "fix": "Bring the committed Worker directory up to the CLI's release with the `atoms-runtime-cloudflare upgrade` command printed in the message (it rewrites runtime-owned files and leaves wrangler.jsonc alone), review the diff, run `npm ci` inside the directory, and commit. If the Worker directory is the newer side, update the atoms/* Composer packages to its version instead.",
             "severity": "error",
             "phase": "cli"
-        },
-        {
-            "code": "ATOMS-E109",
-            "title": "atoms.json names a Worker directory",
-            "message": "atoms.json sets \"worker_dir\" {where}, but the Worker directory is a committed part of your repository at {default} beside atoms.json, and atoms.json does not name it.",
-            "fix": "Delete the \"worker_dir\" key. If your Worker project still lives in a gitignored .atoms/worker, scaffold a fresh one with the `atoms-runtime-cloudflare init atoms-worker` command `atoms init` prints, carry over any wrangler.jsonc changes, run `npm ci` inside it, commit it, and delete .atoms/worker. A Worker directory kept anywhere else is named per command with --worker-dir.",
-            "severity": "error",
-            "phase": "cli"
         }
     ]
 }
