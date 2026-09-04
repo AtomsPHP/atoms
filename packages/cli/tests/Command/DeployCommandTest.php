@@ -163,8 +163,8 @@ final class DeployCommandTest extends TestCase
         self::assertStringContainsString('0.0.1-other', $display);
         self::assertStringContainsString(RuntimeVersion::VERSION, $display);
         self::assertStringContainsString('atoms-runtime-cloudflare upgrade', $display);
-        self::assertSame([], $runner->runs, 'nothing may be staged for a mismatched runtime');
-        self::assertNull($wrangler->lastCall('deploy'), 'nothing may be deployed for a mismatched runtime');
+        self::assertSame([], $runner->runs, 'the refusal comes before staging');
+        self::assertSame([], $wrangler->calls, 'the refusal comes before Wrangler is invoked');
     }
 
     /**
@@ -189,7 +189,7 @@ final class DeployCommandTest extends TestCase
         self::assertSame(1, $exit);
         self::assertStringContainsString('ATOMS-E108', $tester->getDisplay());
         self::assertStringContainsString('unknown release', $tester->getDisplay());
-        self::assertNull($wrangler->lastCall('deploy'));
+        self::assertSame([], $wrangler->calls);
     }
 
     /**

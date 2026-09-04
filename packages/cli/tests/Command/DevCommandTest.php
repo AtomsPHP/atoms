@@ -218,8 +218,10 @@ final class DevCommandTest extends TestCase
         self::assertSame(1, $tester->getStatusCode());
         self::assertStringContainsString('ATOMS-E108', $tester->getDisplay());
         self::assertStringContainsString('atoms-runtime-cloudflare upgrade', $tester->getDisplay());
-        self::assertNull($wrangler->lastCall('dev'));
-        self::assertFileDoesNotExist($dir . '/.dev.vars');
+        self::assertSame([], $wrangler->calls, 'the refusal comes before Wrangler is invoked');
+        // The refusal also comes before the dev secret is provisioned: the
+        // directory holds exactly what the test put there.
+        self::assertSame(['atoms-runtime.json', 'wrangler.jsonc'], array_values(array_diff(scandir($dir), ['.', '..'])));
     }
 
     /**

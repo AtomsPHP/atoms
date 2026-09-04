@@ -31,10 +31,10 @@ final class InitCommandTest extends TestCase
         );
         self::assertStringContainsString('cd atoms-worker && npm ci', $tester->getDisplay());
         self::assertStringContainsString('atoms-runtime-cloudflare upgrade', $tester->getDisplay());
-        // The Worker directory is committed beside atoms.json; atoms.json no
-        // longer names it, and a generated file must not carry the refused key.
+        // The Worker directory is committed beside atoms.json, so an
+        // environment holds exactly its own settings.
         foreach ($config['environments'] as $environment) {
-            self::assertArrayNotHasKey('worker_dir', $environment);
+            self::assertSame(['endpoint', 'worker_name', 'account_id', 'debug_endpoints'], array_keys($environment));
         }
 
         // Second run must refuse rather than overwrite.

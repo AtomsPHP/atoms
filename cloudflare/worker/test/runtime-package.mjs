@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -54,9 +54,17 @@ try {
 	for (const required of ['.gitignore', 'package.json', 'package-lock.json', 'src/index.js', 'scripts/bundle-from-cli.mjs', 'php/runtime/bootstrap.php', 'release/supported-core', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md']) {
 		assert.ok(stamp.runtime_owned.includes(required), `${required} must be runtime-owned in the stamp`);
 	}
-	assert.ok(!stamp.runtime_owned.includes('wrangler.jsonc'));
-	assert.ok(!stamp.runtime_owned.includes(RUNTIME_STAMP), 'the stamp does not list itself');
 	assert.deepEqual(stamp.runtime_owned, [...stamp.runtime_owned].sort(), 'the stamp is deterministic: sorted');
+	// runtime_owned and user_owned partition the template exactly: every file
+	// the scaffold receives is in one list, the stamp itself in neither.
+	const templateFiles = (dir, prefix = '') => readdirSync(join(dir, prefix), { withFileTypes: true }).flatMap((entry) => {
+		const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
+		return entry.isDirectory() ? templateFiles(dir, relative) : [relative === 'gitignore' ? '.gitignore' : relative];
+	});
+	assert.deepEqual(
+		[...stamp.runtime_owned, ...stamp.user_owned].sort(),
+		templateFiles(join(stage, 'template')).filter((file) => file !== RUNTIME_STAMP).sort(),
+	);
 
 	// A scaffolded directory is committed, so everything the CLI generates
 	// inside it must be ignored there — or every deploy dirties the tree.
@@ -237,7 +245,11 @@ try {
 		readFileSync(join(stage, 'template', 'src', 'config.js'), 'utf8'),
 		'a runtime-owned file is restored to the release\'s copy',
 	);
-	assert.ok(!existsSync(join(target, 'src', 'legacy')), 'a stale runtime-owned file and its emptied directory are removed');
+	assert.deepEqual(
+		readdirSync(join(target, 'src')).sort(),
+		readdirSync(join(stage, 'template', 'src')).sort(),
+		'a stale runtime-owned file and its emptied directory are removed: src/ holds exactly what the release ships',
+	);
 	assert.equal(readFileSync(join(target, 'wrangler.jsonc'), 'utf8'), userWrangler, 'wrangler.jsonc is never rewritten by upgrade');
 	assert.equal(readFileSync(join(target, 'my-notes.md'), 'utf8'), 'not the runtime\'s, left alone\n', 'unknown files are left alone');
 	assert.deepEqual(JSON.parse(readFileSync(join(target, RUNTIME_STAMP), 'utf8')), stamp, 'the stamp is rewritten');
