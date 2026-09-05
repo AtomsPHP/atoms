@@ -3,7 +3,10 @@ title: Deploy
 description: Build an Atom bundle and deploy its Worker through Wrangler.
 ---
 
-Atoms are deployed directly to your Cloudflare account.
+Atoms are deployed directly to your Cloudflare account, by the
+`vendor/bin/atoms` CLI that ships with `atoms/cli`. It drives the Wrangler
+installed in your Worker project; it never fetches a toolchain of its own, and
+never stores a Cloudflare credential.
 
 ## Prepare the Worker
 
@@ -13,12 +16,59 @@ with `npm ci`.
 
 ## Configure an environment
 
-Set the Worker name and endpoint in `atoms.json`, and the account id if your
-credentials can access more than one account. Put routes, custom domains,
-and runtime settings in `atoms-worker/wrangler.jsonc`.
+An environment is a named entry under `environments` in `atoms.json`. You
+choose the names; `atoms init` scaffolds `production` and `staging`:
 
-`--env` selects the Worker named in that environment's `atoms.json` entry.
-Set `debug_endpoints` in the same entry to enable debugging for that environment.
+```jsonc
+{
+    "project": "my-app",
+    "environments": {
+        "production": {
+            // Base URL the deployed Worker serves on.
+            "endpoint": "https://my-app.<your-subdomain>.workers.dev",
+            // The Cloudflare Worker to deploy to.
+            "worker_name": "my-app",
+            // Only needed if your credentials can reach more than one account.
+            "account_id": "",
+            "debug_endpoints": false
+        },
+        "staging": {
+            "endpoint": "https://my-app-staging.<your-subdomain>.workers.dev",
+            "worker_name": "my-app-staging",
+            "account_id": "",
+            "debug_endpoints": true
+        }
+    }
+}
+```
+
+Every command below — `deploy`, `status`, `rollback`, `secrets:set`,
+`shared-secret:set` — takes `--env <name>`, which looks up that key and uses
+its entry for the run. Against the file above,
+`vendor/bin/atoms deploy --env production` deploys to
+the Worker `my-app`, in the account named by `account_id` (or
+`CLOUDFLARE_ACCOUNT_ID`, or whichever account your login can reach), with the
+`/debug` routes off; `--env staging` deploys the same code to the separate
+Worker `my-app-staging` with them on. The entry's `endpoint` is not used to
+deploy — it is what `deploy` and `status` report back, and what you set as
+`ATOMS_ENDPOINT` in the app that calls this environment's Atoms. `--env` also
+selects the matching key under the top-level `callback_url`, which supplies the
+Worker's `ATOMS_CALLBACK_URL` unless `--callback-url` or the process
+environment overrides it.
+
+:::caution
+Give each environment its own `worker_name`. It defaults to the top-level
+`project`, so two environments that both leave it out point at one Worker and
+deploy over each other.
+:::
+
+These are not Wrangler environments. `atoms deploy` always selects the Worker
+with `wrangler deploy --name` and never passes Wrangler's own `-e`/`--env`, so
+`env.<name>` sections in `wrangler.jsonc` do not apply to what it deploys. Put
+routes, custom domains, and runtime settings at the top level of
+`atoms-worker/wrangler.jsonc` — that one file serves every environment, which
+is why the setting that must differ between them, `debug_endpoints`, lives in
+`atoms.json` instead.
 
 On your own machine, authenticate with the installed Wrangler:
 
