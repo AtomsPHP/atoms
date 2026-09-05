@@ -111,7 +111,7 @@ const CODE_TABLE = {
 	ticket_invalid: { status: 401, retryable: false },
 	ticket_expired: { status: 401, retryable: false },
 	// Matches what atoms/client already expects (AtomsClient.php maps this
-	// to TurnDeadlineExceeded and only retries when the call site opts in).
+	// to TurnDeadlineExceeded and never auto-retries it: the caller decides).
 	turn_deadline_exceeded: { status: 504, retryable: true },
 	internal: { status: 500, retryable: true },
 };

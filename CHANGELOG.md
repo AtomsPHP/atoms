@@ -5,12 +5,19 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
-- **Removed:** the `Idempotency-Key` request header and the `idempotencyKey`
-  and `traceparent` fields of `Atoms\Client\CallOptions`. The Worker never
-  read the key, so it promised de-duplication that did not exist; the per-call
-  `traceparent` override had no consumer either. `CallOptions` now carries
-  only `retryTurnDeadline`. The client-wide `traceparent` header and
-  `AtomsClient::setTraceparent()` are unchanged.
+- **Removed:** `Atoms\Client\CallOptions`, the `$options` parameter of
+  `AtomsClient::get()` / `AtomsManager::get()`, and the `$retryTurnDeadline`
+  and `$options` parameters of `AtomsClient::call()` / `AtomsManager::call()`.
+  The client no longer auto-retries `turn_deadline_exceeded` under any
+  setting: `TurnDeadlineExceeded` is now constructed with `retryable: false`.
+  A turn that ran out of time keeps everything it committed before the
+  overrun, so only the call site knows whether running the method again is
+  safe — catch the exception and call again when it is. The class's other
+  fields went with it: the `Idempotency-Key` request header (`idempotencyKey`),
+  which the Worker never read and so promised de-duplication that did not
+  exist, and the per-call `traceparent` override, which had no consumer. The
+  client-wide `traceparent` header and `AtomsClient::setTraceparent()` are
+  unchanged.
 - **Changed:** the Worker directory is now a **committed** part of your
   repository, at `atoms-worker/` beside `atoms.json`, instead of a gitignored
   `.atoms/worker` regenerated per checkout. Edits to its `wrangler.jsonc` are

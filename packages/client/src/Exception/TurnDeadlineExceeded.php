@@ -9,8 +9,10 @@ use Atoms\Errors\ErrorCode;
 
 /**
  * The Atom's turn exceeded the configured deadline (platform code
- * `turn_deadline_exceeded`, ATOMS-E061). Retryable at the platform level, but
- * the client only auto-retries when the call site opts in.
+ * `turn_deadline_exceeded`, ATOMS-E061). The platform flags it retryable, but
+ * the client never auto-retries it: everything the turn wrote before the
+ * overrun stays committed, so only the caller knows whether running the method
+ * again is safe. Catch this and call again when it is.
  */
 final class TurnDeadlineExceeded extends AtomsException
 {
@@ -19,7 +21,7 @@ final class TurnDeadlineExceeded extends AtomsException
         parent::__construct(
             ErrorCatalog::format(ErrorCode::TurnDeadlineExceeded),
             'turn_deadline_exceeded',
-            true,
+            false,
             $httpStatus,
             ErrorCode::TurnDeadlineExceeded,
             $previous,

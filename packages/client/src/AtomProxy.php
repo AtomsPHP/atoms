@@ -12,9 +12,9 @@ namespace Atoms\Client;
  * **Declares `__construct`, `__call` and `__get`, and nothing else, permanently.**
  * A declared method wins over `__call()` in PHP, silently, so any other name
  * added here would shadow a customer Atom method of the same name with no error
- * at either end. Per-call configuration therefore arrives as a
- * {@see CallOptions} through {@see AtomsClient::get()}. See
- * docs/conventions.md §The proxy declares nothing.
+ * at either end. There is deliberately no per-call configuration at all: a
+ * caller who wants different behaviour for one call — a retry, say — writes
+ * it around the call. See docs/conventions.md §The proxy declares nothing.
  */
 final class AtomProxy
 {
@@ -26,7 +26,6 @@ final class AtomProxy
         private readonly string $atomClass,
         private readonly string $type,
         private readonly string $id,
-        private readonly ?CallOptions $options = null,
     ) {
     }
 
@@ -41,8 +40,6 @@ final class AtomProxy
             $name,
             $arguments,
             $this->atomClass,
-            $this->options->retryTurnDeadline ?? false,
-            $this->options,
         );
     }
 

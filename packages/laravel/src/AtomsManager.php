@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Atoms\Laravel;
 
 use Atoms\Client\AtomsClient;
-use Atoms\Client\CallOptions;
 use Atoms\Client\Tickets\Ticket;
 use Atoms\Client\Tickets\TicketIssuer;
 use Atoms\Laravel\Testing\AtomsFake;
@@ -39,10 +38,10 @@ final class AtomsManager
      *
      * @return T
      */
-    public function get(string $class, string $id, ?CallOptions $options = null): object
+    public function get(string $class, string $id): object
     {
         /** @var T $proxy */
-        $proxy = $this->fake?->get($class, $id) ?? $this->client->get($class, $id, $options);
+        $proxy = $this->fake?->get($class, $id) ?? $this->client->get($class, $id);
 
         return $proxy;
     }
@@ -99,14 +98,12 @@ final class AtomsManager
         string $method,
         array $args = [],
         ?string $atomClass = null,
-        bool $retryTurnDeadline = false,
-        ?CallOptions $options = null,
     ): mixed {
         if ($this->fake !== null) {
             return $this->fake->get($atomClass ?? $type, $id)->{$method}(...$args);
         }
 
-        return $this->client->call($type, $id, $method, $args, $atomClass, $retryTurnDeadline, $options);
+        return $this->client->call($type, $id, $method, $args, $atomClass);
     }
 
     public function destroy(string $type, string $id): bool
