@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "atoms-docs",
+  "compatibility_date": "2026-08-31",
+  // Reachable only at its own domain, never at a workers.dev hostname that
+  // would duplicate it as a second indexable origin.
+  "workers_dev": false,
+  // A static build with nothing an asset host cannot do, so no Worker script:
+  // Starlight emits directory indexes and a 404.html, which the asset server
+  // serves as-is.
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    { "pattern": "docs.atomsphp.dev", "custom_domain": true }
+  ],
+  "observability": { "enabled": true }
+}

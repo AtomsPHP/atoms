@@ -9,7 +9,8 @@
     "check:generated": "node scripts/generate-errors.mjs --check",
     "check": "npm run check:generated && astro check",
     "build": "npm run check && astro build && node scripts/validate-site.mjs",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "@astrojs/starlight": "0.41.3",
@@ -18,6 +19,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "0.9.10",
-    "typescript": "5.9.2"
+    "typescript": "5.9.2",
+    "wrangler": "4.129.0"
   }
 }

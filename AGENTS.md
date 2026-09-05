@@ -23,6 +23,7 @@ parked inside a SQLite-backed Durable Object.
 | `action/` | The deploy GitHub Action (composite) | `action/README.md` |
 | `tests/` | Cross-package integration tests (`Atoms\Tests\Integration\`) | `docs/conventions.md` |
 | `site/` | The public marketing site (Astro; content in `src/pages/index.astro`, tokens in `src/styles/global.css`) | `site/AGENTS.md` |
+| `docs-site/` | The public documentation site at docs.atomsphp.dev (Astro Starlight; a static-asset Cloudflare Worker like `site/`) | `docs-site/README.md` |
 
 Assembled 2026-08-08 from two predecessor repositories, under deliberately
 different rules. The framework half was imported **with** its full history.
