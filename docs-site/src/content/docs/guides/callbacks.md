@@ -38,23 +38,32 @@ initial setup and CI configuration.
 
 ## Callback URL
 
-Locally, `atoms dev` sets `ATOMS_CALLBACK_URL` for you from `atoms.json`'s
-`callback_url.<env>`; you can override it with the `--callback-url` flag in the CLI.
+Set the application's callback URL for each environment in `atoms.json`:
 
-For a deployed Worker, add `ATOMS_CALLBACK_URL` to `vars` in
-`atoms-worker/wrangler.jsonc` if all deployments use the same URL. For a
-different URL per deployment, leave it out of `vars` and set it separately
-on each Worker with the installed Wrangler:
-
-```bash
-cd atoms-worker
-printf '%s' "$ATOMS_CALLBACK_URL" | \
-  ./node_modules/.bin/wrangler secret put ATOMS_CALLBACK_URL --name my-app-production
-cd ..
+```json
+{
+    "callback_url": {
+        "staging": "http://127.0.0.1:8000/atoms/callback",
+        "production": "https://example.com/atoms/callback"
+    }
+}
 ```
 
-Run this after deploying, using the `worker_name` from that environment's
-`atoms.json` entry.
+`atoms dev` and `atoms deploy` choose the URL in this order:
+
+1. `--callback-url`;
+2. `ATOMS_CALLBACK_URL` in the process environment;
+3. `callback_url.<env>` in `atoms.json`.
+
+For example, override the production URL for a deployment:
+
+```bash
+vendor/bin/atoms deploy --env production --callback-url https://example.com/atoms/callback
+```
+
+The selected URL is passed to Wrangler as `ATOMS_CALLBACK_URL`, overriding
+the Worker's configured value. If all three sources are empty, Wrangler uses
+the Worker's configuration.
 
 ## Synchronous `app()`
 

@@ -96,13 +96,15 @@ Fill out the necessary details in the generated `atoms.json`:
         // ... additional environments
     },
     "callback_url": {
-        // where your app mounts the callback route (read by `atoms dev` only)
+        // where your app mounts the callback route
         "production": "https://example.com/atoms/callback",
     }
 }
 ```
 
-The `environments` block configures deploys; `callback_url` is read only by `atoms dev`, which passes it to the local Worker. A deployed Worker gets its callback URL from the `ATOMS_CALLBACK_URL` variable you set with Wrangler — see the [Callbacks guide](/guides/callbacks/#callback-url).
+`callback_url` sets the application's callback endpoint for each environment.
+Both `atoms dev` and `atoms deploy` use it. See [Callback URL](/guides/callbacks/#callback-url)
+for command-line and environment overrides.
 
 ## Next
 
