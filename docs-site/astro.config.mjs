@@ -47,6 +47,7 @@ export default defineConfig({
           { label: 'Eloquent and the query builder', slug: 'guides/eloquent' },
           { label: 'Configuration', slug: 'guides/configuration' },
           { label: 'Deploy', slug: 'guides/deploy' },
+          { label: 'Secrets and authentication', slug: 'guides/secrets' },
           { label: 'Rollback', slug: 'guides/rollback' },
         ]},
         { label: 'Reference', items: [

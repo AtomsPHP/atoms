@@ -21,7 +21,7 @@ ATOMS_ENVIRONMENT=production
 ATOMS_SHARED_SECRET=base64-of-32-random-bytes
 ```
 
-`ATOMS_SHARED_SECRET` is required and must be identical on this application and the Worker (`openssl rand -base64 32` generates one). Every credential on that boundary — the outbound `Authorization` bearer, WebSocket ticket signing, and inbound callback verification — is derived from it; the value itself is never sent anywhere. Set it on the Worker with `vendor/bin/atoms shared-secret:set --env production`, not with `atoms:install` or `secrets:set`. See [Callbacks](/guides/callbacks/#configure-the-channel) for the full mechanism.
+`ATOMS_SHARED_SECRET` is required and must be identical on this application and the Worker. Set it on the Worker with `vendor/bin/atoms shared-secret:set`, not with `atoms:install` or `secrets:set`. See [Secrets and authentication](/guides/secrets/) for generating it, what it authenticates, and how to rotate it.
 
 ## Create an Atom
 

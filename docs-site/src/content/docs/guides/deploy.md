@@ -63,73 +63,16 @@ are resolved with `composer install --no-scripts --no-plugins` in an isolated
 directory, written back to `atoms-composer.lock` for reproducibility, and cached
 under `.atoms/vendor-cache`.
 
-## Configure callbacks and application secrets
+## Configure secrets
 
-Generate one shared secret with `openssl rand -base64 32` and save it in your
-secret manager. Configure that same value as `ATOMS_SHARED_SECRET` in your
-application and CI environment, then supply it to the Worker:
+A deployed Worker needs `ATOMS_SHARED_SECRET` before it will serve anything but
+`/healthz`, and it must be set *after* the first deploy because the Worker has
+to exist first. If your Atoms call `app()` or `dispatch()`, they also need
+`ATOMS_CALLBACK_URL`.
 
-```bash
-printf '%s' "$ATOMS_SHARED_SECRET" | \
-  vendor/bin/atoms shared-secret:set --env production
-```
-
-Run this after the first deployment, because the Worker must exist before a
-secret can be set. Until then, routes other than `/healthz` return a
-configuration error. Application requests authenticate with a bearer token
-derived from the shared secret.
-
-The command leaves an existing secret unchanged unless you pass `--force`.
-See [Rotate the shared secret](#rotate-the-shared-secret) when changing it.
-
-The Worker environment variable `ATOMS_BEARER_AUTH` controls whether the
-Worker checks the `Authorization` bearer your application sends automatically.
-Leave it at the default, `required`; set it to `disabled` only when an
-authenticating proxy such as Cloudflare Access already sits in front of the
-Worker. `ATOMS_SHARED_SECRET` stays mandatory in either posture, and browser
-connections are unaffected: they authenticate with a short-lived
-[ticket](/guides/websockets-timers/) either way.
-
-If your Atoms call `app()` or `dispatch()`, set `ATOMS_CALLBACK_URL` to your
-application's callback endpoint. See [Callback URL](/guides/callbacks/#callback-url)
-for local and deployed configuration.
-
-Use the Atoms CLI for values your Atom reads through `$this->config()`:
-
-```bash
-printf '%s' "$PAYMENTS_API_KEY" | \
-  vendor/bin/atoms secrets:set PAYMENTS_API_KEY --env production
-```
-
-This stores `ATOMS_CONFIG_PAYMENTS_API_KEY`, readable through
-`$this->config('PAYMENTS_API_KEY')` with the default configuration prefix.
-
-To call a protected route manually, see [The shared secret](/reference/cli/#the-shared-secret)
-for a bearer-token example.
-
-## Rotate the shared secret
-
-Senders use `ATOMS_SHARED_SECRET`; verifiers accept that value and
-`ATOMS_SHARED_SECRET_PREVIOUS`. Prepare the overlap before replacing the
-current value. Starting with the same old secret on the application and Worker:
-
-1. Configure every application instance with the old value as current and
-   the new value as `ATOMS_SHARED_SECRET_PREVIOUS`. Reload the instances so
-   all can verify callbacks signed with either value.
-2. Set the Worker's `ATOMS_SHARED_SECRET_PREVIOUS` to the old value with
-   `shared-secret:set --previous --force`. Let that change propagate before
-   setting its current secret to the new value with `shared-secret:set --force`.
-3. Configure the application with the new value as current and the old value
-   as previous. Reload all application instances. Both sides now send with
-   the new value and accept both.
-4. After both deployments have updated and old tickets have expired, run
-   `shared-secret:unset` on the Worker and remove the previous value from the
-   application. Reload the application again.
-
-Pass `--env production` to these commands. `shared-secret:set` reads the value
-from stdin. Store both values in your secret manager during the rotation. Secret
-changes propagate over time; verify application calls, callbacks, and browser
-connections between stages.
+See [Secrets and authentication](/guides/secrets/) for both kinds of secret and
+the rotation runbook, and [Callback URL](/guides/callbacks/#callback-url) for
+local and deployed callback configuration.
 
 ## Upgrade the runtime
 
@@ -190,7 +133,7 @@ an existing secret by name, even if the supplied value differs. Your
 application needs the same value configured through its own deployment.
 
 For rotation, first prepare the application and Worker overlap as described
-[above](#rotate-the-shared-secret). Then use `rotate-shared-secret: true` with
+[above](/guides/secrets/#rotate-the-shared-secret). Then use `rotate-shared-secret: true` with
 `shared-secret` set to the new value and `shared-secret-previous` to the old
 value. On a later run, `retire-shared-secret-previous: true`
 removes the Worker overlap; remove it from the application separately.
