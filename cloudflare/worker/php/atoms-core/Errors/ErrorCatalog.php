@@ -12,7 +12,7 @@ final class ErrorCatalog
 {
     private const CATALOG_PATH = __DIR__ . '/../../resources/errors.json';
 
-    private const DOCS_BASE = 'https://docs.atomsphp.dev/errors#';
+    private const DOCS_BASE = 'https://docs.atomsphp.dev/reference/errors/#';
 
     /** @var array<string, CatalogEntry>|null keyed by code value */
     private static ?array $entries = null;

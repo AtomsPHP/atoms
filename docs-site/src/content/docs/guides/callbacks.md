@@ -15,39 +15,18 @@ For these callbacks to work, you must configure a shared secret and a callback U
 - `ATOMS_CALLBACK_URL` is an environment variable **on the Worker**. It tells
   the Worker where to POST. See
   [Callback URL](#callback-url).
-- `ATOMS_SHARED_SECRET` is base64 of 32 random bytes, configured **on both
-  sides**: as a secret on the Worker (set with `atoms shared-secret:set`,
-  below), and in your application's `.env` (or
-  equivalent).
+- `ATOMS_SHARED_SECRET` is configured **on both sides**: as a secret on the
+  Worker, and in your application's `.env` (or equivalent). See
+  [Secrets and authentication](/guides/secrets/) for setting it.
 
 Every callback POST is signed with a key derived from that secret, and your
-adapter verifies the signature before your Methods class or job runs. See
-[adapter contract](/concepts/adapters/) and
-[`docs/shared-secret.md`](https://github.com/AtomsPHP/atoms/blob/main/docs/shared-secret.md)
-for more details.
-
-With your application's shared secret loaded into the shell environment,
-set it on the deployed Worker:
-
-```bash
-printf '%s' "$ATOMS_SHARED_SECRET" | vendor/bin/atoms shared-secret:set --env production
-```
-
-See [Deploy](/guides/deploy/#configure-callbacks-and-application-secrets) for
-initial setup and CI configuration.
+adapter verifies the signature before your Methods class or job runs. See the
+[adapter contract](/concepts/adapters/) for what a host must provide.
 
 ## Callback URL
 
-Set the application's callback URL for each environment in `atoms.json`:
-
-```json
-{
-    "callback_url": {
-        "staging": "http://127.0.0.1:8000/atoms/callback",
-        "production": "https://example.com/atoms/callback"
-    }
-}
-```
+Set the application's callback URL for each environment under
+[`callback_url` in `atoms.json`](/guides/configuration/#atomsjson-keys).
 
 `atoms dev` and `atoms deploy` choose the URL in this order:
 

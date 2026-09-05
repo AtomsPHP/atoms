@@ -242,6 +242,16 @@ function validateCurrentReleaseReferences(string $root, string $version, string 
             }
         }
 
+        // A pinned link into the repository at a release tag drifts exactly like
+        // the Action reference above, and is not covered by it: the docs link to
+        // `blob/v<version>/action/README.md`, not `action@v<version>`.
+        preg_match_all('/AtomsPHP\/atoms\/blob\/v(\d+\.\d+\.\d+)/', $contents, $blobMatches);
+        foreach ($blobMatches[1] as $referencedVersion) {
+            if ($referencedVersion !== $version) {
+                $errors[] = "{$relativePath} references tag {$referencedVersion}; expected {$version}";
+            }
+        }
+
         preg_match_all('/\^0\.\d+(?:\.\d+)?/', $contents, $constraintMatches);
         foreach ($constraintMatches[0] as $referencedConstraint) {
             if ($referencedConstraint !== $constraint) {

@@ -32,6 +32,7 @@ reason the Cloudflare runtime can claim the real API runs inside the guest.
 | Re-verified | 2026-08-31, on the "ABI" → "API" terminology change — `Atom.php`, `Database.php` and `Migrations/MigrationEntry.php` re-vendored (docblocks reworded; the frozen surface is a source-level API, not a binary one). Comment-only; no signature changed. Still 24 files total, the other 21 digests are unchanged |
 | Re-verified | 2026-09-04, on the committed Worker directory — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E108 added: Worker directory does not match the CLI release, raised by the CLI's deploy/dev skew check against the directory's `atoms-runtime.json` stamp; E073 and E076 fix lines reworded to name the committed `atoms-worker/` directory). Nothing in the guest raises it; the copy carries them because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-09-05, on the documentation wording pass — `resources/errors.json` re-vendored with E002/E020/E053/E062/E067/E084/E101/E105 reworded; byte-identical to `packages/core/resources/errors.json`, with the digest below refreshed. |
+| Re-verified | 2026-09-05, on the docs-site error-catalog path — `Errors/ErrorCatalog.php` re-vendored: `DOCS_BASE` was `https://docs.atomsphp.dev/errors#`, a path the published site has never served; the built page is `/reference/errors/` and its anchors are the lowercased codes, so only the path changed and every `docsUrl` anchor is unchanged. Still 24 files total, the other 23 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -113,7 +114,7 @@ efda00eec6a42bfdd40ed60e432a5d279c6701a99fde7a400b020249d68cce53  Attributes/Met
 bdccde339e844104309093d66577483269595946973cba4a77abb1d10bc1401c  Database.php
 7c996f6c31cff9bf210040f311bb534a140e79ae3c62b721c6266ad6d78353e2  Errors/AtomsError.php
 0b4bfcf9ea74ed277614139157b03696f4eae42dc85f420120f96663cf654283  Errors/CatalogEntry.php
-3d1a122b24f6e3dd88104816b2b3b96b846690a9acd9316cd142d16afb71c411  Errors/ErrorCatalog.php
+6fd9aca635612d35077fccb6fee7d749bf04df54ccf5a45eea5e4921a402c9fe  Errors/ErrorCatalog.php
 513c73971051c947ff0ebe5901d89b3ea437923384c9635fa16eab7a5db6e239  Errors/ErrorCode.php
 e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Migration.php
 6ad41de5de3dcc255650f6d9dd29d80fc1c01625f90c8c8f5129cbb965a04069  Migrations/MigrationEntry.php

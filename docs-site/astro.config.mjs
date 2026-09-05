@@ -39,13 +39,17 @@ export default defineConfig({
           { label: 'Lifecycle and persistence', slug: 'concepts/lifecycle' },
           { label: 'Adapter contract', slug: 'concepts/adapters' },
         ]},
-        { label: 'Build and operate', items: [
+        { label: 'Writing Atoms', items: [
           { label: 'Callbacks', slug: 'guides/callbacks' },
           { label: 'Methods', slug: 'guides/methods' },
           { label: 'Jobs', slug: 'guides/jobs' },
           { label: 'WebSockets and timers', slug: 'guides/websockets-timers' },
           { label: 'Eloquent and the query builder', slug: 'guides/eloquent' },
+        ]},
+        { label: 'Deploying', items: [
+          { label: 'Configuration', slug: 'guides/configuration' },
           { label: 'Deploy', slug: 'guides/deploy' },
+          { label: 'Secrets and authentication', slug: 'guides/secrets' },
           { label: 'Rollback', slug: 'guides/rollback' },
         ]},
         { label: 'Reference', items: [

@@ -62,47 +62,16 @@ To restore a selected Worker version, follow [Rollback](/guides/rollback/).
 - **`shared-secret:set`** — `--env` (required), `--worker-dir`, `--previous` to target `ATOMS_SHARED_SECRET_PREVIOUS` instead of `ATOMS_SHARED_SECRET`, `--force` to overwrite an existing value. Reads the secret from stdin. Leaves an existing secret unchanged unless you pass `--force`.
 - **`token`** — `--env` (defaults to `staging`, used only to resolve a fallback `.dev.vars`), `--worker-dir`.
 
-## The shared secret
+## Secrets
 
-`ATOMS_SHARED_SECRET` is a base64-encoded value that decodes to 32 random
-bytes. Generate it once, save it in your secret manager, and configure the
-same value on your application and Worker. With that value loaded into your
-shell environment:
+`secrets:set NAME` maps application-facing names through the Worker's configured
+allowlist prefix, normally `ATOMS_CONFIG_`; `shared-secret:set` and
+`shared-secret:unset` manage the authentication secret, which Atom code can
+never read. See [Secrets and authentication](/guides/secrets/) for both, and for
+`atoms token`.
 
-```bash
-printf '%s' "$ATOMS_SHARED_SECRET" | \
-  vendor/bin/atoms shared-secret:set --env production
-```
-
-Run this after deploying the Worker. To replace an existing secret, pass
-`--force`.
-See [Deploy](/guides/deploy/#configure-callbacks-and-application-secrets) for
-first-time setup and [secret rotation](/guides/deploy/#rotate-the-shared-secret).
-
-Use `atoms token` to derive a bearer token for a manual request. This example calls the `join` method from the
-[overview](/), which adds a player to the specified room:
-
-```bash
-curl -H "Authorization: Bearer $(vendor/bin/atoms token --env production)" \
-  -H 'Content-Type: application/json' \
-  --data '{"args":["ada"]}' \
-  https://your-worker.example.workers.dev/invoke/GameRoom/room-42/join
-```
-
-Set `ATOMS_SHARED_SECRET` in your shell to the production value before
-running this example.
-
-`ATOMS_BEARER_AUTH` defaults to `required`. Use `disabled` only behind an
-authenticating proxy. The shared secret is required in either case, and
-WebSocket tickets and callbacks remain signed.
-
-## Worker directory
-
-`--worker-dir` overrides the default Worker directory, `atoms-worker/` beside
-`atoms.json`.
-
-`dev` and `deploy` check that the runtime stamp matches the CLI's exact
-release before building. See [Upgrade the runtime](/guides/deploy/#upgrade-the-runtime)
+`dev` and `deploy` check that the runtime stamp matches the CLI's exact release
+before building. See [Upgrade the runtime](/guides/deploy/#upgrade-the-runtime)
 for the upgrade command and which files it replaces.
 
 ## Wrangler resolution
@@ -117,8 +86,8 @@ Run `npm ci` in the Worker directory to install its pinned Wrangler version.
 
 ## Credentials
 
-`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` pass directly to Wrangler’s environment.
-
-`secrets:set NAME` maps application-facing names through the Worker’s configured allowlist prefix, normally `ATOMS_CONFIG_`. Use `shared-secret:set` and `shared-secret:unset` to manage authentication secrets.
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` pass directly into Wrangler's
+environment and are never written to a file or a log. See
+[Authenticate with Cloudflare](/guides/deploy/#authenticate-with-cloudflare).
 
 For data recovery limitations, see [Rollback](/guides/rollback/#data-recovery).

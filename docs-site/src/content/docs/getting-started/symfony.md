@@ -32,7 +32,7 @@ atoms:
         - App\Atoms\GameRoom\Methods
 ```
 
-- `shared_secret` is `ATOMS_SHARED_SECRET`: base64 of 32 random bytes, identical on this application and the Worker, required. Every credential on that boundary — the outbound bearer, WebSocket ticket signing, and inbound callback verification — is derived from it; set it on the Worker with `vendor/bin/atoms shared-secret:set --env production`, never through `secrets:set`. An optional `shared_secret_previous` (`ATOMS_SHARED_SECRET_PREVIOUS`) widens acceptance during a rotation window without changing what this application sends.
+- `shared_secret` is `ATOMS_SHARED_SECRET`: required, and identical on this application and the Worker. Set it on the Worker with `vendor/bin/atoms shared-secret:set`, never through `secrets:set`. An optional `shared_secret_previous` (`ATOMS_SHARED_SECRET_PREVIOUS`) widens acceptance during a rotation window without changing what this application sends. See [Secrets and authentication](/guides/secrets/).
 - `ws_ticket_ttl_ms` is how long a WebSocket connection ticket minted by this application stays valid, in milliseconds.
 - `callback_path` is where the signed reverse-RPC callback is mounted.
 - `callback_timestamp_window` is the permitted clock skew in seconds.
