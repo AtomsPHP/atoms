@@ -38,16 +38,8 @@ initial setup and CI configuration.
 
 ## Callback URL
 
-Set the application's callback URL for each environment in `atoms.json`:
-
-```json
-{
-    "callback_url": {
-        "staging": "http://127.0.0.1:8000/atoms/callback",
-        "production": "https://example.com/atoms/callback"
-    }
-}
-```
+Set the application's callback URL for each environment under
+[`callback_url` in `atoms.json`](/guides/configuration/#atomsjson-keys).
 
 `atoms dev` and `atoms deploy` choose the URL in this order:
 

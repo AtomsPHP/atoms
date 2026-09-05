@@ -45,6 +45,7 @@ export default defineConfig({
           { label: 'Jobs', slug: 'guides/jobs' },
           { label: 'WebSockets and timers', slug: 'guides/websockets-timers' },
           { label: 'Eloquent and the query builder', slug: 'guides/eloquent' },
+          { label: 'Configuration', slug: 'guides/configuration' },
           { label: 'Deploy', slug: 'guides/deploy' },
           { label: 'Rollback', slug: 'guides/rollback' },
         ]},

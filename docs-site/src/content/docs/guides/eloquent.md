@@ -18,7 +18,7 @@ The bridge runs inside the Atom, which means it belongs in `atoms-composer.json`
 }
 ```
 
-`atoms build` resolves that file, ships the resolved tree in the bundle, and records it in the manifest. See [deploy](/guides/deploy/) for how the vendor stage resolves, caches, and ships those packages.
+`atoms build` resolves that file, ships the resolved tree in the bundle, and records it in the manifest. See [`atoms-composer.json`](/guides/configuration/#atoms-composerjson) for what the file accepts, and [deploy](/guides/deploy/) for how the vendor stage resolves, caches, and ships those packages.
 
 ## Boot the bridge inside a method
 

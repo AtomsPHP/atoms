@@ -68,43 +68,10 @@ npm ci
 cd ..
 ```
 
-Edit `atoms-worker/wrangler.jsonc` for routes, custom domains, logging, and
-runtime settings. Set `debug_endpoints` per environment in `atoms.json`.
-
-## Fill in `atoms.json`
-
-Fill out the necessary details in the generated `atoms.json`:
-
-```jsonc
-{
-    "project": "my-app",
-    "paths": {
-        "atoms": "app/Atoms",
-        // DTOs or other shared code used on the Atom side and the App side:
-        "shared": "app/Atoms/Shared"
-    },
-    "php": "8.3",
-    "environments": {
-        "production": {
-            // A Cloudflare workers.dev subdomain or a custom domain
-            "endpoint": "https://my-app.<your-subdomain>.workers.dev",
-            "worker_name": "my-app",
-            // Your Cloudflare account id:
-            "account_id": "",
-            "debug_endpoints": false
-        },
-        // ... additional environments
-    },
-    "callback_url": {
-        // where your app mounts the callback route
-        "production": "https://example.com/atoms/callback",
-    }
-}
-```
-
-`callback_url` sets the application's callback endpoint for each environment.
-Both `atoms dev` and `atoms deploy` use it. See [Callback URL](/guides/callbacks/#callback-url)
-for command-line and environment overrides.
+Then fill in the generated `atoms.json` — at minimum an `endpoint` and a
+`worker_name` for each environment you deploy to. See
+[Configuration](/guides/configuration/) for every key, and for which settings
+belong in `atoms-worker/wrangler.jsonc` instead.
 
 ## Next
 

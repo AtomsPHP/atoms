@@ -11,64 +11,18 @@ never stores a Cloudflare credential.
 ## Prepare the Worker
 
 Follow [Initialize the project](/getting-started/install/#initialize-the-project)
-to set up `atoms-worker/`. On subsequent checkouts, install its dependencies
-with `npm ci`.
+to set up `atoms-worker/`, and run `npm ci` inside it on every fresh checkout —
+nothing does that for you, and a missing Wrangler surfaces as
+[ATOMS-E073](/reference/errors/#atoms-e073).
 
 ## Configure an environment
 
-An environment is a named entry under `environments` in `atoms.json`. You
-choose the names; `atoms init` scaffolds `production` and `staging`:
+Deployment targets an environment named in `atoms.json`, and every command on
+this page takes `--env <name>` to select one. See
+[Configuration](/guides/configuration/#environments) for what an entry holds and
+what `--env` resolves from it.
 
-```jsonc
-{
-    "project": "my-app",
-    "environments": {
-        "production": {
-            // Base URL the deployed Worker serves on.
-            "endpoint": "https://my-app.<your-subdomain>.workers.dev",
-            // The Cloudflare Worker to deploy to.
-            "worker_name": "my-app",
-            // Only needed if your credentials can reach more than one account.
-            "account_id": "",
-            "debug_endpoints": false
-        },
-        "staging": {
-            "endpoint": "https://my-app-staging.<your-subdomain>.workers.dev",
-            "worker_name": "my-app-staging",
-            "account_id": "",
-            "debug_endpoints": true
-        }
-    }
-}
-```
-
-Every command below — `deploy`, `status`, `rollback`, `secrets:set`,
-`shared-secret:set` — takes `--env <name>`, which looks up that key and uses
-its entry for the run. Against the file above,
-`vendor/bin/atoms deploy --env production` deploys to
-the Worker `my-app`, in the account named by `account_id` (or
-`CLOUDFLARE_ACCOUNT_ID`, or whichever account your login can reach), with the
-`/debug` routes off; `--env staging` deploys the same code to the separate
-Worker `my-app-staging` with them on. The entry's `endpoint` is not used to
-deploy — it is what `deploy` and `status` report back, and what you set as
-`ATOMS_ENDPOINT` in the app that calls this environment's Atoms. `--env` also
-selects the matching key under the top-level `callback_url`, which supplies the
-Worker's `ATOMS_CALLBACK_URL` unless `--callback-url` or the process
-environment overrides it.
-
-:::caution
-Give each environment its own `worker_name`. It defaults to the top-level
-`project`, so two environments that both leave it out point at one Worker and
-deploy over each other.
-:::
-
-These are not Wrangler environments. `atoms deploy` always selects the Worker
-with `wrangler deploy --name` and never passes Wrangler's own `-e`/`--env`, so
-`env.<name>` sections in `wrangler.jsonc` do not apply to what it deploys. Put
-routes, custom domains, and runtime settings at the top level of
-`atoms-worker/wrangler.jsonc` — that one file serves every environment, which
-is why the setting that must differ between them, `debug_endpoints`, lives in
-`atoms.json` instead.
+## Authenticate with Cloudflare
 
 On your own machine, authenticate with the installed Wrangler:
 
@@ -78,15 +32,19 @@ cd atoms-worker
 cd ..
 ```
 
-When `CLOUDFLARE_API_TOKEN` is unset, Wrangler uses its saved login session.
+When `CLOUDFLARE_API_TOKEN` is unset, Wrangler uses that saved login session.
 
-For headless or scripted deploys, set an API token in the environment instead:
+For headless or scripted deploys, set an API token in the environment instead —
+a CI runner has no login session to fall back on:
 
 ```bash
 export CLOUDFLARE_API_TOKEN='…'
 ```
 
-If you are using a token, it needs permission to edit Workers Scripts in the target account. Do not commit it to your repository.
+A token needs permission to edit Workers Scripts in the target account. Do not
+commit it to your repository. Atoms passes both `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` into the Wrangler child process and nowhere else: never
+to a file, a log, or the command line.
 
 ## Build and deploy
 
@@ -100,7 +58,10 @@ You can validate without a build with `atoms validate`. Pass the `--json` flag f
 
 ## Dependencies that ship with the Atom
 
-Packages listed in `atoms-composer.json` are resolved with `composer install --no-scripts --no-plugins` in an isolated directory, written back to `atoms-composer.lock` for reproducibility, and cached under `.atoms/vendor-cache`.
+Packages listed in [`atoms-composer.json`](/guides/configuration/#atoms-composerjson)
+are resolved with `composer install --no-scripts --no-plugins` in an isolated
+directory, written back to `atoms-composer.lock` for reproducibility, and cached
+under `.atoms/vendor-cache`.
 
 ## Configure callbacks and application secrets
 
