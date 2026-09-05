@@ -135,7 +135,7 @@ jobs:
 
 Use a release tag or commit SHA matching your runtime. Set `worker-directory`
 if your Worker is in another directory. The
-[Action's README](https://github.com/AtomsPHP/atoms/blob/v0.5.0/action/README.md)
+[Action's README](https://github.com/AtomsPHP/atoms/blob/v0.6.0/action/README.md)
 documents every input, how to scope the API token, and a troubleshooting table
 for the errors a runner hits.
 
