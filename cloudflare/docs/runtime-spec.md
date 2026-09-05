@@ -549,8 +549,8 @@ Atom stays resident and healthy.
   When `ATOMS_CALLBACK_TIMEOUT_MS >= remaining` the two abort at the same
   instant; only the arithmetic (`elapsed >= budget.deadlineMs`?) tells them
   apart. Conflating them would mean a monolith that is merely slow on one
-  endpoint reporting "turn deadline exceeded" to the client and getting an
-  opt-in retry it does not deserve.
+  endpoint reporting "turn deadline exceeded" to the client for a failure
+  that was nothing of the kind.
 - **Latched.** Once `turn_deadline_exceeded` has been produced, the budget is
   marked exhausted for the rest of the turn (`latch()`), so a later `app()`
   fails without a clock read and without another fetch — this is what stops a
@@ -572,9 +572,10 @@ Atom stays resident and healthy.
 - **Uncaught → its own turn-result code.** `run_turn()` maps a caught
   `TurnDeadlineExceeded` to the turn-result code `turn_deadline_exceeded`
   rather than folding it into `atom_exception`, which the HTTP layer maps to
-  **504, retryable: true** (see §Turn-result envelope) — `atoms/client`
-  already maps `turn_deadline_exceeded` → `TurnDeadlineExceeded` and only
-  retries when the call site opts in. `settle_open_transaction()` still runs
+  **504, retryable: true** (see §Turn-result envelope) — `atoms/client` maps
+  `turn_deadline_exceeded` → `TurnDeadlineExceeded` and deliberately never
+  auto-retries it: the caller decides, knowing the turn's earlier writes are
+  durable. `settle_open_transaction()` still runs
   first: an overrun inside a customer's `try` that leaks a transaction is
   still rolled back and still reported, and the deadline code still wins.
 - **Caught → an ordinary turn.** A customer who writes

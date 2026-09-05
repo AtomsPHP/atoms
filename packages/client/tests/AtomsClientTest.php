@@ -6,7 +6,6 @@ namespace Atoms\Client\Tests;
 
 use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
-use Atoms\Client\CallOptions;
 use Atoms\Client\Exception\AtomNotDeployed;
 use Atoms\Client\Exception\AtomsRequestFailed;
 use Atoms\Client\Exception\CapacityRefused;
@@ -82,7 +81,7 @@ final class AtomsClientTest extends TestCase
         self::assertSame('https://atoms.example.workers.dev/invoke/GameRoom/g-1/ping', (string) $req->getUri());
         self::assertSame(self::BEARER, $req->getHeaderLine('Authorization'));
         self::assertSame('application/json', $req->getHeaderLine('Content-Type'));
-        self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $req->getHeaderLine('Idempotency-Key'));
+        self::assertFalse($req->hasHeader('Idempotency-Key'), 'the runtime never read it, so it is not sent');
         self::assertMatchesRegularExpression('/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/', $req->getHeaderLine('traceparent'));
         self::assertSame('', $req->getHeaderLine('X-Atoms-Manifest-Hash'));
         self::assertSame('{"args":[]}', (string) $req->getBody());
@@ -96,24 +95,6 @@ final class AtomsClientTest extends TestCase
         $client->call('GameRoom', 'g-1', 'push', [['a', 1], 42]);
 
         self::assertSame('{"args":[["a",1],42]}', (string) $this->http->lastRequest()->getBody());
-    }
-
-    public function testIdempotencyKeyStableAcrossRetries(): void
-    {
-        $client = $this->client();
-        $this->http
-            ->queueJson(503, ['error' => ['code' => 'capacity_refused', 'message' => 'busy', 'retryable' => true]])
-            ->queueJson(200, ['result' => 'ok']);
-
-        $result = $client->call('GameRoom', 'g-1', 'ping');
-
-        self::assertSame('ok', $result);
-        self::assertCount(2, $this->http->requests);
-        $first = $this->http->requests[0]->getHeaderLine('Idempotency-Key');
-        $second = $this->http->requests[1]->getHeaderLine('Idempotency-Key');
-        self::assertNotSame('', $first);
-        self::assertSame($first, $second);
-        self::assertSame([50], $this->sleeps, 'one backoff sleep of base ms');
     }
 
     public function testRetryAfterHonoredOn429(): void
@@ -158,7 +139,7 @@ final class AtomsClientTest extends TestCase
         self::assertSame([], $this->sleeps);
     }
 
-    public function testTurnDeadlineNotRetriedByDefaultButRetriesWhenOptedIn(): void
+    public function testTurnDeadlineIsNeverRetriedEvenThoughThePlatformFlagsItRetryable(): void
     {
         $client = $this->client();
         $this->http->queueJson(504, ['error' => ['code' => 'turn_deadline_exceeded', 'message' => 'slow', 'retryable' => true]]);
@@ -170,17 +151,6 @@ final class AtomsClientTest extends TestCase
             self::assertCount(1, $this->http->requests);
             self::assertSame([], $this->sleeps);
         }
-    }
-
-    public function testTurnDeadlineRetriesWhenOptedIn(): void
-    {
-        $client = $this->client();
-        $this->http
-            ->queueJson(504, ['error' => ['code' => 'turn_deadline_exceeded', 'message' => 'slow']])
-            ->queueJson(200, ['result' => 'ok']);
-
-        self::assertSame('ok', $client->call('GameRoom', 'g-1', 'ping', [], null, true));
-        self::assertCount(2, $this->http->requests);
     }
 
     public function testCapacityRefusedCarriesRetryAfter(): void
@@ -288,12 +258,12 @@ final class AtomsClientTest extends TestCase
      * The behaviour change from the single-parse refactor, pinned deliberately.
      *
      * A frame carrying BOTH `remote_class` and `turn_deadline_exceeded` maps to
-     * a {@see RemoteAtomException}, so it is not retried even with the deadline
-     * opt-in on. Retryability now comes from the mapped exception; it used to
-     * come from a second string match on the raw envelope's `code`, which saw
-     * the deadline code and re-ran code that had already thrown.
+     * a {@see RemoteAtomException}, so it is not retried. Retryability comes
+     * from the mapped exception; it used to come from a second string match on
+     * the raw envelope's `code`, which saw the deadline code and re-ran code
+     * that had already thrown.
      */
-    public function testARemoteExceptionCarryingATurnDeadlineCodeIsNotRetriedEvenWhenOptedIn(): void
+    public function testARemoteExceptionCarryingATurnDeadlineCodeIsNotRetried(): void
     {
         $client = $this->client();
         $this->http
@@ -308,7 +278,7 @@ final class AtomsClientTest extends TestCase
             ->queueJson(200, ['result' => 'ok']);
 
         try {
-            $client->call('GameRoom', 'g-1', 'endGame', [], null, true);
+            $client->call('GameRoom', 'g-1', 'endGame');
             self::fail('expected RemoteAtomException');
         } catch (RemoteAtomException $e) {
             self::assertSame('App\\Domain\\GameOverException', $e->originalClass);
@@ -392,11 +362,10 @@ final class AtomsClientTest extends TestCase
 
     /**
      * The other half of the 2xx path: an error frame on a 2xx with no
-     * `remote_class` is still mapped and thrown on the spot. Not even the
-     * deadline opt-in retries it — a 2xx frame never reaches the retry
-     * predicate at all.
+     * `remote_class` is still mapped and thrown on the spot — a 2xx frame
+     * never reaches the retry predicate at all.
      */
-    public function testATwoHundredErrorFrameIsNotRetriedEvenWithTheDeadlineOptIn(): void
+    public function testATwoHundredErrorFrameIsNotRetried(): void
     {
         $client = $this->client();
         $this->http
@@ -404,7 +373,7 @@ final class AtomsClientTest extends TestCase
             ->queueJson(200, ['result' => 'ok']);
 
         try {
-            $client->call('GameRoom', 'g-1', 'ping', [], null, true);
+            $client->call('GameRoom', 'g-1', 'ping');
             self::fail('expected TurnDeadlineExceeded');
         } catch (TurnDeadlineExceeded $e) {
             self::assertSame(200, $e->httpStatus);
@@ -635,20 +604,7 @@ final class AtomsClientTest extends TestCase
         self::assertSame('GameRoom', AtomsClient::wireType('GameRoom'));
     }
 
-    public function testCallOptionsMakeTurnDeadlineRetryableThroughTheProxy(): void
-    {
-        $client = $this->client();
-        $this->http->queueJson(500, ['error' => ['code' => 'turn_deadline_exceeded', 'message' => 'slow', 'retryable' => false]]);
-        $this->http->queueJson(200, ['result' => 'ok']);
-
-        // The whole point: this used to require the positional call() form.
-        $result = $client->get(GameRoom::class, 'g-1', new CallOptions(retryTurnDeadline: true))->ping();
-
-        self::assertSame('ok', $result);
-        self::assertCount(2, $this->http->requests);
-    }
-
-    public function testWithoutOptionsATurnDeadlineIsNotRetried(): void
+    public function testATurnDeadlineThroughTheProxyIsNotRetried(): void
     {
         $client = $this->client();
         $this->http->queueJson(500, ['error' => ['code' => 'turn_deadline_exceeded', 'message' => 'slow', 'retryable' => false]]);
@@ -656,21 +612,6 @@ final class AtomsClientTest extends TestCase
         $this->expectException(TurnDeadlineExceeded::class);
 
         $client->get(GameRoom::class, 'g-1')->ping();
-    }
-
-    public function testCallOptionsCarryAnIdempotencyKeyAndTraceparent(): void
-    {
-        $client = $this->client();
-        $this->http->queueJson(200, ['result' => 'ok']);
-
-        $client->get(GameRoom::class, 'g-1', new CallOptions(
-            idempotencyKey: 'order-42',
-            traceparent: '00-11111111111111111111111111111111-2222222222222222-01',
-        ))->ping();
-
-        $request = $this->http->lastRequest();
-        self::assertSame('order-42', $request->getHeaderLine('Idempotency-Key'));
-        self::assertSame('00-11111111111111111111111111111111-2222222222222222-01', $request->getHeaderLine('traceparent'));
     }
 
     public function testReadingAPropertyThroughTheProxyIsALoudError(): void

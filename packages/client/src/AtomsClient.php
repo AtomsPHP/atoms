@@ -60,8 +60,8 @@ final class AtomsClient
      * and never this one, and the exception that arm builds already carries
      * `retryable: true` (`rate_limited`/`capacity_refused` → {@see CapacityRefused},
      * `machine_unavailable`/`directory_unavailable` → {@see PlatformUnavailable},
-     * `turn_deadline_exceeded` → {@see TurnDeadlineExceeded}, which the caller
-     * opts into per call site). Listing them here as well would state the same
+     * `turn_deadline_exceeded` → {@see TurnDeadlineExceeded}, non-retryable by
+     * construction). Listing them here as well would state the same
      * fact in a second place, where nothing reads it.
      */
     private const RETRYABLE_UNMAPPED_CODES = [
@@ -126,10 +126,10 @@ final class AtomsClient
      *
      * @return T
      */
-    public function get(string $atomClass, string $id, ?CallOptions $options = null): object
+    public function get(string $atomClass, string $id): object
     {
         /** @var T $proxy */
-        $proxy = $this->newProxy($atomClass, $id, $options);
+        $proxy = $this->newProxy($atomClass, $id);
 
         return $proxy;
     }
@@ -140,9 +140,9 @@ final class AtomsClient
      *
      * @param class-string $atomClass
      */
-    private function newProxy(string $atomClass, string $id, ?CallOptions $options): object
+    private function newProxy(string $atomClass, string $id): object
     {
-        return new AtomProxy($this, $atomClass, self::wireType($atomClass), $id, $options);
+        return new AtomProxy($this, $atomClass, self::wireType($atomClass), $id);
     }
 
     /**
@@ -183,9 +183,6 @@ final class AtomsClient
      * @param list<mixed>       $args
      * @param class-string|null $atomClass When given and the method has a usable declared
      *                                     return type, the result is denormalized to that type.
-     * @param bool              $retryTurnDeadline Kept separate from $options: renaming or retyping it
-     *                                             would break existing named-argument callers.
-     * @param CallOptions|null  $options  When given, wins for every field it carries.
      */
     public function call(
         string $type,
@@ -193,10 +190,7 @@ final class AtomsClient
         string $method,
         array $args = [],
         ?string $atomClass = null,
-        bool $retryTurnDeadline = false,
-        ?CallOptions $options = null,
     ): mixed {
-        $retryTurnDeadline = $options->retryTurnDeadline ?? $retryTurnDeadline;
         $normalized = [];
         foreach (array_values($args) as $arg) {
             $normalized[] = $this->serializer->normalize($arg);
@@ -214,14 +208,9 @@ final class AtomsClient
 
         $request = $this->baseRequest('POST', $uri)
             ->withHeader('Content-Type', 'application/json')
-            ->withHeader('Idempotency-Key', $options->idempotencyKey ?? bin2hex(($this->idGenerator)(16)))
             ->withBody($this->streamFactory->createStream($body));
 
-        if ($options !== null && $options->traceparent !== null) {
-            $request = $request->withHeader('traceparent', $options->traceparent);
-        }
-
-        $decoded = $this->execute($request, $retryTurnDeadline, [
+        $decoded = $this->execute($request, [
             'type' => $type,
             'id' => $id,
             'method' => $method,
@@ -257,7 +246,7 @@ final class AtomsClient
             rawurlencode($id),
         );
 
-        $decoded = $this->execute($this->baseRequest('DELETE', $uri), false, [
+        $decoded = $this->execute($this->baseRequest('DELETE', $uri), [
             'type' => $type,
             'id' => $id,
             'method' => '',
@@ -273,7 +262,7 @@ final class AtomsClient
      * @param array{type: string, id: string, method: string} $ctx
      * @return array<array-key, mixed>
      */
-    private function execute(RequestInterface $request, bool $retryTurnDeadline, array $ctx): array
+    private function execute(RequestInterface $request, array $ctx): array
     {
         $attempt = 0;
 
@@ -320,17 +309,16 @@ final class AtomsClient
             $retryAfter = $this->retryAfterSeconds($response);
             $exception = $this->mapError($status, $frame, $retryAfter, $ctx);
 
-            // Retryability is whatever the mapped exception says, with one
-            // exception of its own: a turn deadline is retryable at the platform
-            // level but only auto-retried when the call site opted in. Asking the
+            // Retryability is whatever the mapped exception says. Asking the
             // exception rather than the frame is what makes a frame carrying both
             // `remote_class` and `turn_deadline_exceeded` non-retryable — it maps
             // to a RemoteAtomException, and re-running code that threw cannot help.
-            $isRetryable = $exception instanceof TurnDeadlineExceeded
-                ? $retryTurnDeadline
-                : $exception->retryable;
-
-            if ($isRetryable && $attempt < $this->config->maxAttempts) {
+            // The platform flags `turn_deadline_exceeded` retryable, but
+            // {@see TurnDeadlineExceeded} is constructed non-retryable: a turn that
+            // ran out of time may already have committed, and only the caller
+            // knows whether the method is safe to run twice. A caller that does
+            // catches the exception and calls again.
+            if ($exception->retryable && $attempt < $this->config->maxAttempts) {
                 $this->logger?->info('Retrying Atoms invocation', [
                     'attempt' => $attempt,
                     'status' => $status,

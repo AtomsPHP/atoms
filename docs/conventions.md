@@ -240,38 +240,34 @@ decisions below.
   always sends a bearer. `ATOMS_BEARER_AUTH=disabled` on the Worker skips the
   comparison; it does not change what the client sends.
 - Additive headers we send (allowed within v1):
-  - `Idempotency-Key: <32 hex chars>` — stable across retries of one logical call.
   - `X-Atoms-Manifest-Hash: <sha256>` — manifest hash the monolith was built
     against (omitted when no local manifest is present).
   - `traceparent` — W3C trace context, generated if absent.
 - Retry policy: retry only errors marked `retryable: true` in the contract's
   table AND transport-level failures, with exponential backoff + jitter;
-  never retry non-retryable codes. `turn_deadline_exceeded` retries are
-  opt-in per call site (default off).
+  never retry non-retryable codes. `turn_deadline_exceeded` is the one code
+  the platform flags retryable that the client never auto-retries: the turn's
+  writes before the overrun are durable, so only the caller knows whether the
+  method is safe to run twice. `TurnDeadlineExceeded` is non-retryable by
+  construction; a caller that knows better catches it and calls again.
 - The WebSocket URL for an Atom is `AtomsClient::wsUrl()`, which derives
   `ws`/`wss` from the one configured endpoint (`AtomsConfig::wsBaseUrl()`).
   There is deliberately no second `ws_endpoint` setting: the Worker serves
   `/invoke` and `/ws` from one origin, so a second key would only be a second
   thing to get wrong. A ticket is passed in, never minted by the builder.
 
-### Per-call options, and why the proxy declares nothing
-
-Per-call configuration is an `Atoms\Client\CallOptions` passed to
-`AtomsClient::get()` (and `AtomsManager::get()`), not a fluent method on the
-proxy:
-
-```php
-Atoms::get(GameRoom::class, $id, new CallOptions(retryTurnDeadline: true))
-    ->recordResult($score);
-```
+### The proxy declares nothing
 
 **`Atoms\Client\AtomProxy` declares `__construct`, `__call` and `__get`, and
 nothing else, permanently.** Every other name on it belongs to the Atom. A
 declared method beats `__call()` in PHP, silently, so a fluent
 `->retryingTurnDeadline()` would make a customer Atom method of that name
 unreachable — the wrong code would run, with no error at either end. This is
-the same hazard the Worker's `invocable_method()` denylist exists for, and the
-reason options arrive before the proxy does rather than through it.
+the same hazard the Worker's `invocable_method()` denylist exists for. It is
+also why there is no per-call configuration of any kind — no options object on
+`get()`, no flags on `call()`: a caller who wants one call handled differently
+(retried, say) writes that around the call, where the knowledge to do it
+safely lives.
 
 `get()` is annotated `@template T` / `@return T`, so
 `Atoms::get(GameRoom::class, $id)->join($player)` is statically checked and a
