@@ -37,4 +37,6 @@ Durable Objects are normally written in TypeScript, but Atoms lets you write the
 
 Start with [Install](/getting-started/install/) for requirements, packages, and the Worker runtime, then follow the quickstart for your framework of choice: [Laravel](/getting-started/laravel/), [Symfony](/getting-started/symfony/), or [plain PHP](/getting-started/plain-php/).
 
-Atoms has some core concepts you should know about. [The two worlds](/concepts/two-worlds/) explains which code runs inside an Atom and which runs in your application, and [lifecycle and persistence](/concepts/lifecycle/) covers turns, storage, and eviction. When you are ready to ship, read the steps to [deploy](/guides/deploy/) and [rollback](/guides/rollback/).
+Atoms has some core concepts you should know about. [The two worlds](/concepts/two-worlds/) explains which code runs inside an Atom and which runs in your application, and [lifecycle and persistence](/concepts/lifecycle/) covers turns, storage, and eviction.
+
+When you are ready to ship, start with [Configuration](/guides/configuration/) for the files and environments a project has, then [Deploy](/guides/deploy/) for the deploy itself, [Secrets and authentication](/guides/secrets/) for the shared secret both sides need, and [Rollback](/guides/rollback/) for moving a Worker back.

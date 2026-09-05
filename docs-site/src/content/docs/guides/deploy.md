@@ -48,6 +48,9 @@ to a file, a log, or the command line.
 
 ## Build and deploy
 
+Check your host adapter is ready first — [Before you
+deploy](/concepts/adapters/#before-you-deploy) lists what it must provide.
+
 ```bash
 vendor/bin/atoms deploy --env production
 ```
@@ -56,12 +59,12 @@ vendor/bin/atoms deploy --env production
 
 You can validate without a build with `atoms validate`. Pass the `--json` flag for JSON output.
 
-## Dependencies that ship with the Atom
-
-Packages listed in [`atoms-composer.json`](/guides/configuration/#atoms-composerjson)
-are resolved with `composer install --no-scripts --no-plugins` in an isolated
-directory, written back to `atoms-composer.lock` for reproducibility, and cached
-under `.atoms/vendor-cache`.
+The build resolves the packages listed in
+[`atoms-composer.json`](/guides/configuration/#atoms-composerjson) with
+`composer install --no-scripts --no-plugins` in an isolated directory, writes
+the result back to `atoms-composer.lock` for reproducibility, and caches it
+under `.atoms/vendor-cache`. Builds are deterministic and never execute your
+code.
 
 ## Configure secrets
 
@@ -73,6 +76,20 @@ to exist first. If your Atoms call `app()` or `dispatch()`, they also need
 See [Secrets and authentication](/guides/secrets/) for both kinds of secret and
 the rotation runbook, and [Callback URL](/guides/callbacks/#callback-url) for
 local and deployed callback configuration.
+
+## Verify the deployment
+
+A deploy is not immediately visible everywhere. Cloudflare propagates it over
+time, and an Atom already resident in memory keeps running the bundle it
+activated with until it next activates. List the uploaded Worker versions with:
+
+```bash
+vendor/bin/atoms status --env production
+```
+
+Verify the new Atom methods are available before deploying application code that
+calls them. To move a Worker back to an earlier version, see
+[Rollback](/guides/rollback/).
 
 ## Upgrade the runtime
 
@@ -98,16 +115,6 @@ your installed CLI.
 `atoms dev` and `atoms deploy` require an exact version match between the CLI
 and `atoms-runtime.json`, checked before building ([ATOMS-E108](/reference/errors/#atoms-e108)).
 
-## Deployment is eventually visible
-
-Deployments take time to reach running Atoms. List the uploaded Worker versions with:
-
-```bash
-vendor/bin/atoms status --env production
-```
-
-Verify the new Atom methods are available before deploying application code that calls them.
-
 ## Deploy from GitHub Actions
 
 The deploy Action installs dependencies in `atoms-worker/`, builds, and deploys using GitHub Secrets:
@@ -126,14 +133,18 @@ jobs:
           shared-secret: ${{ secrets.ATOMS_SHARED_SECRET }}
 ```
 
-Use a release tag or commit SHA matching your runtime. Set `worker-directory` if your Worker is in another directory.
+Use a release tag or commit SHA matching your runtime. Set `worker-directory`
+if your Worker is in another directory. The
+[Action's README](https://github.com/AtomsPHP/atoms/blob/v0.5.0/action/README.md)
+documents every input, how to scope the API token, and a troubleshooting table
+for the errors a runner hits.
 
 The `shared-secret` input sets the Worker secret after deployment. It skips
 an existing secret by name, even if the supplied value differs. Your
 application needs the same value configured through its own deployment.
 
-For rotation, first prepare the application and Worker overlap as described
-[above](/guides/secrets/#rotate-the-shared-secret). Then use `rotate-shared-secret: true` with
+For rotation, first prepare the application and Worker overlap described in
+[Rotate the shared secret](/guides/secrets/#rotate-the-shared-secret). Then use `rotate-shared-secret: true` with
 `shared-secret` set to the new value and `shared-secret-previous` to the old
 value. On a later run, `retire-shared-secret-previous: true`
 removes the Worker overlap; remove it from the application separately.
