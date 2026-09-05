@@ -7,15 +7,28 @@ Atoms are deployed directly to your Cloudflare account.
 
 ## Prepare the Worker
 
-Deploying from your own machine needs the Cloudflare Worker runtime scaffolded locally in `.atoms/worker` — follow [Initialize the project](/getting-started/install/#initialize-the-project) on the Install page if you have not already. If you deploy from [GitHub Actions](#deploy-from-github-actions) instead, the Action scaffolds the runtime for you.
-
-The CLI resolves Wrangler from `ATOMS_WRANGLER_BIN`, then `.atoms/worker/node_modules/.bin/wrangler`, then `PATH`. It never uses `npx` or downloads Wrangler during a deployment.
+Follow [Initialize the project](/getting-started/install/#initialize-the-project)
+to set up `atoms-worker/`. On subsequent checkouts, install its dependencies
+with `npm ci`.
 
 ## Configure an environment
 
-Add the Worker directory, account id, name, and endpoint to the environment in `atoms.json`.
+Set the Worker name and endpoint in `atoms.json`, and the account id if your
+credentials can access more than one account. Put routes, custom domains,
+and runtime settings in `atoms-worker/wrangler.jsonc`.
 
-On your own machine, authenticate once with `wrangler login`. The Atoms CLI passes nothing when `CLOUDFLARE_API_TOKEN` is unset, so Wrangler uses its own login session and no credential ever passes through the Atoms process.
+`--env` selects the Worker named in that environment's `atoms.json` entry.
+Set `debug_endpoints` in the same entry to enable debugging for that environment.
+
+On your own machine, authenticate with the installed Wrangler:
+
+```bash
+cd atoms-worker
+./node_modules/.bin/wrangler login
+cd ..
+```
+
+When `CLOUDFLARE_API_TOKEN` is unset, Wrangler uses its saved login session.
 
 For headless or scripted deploys, set an API token in the environment instead:
 
@@ -28,11 +41,10 @@ If you are using a token, it needs permission to edit Workers Scripts in the tar
 ## Build and deploy
 
 ```bash
-vendor/bin/atoms build
 vendor/bin/atoms deploy --env production
 ```
 
-`build` discovers the configured Atom tree, validates Atom-side code against the boundary rules, ships the packages named in `atoms-composer.json`, and emits a deterministic bundle plus manifest. `deploy` embeds the bundle into the Worker's JavaScript module and invokes Wrangler to ship everything to Cloudflare.
+`deploy` validates and bundles your Atom code and dependencies, then deploys the Worker through Wrangler. Use `atoms build` to produce a bundle for inspection or later deployment.
 
 You can validate without a build with `atoms validate`. Pass the `--json` flag for JSON output.
 
@@ -42,21 +54,22 @@ Packages listed in `atoms-composer.json` are resolved with `composer install --n
 
 ## Configure callbacks and application secrets
 
-The Worker needs the same `ATOMS_SHARED_SECRET` you provide to your application: 32
-random bytes, base64-encoded. Set it with the dedicated CLI command, which reads the
-value from stdin so it never appears in a command line or a log:
+Generate one shared secret with `openssl rand -base64 32` and save it in your
+secret manager. Configure that same value as `ATOMS_SHARED_SECRET` in your
+application and CI environment, then supply it to the Worker:
 
 ```bash
-openssl rand -base64 32 | vendor/bin/atoms shared-secret:set --env production
+printf '%s' "$ATOMS_SHARED_SECRET" | \
+  vendor/bin/atoms shared-secret:set --env production
 ```
 
-`shared-secret:set` does not overwrite an existing secret unless you pass
-`--force`, so running it on every deploy does not mint a new Worker version
-each time. When using `--force` to rotate the secret, pass `--previous` to
-set `ATOMS_SHARED_SECRET_PREVIOUS` to the old one during the overlap window.
-Then run `atoms shared-secret:unset --env production` once every instance on
-both sides holds the new secret. If you rotate without `--previous`, every
-interaction with existing Workers will fail until they restart.
+Run this after the first deployment, because the Worker must exist before a
+secret can be set. Until then, routes other than `/healthz` return a
+configuration error. Application requests authenticate with a bearer token
+derived from the shared secret.
+
+The command leaves an existing secret unchanged unless you pass `--force`.
+See [Rotate the shared secret](#rotate-the-shared-secret) when changing it.
 
 The Worker environment variable `ATOMS_BEARER_AUTH` controls whether the
 Worker checks the `Authorization` bearer your application sends automatically.
@@ -66,10 +79,9 @@ Worker. `ATOMS_SHARED_SECRET` stays mandatory in either posture, and browser
 connections are unaffected: they authenticate with a short-lived
 [ticket](/guides/websockets-timers/) either way.
 
-If your Atoms call `app()` or `dispatch()`, the deployed Worker also needs
-`ATOMS_CALLBACK_URL` set to your application's callback endpoint. Set it as a
-Worker variable with Wrangler — `atoms.json`'s `callback_url` is read only by
-`atoms dev`. See the [Callbacks guide](/guides/callbacks/#callback-url).
+If your Atoms call `app()` or `dispatch()`, set `ATOMS_CALLBACK_URL` to your
+application's callback endpoint. See [Callback URL](/guides/callbacks/#callback-url)
+for local and deployed configuration.
 
 Use the Atoms CLI for values your Atom reads through `$this->config()`:
 
@@ -78,32 +90,73 @@ printf '%s' "$PAYMENTS_API_KEY" | \
   vendor/bin/atoms secrets:set PAYMENTS_API_KEY --env production
 ```
 
-That stores the configured Worker-prefixed name, normally
-`ATOMS_CONFIG_PAYMENTS_API_KEY`. The `secrets:set` command
-refuses `ATOMS_SHARED_SECRET` itself - use the dedicated
-`shared-secret:set` command instead.
+This stores `ATOMS_CONFIG_PAYMENTS_API_KEY`, readable through
+`$this->config('PAYMENTS_API_KEY')` with the default configuration prefix.
 
-To curl a deployed Worker without ever pasting the secret into a header,
-print the bearer it derives to instead:
+To call a protected route manually, see [The shared secret](/reference/cli/#the-shared-secret)
+for a bearer-token example.
+
+## Rotate the shared secret
+
+Senders use `ATOMS_SHARED_SECRET`; verifiers accept that value and
+`ATOMS_SHARED_SECRET_PREVIOUS`. Prepare the overlap before replacing the
+current value. Starting with the same old secret on the application and Worker:
+
+1. Configure every application instance with the old value as current and
+   the new value as `ATOMS_SHARED_SECRET_PREVIOUS`. Reload the instances so
+   all can verify callbacks signed with either value.
+2. Set the Worker's `ATOMS_SHARED_SECRET_PREVIOUS` to the old value with
+   `shared-secret:set --previous --force`. Let that change propagate before
+   setting its current secret to the new value with `shared-secret:set --force`.
+3. Configure the application with the new value as current and the old value
+   as previous. Reload all application instances. Both sides now send with
+   the new value and accept both.
+4. After both deployments have updated and old tickets have expired, run
+   `shared-secret:unset` on the Worker and remove the previous value from the
+   application. Reload the application again.
+
+Pass `--env production` to these commands. `shared-secret:set` reads the value
+from stdin. Store both values in your secret manager during the rotation. Secret
+changes propagate over time; verify application calls, callbacks, and browser
+connections between stages.
+
+## Upgrade the runtime
+
+When updating your Atoms PHP packages, upgrade the Worker runtime
+to the matching release. For the 0.5.0 release:
 
 ```bash
-curl -H "Authorization: Bearer $(vendor/bin/atoms token --env production)" \
-  https://your-worker.example.workers.dev/healthz
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
+  atoms-runtime-cloudflare upgrade atoms-worker
+cd atoms-worker
+npm ci
+cd ..
 ```
+
+Use the version printed by `atoms init` or the version-mismatch error for
+your installed CLI.
+
+| Files | What an upgrade does |
+|---|---|
+| `wrangler.jsonc` | Preserves your configuration. Apply any required changes described in the release notes. |
+| Runtime files listed in `atoms-runtime.json` | Replaces them with the release's copies and removes files the release no longer ships. Local edits are overwritten. |
+
+`atoms dev` and `atoms deploy` require an exact version match between the CLI
+and `atoms-runtime.json`, checked before building ([ATOMS-E108](/reference/errors/#atoms-e108)).
 
 ## Deployment is eventually visible
 
-A successful upload is not proof that every routed request or already-resident Atom is serving the new version. Cloudflare propagation is eventual, and warm and fresh Atoms can adopt changes in no guaranteed order. Check:
+Deployments take time to reach running Atoms. List the uploaded Worker versions with:
 
 ```bash
 vendor/bin/atoms status --env production
 ```
 
-Do not deploy application code that requires new Atom methods until the new Worker version has converged sufficiently for your rollout.
+Verify the new Atom methods are available before deploying application code that calls them.
 
 ## Deploy from GitHub Actions
 
-The release Action scaffolds the co-versioned runtime when the default `.atoms/worker` directory is absent, installs its lockfile, builds, and deploys with credentials supplied by GitHub Secrets:
+The deploy Action installs dependencies in `atoms-worker/`, builds, and deploys using GitHub Secrets:
 
 ```yaml
 jobs:
@@ -111,7 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms/action@v0.4.0
+      - uses: AtomsPHP/atoms/action@v0.5.0
         with:
           environment: production
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -119,6 +172,14 @@ jobs:
           shared-secret: ${{ secrets.ATOMS_SHARED_SECRET }}
 ```
 
-Pin the immutable release tag or a commit SHA. When you pass a custom Worker directory, you own its contents and installation instead of the Action scaffolding it.
+Use a release tag or commit SHA matching your runtime. Set `worker-directory` if your Worker is in another directory.
 
-The `shared-secret` input masks the value and pipes it to `atoms shared-secret:set` after the deploy step, since setting a secret on a Worker that does not exist yet is not possible. The Action is idempotent — it skips the write when the Worker already carries that value — so passing it on every run is safe. Rotating the secret needs two more inputs: `shared-secret-previous` (the old value, kept live during the overlap) with `rotate-shared-secret: true` to apply the new one over an existing value, and, on a later run once every instance holds the new secret, `retire-shared-secret-previous: true` in place of `shared-secret-previous` to close the window.
+The `shared-secret` input sets the Worker secret after deployment. It skips
+an existing secret by name, even if the supplied value differs. Your
+application needs the same value configured through its own deployment.
+
+For rotation, first prepare the application and Worker overlap as described
+[above](#rotate-the-shared-secret). Then use `rotate-shared-secret: true` with
+`shared-secret` set to the new value and `shared-secret-previous` to the old
+value. On a later run, `retire-shared-secret-previous: true`
+removes the Worker overlap; remove it from the application separately.

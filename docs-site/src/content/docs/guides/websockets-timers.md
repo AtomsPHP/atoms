@@ -99,7 +99,7 @@ protected function onTimer(string $name): void
 }
 ```
 
-Scheduling a name that already exists replaces its due time. Canceling a name that doesn't exist is a no-op. Scheduling joins the surrounding database transaction: if the transaction rolls back, the timer is never created. You can schedule as many named timers as you need; Atoms tracks them in the Atom's database and fires each one when it comes due.
+Scheduling a name that already exists replaces its due time. Canceling a name that doesn't exist is a no-op. Scheduling joins the surrounding database transaction: if the transaction rolls back, the timer is never created. Atoms tracks timers in the Atom's database. The default limit is 10,000 scheduled timers per Atom; see [Limits](/reference/limits/#configurable-runtime-limits) to configure it.
 
 A timer fires at most once. If the handler throws, the failure is logged and the timer is finished. Write handlers that are safe to run once, and schedule a new timer when you need another attempt.
 

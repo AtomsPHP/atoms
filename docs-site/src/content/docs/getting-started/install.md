@@ -42,7 +42,7 @@ To use Eloquent inside your Atom (with Atom-specific models only!), you need to 
 Add the static rules that protect the PHP↔Worker boundary:
 
 ```bash
-composer require --dev atoms/phpstan-rules:^0.4
+composer require --dev atoms/phpstan-rules:^0.5
 ```
 
 Then include its configuration from your PHPStan config:
@@ -61,13 +61,15 @@ vendor/bin/atoms init
 The `init` command creates `atoms.json` and `atoms-composer.json`. It also prints a command that scaffolds the matching version of the Cloudflare Worker runtime:
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.4.0 -- \
-  atoms-runtime-cloudflare init .atoms/worker
-cd .atoms/worker
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
+  atoms-runtime-cloudflare init atoms-worker
+cd atoms-worker
 npm ci
+cd ..
 ```
 
-You now have a `.atoms/worker` directory holding the Cloudflare Worker your Atoms run in, and its dependencies. It is generated and gitignored — `atoms build` and `atoms deploy` manage it from here.
+Edit `atoms-worker/wrangler.jsonc` for routes, custom domains, logging, and
+runtime settings. Set `debug_endpoints` per environment in `atoms.json`.
 
 ## Fill in `atoms.json`
 
@@ -85,23 +87,24 @@ Fill out the necessary details in the generated `atoms.json`:
     "environments": {
         "production": {
             // A Cloudflare workers.dev subdomain or a custom domain
-            "endpoint": "https://my-app.<your-subdomain>.workers.dev",  
+            "endpoint": "https://my-app.<your-subdomain>.workers.dev",
             "worker_name": "my-app",
             // Your Cloudflare account id:
-            "account_id": "",                 
-            "worker_dir": ".atoms/worker",
-            "debug_endpoints": false          
+            "account_id": "",
+            "debug_endpoints": false
         },
         // ... additional environments
     },
     "callback_url": {
-        // where your app mounts the callback route (read by `atoms dev` only)
-        "production": "https://example.com/atoms/callback",          
+        // where your app mounts the callback route
+        "production": "https://example.com/atoms/callback",
     }
 }
 ```
 
-The `environments` block configures deploys; `callback_url` is read only by `atoms dev`, which passes it to the local Worker. A deployed Worker gets its callback URL from the `ATOMS_CALLBACK_URL` variable you set with Wrangler — see the [Callbacks guide](/guides/callbacks/#callback-url).
+`callback_url` sets the application's callback endpoint for each environment.
+Both `atoms dev` and `atoms deploy` use it. See [Callback URL](/guides/callbacks/#callback-url)
+for command-line and environment overrides.
 
 ## Next
 

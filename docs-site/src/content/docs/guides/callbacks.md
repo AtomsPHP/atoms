@@ -26,26 +26,44 @@ adapter verifies the signature before your Methods class or job runs. See
 [`docs/shared-secret.md`](https://github.com/AtomsPHP/atoms/blob/main/docs/shared-secret.md)
 for more details.
 
-Set the secret on the Worker with `atoms shared-secret:set`, which reads the
-value from stdin so it never appears in a command line or process listing:
+With your application's shared secret loaded into the shell environment,
+set it on the deployed Worker:
 
 ```bash
-openssl rand -base64 32 | vendor/bin/atoms shared-secret:set --env production
+printf '%s' "$ATOMS_SHARED_SECRET" | vendor/bin/atoms shared-secret:set --env production
 ```
 
-This is the only way to define `ATOMS_SHARED_SECRET` on the Worker; `atoms secrets:set`
-refuses it. See
-[Deploy](/guides/deploy/#configure-callbacks-and-application-secrets) for
-setting the secret from CI.
+See [Deploy](/guides/deploy/#configure-callbacks-and-application-secrets) for
+initial setup and CI configuration.
 
 ## Callback URL
 
-Locally, `atoms dev` sets `ATOMS_CALLBACK_URL` for you from `atoms.json`'s
-`callback_url.<env>`; you can override it with the `--callback-url` flag in the CLI.
+Set the application's callback URL for each environment in `atoms.json`:
 
-For a real Worker, set the variable with Wrangler — `atoms deploy` ignores
-`callback_url`, so an `atoms.json` entry for a deployed environment has no
-effect.
+```json
+{
+    "callback_url": {
+        "staging": "http://127.0.0.1:8000/atoms/callback",
+        "production": "https://example.com/atoms/callback"
+    }
+}
+```
+
+`atoms dev` and `atoms deploy` choose the URL in this order:
+
+1. `--callback-url`;
+2. `ATOMS_CALLBACK_URL` in the process environment;
+3. `callback_url.<env>` in `atoms.json`.
+
+For example, override the production URL for a deployment:
+
+```bash
+vendor/bin/atoms deploy --env production --callback-url https://example.com/atoms/callback
+```
+
+The selected URL is passed to Wrangler as `ATOMS_CALLBACK_URL`, overriding
+the Worker's configured value. If all three sources are empty, Wrangler uses
+the Worker's configuration.
 
 ## Synchronous `app()`
 
