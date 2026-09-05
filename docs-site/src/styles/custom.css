@@ -1,0 +1,72 @@
+:root {
+  /* Official Atoms brand palette (brand/logo/README.md) */
+  --atoms-purple: #7c3aed;
+  --atoms-orange: #ea580c;
+  --atoms-charcoal: #44444b;
+  --atoms-bond: #9a9da5;
+  --atoms-ink: #15161b;
+
+  --sl-color-accent-low: #3c1d17;
+  --sl-color-accent: var(--atoms-orange);
+  --sl-color-accent-high: #ffceb0;
+  --sl-color-white: #f3f1eb;
+  --sl-color-gray-1: #e6e1d8;
+  --sl-color-gray-2: #b8b1a5;
+  --sl-color-gray-3: #827b72;
+  --sl-color-gray-4: #514c47;
+  --sl-color-gray-5: #302d2b;
+  --sl-color-gray-6: #1d1b1a;
+  --sl-color-black: var(--atoms-ink);
+  --sl-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --sl-font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-low: #ffe3da;
+  --sl-color-accent: var(--atoms-orange);
+  --sl-color-accent-high: #7a2c0c;
+  --sl-color-white: var(--atoms-ink);
+  --sl-color-gray-1: #2f2c29;
+  --sl-color-gray-2: #554f49;
+  --sl-color-gray-3: #776f66;
+  --sl-color-gray-4: #aaa197;
+  --sl-color-gray-5: #d8d1c8;
+  --sl-color-gray-6: #ede8e0;
+  --sl-color-gray-7: #f8f5ef;
+  --sl-color-black: #f3f1eb;
+}
+
+.hero {
+  padding-block: clamp(3rem, 10vw, 7rem);
+}
+
+.hero h1 {
+  max-width: 14ch;
+  letter-spacing: -0.045em;
+}
+
+.hero .tagline {
+  max-width: 49rem;
+}
+
+.card {
+  border-radius: 0.75rem;
+}
+
+/* Brand heading typeface — matches the wordmark (brand/logo/README.md) */
+h1, h2, h3, .hero h1, .site-title {
+  font-family: 'Science Gothic', 'Arial Narrow', Arial, sans-serif;
+  font-weight: 350;
+}
+
+.site-title {
+  letter-spacing: -0.025em;
+}
+
+a:focus-visible {
+  outline-color: var(--atoms-purple);
+}
+
+code {
+  font-variant-ligatures: none;
+}

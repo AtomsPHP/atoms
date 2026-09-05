@@ -1,0 +1,23 @@
+{
+  "name": "@atomsphp/docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run generate:errors && astro dev",
+    "generate:errors": "node scripts/generate-errors.mjs",
+    "check:generated": "node scripts/generate-errors.mjs --check",
+    "check": "npm run check:generated && astro check",
+    "build": "npm run check && astro build && node scripts/validate-site.mjs",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.41.3",
+    "astro": "7.2.2",
+    "sharp": "0.35.3"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.10",
+    "typescript": "5.9.2"
+  }
+}

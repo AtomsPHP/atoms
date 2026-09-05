@@ -13,7 +13,7 @@
             "code": "ATOMS-E002",
             "title": "Two files declare the same class",
             "message": "{class} is declared twice under the Atoms path: {first} and {second}.",
-            "fix": "Rename one of the two declarations, or move it to its own namespace. A bundle carries both files, so the guest would fatal at class-declaration time on whichever one loads second.",
+            "fix": "Rename one declaration or move it to another namespace. Loading both declarations causes a PHP fatal error.",
             "severity": "error",
             "phase": "build"
         },
@@ -99,7 +99,7 @@
         },
         {
             "code": "ATOMS-E020",
-            "title": "Boundary type outside the serialization algebra",
+            "title": "Unsupported type in data passed between an Atom and the application",
             "message": "{location} uses type {type}, which cannot cross the Atoms boundary.",
             "fix": "Allowed: scalars, null, arrays of allowed types, Payload DTOs, DateTimeImmutable, backed enums.",
             "severity": "error",
@@ -229,7 +229,7 @@
             "code": "ATOMS-E053",
             "title": "Migration failed at activation",
             "message": "Migration {version} for {type}/{id} failed: {reason}.",
-            "fix": "The Atom stays deactivated. Fix the migration by appending a corrective one — never edit the failed file — and redeploy.",
+            "fix": "The Atom stays deactivated, and the failed migration is rolled back. Resolve the reported cause before retrying activation; later migrations run only after this one succeeds. Keep shipped migrations unchanged. Use a corrective migration for unwanted schema changes that applied successfully.",
             "severity": "error",
             "phase": "runtime"
         },
@@ -253,7 +253,7 @@
             "code": "ATOMS-E062",
             "title": "Capacity refused / rate limited",
             "message": "The platform refused the request: {reason}. Retryable after backoff.",
-            "fix": "The SDK retries automatically where safe. Persistent refusals mean the fleet is at capacity — check the dashboard.",
+            "fix": "The SDK retries automatically where safe. If requests keep failing, inspect the reported reason, Worker logs, and the relevant Cloudflare limits.",
             "severity": "error",
             "phase": "runtime"
         },
@@ -291,9 +291,9 @@
         },
         {
             "code": "ATOMS-E067",
-            "title": "WebSocket ticket acquisition failed",
+            "title": "WebSocket ticket acquisition failed (retired)",
             "message": "Could not acquire a WebSocket connection ticket for {type}/{id}: {reason}.",
-            "fix": "Retired, and kept here so the code still resolves in an older log: the Worker no longer mints tickets over HTTP, so there is nothing left to acquire. The application issues its own tickets locally through Atoms\\Client\\Tickets\\TicketIssuer, signing them with the key derived from ATOMS_SHARED_SECRET. Rejected claims now report ATOMS-E068; a missing or malformed secret reports ATOMS-E105. Whether an atom type is deployed and accepts WebSockets is answered by the upgrade itself, at GET /ws/{type}/{id}.",
+            "fix": "Issue tickets locally with Atoms\\Client\\Tickets\\TicketIssuer. Invalid claims report ATOMS-E068; a missing or malformed shared secret reports ATOMS-E105.",
             "severity": "error",
             "phase": "runtime"
         },
@@ -421,7 +421,7 @@
             "code": "ATOMS-E084",
             "title": "Dispatched job cannot be encoded",
             "message": "{class} cannot be dispatched: {reason}.",
-            "fix": "Pass the constructor arguments to $this->dispatch() as a map keyed by parameter name — ['orderId' => $id], not [$id] — and make sure every value is a serialization-algebra type. An AtomJob's constructor parameters are its dispatch contract and must be promoted public properties, so your app can rebuild it from that map.",
+            "fix": "Pass constructor arguments to $this->dispatch() by parameter name, for example ['orderId' => $id]. Use supported serializable values. Declare the AtomJob constructor parameters as promoted public properties so the application can reconstruct the job.",
             "severity": "error",
             "phase": "runtime"
         },
@@ -452,7 +452,7 @@
         {
             "code": "ATOMS-E101",
             "title": "Sleep called inside Atom code",
-            "message": "{symbol}() is called in {class}, but the Atoms runtime's clock does not advance inside a turn — the call blocks until the turn deadline kills it.",
+            "message": "{symbol}() is called in {class}, but the PHP clock does not advance during CPU work inside a deployed Atom turn. The call can block until the platform resets the Atom for exceeding its CPU limit.",
             "fix": "Delete the sleep. To act later, schedule a timer with $this->timers()->schedule($name, $at) and do the work in onTimer(); to hand work to your app, use $this->dispatch(). Nothing in an Atom may wait on wall-clock time.",
             "severity": "error",
             "phase": "static-analysis"
@@ -484,8 +484,8 @@
         {
             "code": "ATOMS-E105",
             "title": "Shared secret missing or malformed",
-            "message": "ATOMS_SHARED_SECRET is missing, or does not decode to exactly 32 bytes of base64.",
-            "fix": "Generate one with `openssl rand -base64 32` and configure the identical value on the app and the Worker (`wrangler secret put ATOMS_SHARED_SECRET`). The secret itself is never transmitted: clients authenticate with the bearer derived from it (`atoms token` prints it). ATOMS_SHARED_SECRET_PREVIOUS, when set for rotation, must satisfy the same format.",
+            "message": "ATOMS_SHARED_SECRET is missing or is not a base64-encoded value that decodes to exactly 32 bytes.",
+            "fix": "Generate one value with `openssl rand -base64 32` and configure it on the application and Worker (`atoms shared-secret:set` reads it from stdin). Use `atoms token` to derive the bearer token for requests. ATOMS_SHARED_SECRET_PREVIOUS uses the same format.",
             "severity": "error",
             "phase": "runtime"
         },

@@ -31,6 +31,7 @@ reason the Cloudflare runtime can claim the real API runs inside the guest.
 | Re-verified | 2026-08-31, on the terminology pivot from "World A"/"World B" to "Atom-side"/"App-side" — `Atom.php`, `AtomJob.php`, `AtomMethods.php` and `resources/errors.json` re-vendored (docblocks reworded; E001, E012 and E016 fix lines reworded to the new terms). Comment- and message-only; no signature changed. Still 24 files total, the other 20 digests are unchanged |
 | Re-verified | 2026-08-31, on the "ABI" → "API" terminology change — `Atom.php`, `Database.php` and `Migrations/MigrationEntry.php` re-vendored (docblocks reworded; the frozen surface is a source-level API, not a binary one). Comment-only; no signature changed. Still 24 files total, the other 21 digests are unchanged |
 | Re-verified | 2026-09-04, on the committed Worker directory — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E108 added: Worker directory does not match the CLI release, raised by the CLI's deploy/dev skew check against the directory's `atoms-runtime.json` stamp; E073 and E076 fix lines reworded to name the committed `atoms-worker/` directory). Nothing in the guest raises it; the copy carries them because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
+| Re-verified | 2026-09-05, on the documentation wording pass — `resources/errors.json` re-vendored with E002/E020/E053/E062/E067/E084/E101/E105 reworded; byte-identical to `packages/core/resources/errors.json`, with the digest below refreshed. |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -127,7 +128,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
 a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
 b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
-a6be81314368c67d43ac85d15e2c530774c12945ed480dd5643da4da01e731eb  resources/errors.json
+7def654248dd68b2892c36bdce6307002cc3ad0568030c269280287751daa082  resources/errors.json
 ```
 
 Verify with, from this directory:
