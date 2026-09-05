@@ -184,10 +184,10 @@ function checkRelease(string $root): void
         $errors[] = "CHANGELOG.md has no {$version} entry";
     }
 
-    $compatibilityPath = "{$root}/site/src/content/docs/reference/compatibility.md";
-    if (is_file($compatibilityPath)
-        && (string) file_get_contents($compatibilityPath) !== renderCompatibility($manifest)) {
-        $errors[] = 'the generated compatibility page is stale; run the release generator';
+    $compatibilityPath = "{$root}/docs-site/src/content/docs/reference/compatibility.md";
+    if (!is_file($compatibilityPath)
+        || (string) file_get_contents($compatibilityPath) !== renderCompatibility($manifest)) {
+        $errors[] = 'the generated compatibility page is missing or stale; run the release generator';
     }
 
     $errors = array_merge(
@@ -218,6 +218,11 @@ function validateCurrentReleaseReferences(string $root, string $version, string 
     foreach (PACKAGE_NAMES as $packageName) {
         $relativePaths[] = 'packages/' . packageSlug($packageName) . '/README.md';
     }
+    // The published docs quote install commands, the runtime package and the
+    // Action tag as much as the READMEs do, so they drift the same way. Walk
+    // the whole content tree rather than a hand-kept list: a page added after
+    // this release still gets checked.
+    $relativePaths = array_merge($relativePaths, markdownFilesUnder($root, 'docs-site/src/content/docs'));
     $errors = [];
 
     foreach ($relativePaths as $relativePath) {
@@ -248,6 +253,39 @@ function validateCurrentReleaseReferences(string $root, string $version, string 
     return $errors;
 }
 
+/**
+ * Every Markdown page under a directory, as repository-relative paths, sorted
+ * so the error list is stable.
+ *
+ * @return list<string>
+ */
+function markdownFilesUnder(string $root, string $relativeDirectory): array
+{
+    $directory = "{$root}/{$relativeDirectory}";
+    if (!is_dir($directory)) {
+        return [];
+    }
+
+    $paths = [];
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS));
+    foreach ($files as $file) {
+        if (!$file instanceof SplFileInfo || !$file->isFile()) {
+            continue;
+        }
+        if (!in_array(strtolower($file->getExtension()), ['md', 'mdx'], true)) {
+            continue;
+        }
+        $paths[] = $relativeDirectory . '/' . str_replace(
+            DIRECTORY_SEPARATOR,
+            '/',
+            substr($file->getPathname(), strlen($directory) + 1),
+        );
+    }
+    sort($paths);
+
+    return $paths;
+}
+
 function generateReleaseArtifacts(string $root): void
 {
     $manifest = readJson("{$root}/release/manifest.json");
@@ -268,10 +306,8 @@ function generateReleaseArtifacts(string $root): void
         writeTextAtomically($supportedCoreStamp, stringValue(arrayValue($manifest, 'core'), 'supported') . "\n");
     }
 
-    $compatibilityPath = "{$root}/site/src/content/docs/reference/compatibility.md";
-    if (is_file($compatibilityPath)) {
-        writeTextAtomically($compatibilityPath, renderCompatibility($manifest));
-    }
+    $compatibilityPath = "{$root}/docs-site/src/content/docs/reference/compatibility.md";
+    writeTextAtomically($compatibilityPath, renderCompatibility($manifest));
 
     fwrite(STDOUT, "Generated release-owned compatibility artifacts.\n");
 }
@@ -385,10 +421,8 @@ function setReleaseVersion(string $root, string $version, string $status): void
         writeTextAtomically($changelogPath, $changelog);
     }
 
-    $compatibilityPath = "{$root}/site/src/content/docs/reference/compatibility.md";
-    if (is_file($compatibilityPath)) {
-        writeTextAtomically($compatibilityPath, renderCompatibility($manifest));
-    }
+    $compatibilityPath = "{$root}/docs-site/src/content/docs/reference/compatibility.md";
+    writeTextAtomically($compatibilityPath, renderCompatibility($manifest));
 
     fwrite(STDOUT, "Coordinated version set to {$version} ({$status}). Run the release check before committing.\n");
 }
@@ -552,6 +586,7 @@ Atoms releases its PHP packages, Worker runtime, and deployment Action as one co
 |---|---|
 | `atoms/core` | `{$core['supported']}` frozen, additive API |
 | `atoms/client`, adapters, testing, rules, CLI | `{$core['supported']}` |
+| `atoms/database-illuminate` | `{$core['supported']}`, installed Atom-side through `atoms-composer.json` |
 | `{$runtime['package']}` | `{$runtime['version']}`, co-versioned with the release |
 | Deploy Action | immutable `AtomsPHP/atoms/action@v{$version}` |
 | Host PHP | `{$php['constraint']}`; tested on {$testedPhp} |
@@ -559,11 +594,16 @@ Atoms releases its PHP packages, Worker runtime, and deployment Action as one co
 | Node.js | {$runtime['node']} |
 | Wrangler | {$runtime['wrangler']} (exact runtime-template pin) |
 
-Use matching {$releaseLine} release artifacts. The CLI stamps the core API version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043) instead of attempting to run it.
+Use matching {$releaseLine} release artifacts. The CLI stamps the core API version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043).
 
-The runtime scaffold command printed by `atoms init` and used by the deploy Action is generated from the same release manifest as the tag. It is not an independently moving “latest” dependency.
+`atoms-worker/atoms-runtime.json` must name the exact same
+release as the CLI. `atoms dev` and `atoms deploy` check it before building
+and report [ATOMS-E108](/reference/errors/#atoms-e108) for a missing stamp or
+version mismatch. Follow [Upgrade the runtime](/guides/deploy/#upgrade-the-runtime)
+after updating the PHP packages.
 
 Pre-1.0 APIs outside `atoms/core` may change between minor versions. Package patch releases remain within the declared Composer constraints; use lockfiles for repeatable application and Worker installs.
+
 MARKDOWN;
 }
 
