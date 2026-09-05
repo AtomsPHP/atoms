@@ -3,8 +3,7 @@ title: Configuration
 description: The files that configure an Atoms project, what an environment is, and every atoms.json key.
 ---
 
-Four files configure an Atoms project, and the most common mistake is putting a
-setting in the wrong one:
+Four files configure an Atoms project, each owning a different part of it:
 
 | File | Committed | Configures |
 |---|---|---|
