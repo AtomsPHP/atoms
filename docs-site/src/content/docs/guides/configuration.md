@@ -3,17 +3,20 @@ title: Configuration
 description: The files that configure an Atoms project, what an environment is, and every atoms.json key.
 ---
 
-Four files configure an Atoms project, each owning a different part of it:
+Three committed files configure an Atoms project:
 
-| File | Committed | Configures |
-|---|---|---|
-| `atoms.json` | yes | The project itself: where your Atom code lives, and one entry per environment you deploy to |
-| `atoms-composer.json` | yes | The Composer packages that ship *inside* the Atom |
-| `atoms-worker/wrangler.jsonc` | yes | Cloudflare's view of the Worker: routes, custom domains, logging, runtime vars |
-| Your application's own config | — | How your app *calls* a deployed Worker — see [Laravel](/getting-started/laravel/) or [Symfony](/getting-started/symfony/) |
+| File | Configures |
+|---|---|
+| `atoms.json` | The project itself: where your Atom code lives, and one entry per environment you deploy to |
+| `atoms-composer.json` | The Composer packages that ship *inside* the Atom |
+| `atoms-worker/wrangler.jsonc` | Cloudflare's view of the Worker: routes, custom domains, logging, runtime vars |
 
 `vendor/bin/atoms init` writes the first two. The Worker scaffold command it
 prints writes the third.
+
+How your application *calls* a deployed Worker is configured in the application
+itself, not here — see [Laravel](/getting-started/laravel/) or
+[Symfony](/getting-started/symfony/).
 
 ## Environments
 
