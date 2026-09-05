@@ -5,6 +5,12 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+- **Removed:** the `Idempotency-Key` request header and the `idempotencyKey`
+  and `traceparent` fields of `Atoms\Client\CallOptions`. The Worker never
+  read the key, so it promised de-duplication that did not exist; the per-call
+  `traceparent` override had no consumer either. `CallOptions` now carries
+  only `retryTurnDeadline`. The client-wide `traceparent` header and
+  `AtomsClient::setTraceparent()` are unchanged.
 - **Changed:** the Worker directory is now a **committed** part of your
   repository, at `atoms-worker/` beside `atoms.json`, instead of a gitignored
   `.atoms/worker` regenerated per checkout. Edits to its `wrangler.jsonc` are

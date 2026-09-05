@@ -185,7 +185,7 @@ final class AtomsClient
      *                                     return type, the result is denormalized to that type.
      * @param bool              $retryTurnDeadline Kept separate from $options: renaming or retyping it
      *                                             would break existing named-argument callers.
-     * @param CallOptions|null  $options  When given, wins for every field it carries.
+     * @param CallOptions|null  $options  When given, its `retryTurnDeadline` wins over the positional one.
      */
     public function call(
         string $type,
@@ -214,12 +214,7 @@ final class AtomsClient
 
         $request = $this->baseRequest('POST', $uri)
             ->withHeader('Content-Type', 'application/json')
-            ->withHeader('Idempotency-Key', $options->idempotencyKey ?? bin2hex(($this->idGenerator)(16)))
             ->withBody($this->streamFactory->createStream($body));
-
-        if ($options !== null && $options->traceparent !== null) {
-            $request = $request->withHeader('traceparent', $options->traceparent);
-        }
 
         $decoded = $this->execute($request, $retryTurnDeadline, [
             'type' => $type,

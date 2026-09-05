@@ -82,7 +82,7 @@ final class AtomsClientTest extends TestCase
         self::assertSame('https://atoms.example.workers.dev/invoke/GameRoom/g-1/ping', (string) $req->getUri());
         self::assertSame(self::BEARER, $req->getHeaderLine('Authorization'));
         self::assertSame('application/json', $req->getHeaderLine('Content-Type'));
-        self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $req->getHeaderLine('Idempotency-Key'));
+        self::assertFalse($req->hasHeader('Idempotency-Key'), 'the runtime never read it, so it is not sent');
         self::assertMatchesRegularExpression('/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/', $req->getHeaderLine('traceparent'));
         self::assertSame('', $req->getHeaderLine('X-Atoms-Manifest-Hash'));
         self::assertSame('{"args":[]}', (string) $req->getBody());
@@ -96,24 +96,6 @@ final class AtomsClientTest extends TestCase
         $client->call('GameRoom', 'g-1', 'push', [['a', 1], 42]);
 
         self::assertSame('{"args":[["a",1],42]}', (string) $this->http->lastRequest()->getBody());
-    }
-
-    public function testIdempotencyKeyStableAcrossRetries(): void
-    {
-        $client = $this->client();
-        $this->http
-            ->queueJson(503, ['error' => ['code' => 'capacity_refused', 'message' => 'busy', 'retryable' => true]])
-            ->queueJson(200, ['result' => 'ok']);
-
-        $result = $client->call('GameRoom', 'g-1', 'ping');
-
-        self::assertSame('ok', $result);
-        self::assertCount(2, $this->http->requests);
-        $first = $this->http->requests[0]->getHeaderLine('Idempotency-Key');
-        $second = $this->http->requests[1]->getHeaderLine('Idempotency-Key');
-        self::assertNotSame('', $first);
-        self::assertSame($first, $second);
-        self::assertSame([50], $this->sleeps, 'one backoff sleep of base ms');
     }
 
     public function testRetryAfterHonoredOn429(): void
@@ -656,21 +638,6 @@ final class AtomsClientTest extends TestCase
         $this->expectException(TurnDeadlineExceeded::class);
 
         $client->get(GameRoom::class, 'g-1')->ping();
-    }
-
-    public function testCallOptionsCarryAnIdempotencyKeyAndTraceparent(): void
-    {
-        $client = $this->client();
-        $this->http->queueJson(200, ['result' => 'ok']);
-
-        $client->get(GameRoom::class, 'g-1', new CallOptions(
-            idempotencyKey: 'order-42',
-            traceparent: '00-11111111111111111111111111111111-2222222222222222-01',
-        ))->ping();
-
-        $request = $this->http->lastRequest();
-        self::assertSame('order-42', $request->getHeaderLine('Idempotency-Key'));
-        self::assertSame('00-11111111111111111111111111111111-2222222222222222-01', $request->getHeaderLine('traceparent'));
     }
 
     public function testReadingAPropertyThroughTheProxyIsALoudError(): void

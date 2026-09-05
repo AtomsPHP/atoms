@@ -240,7 +240,6 @@ decisions below.
   always sends a bearer. `ATOMS_BEARER_AUTH=disabled` on the Worker skips the
   comparison; it does not change what the client sends.
 - Additive headers we send (allowed within v1):
-  - `Idempotency-Key: <32 hex chars>` — stable across retries of one logical call.
   - `X-Atoms-Manifest-Hash: <sha256>` — manifest hash the monolith was built
     against (omitted when no local manifest is present).
   - `traceparent` — W3C trace context, generated if absent.
