@@ -42,7 +42,7 @@ To use Eloquent inside your Atom (with Atom-specific models only!), you need to 
 Add the static rules that protect the PHP↔Worker boundary:
 
 ```bash
-composer require --dev atoms/phpstan-rules:^0.5
+composer require --dev atoms/phpstan-rules:^0.6
 ```
 
 Then include its configuration from your PHPStan config:
@@ -61,7 +61,7 @@ vendor/bin/atoms init
 The `init` command creates `atoms.json` and `atoms-composer.json`. It also prints a command that scaffolds the matching version of the Cloudflare Worker runtime:
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.6.0 -- \
   atoms-runtime-cloudflare init atoms-worker
 cd atoms-worker
 npm ci

@@ -6,7 +6,7 @@ lifecycle hooks, serialization, `app()`, jobs, broadcasts, WebSockets, and
 timers using the same `atoms/core` contracts as the deployed runtime.
 
 ```sh
-composer require --dev atoms/testing:^0.5
+composer require --dev atoms/testing:^0.6
 ```
 
 See the [Atoms documentation](https://docs.atomsphp.dev) for local testing

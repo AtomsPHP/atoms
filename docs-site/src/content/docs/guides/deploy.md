@@ -94,10 +94,10 @@ calls them. To move a Worker back to an earlier version, see
 ## Upgrade the runtime
 
 When updating your Atoms PHP packages, upgrade the Worker runtime
-to the matching release. For the 0.5.0 release:
+to the matching release. For the 0.6.0 release:
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.5.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.6.0 -- \
   atoms-runtime-cloudflare upgrade atoms-worker
 cd atoms-worker
 npm ci
@@ -125,7 +125,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms/action@v0.5.0
+      - uses: AtomsPHP/atoms/action@v0.6.0
         with:
           environment: production
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}

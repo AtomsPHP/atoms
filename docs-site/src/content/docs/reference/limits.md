@@ -40,7 +40,7 @@ On the deployed runtime, the PHP clock does not advance during CPU work or synch
 Install the PHPStan rules:
 
 ```bash
-composer require --dev atoms/phpstan-rules:^0.5
+composer require --dev atoms/phpstan-rules:^0.6
 ```
 
 ```text
@@ -89,6 +89,6 @@ PHP and the Worker share the available runtime memory. Process large results in 
 ## Data recovery and billing
 
 See [Rollback](/guides/rollback/#data-recovery) for data recovery limitations.
-Atoms 0.5 requires the Workers Paid plan. See
+Atoms 0.6 requires the Workers Paid plan. See
 [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/)
 for billing details.

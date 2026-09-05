@@ -1,23 +1,23 @@
 ---
 title: Compatibility
-description: The coordinated versions and supported host toolchain for Atoms 0.5.
+description: The coordinated versions and supported host toolchain for Atoms 0.6.
 ---
 
 Atoms releases its PHP packages, Worker runtime, and deployment Action as one compatible line.
 
-| Component | 0.5 support |
+| Component | 0.6 support |
 |---|---|
-| `atoms/core` | `^0.5` frozen, additive API |
-| `atoms/client`, adapters, testing, rules, CLI | `^0.5` |
-| `atoms/database-illuminate` | `^0.5`, installed Atom-side through `atoms-composer.json` |
-| `@atomsphp/runtime-cloudflare` | `0.5.0`, co-versioned with the release |
-| Deploy Action | immutable `AtomsPHP/atoms/action@v0.5.0` |
+| `atoms/core` | `^0.6` frozen, additive API |
+| `atoms/client`, adapters, testing, rules, CLI | `^0.6` |
+| `atoms/database-illuminate` | `^0.6`, installed Atom-side through `atoms-composer.json` |
+| `@atomsphp/runtime-cloudflare` | `0.6.0`, co-versioned with the release |
+| Deploy Action | immutable `AtomsPHP/atoms/action@v0.6.0` |
 | Host PHP | `^8.3`; tested on PHP 8.3 and PHP 8.4 |
 | Guest PHP | PHP 8.3 WebAssembly |
 | Node.js | 22 |
 | Wrangler | 4.118.0 (exact runtime-template pin) |
 
-Use matching 0.5 release artifacts. The CLI stamps the core API version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043).
+Use matching 0.6 release artifacts. The CLI stamps the core API version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043).
 
 `atoms-worker/atoms-runtime.json` must name the exact same
 release as the CLI. `atoms dev` and `atoms deploy` check it before building
