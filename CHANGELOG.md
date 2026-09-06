@@ -5,15 +5,17 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
-- **Changed:** named deployments take `callback_url.<env>` from `atoms.json`.
-  `atoms deploy --callback-url` is removed. To supply a URL from CI, commit a
+- **Changed:** named deployments take `callback_url.<env>` from `atoms.json`
+  in preference to the environment. To supply a URL from CI, commit a
   whole-value reference such as `"${ATOMS_CALLBACK_URL}"`; an unset or empty
   referenced variable fails with `ATOMS-E070` before the build. A conflicting
   ambient `ATOMS_CALLBACK_URL` also fails instead of replacing the file.
-  `atoms dev` still accepts a local URL from its flag or environment, but
-  those two values must agree if both are supplied; otherwise the file is
-  the fallback. Builds and operational commands do not resolve callback
-  references.
+  `--callback-url` still overrides the file, on `deploy` as well as `dev`: a
+  flag is a decision made for one invocation, an exported variable is ambient
+  state, and only the former outranks a committed value — the same split
+  `terraform -var`, Pulumi's flags and `wrangler --var` make. Resolution is
+  flag, then `ATOMS_CALLBACK_URL` (local `dev` only), then the file. Builds and
+  operational commands do not resolve callback references.
 - **Changed:** every configured environment must declare a non-empty
   `worker_name`; it no longer falls back to `project`. `account_id` still
   falls back to `CLOUDFLARE_ACCOUNT_ID` when absent, but disagreement now

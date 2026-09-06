@@ -50,15 +50,20 @@ in the committed file:
 { "callback_url": { "production": "${ATOMS_CALLBACK_URL}" } }
 ```
 
-Deployment intentionally has one callback authority: the selected
-`callback_url.<name>` entry. `atoms deploy` has no
-`--callback-url` option and does not use `ATOMS_CALLBACK_URL` as a fallback. If
-the ambient variable is present, it must agree with the literal or resolved
-file value; an ambient value with no file declaration is an error. Local dev
-has a separate rule: `--callback-url` and `ATOMS_CALLBACK_URL` are local
-sources and must agree when both are present, while either may intentionally
-differ from the file value (for example, a developer tunnel). If neither local
-source is supplied, dev falls back to the selected environment's file value.
+Deployment has one *ambient* callback authority: the selected
+`callback_url.<name>` entry. `atoms deploy` does not use `ATOMS_CALLBACK_URL`
+as a fallback; if the ambient variable is present it must agree with the
+literal or resolved file value, and an ambient value with no file declaration
+is an error.
+
+`--callback-url` sits above both, on `deploy` as well as `dev`. The distinction
+is deliberate and matches `terraform -var`, Pulumi's flags and
+`wrangler --var`: typing a flag is a decision made for one invocation and is
+visible in the command that made it, while an exported variable is ambient
+state that survives between commands and belongs to no particular one. Only the
+former may override a committed value. When the flag is supplied it settles the
+matter, and no agreement check runs. If no flag is given, dev falls back to
+`ATOMS_CALLBACK_URL` and then to the selected environment's file value.
 
 The account id follows the same explicit target model. A non-empty
 `account_id` in the selected environment is used; an empty one falls back to
@@ -72,14 +77,13 @@ an unverified URL.
 ### Migration from the former configuration authority
 
 Keep callback declarations in the top-level `callback_url.<env>` map. Deploy
-now treats that file value as authoritative: remove `--callback-url` from
-deploy scripts, and remove any ambient `ATOMS_CALLBACK_URL` fallback. An
-ambient value may remain as a checked copy of the literal or resolved file
-value; a different value, or an ambient value with no file declaration, is
-**ATOMS-E070**. For local `dev`, `--callback-url` and ambient
-`ATOMS_CALLBACK_URL` are local sources that must agree when both are supplied;
-either may differ from the file value, and the file is used only when neither
-local source is present.
+now treats that file value as authoritative against the *environment*: remove
+any reliance on an ambient `ATOMS_CALLBACK_URL` fallback. An ambient value may
+remain as a checked copy of the literal or resolved file value; a different
+value, or an ambient value with no file declaration, is **ATOMS-E070**.
+`--callback-url` still overrides the file on both `deploy` and `dev`, so deploy
+scripts that pass it explicitly keep working. For local `dev` the order is
+flag, then ambient `ATOMS_CALLBACK_URL`, then the file value.
 
 Remove `endpoint` from `atoms.json` when convenient; it remains tolerated and
 ignored. Put the Worker URL in the monolith's `ATOMS_ENDPOINT` setting. Add a
@@ -455,14 +459,13 @@ travel to the Worker by two different, deliberately asymmetric paths
   `--var ATOMS_CALLBACK_URL:<url>`. `ATOMS_CALLBACK_URL` in the deploy
   process's environment is an agreement check, never a fallback; a differing
   value, or an ambient value with no file declaration, is
-  **ATOMS-E070**. `atoms deploy` has no `--callback-url` option. When the file
-  entry is absent and no ambient value is supplied, deploy warns that
-  `app()`/`dispatch()` are unavailable and forwards no callback variable.
-  `atoms dev` keeps `--callback-url` for a local source and also accepts the
-  ambient variable. Those two local sources must agree when both are present;
-  either may differ from the selected file value, which makes a developer
-  tunnel possible. If neither is supplied, dev uses the file value when one is
-  configured. All
+  **ATOMS-E070**. `--callback-url` overrides the file on both commands and
+  suppresses that check, because a flag is a per-invocation decision rather
+  than ambient state. When the file entry is absent and nothing else supplies
+  one, deploy warns that `app()`/`dispatch()` are unavailable and forwards no
+  callback variable. `atoms dev` resolves the flag, then the ambient variable,
+  then the file value, so a developer tunnel needs no change to the committed
+  file. All
   values are validated by the Worker as HTTPS or an HTTP loopback URL.
   Resolution happens only for
   the selected environment when the target command runs, never during build.
@@ -880,10 +883,9 @@ Nothing in this sequence contacts a service operated by Atoms.
   selected `callback_url.<env>` file entry, when present, and passes it to the
   Worker as an `ATOMS_CALLBACK_URL` var. A differing ambient value, or an
   ambient value with no file entry, is **ATOMS-E070**; with neither source,
-  deploy warns and sends no callback var. Dev allows `--callback-url` or the
-  ambient variable as local sources, requires those two sources to agree, and
-  uses the file entry only when neither is supplied. A local source may differ
-  from the file value, which supports a developer tunnel. The Worker half is
+  deploy warns and sends no callback var. `--callback-url` overrides the file
+  on both commands. Dev resolves the flag, then the ambient variable, then the
+  file entry, which supports a developer tunnel without editing the file. The Worker half is
   real: `Atom::app()`/`dispatch()` call back through it
   (`cloudflare/docs/runtime-spec.md` §The callback channel). `DevCommand`
   provisions the Worker project's `.dev.vars` with a per-machine

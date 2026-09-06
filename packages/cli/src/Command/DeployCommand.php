@@ -26,7 +26,9 @@ use Symfony\Component\Console\Output\OutputInterface;
  * and `callback_url.<env>` — ride along as `wrangler deploy --var`, the same
  * way `atoms dev` forwards them. The file is authoritative for deployment;
  * an explicit ${VARIABLE} reference can read CI's environment. A conflicting
- * ambient callback is refused before building or staging. It is not a secret,
+ * ambient callback is refused before building or staging — but `--callback-url`
+ * overrides the file, because typing a flag is a deliberate act for this one
+ * invocation while an exported variable is not. It is not a secret,
  * so argv is a fine road for it; `ATOMS_SHARED_SECRET` is not forwarded here
  * and never will be — that is `atoms shared-secret:set`.
  */
@@ -48,6 +50,7 @@ final class DeployCommand extends AbstractCommand
         $this->addOption('bundle', null, InputOption::VALUE_REQUIRED, 'Deploy a prebuilt bundle instead of building');
         $this->addOption('manifest', null, InputOption::VALUE_REQUIRED, 'Manifest for --bundle (default: manifest.json beside it)');
         $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (default: atoms-worker)');
+        $this->addOption('callback-url', null, InputOption::VALUE_REQUIRED, 'Override this deployment\'s callback URL (beats atoms.json and the environment)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -66,6 +69,7 @@ final class DeployCommand extends AbstractCommand
                 $env,
                 null,
                 self::stringOption($input, 'worker-dir'),
+                self::stringOption($input, 'callback-url'),
             );
 
             // Before the build, not after it: a Worker directory that is

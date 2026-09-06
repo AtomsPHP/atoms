@@ -292,8 +292,8 @@ final class DevCommandTest extends TestCase
 
     /**
      * Local development may use a machine-specific callback URL. A local flag
-     * and environment value are both accepted when they agree, and the file
-     * callback remains the fallback when neither local source is present.
+     * and environment value are both accepted; the flag wins when both are
+     * present, and the file callback remains the fallback when neither is.
      */
     public function testLocalCallbackUrlUsesFlagOrEnvironmentAndAgreesWhenBothAreSet(): void
     {
@@ -314,6 +314,8 @@ final class DevCommandTest extends TestCase
                 $tester->getDisplay(),
             );
 
+            // The flag outranks the ambient value rather than conflicting with
+            // it: one is a deliberate act for this run, the other is not.
             $wrangler = new FakeWrangler();
             $tester = new CommandTester(new DevCommand($wrangler, processRunner: new FakeProcessRunner()));
             $tester->execute([
@@ -324,9 +326,11 @@ final class DevCommandTest extends TestCase
                 '--callback-url' => 'http://127.0.0.1:8000/atoms/callback',
             ]);
 
-            self::assertSame(1, $tester->getStatusCode());
-            self::assertStringContainsString('ATOMS-E070', $tester->getDisplay());
-            self::assertSame([], $wrangler->calls, 'conflicting local sources fail before Wrangler');
+            self::assertSame(0, $tester->getStatusCode(), $tester->getDisplay());
+            self::assertSame(
+                [DevCommand::CALLBACK_VAR => 'http://127.0.0.1:8000/atoms/callback'],
+                $wrangler->lastCall('dev')['args']['vars'],
+            );
 
             $wrangler = new FakeWrangler();
             $tester = new CommandTester(new DevCommand($wrangler, processRunner: new FakeProcessRunner()));
@@ -349,23 +353,24 @@ final class DevCommandTest extends TestCase
 
     public function testLocalCallbackConfigurationFailureHappensBeforeDevSecretProvisioning(): void
     {
-        putenv(DevCommand::CALLBACK_VAR . '=https://ambient.example.test/callback');
+        // A malformed reference is a file-shape error and still fails locally,
+        // which is what keeps this ordering guarantee testable now that a flag
+        // and an ambient value no longer conflict.
         $dir = $this->workerDir();
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        $config['callback_url']['production'] = 'https://${HOST}/atoms/callback';
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
         $runner = new FakeProcessRunner();
         $wrangler = new FakeWrangler();
         $tester = new CommandTester(new DevCommand($wrangler, processRunner: $runner));
 
-        try {
-            $exit = $tester->execute([
-                '--root' => $this->fixtureDir('sample-app'),
-                '--env' => 'production',
-                '--worker-dir' => $dir,
-                '--no-build' => true,
-                '--callback-url' => 'https://flag.example.test/callback',
-            ]);
-        } finally {
-            putenv(DevCommand::CALLBACK_VAR);
-        }
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'production',
+            '--worker-dir' => $dir,
+            '--no-build' => true,
+        ]);
 
         self::assertSame(1, $exit);
         self::assertStringContainsString('ATOMS-E070', $tester->getDisplay());

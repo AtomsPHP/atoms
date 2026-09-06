@@ -273,17 +273,17 @@ final class CloudflareTarget
     ): ?string {
         $flag = self::firstNonEmpty($callbackUrl);
         $shell = self::env(self::CALLBACK_VAR);
-        if ($local) {
-            if ($flag !== null && $shell !== null && $flag !== $shell) {
-                throw self::invalid('--callback-url conflicts with ATOMS_CALLBACK_URL; '
-                    . 'unset the environment variable or make the values agree');
-            }
-            if ($flag !== null || $shell !== null) {
-                return $flag ?? $shell;
-            }
-        } elseif ($flag !== null) {
-            throw self::invalid('--callback-url is only supported by atoms dev; '
-                . 'set callback_url.' . $environment . ' in atoms.json');
+
+        // An explicit flag is the operator's final say and outranks both the
+        // file and the environment, the way `terraform -var`, `pulumi`'s flags
+        // and `wrangler --var` do. Typing it is a deliberate act for this one
+        // invocation; ambient state is not, which is why only the flag may
+        // override the file and a stray ATOMS_CALLBACK_URL still may not.
+        if ($flag !== null) {
+            return $flag;
+        }
+        if ($local && $shell !== null) {
+            return $shell;
         }
 
         // A whitespace-only literal means the same as an empty one: no callback

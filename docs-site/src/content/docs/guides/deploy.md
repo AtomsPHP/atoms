@@ -27,9 +27,10 @@ optional `callback_url.<name>` entry in the top-level `callback_url` map is the
 only callback declaration used by deploy. A whole-value `${ENV_VAR}` reference
 is expanded when the selected deploy runs; an unset or empty reference is
 ATOMS-E070. A missing or empty literal means callbacks are unavailable, so
-deploy warns and sends no callback variable. `--callback-url` is a local `dev`
-option only. If `ATOMS_CALLBACK_URL` is present during deploy, it must agree
-with the file value and is never a fallback.
+deploy warns and sends no callback variable. If `ATOMS_CALLBACK_URL` is present
+during deploy, it must agree with the file value and is never a fallback —
+but `--callback-url` overrides the file outright, because a flag is a decision
+made for one invocation while an exported variable is ambient state.
 
 ## Authenticate with Cloudflare
 

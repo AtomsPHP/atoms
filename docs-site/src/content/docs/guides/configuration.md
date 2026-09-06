@@ -127,7 +127,7 @@ output and any values configured directly in its Worker project.
 |---|---|---|---|
 | `atoms build` | Build | Project paths, PHP version, Atom dependencies; validates environment shape | It does not select an environment or resolve callback/account values |
 | `atoms dev` | Before starting local Wrangler | Selected `worker_name`, `account_id`, `debug_endpoints`, and callback sources | It does not require the deploy callback source to match a local override |
-| `atoms deploy` | Before staging the selected target | Selected `worker_name`, `account_id`, optional file callback, and runtime vars | It does not accept `--callback-url` or fall back to an ambient callback URL |
+| `atoms deploy` | Before staging the selected target | Selected `worker_name`, `account_id`, optional file callback, and runtime vars | It does not fall back to an ambient callback URL; only `--callback-url` overrides the file |
 | `atoms status` / `rollback` / secrets | Before invoking Wrangler | Selected `worker_name` and account target | Status does not claim an endpoint URL |
 | Wrangler | `dev` or deploy invocation | Its own Worker project, command-line vars, credentials, and config | It does not choose the Atoms environment |
 | Deployed Worker | Request and callback handling | Deployed vars/secrets, including `ATOMS_CALLBACK_URL`, and the bundle manifest | It does not read `atoms.json` or the monolith's environment |

@@ -195,11 +195,11 @@ final class DeployCommandTest extends TestCase
         self::assertSame([], $wrangler->calls);
     }
 
-    public function testDeployNoLongerAcceptsCallbackUrlOption(): void
+    public function testDeployAcceptsCallbackUrlAsTheOperatorsFinalSay(): void
     {
         $command = new DeployCommand(new FakeWrangler(), $this->stager());
 
-        self::assertFalse($command->getDefinition()->hasOption('callback-url'));
+        self::assertTrue($command->getDefinition()->hasOption('callback-url'));
     }
 
     /**

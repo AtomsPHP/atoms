@@ -324,15 +324,33 @@ final class CloudflareTargetTest extends TestCase
         CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
     }
 
-    public function testDeploymentCallbackFlagIsRejected(): void
+    public function testDeploymentCallbackFlagOverridesTheFile(): void
     {
-        $this->expectException(AtomsError::class);
-        $this->expectExceptionMessageMatches('/ATOMS-E070.*callback-url.*atoms dev/s');
-        CloudflareTarget::resolve(
+        // Typing the flag is a deliberate act scoped to one invocation, so it
+        // is the operator's final say — as with `terraform -var` and
+        // `wrangler --var`. Ambient state gets no such privilege.
+        $target = CloudflareTarget::resolve(
             $this->sampleApp(),
             'production',
             callbackUrl: 'https://flag.example.test/callback',
         );
+
+        self::assertSame('https://flag.example.test/callback', $target->callbackUrl);
+    }
+
+    public function testDeploymentCallbackFlagAlsoOutranksAnAmbientValue(): void
+    {
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://ambient.example.test/callback');
+
+        $target = CloudflareTarget::resolve(
+            $this->sampleApp(),
+            'production',
+            callbackUrl: 'https://flag.example.test/callback',
+        );
+
+        // Without the flag this same environment is a hard conflict; the flag
+        // resolves it rather than compounding it.
+        self::assertSame('https://flag.example.test/callback', $target->callbackUrl);
     }
 
     public function testCallbackResolutionCanBeSkippedForOperationalTargets(): void
@@ -371,18 +389,18 @@ final class CloudflareTargetTest extends TestCase
         self::assertSame('https://local.example.test/callback', $target->callbackUrl);
     }
 
-    public function testLocalCallbackFlagAndEnvironmentMustAgree(): void
+    public function testLocalCallbackFlagOutranksTheEnvironment(): void
     {
         putenv(CloudflareTarget::CALLBACK_VAR . '=https://env.example.test/callback');
 
-        $this->expectException(AtomsError::class);
-        $this->expectExceptionMessageMatches('/ATOMS-E070.*callback-url.*ATOMS_CALLBACK_URL/s');
-        CloudflareTarget::resolve(
+        $target = CloudflareTarget::resolve(
             $this->sampleApp(),
             'production',
             callbackUrl: 'https://flag.example.test/callback',
             local: true,
         );
+
+        self::assertSame('https://flag.example.test/callback', $target->callbackUrl);
     }
 
     public function testLocalWithoutFlagOrEnvironmentFallsBackToTheFileIncludingIndirection(): void

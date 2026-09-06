@@ -54,7 +54,7 @@ To restore a selected Worker version, follow [Rollback](/guides/rollback/).
 - **`validate`** — `--json` for machine-readable output.
 - **`build`** — `--fast` skips the vendor stage (refuses with `ATOMS-E107` if `atoms-composer.json` declares packages); `--out` (defaults to `.atoms/build`).
 - **`diff`** — `--against` a saved `manifest.json` to compare with the current one.
-- **`dev`** — `--env` (defaults to `staging`), `--port` (defaults to `8787`), `--callback-url` (local callback source; it must agree with `ATOMS_CALLBACK_URL` when both are supplied, and otherwise falls back to `callback_url.<env>`), `--worker-dir` (defaults to `atoms-worker/` beside `atoms.json`), `--no-build` to reuse the bundle already staged in the Worker project.
+- **`dev`** — `--env` (defaults to `staging`), `--port` (defaults to `8787`), `--callback-url` (overrides everything else; otherwise `ATOMS_CALLBACK_URL`, then `callback_url.<env>`), `--worker-dir` (defaults to `atoms-worker/` beside `atoms.json`), `--no-build` to reuse the bundle already staged in the Worker project.
 - **`deploy`** — `--env` (required), `--bundle` to deploy a prebuilt bundle instead of building, `--manifest` (defaults to `manifest.json` beside `--bundle`), `--worker-dir`. The callback comes from `callback_url.<env>` only; an ambient `ATOMS_CALLBACK_URL` must agree and is never a fallback.
 - **`status`**, **`secrets:list`**, **`shared-secret:unset`** — `--env` (required), `--worker-dir`.
 - **`rollback [VERSION]`** — `--env` (required), `--message`/`-m`, `--worker-dir`. `VERSION` defaults to the previous version.
