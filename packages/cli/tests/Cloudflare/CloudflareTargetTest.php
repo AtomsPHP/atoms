@@ -405,6 +405,91 @@ final class CloudflareTargetTest extends TestCase
         }
     }
 
+    public function testLocalTreatsAnUnresolvedFileReferenceAsNoCallback(): void
+    {
+        // The file may name a variable only CI holds. `atoms dev` needs a
+        // callback only for app()/dispatch(), and deploy merely warns when it
+        // has none, so dev must not be the stricter of the two.
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['callback_url']['production'] = '${CI_ONLY_CALLBACK_URL}';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+        putenv('CI_ONLY_CALLBACK_URL');
+
+        $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production', local: true);
+
+        self::assertNull($target->callbackUrl);
+        self::assertArrayNotHasKey(CloudflareTarget::CALLBACK_VAR, $target->runtimeVars());
+    }
+
+    public function testDeploymentStillRequiresAnUnresolvedFileReference(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['callback_url']['production'] = '${CI_ONLY_CALLBACK_URL}';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+        putenv('CI_ONLY_CALLBACK_URL');
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*CI_ONLY_CALLBACK_URL/s');
+        CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+    }
+
+    public function testAmbientConflictNamesTheReferenceTheFileDeclares(): void
+    {
+        // Telling the operator to declare "${ATOMS_CALLBACK_URL}" here would
+        // repoint production at whatever this shell holds — usually a tunnel.
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['callback_url']['production'] = '${PRODUCTION_CALLBACK_URL}';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+        putenv('PRODUCTION_CALLBACK_URL=https://acme.example.com/atoms/callback');
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://tunnel.example.test/callback');
+
+        try {
+            CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+            self::fail('expected ATOMS-E070');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('PRODUCTION_CALLBACK_URL', $e->getMessage());
+            self::assertStringNotContainsString('declare "${ATOMS_CALLBACK_URL}"', $e->getMessage());
+        } finally {
+            putenv('PRODUCTION_CALLBACK_URL');
+        }
+    }
+
+    public function testAnEmptyOrBlankFileCallbackMeansNoCallbackDeclared(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['callback_url']['production'] = '   ';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+
+        $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+
+        self::assertNull($target->callbackUrl);
+        self::assertArrayNotHasKey(CloudflareTarget::CALLBACK_VAR, $target->runtimeVars());
+    }
+
+    public function testLocalIgnoresAnAccountIdThatDiffersFromTheFile(): void
+    {
+        // `wrangler dev` runs workerd locally and never selects an account, so
+        // a shell pointed at a different account must not block a dev server.
+        putenv('CLOUDFLARE_ACCOUNT_ID=some-other-account');
+
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production', local: true);
+
+        self::assertNotSame('', $target->accountId);
+    }
+
+    public function testDeploymentStillRejectsAnAccountIdThatDiffersFromTheFile(): void
+    {
+        putenv('CLOUDFLARE_ACCOUNT_ID=some-other-account');
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*CLOUDFLARE_ACCOUNT_ID/s');
+        CloudflareTarget::resolve($this->sampleApp(), 'production');
+    }
+
     public function testRuntimeVersionMatchesTheStamp(): void
     {
         $dir = $this->freshDir();

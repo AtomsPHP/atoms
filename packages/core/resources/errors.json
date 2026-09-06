@@ -308,8 +308,8 @@
         {
             "code": "ATOMS-E070",
             "title": "atoms.json missing or invalid",
-            "message": "Could not read atoms.json at the repository root: {reason}.",
-            "fix": "Run `atoms init` to create it, or fix the reported JSON error.",
+            "message": "atoms.json at the repository root is missing, invalid, or does not apply cleanly: {reason}.",
+            "fix": "Run `atoms init` to create it if it is missing, fix the reported problem in the file, or \u2014 when the reason names an environment variable \u2014 unset that variable or make it agree with the file.",
             "severity": "error",
             "phase": "cli"
         },

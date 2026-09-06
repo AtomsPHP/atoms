@@ -77,9 +77,17 @@ final class InitCommand extends AbstractCommand
             // ATOMS_CALLBACK_URL var, so each entry is live for its
             // environment. CI may use a whole-value ${VARIABLE} reference;
             // local dev can supply --callback-url or ATOMS_CALLBACK_URL.
+            //
+            // Empty, not a placeholder host: this file is the sole authority
+            // for a named deployment, so an example.com left in by accident
+            // would POST signed callbacks — carrying method arguments — to a
+            // third party, and surface only as ATOMS-E083 ("callback request
+            // failed"), which names neither the file nor the key. Empty means
+            // "no callback declared": deploy warns, and app()/dispatch() fail
+            // with ATOMS-E080, whose fix line says exactly what to set.
             'callback_url' => [
-                'production' => 'https://example.com/atoms/callback',
-                'staging' => 'https://staging.example.com/atoms/callback',
+                'production' => '',
+                'staging' => '',
             ],
         ];
 
@@ -109,7 +117,8 @@ final class InitCommand extends AbstractCommand
         $output->writeln('<info>✓ Wrote atoms.json and atoms-composer.json.</info>');
         $output->writeln('  Next: atoms make:atom GameRoom --with-methods --with-migration');
         $output->writeln('  Then, to deploy: set each environment\'s "worker_name", "account_id" and "callback_url"');
-        $output->writeln('  (use "${ATOMS_CALLBACK_URL}" in callback_url to explicitly read CI\'s environment),');
+        $output->writeln('  ("callback_url" starts empty, so $this->app()/dispatch() are unavailable until you set it;');
+        $output->writeln('  use "${ATOMS_CALLBACK_URL}" there to explicitly read CI\'s environment),');
         $output->writeln('  scaffold the release-matched Worker directory and commit it:');
         $output->writeln('  ' . RuntimeVersion::scaffoldCommand());
         $output->writeln('  cd ' . RuntimeVersion::WORKER_DIR . ' && npm ci && cd - && git add ' . RuntimeVersion::WORKER_DIR);

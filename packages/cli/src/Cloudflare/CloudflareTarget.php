@@ -106,8 +106,10 @@ final class CloudflareTarget
      * @param bool $local Whether this invocation runs a local Worker.
      * @param bool $resolveCallback Whether this command configures runtime vars.
      *
-     * @throws AtomsError E070 (unknown environment),
-     *                    E076 (unusable Worker directory)
+     * @throws AtomsError E070 (unknown environment; a file value that disagrees
+     *                    with the environment; a malformed or unresolvable
+     *                    `${VAR}` callback reference; `--callback-url` outside
+     *                    local mode), E076 (unusable Worker directory)
      */
     public static function resolve(
         AtomsJson $config,
@@ -125,7 +127,11 @@ final class CloudflareTarget
         $token = self::firstNonEmpty($apiToken, self::env('CLOUDFLARE_API_TOKEN'));
         $fileAccount = self::firstNonEmpty($env['account_id']);
         $shellAccount = self::env('CLOUDFLARE_ACCOUNT_ID');
-        if ($fileAccount !== null && $shellAccount !== null && $fileAccount !== $shellAccount) {
+        // Only where an account is actually selected. `wrangler dev` runs
+        // workerd locally and never reads the account, so a developer whose
+        // shell points at a different account than the file must still be able
+        // to start a dev server.
+        if (!$local && $fileAccount !== null && $shellAccount !== null && $fileAccount !== $shellAccount) {
             throw self::invalid('environments.' . $environment . '.account_id conflicts with '
                 . 'CLOUDFLARE_ACCOUNT_ID; unset the environment variable or make the values agree');
         }
@@ -280,22 +286,37 @@ final class CloudflareTarget
                 . 'set callback_url.' . $environment . ' in atoms.json');
         }
 
-        $callback = self::firstNonEmpty($config->callbackUrls[$environment] ?? null);
+        // A whitespace-only literal means the same as an empty one: no callback
+        // is declared. Trimming here keeps that equivalent to the trim applied
+        // to an expanded reference below, rather than forwarding "   " as a var.
+        $callback = self::firstNonEmpty(trim((string) ($config->callbackUrls[$environment] ?? '')));
+        $reference = null;
         if ($callback !== null && str_contains($callback, '${')) {
             if (preg_match('/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/D', $callback, $match) !== 1) {
                 throw self::invalid('callback_url.' . $environment
                     . ' must use a whole-value environment reference such as ${ATOMS_CALLBACK_URL}');
             }
-            $callback = self::env($match[1]);
-            if ($callback === null || trim($callback) === '') {
+            $reference = $match[1];
+            $expanded = self::env($reference);
+            $callback = $expanded === null || trim($expanded) === '' ? null : $expanded;
+            if ($callback === null && !$local) {
                 throw self::invalid('callback_url.' . $environment . ' requires environment variable '
-                    . $match[1] . ' to be set to a non-empty callback URL');
+                    . $reference . ' to be set to a non-empty callback URL');
             }
+            // Locally, an unset reference is simply no callback. `atoms dev`
+            // needs one only for $this->app()/dispatch(), warns when it has
+            // none, and must not require a variable that belongs to CI.
         }
         if (!$local && $shell !== null && $shell !== $callback) {
             throw self::invalid('ATOMS_CALLBACK_URL conflicts with callback_url.' . $environment
-                . ' in atoms.json; unset it or declare "${ATOMS_CALLBACK_URL}" in the file '
-                . 'if this deployment should read the environment');
+                . ' in atoms.json; ' . ($reference !== null
+                    // Pointing at ${ATOMS_CALLBACK_URL} here would repoint the
+                    // environment's declared reference at whatever this shell
+                    // happens to hold — usually a developer's dev tunnel.
+                    ? 'that entry reads ${' . $reference . '}, so unset ATOMS_CALLBACK_URL '
+                        . '(it is a local source for atoms dev) or set ' . $reference . ' instead'
+                    : 'unset it or declare "${ATOMS_CALLBACK_URL}" in the file '
+                        . 'if this deployment should read the environment'));
         }
 
         return $callback;

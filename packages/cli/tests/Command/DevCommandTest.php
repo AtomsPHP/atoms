@@ -261,6 +261,35 @@ final class DevCommandTest extends TestCase
         self::assertStringContainsString('ATOMS_DEBUG_ENDPOINTS=1', $tester->getDisplay());
     }
 
+    public function testDevStartsWithoutACallbackWhenTheFileReferenceIsUnsetHere(): void
+    {
+        // The file may name a variable only CI holds. Deploy warns rather than
+        // failing when it resolves no callback; dev must not be stricter.
+        putenv(DevCommand::CALLBACK_VAR);
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        $config['callback_url']['staging'] = '${CI_ONLY_CALLBACK_URL}';
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+        putenv('CI_ONLY_CALLBACK_URL');
+
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DevCommand($wrangler, processRunner: new FakeProcessRunner()));
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'staging',
+            '--worker-dir' => $this->workerDir(),
+            '--no-build' => true,
+        ]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        $dev = $wrangler->lastCall('dev');
+        self::assertNotNull($dev);
+        self::assertArrayNotHasKey(DevCommand::CALLBACK_VAR, $dev['args']['vars']);
+        // Silence would leave E080 at runtime unexplained.
+        self::assertStringContainsString('No callback URL configured', $tester->getDisplay());
+        self::assertStringContainsString('CI_ONLY_CALLBACK_URL', $tester->getDisplay());
+    }
+
     /**
      * Local development may use a machine-specific callback URL. A local flag
      * and environment value are both accepted when they agree, and the file

@@ -55,6 +55,12 @@ choose the names; `atoms init` scaffolds `production` and `staging`:
 }
 ```
 
+`atoms init` writes this shape with `callback_url` **empty** — an empty value
+means no callback is declared, so `deploy` warns and `$this->app()` and
+`$this->dispatch()` fail with
+[ATOMS-E080](/reference/errors/#atoms-e080) until you fill it in. The URLs above
+show a completed file.
+
 Every Cloudflare-facing command takes `--env <name>` — `deploy`, `status`,
 `rollback`, `secrets:set`, `secrets:list`, `shared-secret:set` and
 `shared-secret:unset` require it; `dev` and `token` default to `staging`. The

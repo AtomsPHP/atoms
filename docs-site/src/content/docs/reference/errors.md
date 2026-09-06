@@ -703,11 +703,11 @@ Claims are a flat map of string keys to string values: at most 16 entries, at mo
 
 **Message**
 
-Could not read atoms.json at the repository root: {reason}.
+atoms.json at the repository root is missing, invalid, or does not apply cleanly: {reason}.
 
 **Fix**
 
-Run `atoms init` to create it, or fix the reported JSON error.
+Run `atoms init` to create it if it is missing, fix the reported problem in the file, or — when the reason names an environment variable — unset that variable or make it agree with the file.
 
 
 <a id="atoms-e071"></a>
