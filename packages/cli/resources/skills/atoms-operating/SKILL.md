@@ -25,14 +25,26 @@ atoms shared-secret:unset --env X  # Remove ATOMS_SHARED_SECRET_PREVIOUS, closin
 
 Credentials: either `CLOUDFLARE_API_TOKEN` or an existing `wrangler login`
 session — with no token set, Atoms injects nothing and Wrangler uses its own.
-`CLOUDFLARE_ACCOUNT_ID` (or `account_id` in atoms.json) is recommended and not
-required: it pins the deploy target explicitly, but credentials reaching a
-single account resolve without it. Neither is pre-checked — Wrangler reports
-what it cannot resolve, as ATOMS-E072 (no credentials) or ATOMS-E075 (several
-accounts, none chosen). Whatever the CLI does resolve goes straight to your own
-Wrangler; Atoms never proxies or retains it. In CI, supply them to the deploy
-action as `cloudflare-api-token` / `cloudflare-account-id`: a runner has no
-login session to fall back on.
+`CLOUDFLARE_ACCOUNT_ID` is the fallback for an empty environment `account_id`.
+When both are non-empty they must agree or the CLI raises ATOMS-E070. A single
+reachable account can still resolve without either; several reachable
+accounts produce ATOMS-E075. Whatever the CLI does resolve goes straight to
+your own Wrangler; Atoms never proxies or retains it. In CI, supply them to the
+deploy action as `cloudflare-api-token` / `cloudflare-account-id`: a runner has
+no login session to fall back on.
+
+Every configured environment must have a non-empty `worker_name`; the
+top-level `project` is not a fallback. A deploy callback, when needed, is
+declared only in the top-level `callback_url.<env>` map in `atoms.json`.
+Deploy has no `--callback-url` option and never uses ambient
+`ATOMS_CALLBACK_URL` as a fallback: an ambient value must agree with the
+literal or resolved file value, and an ambient value with no file declaration
+is ATOMS-E070. An empty literal leaves callbacks unavailable and deploy warns.
+Whole-value `${ENV_VAR}` references must be set and non-empty or they are
+ATOMS-E070. `atoms dev` accepts `--callback-url` or ambient
+`ATOMS_CALLBACK_URL` as local sources; they must agree when both are present,
+and either may differ from the file value. With neither local source, dev uses
+the file value when configured.
 
 Deploy needs the committed Worker directory, `atoms-worker/` beside atoms.json
 (or `--worker-dir`; atoms.json does not name it), with `npm ci` already run in

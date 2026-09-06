@@ -81,12 +81,18 @@ final class DeployCommandTest extends TestCase
 
     public function testSuccessfulDeployStagesThenRunsWrangler(): void
     {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $config['environments']['production']['endpoint'] = 'https://legacy.example.test/old-worker';
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+
         $runner = new FakeProcessRunner();
         $wrangler = new FakeWrangler();
+        $wrangler->deployResult = FakeWrangler::ok(['deploy'], "Published https://live.example.workers.dev\n");
         $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
 
         $exit = $tester->execute([
-            '--root' => $this->fixtureDir('sample-app'),
+            '--root' => $root,
             '--env' => 'production',
             '--worker-dir' => $this->workerDir(),
             '--bundle' => $this->bundleFile(),
@@ -94,6 +100,9 @@ final class DeployCommandTest extends TestCase
 
         self::assertSame(0, $exit, $tester->getDisplay());
         self::assertStringContainsString('Deployed acme-games to production', $tester->getDisplay());
+        self::assertStringContainsString('https://live.example.workers.dev', $tester->getDisplay());
+        self::assertStringNotContainsString('https://legacy.example.test/old-worker', $tester->getDisplay());
+        self::assertStringNotContainsString('endpoint:', $tester->getDisplay());
 
         // Staged before deployed, and staged by the Worker tree's own script.
         self::assertCount(1, $runner->runs);
@@ -119,16 +128,12 @@ final class DeployCommandTest extends TestCase
         );
     }
 
-    /**
-     * The callback URL resolves for `atoms deploy` exactly as for `atoms dev`:
-     * `--callback-url`, then `ATOMS_CALLBACK_URL` in the environment, then
-     * atoms.json. One chain, so the two commands never disagree.
-     */
-    public function testCallbackUrlFromTheEnvironmentOrFlagBeatsAtomsJsonOnDeploy(): void
+    public function testDeployUsesTheFileCallbackAndRejectsAnAmbientConflictBeforeStaging(): void
     {
         putenv(CloudflareTarget::CALLBACK_VAR . '=https://app.example.test/atoms/callback');
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $runner = new FakeProcessRunner();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
@@ -136,30 +141,65 @@ final class DeployCommandTest extends TestCase
             '--bundle' => $this->bundleFile(),
         ]);
 
-        self::assertSame(0, $exit, $tester->getDisplay());
-        $deploy = $wrangler->lastCall('deploy');
-        self::assertNotNull($deploy);
-        self::assertSame(
-            [CloudflareTarget::CALLBACK_VAR => 'https://app.example.test/atoms/callback'],
-            $deploy['args']['vars'],
-        );
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E070', $tester->getDisplay());
+        self::assertSame([], $runner->runs, 'configuration errors must happen before staging');
+        self::assertSame([], $wrangler->calls, 'configuration errors must happen before Wrangler');
+    }
+
+    public function testDeployResolvesAnExactCallbackEnvironmentReference(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $config['callback_url']['production'] = '${ATOMS_CALLBACK_URL}';
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://ci.example.test/atoms/callback');
 
         $wrangler = new FakeWrangler();
         $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
-        $tester->execute([
-            '--root' => $this->fixtureDir('sample-app'),
+        $exit = $tester->execute([
+            '--root' => $root,
             '--env' => 'production',
             '--worker-dir' => $this->workerDir(),
             '--bundle' => $this->bundleFile(),
-            '--callback-url' => 'https://flag.example.test/atoms/callback',
         ]);
 
-        $deploy = $wrangler->lastCall('deploy');
-        self::assertNotNull($deploy);
+        self::assertSame(0, $exit, $tester->getDisplay());
         self::assertSame(
-            [CloudflareTarget::CALLBACK_VAR => 'https://flag.example.test/atoms/callback'],
-            $deploy['args']['vars'],
+            [CloudflareTarget::CALLBACK_VAR => 'https://ci.example.test/atoms/callback'],
+            $wrangler->lastCall('deploy')['args']['vars'],
         );
+    }
+
+    public function testUnsetCallbackEnvironmentReferenceFailsBeforeStaging(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $config['callback_url']['production'] = '${UNSET_DEPLOY_CALLBACK}';
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+        putenv('UNSET_DEPLOY_CALLBACK');
+
+        $runner = new FakeProcessRunner();
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E070', $tester->getDisplay());
+        self::assertSame([], $runner->runs);
+        self::assertSame([], $wrangler->calls);
+    }
+
+    public function testDeployNoLongerAcceptsCallbackUrlOption(): void
+    {
+        $command = new DeployCommand(new FakeWrangler(), $this->stager());
+
+        self::assertFalse($command->getDefinition()->hasOption('callback-url'));
     }
 
     /**
@@ -188,7 +228,7 @@ final class DeployCommandTest extends TestCase
         self::assertNotNull($deploy);
         self::assertSame([], $deploy['args']['vars']);
         self::assertStringContainsString('ATOMS-E080', $tester->getDisplay());
-        self::assertStringContainsString('--callback-url', $tester->getDisplay());
+        self::assertStringNotContainsString('--callback-url', $tester->getDisplay());
     }
 
     /**

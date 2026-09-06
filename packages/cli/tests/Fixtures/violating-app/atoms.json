@@ -7,7 +7,7 @@
     "php": "8.3",
     "environments": {
         "production": {
-            "endpoint": "https://bad-app.example.workers.dev",
+            "worker_name": "bad-app",
             "account_id": "cf-account-1234"
         }
     }

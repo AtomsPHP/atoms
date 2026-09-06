@@ -69,6 +69,7 @@ final class SecretsSetCommand extends AbstractCommand
                 $env,
                 null,
                 self::stringOption($input, 'worker-dir'),
+                resolveCallback: false,
             );
 
             // The prefix is read from the Worker project rather than assumed:

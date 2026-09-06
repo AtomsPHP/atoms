@@ -47,6 +47,18 @@ final class AiInstallCommandTest extends TestCase
         self::assertStringContainsString('PlayerSnapshot', $context);
     }
 
+    public function testProjectContextRendersWorkerAndAccountInsteadOfAnEndpoint(): void
+    {
+        $dir = $this->tempCopy('sample-app');
+        (new CommandTester(new AiInstallCommand()))->execute(['--root' => $dir]);
+
+        $context = (string) file_get_contents($dir . '/.claude/skills/atoms-project-context/SKILL.md');
+        self::assertStringContainsString('| Environment | Worker | Account |', $context);
+        self::assertStringContainsString('| `production` | acme-games | cf-account-1234 |', $context);
+        self::assertStringContainsString('| `staging` | acme-games-staging | cf-account-1234 |', $context);
+        self::assertStringNotContainsString('| Environment | Endpoint |', $context);
+    }
+
     public function testRegenerationPreservesEditsOutsideMarkers(): void
     {
         $dir = $this->tempCopy('sample-app');

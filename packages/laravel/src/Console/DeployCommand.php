@@ -18,8 +18,7 @@ final class DeployCommand extends AtomsBinaryCommand
         {--env= : Environment to deploy to (e.g. staging, production)}
         {--bundle= : Path to a prebuilt bundle instead of building one}
         {--manifest= : Manifest for --bundle (default: manifest.json beside it)}
-        {--worker-dir= : Worker project directory (else atoms.json)}
-        {--callback-url= : Monolith callback URL (else ATOMS_CALLBACK_URL, else atoms.json callback_url)}';
+        {--worker-dir= : Worker project directory (else atoms-worker/ beside atoms.json)}';
 
     protected $description = 'Deploy the current build to your Atoms Worker';
 
@@ -27,7 +26,7 @@ final class DeployCommand extends AtomsBinaryCommand
     {
         $args = ['deploy'];
 
-        foreach (['env', 'bundle', 'manifest', 'worker-dir', 'callback-url'] as $option) {
+        foreach (['env', 'bundle', 'manifest', 'worker-dir'] as $option) {
             if (($value = $this->option($option)) !== null) {
                 $args[] = '--' . $option;
                 $args[] = (string) $value;

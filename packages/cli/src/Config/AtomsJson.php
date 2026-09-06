@@ -12,12 +12,11 @@ use Atoms\Errors\ErrorCode;
  * The repo-root toolchain anchor. Parsed and validated;
  * every structural problem surfaces as ATOMS-E070 with the catalog fix line.
  *
- * `endpoint` is the base URL the deployed Worker serves on — what `atoms/client`
- * calls, and what `atoms status` reports. The Cloudflare keys (`worker_name`,
- * `account_id`) are optional here because each has a fallback: the project
- * name and `$CLOUDFLARE_ACCOUNT_ID` respectively. An account id in particular
- * is better supplied by the environment than committed, which is why
- * atoms.json only offers to hold it.
+ * Deploy-target facts live here: every environment names its Worker
+ * explicitly. account_id may fall back to CLOUDFLARE_ACCOUNT_ID, but the two
+ * values must agree if both are supplied. Legacy endpoint keys are ignored:
+ * Wrangler reports deployed URLs; the monolith configures ATOMS_ENDPOINT.
+ * Callback environment references stay literal during parsing and building.
  *
  * The Worker directory is not a setting: it is a committed part of the
  * repository at `atoms-worker/` beside this file
@@ -29,7 +28,7 @@ use Atoms\Errors\ErrorCode;
  * `atoms dev`/`atoms deploy` forward it to Wrangler as a `--var` override.
  * Off unless explicitly true.
  *
- * @phpstan-type Environment array{endpoint: string, region: string, worker_name: string, account_id: string, debug_endpoints: bool}
+ * @phpstan-type Environment array{region: string, worker_name: string, account_id: string, debug_endpoints: bool}
  */
 final class AtomsJson
 {
@@ -202,17 +201,11 @@ final class AtomsJson
             if (!\is_string($name) || !\is_array($env)) {
                 throw self::invalid('each environment must be an object keyed by name');
             }
-            $endpoint = $env['endpoint'] ?? null;
-            if (!\is_string($endpoint) || $endpoint === '') {
-                throw self::invalid("environment '{$name}' is missing a string \"endpoint\"");
-            }
-
             $out[$name] = [
-                'endpoint' => rtrim($endpoint, '/'),
                 // Vestigial: Cloudflare places a Durable Object itself. Still
                 // parsed so an older atoms.json loads, and ignored everywhere.
                 'region' => self::optionalString($env, 'region'),
-                'worker_name' => self::optionalString($env, 'worker_name'),
+                'worker_name' => self::requireString($env, "environments.{$name}.worker_name", 'worker_name'),
                 'account_id' => self::optionalString($env, 'account_id'),
                 'debug_endpoints' => self::optionalBool($env, "environment '{$name}'", 'debug_endpoints'),
             ];
@@ -255,7 +248,7 @@ final class AtomsJson
     {
         $key ??= $label;
         $value = $source[$key] ?? null;
-        if (!\is_string($value) || $value === '') {
+        if (!\is_string($value) || trim($value) === '') {
             throw self::invalid("\"{$label}\" must be a non-empty string");
         }
 

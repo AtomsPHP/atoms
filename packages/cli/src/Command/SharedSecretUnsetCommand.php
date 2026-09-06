@@ -66,6 +66,7 @@ final class SharedSecretUnsetCommand extends AbstractCommand
                 $env,
                 null,
                 self::stringOption($input, 'worker-dir'),
+                resolveCallback: false,
             );
 
             if (!$this->isSet($target)) {

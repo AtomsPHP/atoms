@@ -45,7 +45,6 @@ final class ConsoleCommandsTest extends TestCase
             '--bundle' => '/tmp/bundle.tar.gz',
             '--manifest' => '/tmp/manifest.json',
             '--worker-dir' => '/srv/worker',
-            '--callback-url' => 'https://app.example.test/atoms/callback',
         ])->assertExitCode(0);
 
         self::assertSame([[
@@ -54,8 +53,17 @@ final class ConsoleCommandsTest extends TestCase
             '--bundle', '/tmp/bundle.tar.gz',
             '--manifest', '/tmp/manifest.json',
             '--worker-dir', '/srv/worker',
-            '--callback-url', 'https://app.example.test/atoms/callback',
         ]], $this->runner->calls);
+    }
+
+    public function testDeployDoesNotAcceptACallbackUrlOverride(): void
+    {
+        $commands = $this->app->make(\Illuminate\Contracts\Console\Kernel::class)->all();
+
+        self::assertArrayHasKey('atoms:deploy', $commands);
+        self::assertFalse($commands['atoms:deploy']->getDefinition()->hasOption('callback-url'));
+
+        self::assertSame([], $this->runner->calls);
     }
 
     public function testRollbackBuildsArgvWithEnvAndVersion(): void

@@ -87,6 +87,7 @@ final class SharedSecretSetCommand extends AbstractCommand
                 $env,
                 null,
                 self::stringOption($input, 'worker-dir'),
+                resolveCallback: false,
             );
 
             if ($input->getOption('force') !== true && $this->alreadySet($target, $key)) {

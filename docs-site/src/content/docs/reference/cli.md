@@ -54,8 +54,8 @@ To restore a selected Worker version, follow [Rollback](/guides/rollback/).
 - **`validate`** — `--json` for machine-readable output.
 - **`build`** — `--fast` skips the vendor stage (refuses with `ATOMS-E107` if `atoms-composer.json` declares packages); `--out` (defaults to `.atoms/build`).
 - **`diff`** — `--against` a saved `manifest.json` to compare with the current one.
-- **`dev`** — `--env` (defaults to `staging`), `--port` (defaults to `8787`), `--callback-url` (defaults to `ATOMS_CALLBACK_URL` in the process environment, then `atoms.json`'s `callback_url.<env>`), `--worker-dir` (defaults to `atoms-worker/` beside `atoms.json`), `--no-build` to reuse the bundle already staged in the Worker project.
-- **`deploy`** — `--env` (required), `--callback-url` (defaults to `ATOMS_CALLBACK_URL` in the process environment, then `atoms.json`'s `callback_url.<env>`), `--bundle` to deploy a prebuilt bundle instead of building, `--manifest` (defaults to `manifest.json` beside `--bundle`), `--worker-dir`.
+- **`dev`** — `--env` (defaults to `staging`), `--port` (defaults to `8787`), `--callback-url` (local callback source; it must agree with `ATOMS_CALLBACK_URL` when both are supplied, and otherwise falls back to `callback_url.<env>`), `--worker-dir` (defaults to `atoms-worker/` beside `atoms.json`), `--no-build` to reuse the bundle already staged in the Worker project.
+- **`deploy`** — `--env` (required), `--bundle` to deploy a prebuilt bundle instead of building, `--manifest` (defaults to `manifest.json` beside `--bundle`), `--worker-dir`. The callback comes from `callback_url.<env>` only; an ambient `ATOMS_CALLBACK_URL` must agree and is never a fallback.
 - **`status`**, **`secrets:list`**, **`shared-secret:unset`** — `--env` (required), `--worker-dir`.
 - **`rollback [VERSION]`** — `--env` (required), `--message`/`-m`, `--worker-dir`. `VERSION` defaults to the previous version.
 - **`secrets:set KEY [VALUE]`** — `--env` (required), `--worker-dir`. Reads the value from stdin when the `VALUE` argument is omitted.
@@ -89,5 +89,8 @@ Run `npm ci` in the Worker directory to install its pinned Wrangler version.
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` pass directly into Wrangler's
 environment and are never written to a file or a log. See
 [Authenticate with Cloudflare](/guides/deploy/#authenticate-with-cloudflare).
+
+`atoms status` reports Worker versions. It does not report an endpoint URL from
+`atoms.json`; configure the monolith's independent `ATOMS_ENDPOINT` yourself.
 
 For data recovery limitations, see [Rollback](/guides/rollback/#data-recovery).

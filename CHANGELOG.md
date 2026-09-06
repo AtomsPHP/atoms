@@ -3,6 +3,26 @@
 All notable changes to Atoms are documented here. The eight Composer packages,
 the Cloudflare runtime, and deploy Action use one coordinated version.
 
+## [Unreleased]
+
+- **Changed:** named deployments take `callback_url.<env>` from `atoms.json`.
+  `atoms deploy --callback-url` is removed. To supply a URL from CI, commit a
+  whole-value reference such as `"${ATOMS_CALLBACK_URL}"`; an unset or empty
+  referenced variable fails with `ATOMS-E070` before the build. A conflicting
+  ambient `ATOMS_CALLBACK_URL` also fails instead of replacing the file.
+  `atoms dev` still accepts a local URL from its flag or environment, but
+  those two values must agree if both are supplied; otherwise the file is
+  the fallback. Builds and operational commands do not resolve callback
+  references.
+- **Changed:** every configured environment must declare a non-empty
+  `worker_name`; it no longer falls back to `project`. `account_id` still
+  falls back to `CLOUDFLARE_ACCOUNT_ID` when absent, but disagreement now
+  fails with `ATOMS-E070` rather than choosing an account silently.
+- **Removed:** `environments.<env>.endpoint` as CLI configuration. Legacy keys
+  are ignored and may be deleted. Deploy output passes through Wrangler's
+  reported URLs, and status no longer echoes an unverified URL from the file.
+  Set the application's `ATOMS_ENDPOINT` to its deployed Worker URL.
+
 ## [0.6.0] - 2026-09-05
 
 - **Removed:** `Atoms\Client\CallOptions`, the `$options` parameter of

@@ -65,18 +65,13 @@ final class CloudflareTarget
      * The Worker var carrying the monolith's callback endpoint — where
      * `$this->app()` and `$this->dispatch()` reach the app. Not a secret.
      *
-     * A callback URL is per deployment and often per developer (a tunnel host,
-     * a local port, a staging domain that differs by machine), so a committed value
-     * is the wrong default. An explicit `--callback-url` wins, then this same
-     * name in the CLI's own process environment, then atoms.json's
-     * `callback_url.<env>`. The name is deliberately the Worker's: it is what
-     * the value is called everywhere else, and setting it in the shell that
-     * runs `atoms dev` reads as "give the Worker this var".
+     * Named deployments read callback_url from atoms.json, optionally through
+     * an explicit ${VARIABLE} reference. Local dev may supply a machine URL;
+     * local flag and environment values must agree when both are present.
      */
     public const CALLBACK_VAR = 'ATOMS_CALLBACK_URL';
 
     /**
-     * @param string      $endpoint   Base URL the deployed Worker serves on; what `atoms/client` calls.
      * @param string      $workerName `wrangler --name`.
      * @param string      $accountId  Cloudflare account id; '' when unresolved.
      * @param string|null $apiToken   Cloudflare API token; null when unresolved.
@@ -86,7 +81,6 @@ final class CloudflareTarget
      */
     public function __construct(
         public readonly string $environment,
-        public readonly string $endpoint,
         public readonly string $workerName,
         public readonly string $accountId,
         public readonly ?string $apiToken,
@@ -104,20 +98,13 @@ final class CloudflareTarget
      * say: one directory serves every environment, so every environment
      * deploys the same runtime.
      *
-     * Nothing about credentials fails here any more. Neither half is Atoms'
-     * to adjudicate: the token may be a `wrangler login` session this process
-     * cannot see, and the account may be the only one that session can reach,
-     * in which case Wrangler selects it without being told. Both answers live
-     * in the child process, so both are read back out of its failure by
-     * {@see WranglerResult::assertOk()} — E072 and E075 respectively.
+     * Missing credentials are left to Wrangler, but a file account id and
+     * CLOUDFLARE_ACCOUNT_ID must agree. A callback is resolved only for
+     * commands that configure the runtime; operating commands opt out.
      *
-     * There is consequently no `$requireCredentials` flag left to pass: the
-     * commands that never touch Cloudflare's API used it to opt out of checks
-     * that no longer exist.
-     *
-     * @param string|null $callbackUrl An explicit `--callback-url`; beats
-     *                                 `ATOMS_CALLBACK_URL` in the environment,
-     *                                 which beats atoms.json's `callback_url`.
+     * @param string|null $callbackUrl A local dev callback URL; invalid outside local mode.
+     * @param bool $local Whether this invocation runs a local Worker.
+     * @param bool $resolveCallback Whether this command configures runtime vars.
      *
      * @throws AtomsError E070 (unknown environment),
      *                    E076 (unusable Worker directory)
@@ -128,26 +115,31 @@ final class CloudflareTarget
         ?string $apiToken = null,
         ?string $workerDir = null,
         ?string $callbackUrl = null,
+        bool $local = false,
+        bool $resolveCallback = true,
     ): self {
         $env = $config->environment($environment);
 
         // Absent is a legitimate answer for both: Wrangler resolves its own
         // credentials, and its own account, when this process supplies none.
         $token = self::firstNonEmpty($apiToken, self::env('CLOUDFLARE_API_TOKEN'));
-        $accountId = self::firstNonEmpty($env['account_id'], self::env('CLOUDFLARE_ACCOUNT_ID')) ?? '';
+        $fileAccount = self::firstNonEmpty($env['account_id']);
+        $shellAccount = self::env('CLOUDFLARE_ACCOUNT_ID');
+        if ($fileAccount !== null && $shellAccount !== null && $fileAccount !== $shellAccount) {
+            throw self::invalid('environments.' . $environment . '.account_id conflicts with '
+                . 'CLOUDFLARE_ACCOUNT_ID; unset the environment variable or make the values agree');
+        }
+        $accountId = $fileAccount ?? $shellAccount ?? '';
 
         $dir = self::firstNonEmpty($workerDir) ?? self::DEFAULT_WORKER_DIR;
 
-        $callback = self::firstNonEmpty(
-            $callbackUrl,
-            self::env(self::CALLBACK_VAR),
-            $config->callbackUrls[$environment] ?? null,
-        );
+        $callback = $resolveCallback
+            ? self::resolveCallback($config, $environment, $callbackUrl, $local)
+            : null;
 
         return new self(
             environment: $environment,
-            endpoint: $env['endpoint'],
-            workerName: $env['worker_name'] !== '' ? $env['worker_name'] : $config->project,
+            workerName: $env['worker_name'],
             accountId: $accountId,
             apiToken: $token,
             workerDir: self::absolute($config->rootDir, $dir),
@@ -267,18 +259,53 @@ final class CloudflareTarget
         return $env;
     }
 
-    /**
-     * The URL `atoms/client` would call to reach a given Atom on this
-     * deployment — the Worker's single-tenant, prefixless invoke route.
-     */
-    public function invokeUrl(string $type, string $id, string $method): string
+    private static function resolveCallback(
+        AtomsJson $config,
+        string $environment,
+        ?string $callbackUrl,
+        bool $local,
+    ): ?string {
+        $flag = self::firstNonEmpty($callbackUrl);
+        $shell = self::env(self::CALLBACK_VAR);
+        if ($local) {
+            if ($flag !== null && $shell !== null && $flag !== $shell) {
+                throw self::invalid('--callback-url conflicts with ATOMS_CALLBACK_URL; '
+                    . 'unset the environment variable or make the values agree');
+            }
+            if ($flag !== null || $shell !== null) {
+                return $flag ?? $shell;
+            }
+        } elseif ($flag !== null) {
+            throw self::invalid('--callback-url is only supported by atoms dev; '
+                . 'set callback_url.' . $environment . ' in atoms.json');
+        }
+
+        $callback = self::firstNonEmpty($config->callbackUrls[$environment] ?? null);
+        if ($callback !== null && str_contains($callback, '${')) {
+            if (preg_match('/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/D', $callback, $match) !== 1) {
+                throw self::invalid('callback_url.' . $environment
+                    . ' must use a whole-value environment reference such as ${ATOMS_CALLBACK_URL}');
+            }
+            $callback = self::env($match[1]);
+            if ($callback === null || trim($callback) === '') {
+                throw self::invalid('callback_url.' . $environment . ' requires environment variable '
+                    . $match[1] . ' to be set to a non-empty callback URL');
+            }
+        }
+        if (!$local && $shell !== null && $shell !== $callback) {
+            throw self::invalid('ATOMS_CALLBACK_URL conflicts with callback_url.' . $environment
+                . ' in atoms.json; unset it or declare "${ATOMS_CALLBACK_URL}" in the file '
+                . 'if this deployment should read the environment');
+        }
+
+        return $callback;
+    }
+
+    private static function invalid(string $reason): AtomsError
     {
-        return sprintf(
-            '%s/invoke/%s/%s/%s',
-            rtrim($this->endpoint, '/'),
-            rawurlencode($type),
-            rawurlencode($id),
-            rawurlencode($method),
+        return new AtomsError(
+            ErrorCode::AtomsJsonInvalid,
+            ErrorCatalog::format(ErrorCode::AtomsJsonInvalid, ['reason' => $reason]),
         );
     }
 

@@ -49,10 +49,8 @@ final class InitCommand extends AbstractCommand
                 'shared' => $atomsPath . '/Shared',
             ],
             'php' => '8.3',
-            // Deploys go to the user's own Cloudflare account, so there is no
-            // Atoms-hosted endpoint to default to. The workers.dev placeholders
-            // below are obviously placeholders on purpose: a plausible-looking
-            // wrong default is worse than one that cannot be mistaken for real.
+            // Each target has an explicit Worker name; Wrangler reports the
+            // deployed URL, which the app uses as ATOMS_ENDPOINT.
             // `debug_endpoints` is the supported switch for the Worker's
             // /debug routes (off by default). It lives here rather than in the
             // committed Worker directory's wrangler.jsonc because that file is
@@ -64,13 +62,11 @@ final class InitCommand extends AbstractCommand
             // file, so no environment names one.
             'environments' => [
                 'production' => [
-                    'endpoint' => 'https://' . $project . '.<your-subdomain>.workers.dev',
                     'worker_name' => $project,
                     'account_id' => '',
                     'debug_endpoints' => false,
                 ],
                 'staging' => [
-                    'endpoint' => 'https://' . $project . '-staging.<your-subdomain>.workers.dev',
                     'worker_name' => $project . '-staging',
                     'account_id' => '',
                     'debug_endpoints' => false,
@@ -79,9 +75,8 @@ final class InitCommand extends AbstractCommand
             // Where the Worker reaches the app for $this->app()/dispatch().
             // Forwarded by both `atoms dev` and `atoms deploy` as the
             // ATOMS_CALLBACK_URL var, so each entry is live for its
-            // environment. A value that differs per machine (a tunnel host)
-            // is better left to `ATOMS_CALLBACK_URL` in the environment or
-            // `--callback-url`, both of which beat this file.
+            // environment. CI may use a whole-value ${VARIABLE} reference;
+            // local dev can supply --callback-url or ATOMS_CALLBACK_URL.
             'callback_url' => [
                 'production' => 'https://example.com/atoms/callback',
                 'staging' => 'https://staging.example.com/atoms/callback',
@@ -113,8 +108,8 @@ final class InitCommand extends AbstractCommand
 
         $output->writeln('<info>✓ Wrote atoms.json and atoms-composer.json.</info>');
         $output->writeln('  Next: atoms make:atom GameRoom --with-methods --with-migration');
-        $output->writeln('  Then, to deploy: set each environment\'s "endpoint", "account_id" and "callback_url"');
-        $output->writeln('  (or export ATOMS_CALLBACK_URL / pass --callback-url to override the callback URL),');
+        $output->writeln('  Then, to deploy: set each environment\'s "worker_name", "account_id" and "callback_url"');
+        $output->writeln('  (use "${ATOMS_CALLBACK_URL}" in callback_url to explicitly read CI\'s environment),');
         $output->writeln('  scaffold the release-matched Worker directory and commit it:');
         $output->writeln('  ' . RuntimeVersion::scaffoldCommand());
         $output->writeln('  cd ' . RuntimeVersion::WORKER_DIR . ' && npm ci && cd - && git add ' . RuntimeVersion::WORKER_DIR);

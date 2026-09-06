@@ -44,7 +44,7 @@ final class StatusCommandTest extends TestCase
     /**
      * @param list<array<string, mixed>> $versions
      */
-    private function statusDisplay(array $versions): string
+    private function statusDisplay(array $versions, ?string $root = null): string
     {
         $wrangler = new FakeWrangler();
         $wrangler->versionsResult = FakeWrangler::ok(
@@ -54,7 +54,7 @@ final class StatusCommandTest extends TestCase
 
         $tester = new CommandTester(new StatusCommand($wrangler));
         $exit = $tester->execute([
-            '--root' => $this->fixtureDir('sample-app'),
+            '--root' => $root ?? $this->fixtureDir('sample-app'),
             '--env' => 'production',
             '--worker-dir' => $this->workerDir(),
         ]);
@@ -64,21 +64,43 @@ final class StatusCommandTest extends TestCase
         return $tester->getDisplay();
     }
 
+    public function testStatusDoesNotResolveTheDeploymentCallback(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $config['callback_url']['production'] = '${UNSET_DEPLOYMENT_CALLBACK}';
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+        putenv('UNSET_DEPLOYMENT_CALLBACK');
+        putenv(\Atoms\Cli\Cloudflare\CloudflareTarget::CALLBACK_VAR);
+
+        $display = $this->statusDisplay([], $root);
+
+        self::assertStringContainsString('Environment: production', $display);
+        self::assertStringContainsString('nothing deployed yet', $display);
+    }
+
     /**
      * The shape observed against wrangler 4.118.0 on a real account.
      */
     public function testReadsTheLiveWranglerShape(): void
     {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $config['environments']['production']['endpoint'] = 'https://legacy.example.test/old-worker';
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+
         $display = $this->statusDisplay([[
             'id' => 'f00dcafe-0000-4000-8000-000000000001',
             'number' => 1,
             'metadata' => ['created_on' => '2026-08-09T21:00:00.000Z', 'source' => 'wrangler'],
             'annotations' => ['workers/triggered_by' => 'upload'],
-        ]]);
+        ]], $root);
 
         self::assertStringContainsString('f00dcafe-0000-4000-8000-000000000001', $display);
         self::assertStringContainsString('2026-08-09T21:00:00.000Z', $display, 'the timestamp must not be dropped');
         self::assertStringContainsString('upload', $display);
+        self::assertStringNotContainsString('https://legacy.example.test/old-worker', $display);
+        self::assertStringNotContainsString('Endpoint:', $display);
     }
 
     /**

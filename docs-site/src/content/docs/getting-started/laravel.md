@@ -21,6 +21,10 @@ ATOMS_ENVIRONMENT=production
 ATOMS_SHARED_SECRET=base64-of-32-random-bytes
 ```
 
+`ATOMS_ENDPOINT` is the application-side URL for ordinary Atom RPC.
+`ATOMS_ENVIRONMENT` labels the application environment in logs; it does not
+select the CLI environment in `atoms.json`.
+
 `ATOMS_SHARED_SECRET` is required and must be identical on this application and the Worker. Set it on the Worker with `vendor/bin/atoms shared-secret:set`, not with `atoms:install` or `secrets:set`. See [Secrets and authentication](/guides/secrets/) for generating it, what it authenticates, and how to rotate it.
 
 ## Create an Atom
@@ -111,7 +115,7 @@ ATOMS_ENVIRONMENT=staging
 
 The shared secret takes care of itself locally: `atoms dev` generates one into `.env` when it is absent and projects it into the Worker's `.dev.vars` whenever the two differ, so the local Worker and the application always agree without you handling the value.
 
-`--callback-url` tells the local Worker where your application's callback endpoint lives, so `app()` and `dispatch()` work against the `php artisan serve` process; set `callback_url` in `atoms.json` once and `atoms dev` picks it up automatically. `--port` moves the Worker off 8787, and `--no-build` reuses the bundle from the last build. See the [CLI reference](/reference/cli/) for the full option surface.
+`--callback-url` tells the local Worker where your application's callback endpoint lives, so `app()` and `dispatch()` work against the `php artisan serve` process. If neither `--callback-url` nor `ATOMS_CALLBACK_URL` is supplied, `atoms dev` uses the selected environment's `callback_url` entry as a fallback. A local source may differ from a committed production callback; if both local sources are supplied, they must agree. `--port` moves the Worker off 8787, and `--no-build` reuses the bundle from the last build. See the [CLI reference](/reference/cli/) for the full option surface.
 
 ## Build and deploy
 

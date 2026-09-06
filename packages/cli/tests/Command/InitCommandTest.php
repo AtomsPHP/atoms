@@ -34,7 +34,8 @@ final class InitCommandTest extends TestCase
         // The Worker directory is committed beside atoms.json, so an
         // environment holds exactly its own settings.
         foreach ($config['environments'] as $environment) {
-            self::assertSame(['endpoint', 'worker_name', 'account_id', 'debug_endpoints'], array_keys($environment));
+            self::assertSame(['worker_name', 'account_id', 'debug_endpoints'], array_keys($environment));
+            self::assertArrayNotHasKey('endpoint', $environment);
         }
 
         // Second run must refuse rather than overwrite.

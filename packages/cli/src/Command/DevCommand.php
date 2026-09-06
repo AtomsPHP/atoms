@@ -57,12 +57,9 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * The callback URL is passed to the Worker as an `ATOMS_CALLBACK_URL` var, and
  * the Worker calls back through it for `$this->app()` and `$this->dispatch()`.
- * It resolves as `--callback-url`, then `ATOMS_CALLBACK_URL` in this process's
- * environment, then atoms.json's `callback_url.<env>`. The environment override
- * lets developers use a per-machine tunnel host or local port without
- * committing that value.
- * {@see CloudflareTarget::resolve()} owns that chain, so `atoms deploy`
- * forwards the identical value.
+ * A local URL comes from --callback-url or ATOMS_CALLBACK_URL; if both are
+ * set they must agree. Without either, callback_url.<env> is the fallback.
+ * The local URL belongs to this machine, independently of the deploy target.
  */
 #[AsCommand(name: 'dev', description: 'Run the Atoms Worker locally with wrangler dev')]
 final class DevCommand extends AbstractCommand
@@ -89,8 +86,8 @@ final class DevCommand extends AbstractCommand
         parent::configure();
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Environment whose settings to use', 'staging');
         $this->addOption('port', null, InputOption::VALUE_REQUIRED, 'Port for wrangler dev', self::DEFAULT_PORT);
-        $this->addOption('callback-url', null, InputOption::VALUE_REQUIRED, 'Monolith callback URL (else ATOMS_CALLBACK_URL in the environment, else atoms.json callback_url)');
-        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
+        $this->addOption('callback-url', null, InputOption::VALUE_REQUIRED, 'Local callback URL (must agree with ATOMS_CALLBACK_URL if set; else atoms.json callback_url)');
+        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (default: atoms-worker)');
         $this->addOption('no-build', null, InputOption::VALUE_NONE, 'Use the bundle already staged in the Worker project');
     }
 
@@ -107,6 +104,7 @@ final class DevCommand extends AbstractCommand
                 null,
                 self::stringOption($input, 'worker-dir'),
                 self::stringOption($input, 'callback-url'),
+                local: true,
             );
 
             $target->assertWorkerDir();
@@ -129,8 +127,8 @@ final class DevCommand extends AbstractCommand
 
             // atoms.json holds per-environment settings; the committed
             // wrangler.jsonc is shared by every environment. Dev and deploy
-            // forward the same vars, including the callback URL resolved from
-            // --callback-url, the process environment, or atoms.json.
+            // forward runtime vars; dev resolves a local callback independently
+            // of the named deployment when the machine supplies one.
             $vars = $target->runtimeVars();
             $callback = $target->callbackUrl;
 

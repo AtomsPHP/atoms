@@ -20,7 +20,7 @@
 	// and keep the differences (worker name, debug endpoints) deliberate.)
 
 	// Cosmetic for `atoms deploy`, which selects the real Worker with `--name`
-	// from atoms.json (`worker_name`, defaulting to the project).
+	// from atoms.json (`worker_name`, required for every environment).
 	"name": "atoms-worker",
 
 	// RUNTIME-REQUIRED: the Worker entrypoint the runtime ships.

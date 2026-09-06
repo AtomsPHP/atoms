@@ -262,12 +262,11 @@ final class DevCommandTest extends TestCase
     }
 
     /**
-     * `ATOMS_CALLBACK_URL` in the shell that runs `atoms dev` overrides
-     * atoms.json's `callback_url`, and `--callback-url` overrides both. This lets
-     * developers set a per-machine tunnel URL without committing it or
-     * passing it on every invocation.
+     * Local development may use a machine-specific callback URL. A local flag
+     * and environment value are both accepted when they agree, and the file
+     * callback remains the fallback when neither local source is present.
      */
-    public function testCallbackUrlFromTheEnvironmentBeatsAtomsJsonAndTheFlagBeatsBoth(): void
+    public function testLocalCallbackUrlUsesFlagOrEnvironmentAndAgreesWhenBothAreSet(): void
     {
         putenv(DevCommand::CALLBACK_VAR . '=https://tunnel.example.test/atoms/callback');
         try {
@@ -296,14 +295,53 @@ final class DevCommandTest extends TestCase
                 '--callback-url' => 'http://127.0.0.1:8000/atoms/callback',
             ]);
 
-            $dev = $wrangler->lastCall('dev');
-            self::assertNotNull($dev);
+            self::assertSame(1, $tester->getStatusCode());
+            self::assertStringContainsString('ATOMS-E070', $tester->getDisplay());
+            self::assertSame([], $wrangler->calls, 'conflicting local sources fail before Wrangler');
+
+            $wrangler = new FakeWrangler();
+            $tester = new CommandTester(new DevCommand($wrangler, processRunner: new FakeProcessRunner()));
+            $tester->execute([
+                '--root' => $this->fixtureDir('sample-app'),
+                '--env' => 'production',
+                '--worker-dir' => $this->workerDir(),
+                '--no-build' => true,
+                '--callback-url' => 'https://tunnel.example.test/atoms/callback',
+            ]);
+            self::assertSame(0, $tester->getStatusCode(), $tester->getDisplay());
             self::assertSame(
-                [DevCommand::CALLBACK_VAR => 'http://127.0.0.1:8000/atoms/callback'],
-                $dev['args']['vars'],
+                [DevCommand::CALLBACK_VAR => 'https://tunnel.example.test/atoms/callback'],
+                $wrangler->lastCall('dev')['args']['vars'],
             );
         } finally {
             putenv(DevCommand::CALLBACK_VAR);
         }
+    }
+
+    public function testLocalCallbackConfigurationFailureHappensBeforeDevSecretProvisioning(): void
+    {
+        putenv(DevCommand::CALLBACK_VAR . '=https://ambient.example.test/callback');
+        $dir = $this->workerDir();
+        $runner = new FakeProcessRunner();
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DevCommand($wrangler, processRunner: $runner));
+
+        try {
+            $exit = $tester->execute([
+                '--root' => $this->fixtureDir('sample-app'),
+                '--env' => 'production',
+                '--worker-dir' => $dir,
+                '--no-build' => true,
+                '--callback-url' => 'https://flag.example.test/callback',
+            ]);
+        } finally {
+            putenv(DevCommand::CALLBACK_VAR);
+        }
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E070', $tester->getDisplay());
+        self::assertFileDoesNotExist($dir . '/.dev.vars');
+        self::assertSame([], $runner->runs);
+        self::assertSame([], $wrangler->calls);
     }
 }

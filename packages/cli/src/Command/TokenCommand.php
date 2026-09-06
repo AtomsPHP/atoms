@@ -104,6 +104,7 @@ final class TokenCommand extends AbstractCommand
                 self::stringOption($input, 'env') ?? 'staging',
                 null,
                 null,
+                resolveCallback: false,
             );
 
             return $target->workerDir;

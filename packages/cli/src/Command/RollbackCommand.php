@@ -57,6 +57,7 @@ final class RollbackCommand extends AbstractCommand
                 $env,
                 null,
                 self::stringOption($input, 'worker-dir'),
+                resolveCallback: false,
             );
 
             $versionArg = $input->getArgument('version');

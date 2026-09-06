@@ -10,14 +10,17 @@ An Atom can cross from Atom-side back into the host application in two ways:
 
 ## Configure the channel
 
-For these callbacks to work, you must configure a shared secret and a callback URL. Each lives in a specific place:
+For these callbacks to work, you must configure a shared secret and a callback
+URL. Each lives in a specific place:
 
-- `ATOMS_CALLBACK_URL` is an environment variable **on the Worker**. It tells
-  the Worker where to POST. See
-  [Callback URL](#callback-url).
-- `ATOMS_SHARED_SECRET` is configured **on both sides**: as a secret on the
-  Worker, and in your application's `.env` (or equivalent). See
-  [Secrets and authentication](/guides/secrets/) for setting it.
+- `callback_url.<environment>` in `atoms.json` declares the callback URL for a
+  deploy target. The entry is optional; an empty or absent entry means the
+  Worker has no callback URL and `app()`/`dispatch()` are unavailable.
+- `ATOMS_CALLBACK_URL` is the variable the selected Worker receives. It is not
+  a secret and is derived from the file declaration by the CLI.
+- `ATOMS_SHARED_SECRET` is configured on both sides: as a secret on the Worker,
+  and in your application's `.env` (or equivalent). See [Secrets and
+  authentication](/guides/secrets/) for setting it.
 
 Every callback POST is signed with a key derived from that secret, and your
 adapter verifies the signature before your Methods class or job runs. See the
@@ -25,24 +28,40 @@ adapter verifies the signature before your Methods class or job runs. See the
 
 ## Callback URL
 
-Set the application's callback URL for each environment under
-[`callback_url` in `atoms.json`](/guides/configuration/#atomsjson-keys).
+Declare the URL in the top-level `callback_url` map in `atoms.json`:
 
-`atoms dev` and `atoms deploy` choose the URL in this order:
-
-1. `--callback-url`;
-2. `ATOMS_CALLBACK_URL` in the process environment;
-3. `callback_url.<env>` in `atoms.json`.
-
-For example, override the production URL for a deployment:
-
-```bash
-vendor/bin/atoms deploy --env production --callback-url https://example.com/atoms/callback
+```json
+{
+    "callback_url": {
+        "production": "https://example.com/atoms/callback",
+        "staging": "${STAGING_CALLBACK_URL}"
+    }
+}
 ```
 
-The selected URL is passed to Wrangler as `ATOMS_CALLBACK_URL`, overriding
-the Worker's configured value. If all three sources are empty, Wrangler uses
-the Worker's configuration.
+The whole value may be a `${ENV_VAR}` reference. A referenced variable that is
+unset or empty is an [ATOMS-E070](/reference/errors/#atoms-e070) configuration
+error. A literal empty string means no callback is declared. The Worker
+requires HTTPS, except for HTTP loopback URLs used in local development, such
+as `http://127.0.0.1:8000/atoms/callback`.
+
+For deployment, the selected file entry is authoritative. `atoms deploy` has
+no `--callback-url` option. If `ATOMS_CALLBACK_URL` is present in the deploy
+process, it must match the literal or resolved file value; it is never a
+fallback. Supplying it without a file entry, or supplying a different value,
+raises ATOMS-E070. With no file entry and no ambient value, deploy warns and
+forwards no callback variable.
+
+Local development has a separate rule. `atoms dev --callback-url ...` and the
+ambient `ATOMS_CALLBACK_URL` are local sources; if both are present they must
+match. If neither is present, `atoms dev` uses the selected environment's file
+value when one exists. A local source may differ from a committed production
+value, which supports a developer tunnel.
+
+The callback URL is for reverse calls from the Worker. Configure the
+application's `ATOMS_ENDPOINT` separately with the Worker URL used for normal
+Atom RPC. `ATOMS_ENVIRONMENT` may label the application environment in logs;
+it does not select an `atoms.json` environment.
 
 ## Synchronous `app()`
 

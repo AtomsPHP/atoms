@@ -22,6 +22,15 @@ this page takes `--env <name>` to select one. See
 [Configuration](/guides/configuration/#environments) for what an entry holds and
 what `--env` resolves from it.
 
+`worker_name` is required and identifies the Worker Wrangler receives. The
+optional `callback_url.<name>` entry in the top-level `callback_url` map is the
+only callback declaration used by deploy. A whole-value `${ENV_VAR}` reference
+is expanded when the selected deploy runs; an unset or empty reference is
+ATOMS-E070. A missing or empty literal means callbacks are unavailable, so
+deploy warns and sends no callback variable. `--callback-url` is a local `dev`
+option only. If `ATOMS_CALLBACK_URL` is present during deploy, it must agree
+with the file value and is never a fallback.
+
 ## Authenticate with Cloudflare
 
 On your own machine, authenticate with the installed Wrangler:
@@ -90,6 +99,10 @@ vendor/bin/atoms status --env production
 Verify the new Atom methods are available before deploying application code that
 calls them. To move a Worker back to an earlier version, see
 [Rollback](/guides/rollback/).
+
+`status` lists Worker version data from Wrangler. It does not infer or print a
+Worker endpoint from `atoms.json`; set the application's `ATOMS_ENDPOINT`
+independently.
 
 ## Upgrade the runtime
 

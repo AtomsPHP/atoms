@@ -56,6 +56,7 @@ final class SecretsListCommand extends AbstractCommand
                 $env,
                 null,
                 self::stringOption($input, 'worker-dir'),
+                resolveCallback: false,
             );
 
             $target->assertWorkerDir();
