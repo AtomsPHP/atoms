@@ -168,23 +168,35 @@ ignored — Cloudflare places a Durable Object itself.
 
 ## Precedence and agreement
 
-These sources are deliberately command-specific. They are not a general
-override ladder:
+One rule covers every value:
 
-| Setting | Deploy | Dev |
-|---|---|---|
-| Callback URL | `callback_url.<name>` is authoritative when present. If `ATOMS_CALLBACK_URL` is set, it must match; it is never a fallback. With no file entry, an ambient value is undeclared and errors. | `--callback-url` and `ATOMS_CALLBACK_URL` are local sources and must match when both are present; otherwise `callback_url.<name>` is the fallback. |
-| Account id | Non-empty file `account_id`; otherwise `CLOUDFLARE_ACCOUNT_ID`. If both are non-empty, they must match. | Same |
-| Worker name | `worker_name` in the selected environment | `worker_name` in the selected environment |
-| Worker directory | `--worker-dir` → `atoms-worker/` beside `atoms.json` | `--worker-dir` → `atoms-worker/` beside `atoms.json` |
+1. **An explicit flag wins**, where the command has one. Typing it is a
+   decision made for this invocation and visible in the command that made it.
+2. **Otherwise the file value is used** when the selected environment declares
+   one.
+3. **The environment fills in only where the file is silent.** Where the file
+   declares a value and the environment sets a different one, that is
+   [ATOMS-E070](/reference/errors/#atoms-e070) — never a silent winner in
+   either direction.
 
-For deploy, a callback URL supplied only through `ATOMS_CALLBACK_URL` is an
-error because it is undeclared in the selected environment. A differing
-ambient value is also an error. If the file has no entry and no ambient value,
-deploy proceeds with a warning and no callback variable. For dev, a tunnel or
-another local callback source may intentionally differ from the committed file
-value; if both local sources are supplied, they must agree. All callback
-values are validated by the Worker: HTTPS is required except for loopback HTTP.
+| Setting | Flag | Environment | File |
+|---|---|---|---|
+| Callback URL | `--callback-url`, on `deploy` and `dev` | `ATOMS_CALLBACK_URL` must agree on deploy; on `dev` it is a local source | `callback_url.<name>` |
+| Account id | — | `CLOUDFLARE_ACCOUNT_ID` fills an empty `account_id`; must agree when both are set | `environments.<name>.account_id` |
+| Worker name | — | — | `worker_name`, required |
+| Debug endpoints | — | — | `debug_endpoints`, default `false` |
+| Worker directory | `--worker-dir` | — | not a key; `atoms-worker/` beside `atoms.json` |
+
+`atoms dev` is the one documented departure, and only for the callback URL:
+there, `ATOMS_CALLBACK_URL` **is** allowed to differ from the file, because a
+tunnel host or a local port is a fact about the machine rather than about the
+deployment. Resolution on `dev` is flag, then `ATOMS_CALLBACK_URL`, then the
+file. `dev` also skips the account-id agreement check entirely, since
+`wrangler dev` runs workerd locally and never selects an account.
+
+If the file has no callback entry and nothing else supplies one, deploy
+proceeds with a warning and forwards no callback variable. All callback values
+are validated by the Worker: HTTPS is required except for loopback HTTP.
 
 ## Migrating older configuration
 
@@ -199,9 +211,9 @@ values are validated by the Worker: HTTPS is required except for loopback HTTP.
    is no longer used as a fallback.
 4. Move account selection to the environment's `account_id` or
    `CLOUDFLARE_ACCOUNT_ID`, and make sure both values agree if both are set.
-5. Remove `--callback-url` from deploy scripts. Keep it for local `dev` when a
-   tunnel or local callback must differ from the file; make `--callback-url`
-   and `ATOMS_CALLBACK_URL` agree when both are present.
+5. Deploy scripts that pass `--callback-url` keep working — the flag still
+   overrides the file. What changed is that an *ambient* `ATOMS_CALLBACK_URL`
+   no longer replaces a declared file value on deploy; it must agree with it.
 
 ## `atoms-composer.json`
 
