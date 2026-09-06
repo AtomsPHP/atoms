@@ -23,14 +23,15 @@ this page takes `--env <name>` to select one. See
 what `--env` resolves from it.
 
 `worker_name` is required and identifies the Worker Wrangler receives. The
-optional `callback_url.<name>` entry in the top-level `callback_url` map is the
-only callback declaration used by deploy. A whole-value `${ENV_VAR}` reference
-is expanded when the selected deploy runs; an unset or empty reference is
-ATOMS-E070. A missing or empty literal means callbacks are unavailable, so
-deploy warns and sends no callback variable. If `ATOMS_CALLBACK_URL` is present
-during deploy, it must agree with the file value and is never a fallback —
-but `--callback-url` overrides the file outright, because a flag is a decision
-made for one invocation while an exported variable is ambient state.
+callback URL resolves in one order, the same one `atoms dev` uses:
+`--callback-url`, then `ATOMS_CALLBACK_URL` in the environment, then the
+optional `callback_url.<name>` entry in the top-level `callback_url` map. The
+nearer source wins silently — nothing is compared, and no combination is an
+error. A whole-value `${ENV_VAR}` reference in the file is expanded when the
+deploy runs, and only when the two nearer sources supplied nothing; an unset or
+empty reference is then [ATOMS-E070](/reference/errors/#atoms-e070). With no
+source at all, callbacks are unavailable: deploy warns and sends no callback
+variable.
 
 ## Authenticate with Cloudflare
 

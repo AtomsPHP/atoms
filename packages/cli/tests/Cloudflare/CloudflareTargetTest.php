@@ -147,16 +147,17 @@ final class CloudflareTargetTest extends TestCase
         self::assertSame(['CLOUDFLARE_ACCOUNT_ID' => 'env-account-5678'], $target->credentialEnv());
     }
 
-    public function testAccountIdFromTheFileAndEnvironmentMustAgree(): void
+    public function testAccountIdTakesTheEnvironmentOverTheFile(): void
     {
         putenv('CLOUDFLARE_ACCOUNT_ID=cf-account-1234');
         $target = CloudflareTarget::resolve($this->sampleApp(), 'production', 'token');
         self::assertSame('cf-account-1234', $target->accountId);
 
+        // One order, no comparison: the fixture's file value says
+        // cf-account-1234, and CLOUDFLARE_ACCOUNT_ID overrides it silently.
         putenv('CLOUDFLARE_ACCOUNT_ID=other-account');
-        $this->expectException(AtomsError::class);
-        $this->expectExceptionMessageMatches('/ATOMS-E070.*account_id.*CLOUDFLARE_ACCOUNT_ID/s');
-        CloudflareTarget::resolve($this->sampleApp(), 'production', 'token');
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production', 'token');
+        self::assertSame('other-account', $target->accountId);
     }
 
     public function testWorkerNameIsRequiredAndDoesNotFallBackToTheProject(): void
@@ -293,16 +294,16 @@ final class CloudflareTargetTest extends TestCase
         CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
     }
 
-    public function testDeploymentRejectsAnAmbientCallbackThatDiffersFromTheFile(): void
+    public function testDeploymentTakesTheEnvironmentCallbackOverTheFile(): void
     {
         putenv(CloudflareTarget::CALLBACK_VAR . '=https://ambient.example.test/callback');
 
-        $this->expectException(AtomsError::class);
-        $this->expectExceptionMessageMatches('/ATOMS-E070.*ATOMS_CALLBACK_URL.*callback_url/s');
-        CloudflareTarget::resolve($this->sampleApp(), 'production');
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production');
+
+        self::assertSame('https://ambient.example.test/callback', $target->callbackUrl);
     }
 
-    public function testDeploymentAcceptsAnAmbientCallbackThatAgreesWithTheFile(): void
+    public function testDeploymentTakesTheEnvironmentCallbackEvenWhenItMatchesTheFile(): void
     {
         putenv(CloudflareTarget::CALLBACK_VAR . '=https://acme.example.com');
 
@@ -311,7 +312,7 @@ final class CloudflareTargetTest extends TestCase
         self::assertSame('https://acme.example.com', $target->callbackUrl);
     }
 
-    public function testDeploymentRejectsAnAmbientCallbackWhenTheFileIsMissing(): void
+    public function testDeploymentUsesTheEnvironmentCallbackWhenTheFileHasNone(): void
     {
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
@@ -319,16 +320,16 @@ final class CloudflareTargetTest extends TestCase
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
         putenv(CloudflareTarget::CALLBACK_VAR . '=https://ambient.example.test/callback');
 
-        $this->expectException(AtomsError::class);
-        $this->expectExceptionMessageMatches('/ATOMS-E070.*ATOMS_CALLBACK_URL/s');
-        CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+        $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+
+        self::assertSame('https://ambient.example.test/callback', $target->callbackUrl);
     }
 
     public function testDeploymentCallbackFlagOverridesTheFile(): void
     {
         // Typing the flag is a deliberate act scoped to one invocation, so it
         // is the operator's final say — as with `terraform -var` and
-        // `wrangler --var`. Ambient state gets no such privilege.
+        // `wrangler --var`. It is the nearest of the three sources.
         $target = CloudflareTarget::resolve(
             $this->sampleApp(),
             'production',
@@ -338,7 +339,7 @@ final class CloudflareTargetTest extends TestCase
         self::assertSame('https://flag.example.test/callback', $target->callbackUrl);
     }
 
-    public function testDeploymentCallbackFlagAlsoOutranksAnAmbientValue(): void
+    public function testDeploymentCallbackFlagAlsoOutranksTheEnvironment(): void
     {
         putenv(CloudflareTarget::CALLBACK_VAR . '=https://ambient.example.test/callback');
 
@@ -348,8 +349,8 @@ final class CloudflareTargetTest extends TestCase
             callbackUrl: 'https://flag.example.test/callback',
         );
 
-        // Without the flag this same environment is a hard conflict; the flag
-        // resolves it rather than compounding it.
+        // Same order as everywhere else: flag, then environment, then file.
+        // Without the flag this variable would have supplied the callback.
         self::assertSame('https://flag.example.test/callback', $target->callbackUrl);
     }
 
@@ -453,26 +454,20 @@ final class CloudflareTargetTest extends TestCase
         CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
     }
 
-    public function testAmbientConflictNamesTheReferenceTheFileDeclares(): void
+    public function testAnEnvironmentCallbackOutranksAFileReferenceWithoutExpandingIt(): void
     {
-        // Telling the operator to declare "${ATOMS_CALLBACK_URL}" here would
-        // repoint production at whatever this shell holds — usually a tunnel.
+        // The environment is nearer than the file, so a declared ${VAR} is not
+        // even consulted — and cannot fail for being unset.
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $json['callback_url']['production'] = '${PRODUCTION_CALLBACK_URL}';
+        $json['callback_url']['production'] = '${UNSET_PRODUCTION_CALLBACK_URL}';
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
-        putenv('PRODUCTION_CALLBACK_URL=https://acme.example.com/atoms/callback');
-        putenv(CloudflareTarget::CALLBACK_VAR . '=https://tunnel.example.test/callback');
+        putenv('UNSET_PRODUCTION_CALLBACK_URL');
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://ambient.example.test/callback');
 
-        try {
-            CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
-            self::fail('expected ATOMS-E070');
-        } catch (AtomsError $e) {
-            self::assertStringContainsString('PRODUCTION_CALLBACK_URL', $e->getMessage());
-            self::assertStringNotContainsString('declare "${ATOMS_CALLBACK_URL}"', $e->getMessage());
-        } finally {
-            putenv('PRODUCTION_CALLBACK_URL');
-        }
+        $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+
+        self::assertSame('https://ambient.example.test/callback', $target->callbackUrl);
     }
 
     public function testAnEmptyOrBlankFileCallbackMeansNoCallbackDeclared(): void
@@ -488,24 +483,14 @@ final class CloudflareTargetTest extends TestCase
         self::assertArrayNotHasKey(CloudflareTarget::CALLBACK_VAR, $target->runtimeVars());
     }
 
-    public function testLocalIgnoresAnAccountIdThatDiffersFromTheFile(): void
-    {
-        // `wrangler dev` runs workerd locally and never selects an account, so
-        // a shell pointed at a different account must not block a dev server.
-        putenv('CLOUDFLARE_ACCOUNT_ID=some-other-account');
-
-        $target = CloudflareTarget::resolve($this->sampleApp(), 'production', local: true);
-
-        self::assertNotSame('', $target->accountId);
-    }
-
-    public function testDeploymentStillRejectsAnAccountIdThatDiffersFromTheFile(): void
+    public function testAccountIdPrecedenceIsTheSameLocallyAndOnDeploy(): void
     {
         putenv('CLOUDFLARE_ACCOUNT_ID=some-other-account');
 
-        $this->expectException(AtomsError::class);
-        $this->expectExceptionMessageMatches('/ATOMS-E070.*CLOUDFLARE_ACCOUNT_ID/s');
-        CloudflareTarget::resolve($this->sampleApp(), 'production');
+        foreach ([true, false] as $local) {
+            $target = CloudflareTarget::resolve($this->sampleApp(), 'production', local: $local);
+            self::assertSame('some-other-account', $target->accountId);
+        }
     }
 
     public function testRuntimeVersionMatchesTheStamp(): void

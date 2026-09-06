@@ -55,7 +55,7 @@ To restore a selected Worker version, follow [Rollback](/guides/rollback/).
 - **`build`** — `--fast` skips the vendor stage (refuses with `ATOMS-E107` if `atoms-composer.json` declares packages); `--out` (defaults to `.atoms/build`).
 - **`diff`** — `--against` a saved `manifest.json` to compare with the current one.
 - **`dev`** — `--env` (defaults to `staging`), `--port` (defaults to `8787`), `--callback-url` (overrides everything else; otherwise `ATOMS_CALLBACK_URL`, then `callback_url.<env>`), `--worker-dir` (defaults to `atoms-worker/` beside `atoms.json`), `--no-build` to reuse the bundle already staged in the Worker project.
-- **`deploy`** — `--env` (required), `--bundle` to deploy a prebuilt bundle instead of building, `--manifest` (defaults to `manifest.json` beside `--bundle`), `--worker-dir`. The callback comes from `callback_url.<env>` only; an ambient `ATOMS_CALLBACK_URL` must agree and is never a fallback.
+- **`deploy`** — `--env` (required), `--bundle` to deploy a prebuilt bundle instead of building, `--manifest` (defaults to `manifest.json` beside `--bundle`), `--worker-dir`, `--callback-url` (overrides everything else; otherwise `ATOMS_CALLBACK_URL`, then `callback_url.<env>` — the same order `dev` uses).
 - **`status`**, **`secrets:list`**, **`shared-secret:unset`** — `--env` (required), `--worker-dir`.
 - **`rollback [VERSION]`** — `--env` (required), `--message`/`-m`, `--worker-dir`. `VERSION` defaults to the previous version.
 - **`secrets:set KEY [VALUE]`** — `--env` (required), `--worker-dir`. Reads the value from stdin when the `VALUE` argument is omitted.
@@ -87,7 +87,9 @@ Run `npm ci` in the Worker directory to install its pinned Wrangler version.
 ## Credentials
 
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` pass directly into Wrangler's
-environment and are never written to a file or a log. See
+environment and are never written to a file or a log. `CLOUDFLARE_ACCOUNT_ID`
+overrides the selected environment's `account_id` in `atoms.json`, on every
+command; there is no `--account-id` flag. See
 [Authenticate with Cloudflare](/guides/deploy/#authenticate-with-cloudflare).
 
 `atoms status` reports Worker versions. It does not report an endpoint URL from

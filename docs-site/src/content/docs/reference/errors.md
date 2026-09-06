@@ -707,7 +707,7 @@ atoms.json at the repository root is missing, invalid, or does not apply cleanly
 
 **Fix**
 
-Run `atoms init` to create it if it is missing, fix the reported problem in the file, or — when the reason names an environment variable — unset that variable or make it agree with the file.
+Run `atoms init` to create it if it is missing, or fix the reported problem in the file. When the reason names an environment variable, set that variable to a non-empty value.
 
 
 <a id="atoms-e071"></a>

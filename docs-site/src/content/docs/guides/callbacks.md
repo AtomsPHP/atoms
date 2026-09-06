@@ -17,7 +17,8 @@ URL. Each lives in a specific place:
   deploy target. The entry is optional; an empty or absent entry means the
   Worker has no callback URL and `app()`/`dispatch()` are unavailable.
 - `ATOMS_CALLBACK_URL` is the variable the selected Worker receives. It is not
-  a secret and is derived from the file declaration by the CLI.
+  a secret; the CLI derives it from the file declaration, or from
+  `--callback-url` when that is passed.
 - `ATOMS_SHARED_SECRET` is configured on both sides: as a secret on the Worker,
   and in your application's `.env` (or equivalent). See [Secrets and
   authentication](/guides/secrets/) for setting it.
@@ -39,24 +40,29 @@ Declare the URL in the top-level `callback_url` map in `atoms.json`:
 }
 ```
 
-The whole value may be a `${ENV_VAR}` reference. A referenced variable that is
-unset or empty is an [ATOMS-E070](/reference/errors/#atoms-e070) configuration
-error. A literal empty string means no callback is declared. The Worker
-requires HTTPS, except for HTTP loopback URLs used in local development, such
-as `http://127.0.0.1:8000/atoms/callback`.
+The whole value may be a `${ENV_VAR}` reference. A literal empty or
+whitespace-only string means no callback is declared. The Worker requires
+HTTPS, except for HTTP loopback URLs used in local development, such as
+`http://127.0.0.1:8000/atoms/callback`.
 
-For deployment, the selected file entry is authoritative. `atoms deploy` has
-no `--callback-url` option. If `ATOMS_CALLBACK_URL` is present in the deploy
-process, it must match the literal or resolved file value; it is never a
-fallback. Supplying it without a file entry, or supplying a different value,
-raises ATOMS-E070. With no file entry and no ambient value, deploy warns and
-forwards no callback variable.
+**The file entry is the committed default, not the last word.** Both `deploy`
+and `dev` resolve the callback URL in one order:
 
-Local development has a separate rule. `atoms dev --callback-url ...` and the
-ambient `ATOMS_CALLBACK_URL` are local sources; if both are present they must
-match. If neither is present, `atoms dev` uses the selected environment's file
-value when one exists. A local source may differ from a committed production
-value, which supports a developer tunnel.
+1. `--callback-url`, available on `deploy` and `dev` alike.
+2. `ATOMS_CALLBACK_URL` in the process environment, on `deploy` and `dev` alike
+   — which is how a developer tunnel or a CI-supplied host is used without
+   editing the committed file.
+3. The selected `callback_url.<env>` entry in `atoms.json`.
+
+The nearer source wins, silently. Nothing is compared, and no combination of
+sources is an error. With no source at all, deploy warns and forwards no
+callback variable.
+
+A `${ENV_VAR}` reference in the file is read only when steps 1 and 2 supplied
+nothing. On `deploy`, a referenced variable that is unset or empty is then an
+[ATOMS-E070](/reference/errors/#atoms-e070) configuration error; `atoms dev`
+treats it as no callback and warns, because the variable may belong to CI. That
+is the only way the two commands differ here.
 
 The callback URL is for reverse calls from the Worker. Configure the
 application's `ATOMS_ENDPOINT` separately with the Worker URL used for normal

@@ -295,7 +295,7 @@ final class DevCommandTest extends TestCase
      * and environment value are both accepted; the flag wins when both are
      * present, and the file callback remains the fallback when neither is.
      */
-    public function testLocalCallbackUrlUsesFlagOrEnvironmentAndAgreesWhenBothAreSet(): void
+    public function testLocalCallbackUrlUsesFlagOrEnvironmentAndTheFlagWinsWhenBothAreSet(): void
     {
         putenv(DevCommand::CALLBACK_VAR . '=https://tunnel.example.test/atoms/callback');
         try {
@@ -314,8 +314,8 @@ final class DevCommandTest extends TestCase
                 $tester->getDisplay(),
             );
 
-            // The flag outranks the ambient value rather than conflicting with
-            // it: one is a deliberate act for this run, the other is not.
+            // The flag outranks the environment value: same order as deploy,
+            // flag then environment then file, nearest source wins.
             $wrangler = new FakeWrangler();
             $tester = new CommandTester(new DevCommand($wrangler, processRunner: new FakeProcessRunner()));
             $tester->execute([
@@ -354,8 +354,8 @@ final class DevCommandTest extends TestCase
     public function testLocalCallbackConfigurationFailureHappensBeforeDevSecretProvisioning(): void
     {
         // A malformed reference is a file-shape error and still fails locally,
-        // which is what keeps this ordering guarantee testable now that a flag
-        // and an ambient value no longer conflict.
+        // which is what keeps this ordering guarantee testable: no other
+        // combination of sources fails, since the nearest one simply wins.
         $dir = $this->workerDir();
         $root = $this->tempCopy('sample-app');
         $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);

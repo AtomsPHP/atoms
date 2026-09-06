@@ -32,8 +32,8 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * The secret is read, in order: from the `ATOMS_SHARED_SECRET` process
  * environment variable; else from the `ATOMS_SHARED_SECRET` line of the
- * Worker project's `.dev.vars` (`--worker-dir`, or the directory `atoms.json`
- * resolves for `--env`).
+ * Worker project's `.dev.vars` (`--worker-dir`, or `atoms-worker/` beside
+ * `atoms.json`).
  */
 #[AsCommand(name: 'token', description: 'Print the bearer derived from ATOMS_SHARED_SECRET')]
 final class TokenCommand extends AbstractCommand
@@ -45,7 +45,7 @@ final class TokenCommand extends AbstractCommand
     {
         parent::configure();
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Environment to resolve the Worker directory for (fallback secret source)', 'staging');
-        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory holding .dev.vars (else atoms.json)');
+        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory holding .dev.vars (default: atoms-worker/ beside atoms.json)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -86,9 +86,9 @@ final class TokenCommand extends AbstractCommand
     }
 
     /**
-     * An explicit --worker-dir, or the directory atoms.json resolves for
-     * --env. Any failure resolving the latter (no atoms.json, no such
-     * environment) yields null rather than propagating — the caller's fallback
+     * An explicit --worker-dir, or `atoms-worker/` beside the atoms.json this
+     * invocation resolves for --env. Any failure locating that file (no
+     * atoms.json, no such environment) yields null rather than propagating — the caller's fallback
      * is a plain "no secret configured" error, not an unrelated atoms.json one.
      */
     private function resolveWorkerDir(InputInterface $input): ?string

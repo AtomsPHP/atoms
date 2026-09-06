@@ -42,7 +42,7 @@ final class SecretsSetCommand extends AbstractCommand
         $this->addArgument('key', InputArgument::REQUIRED, 'Secret name, e.g. PAYMENTS_API_KEY');
         $this->addArgument('value', InputArgument::OPTIONAL, 'Secret value (read from STDIN when omitted)');
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment');
-        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
+        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (default: atoms-worker/ beside atoms.json)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int

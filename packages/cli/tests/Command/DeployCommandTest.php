@@ -128,12 +128,11 @@ final class DeployCommandTest extends TestCase
         );
     }
 
-    public function testDeployUsesTheFileCallbackAndRejectsAnAmbientConflictBeforeStaging(): void
+    public function testDeployTakesTheEnvironmentCallbackOverTheFile(): void
     {
         putenv(CloudflareTarget::CALLBACK_VAR . '=https://app.example.test/atoms/callback');
         $wrangler = new FakeWrangler();
-        $runner = new FakeProcessRunner();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager(new FakeProcessRunner())));
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
@@ -141,14 +140,19 @@ final class DeployCommandTest extends TestCase
             '--bundle' => $this->bundleFile(),
         ]);
 
-        self::assertSame(1, $exit);
-        self::assertStringContainsString('ATOMS-E070', $tester->getDisplay());
-        self::assertSame([], $runner->runs, 'configuration errors must happen before staging');
-        self::assertSame([], $wrangler->calls, 'configuration errors must happen before Wrangler');
+        self::assertSame(0, $exit, $tester->getDisplay());
+        self::assertSame(
+            'https://app.example.test/atoms/callback',
+            $wrangler->lastCall('deploy')['args']['vars'][CloudflareTarget::CALLBACK_VAR],
+        );
     }
 
-    public function testDeployResolvesAnExactCallbackEnvironmentReference(): void
+    public function testDeployShipsTheCallbackVariableDeclaredByAFileReference(): void
     {
+        // Two routes lead to the same value here, and both are correct: the
+        // process environment outranks the file, and the file's reference
+        // names that very variable.
+
         $root = $this->tempCopy('sample-app');
         $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
         $config['callback_url']['production'] = '${ATOMS_CALLBACK_URL}';

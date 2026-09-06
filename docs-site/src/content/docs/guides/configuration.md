@@ -77,10 +77,14 @@ its callback configuration.
 environment. It is the exact name passed to Wrangler; there is no fallback to
 the top-level `project`.
 
-`callback_url.<name>` is optional. An empty literal means unset. A non-empty
-literal is passed to the Worker, and a whole-value expansion such as
-`"${PRODUCTION_CALLBACK_URL}"` must resolve to a non-empty value or the CLI
-raises [ATOMS-E070](/reference/errors/#atoms-e070). For example:
+`callback_url.<name>` is optional, and is the committed default rather than
+the last word: `ATOMS_CALLBACK_URL` overrides it, and `--callback-url`
+overrides both (see [Precedence](#precedence) below). An empty or
+whitespace-only literal means unset. A non-empty literal is passed to the
+Worker, and a whole-value reference such as `"${PRODUCTION_CALLBACK_URL}"` —
+read only when neither the flag nor `ATOMS_CALLBACK_URL` supplied a value — must
+resolve to a non-empty value or the CLI raises
+[ATOMS-E070](/reference/errors/#atoms-e070). For example:
 
 ```json
 { "callback_url": { "production": "${ATOMS_CALLBACK_URL}" } }
@@ -94,11 +98,11 @@ monolith's `ATOMS_ENDPOINT`, which points the application at the Worker for
 ordinary RPC. If a deploy has no callback entry, it warns that `app()` and
 `dispatch()` are unavailable and forwards no callback variable.
 
-`account_id` may be empty. When it is empty, the CLI uses
-`CLOUDFLARE_ACCOUNT_ID`; when both are non-empty they must agree, or the
-command fails with [ATOMS-E070](/reference/errors/#atoms-e070). If neither is
-set, Wrangler may still resolve a single reachable account. An ambiguous
-Wrangler login remains an [ATOMS-E075](/reference/errors/#atoms-e075) failure.
+`account_id` may be empty. A non-empty `CLOUDFLARE_ACCOUNT_ID` in the
+environment wins over whatever the file says, on every command; there is no
+`--account-id` flag, and the two values are never compared. If neither is set,
+Wrangler may still resolve a single reachable account. An ambiguous Wrangler
+login remains an [ATOMS-E075](/reference/errors/#atoms-e075) failure.
 
 `endpoint` is no longer part of the parsed configuration. Older files may keep
 the key; it is tolerated and ignored indefinitely. The CLI never invents
@@ -119,15 +123,16 @@ target.
 
 ## Configuration mental model
 
-The project file is the authority for deployment identity. The application
-owns the URL it uses to reach the Worker. Wrangler owns the final deployment
-output and any values configured directly in its Worker project.
+The project file is the committed default for deployment identity, overridden
+by the process environment and then by an explicit flag. The application owns
+the URL it uses to reach the Worker. Wrangler owns the final deployment output
+and any values configured directly in its Worker project.
 
 | Reader | When it reads configuration | What it reads | What it does not do |
 |---|---|---|---|
 | `atoms build` | Build | Project paths, PHP version, Atom dependencies; validates environment shape | It does not select an environment or resolve callback/account values |
-| `atoms dev` | Before starting local Wrangler | Selected `worker_name`, `account_id`, `debug_endpoints`, and callback sources | It does not require the deploy callback source to match a local override |
-| `atoms deploy` | Before staging the selected target | Selected `worker_name`, `account_id`, optional file callback, and runtime vars | It does not fall back to an ambient callback URL; only `--callback-url` overrides the file |
+| `atoms dev` | Before starting local Wrangler | Selected `worker_name`, `debug_endpoints`, the account id and the callback URL in the one precedence order | It does not need an account at all — `wrangler dev` runs workerd locally |
+| `atoms deploy` | Before staging the selected target | Selected `worker_name`, runtime vars, and the account id and callback URL in the same order as `dev` | It does not compare two sources or refuse a value for differing from the file |
 | `atoms status` / `rollback` / secrets | Before invoking Wrangler | Selected `worker_name` and account target | Status does not claim an endpoint URL |
 | Wrangler | `dev` or deploy invocation | Its own Worker project, command-line vars, credentials, and config | It does not choose the Atoms environment |
 | Deployed Worker | Request and callback handling | Deployed vars/secrets, including `ATOMS_CALLBACK_URL`, and the bundle manifest | It does not read `atoms.json` or the monolith's environment |
@@ -135,8 +140,8 @@ output and any values configured directly in its Worker project.
 
 The lifecycle is therefore: write the project file, build the manifest
 artifact while validating every environment's shape, select one environment
-with the invocation flag, resolve target facts from the file, and let Wrangler
-deploy the bundle and its manifest. The deployed Worker then serves that
+with the invocation flag, resolve target facts — flag, then environment, then
+file — and let Wrangler deploy the bundle and its manifest. The deployed Worker then serves that
 artifact and calls the monolith's callback route when an Atom uses `app()` or
 `dispatch()`. The entity rule is simple: the deploy target is a file fact, the
 machine and principal are environment facts, and the invocation selects one
@@ -152,8 +157,8 @@ runs, never while a bundle is built.
 | `paths.shared` | no | `<paths.atoms>/Shared` |
 | `php` | no | `8.3` |
 | `environments.<name>.worker_name` | yes | — |
-| `environments.<name>.account_id` | no | `CLOUDFLARE_ACCOUNT_ID` when the file value is empty |
-| `callback_url.<name>` | no | empty/unset means callbacks are unavailable; literal or whole-value `${ENV_VAR}` |
+| `environments.<name>.account_id` | no | overridden by `CLOUDFLARE_ACCOUNT_ID`; used when that is unset |
+| `callback_url.<name>` | no | overridden by `--callback-url` and `ATOMS_CALLBACK_URL`; empty/unset means callbacks are unavailable; literal or whole-value `${ENV_VAR}` |
 | `environments.<name>.debug_endpoints` | no | `false` |
 
 Structural problems in this file are reported as
@@ -166,54 +171,59 @@ accepted for migration and ignored.
 `environments.<name>.region` is accepted so older files still load, and is
 ignored — Cloudflare places a Durable Object itself.
 
-## Precedence and agreement
+## Precedence
 
-One rule covers every value:
-
-1. **An explicit flag wins**, where the command has one. Typing it is a
-   decision made for this invocation and visible in the command that made it.
-2. **Otherwise the file value is used** when the selected environment declares
-   one.
-3. **The environment fills in only where the file is silent.** Where the file
-   declares a value and the environment sets a different one, that is
-   [ATOMS-E070](/reference/errors/#atoms-e070) — never a silent winner in
-   either direction.
+**One order, for every value and every command: flag, then environment, then
+file.** The nearer source wins, silently. Nothing is compared against anything
+else, no combination of sources is an error, and there is no agreement check
+anywhere — the same model the AWS CLI, npm and Pulumi use.
 
 | Setting | Flag | Environment | File |
 |---|---|---|---|
-| Callback URL | `--callback-url`, on `deploy` and `dev` | `ATOMS_CALLBACK_URL` must agree on deploy; on `dev` it is a local source | `callback_url.<name>` |
-| Account id | — | `CLOUDFLARE_ACCOUNT_ID` fills an empty `account_id`; must agree when both are set | `environments.<name>.account_id` |
+| Callback URL | `--callback-url`, on `deploy` and `dev` | `ATOMS_CALLBACK_URL`, on `deploy` and `dev` | `callback_url.<name>` |
+| Account id | — (there is no `--account-id`) | `CLOUDFLARE_ACCOUNT_ID` | `environments.<name>.account_id` |
 | Worker name | — | — | `worker_name`, required |
 | Debug endpoints | — | — | `debug_endpoints`, default `false` |
 | Worker directory | `--worker-dir` | — | not a key; `atoms-worker/` beside `atoms.json` |
 
-`atoms dev` is the one documented departure, and only for the callback URL:
-there, `ATOMS_CALLBACK_URL` **is** allowed to differ from the file, because a
-tunnel host or a local port is a fact about the machine rather than about the
-deployment. Resolution on `dev` is flag, then `ATOMS_CALLBACK_URL`, then the
-file. `dev` also skips the account-id agreement check entirely, since
-`wrangler dev` runs workerd locally and never selects an account.
+The file is the committed default, which is why a tunnel host or a local port —
+a fact about a machine rather than about the deployment — can be exported as
+`ATOMS_CALLBACK_URL` or passed as `--callback-url` without editing anything
+that is committed.
 
-If the file has no callback entry and nothing else supplies one, deploy
-proceeds with a warning and forwards no callback variable. All callback values
-are validated by the Worker: HTTPS is required except for loopback HTTP.
+`atoms dev` resolves in exactly the same order as `atoms deploy`. It differs in
+two ways that are not about precedence: it needs no account, since
+`wrangler dev` runs workerd locally, and a file `${ENV_VAR}` reference that
+resolves to nothing is simply no callback plus a warning, where `deploy` makes
+it [ATOMS-E070](/reference/errors/#atoms-e070) — the variable may be one only
+CI holds.
+
+A `${ENV_VAR}` reference in the file is expanded only when neither the flag nor
+`ATOMS_CALLBACK_URL` already supplied a value, so a reference naming a variable
+that is unset here cannot fail when a nearer source answered. A value
+containing `${` that is not a whole-value `${NAME}` is always
+[ATOMS-E070](/reference/errors/#atoms-e070).
+
+If nothing supplies a callback at all, deploy proceeds with a warning and
+forwards no callback variable. All callback values are validated by the Worker:
+HTTPS is required except for loopback HTTP.
 
 ## Migrating older configuration
 
-1. Keep callback URLs in the top-level `callback_url.<environment>` map. Use a
-   literal or a whole-value `${ENV_VAR}` expansion. Do not add a deploy-only
-   environment variable as a replacement: an ambient `ATOMS_CALLBACK_URL` is
-   an agreement check, not a fallback.
+1. Keep callback URLs in the top-level `callback_url.<environment>` map, as a
+   literal or a whole-value `${ENV_VAR}` reference. It is the committed default
+   for `deploy` and `dev` alike.
 2. Remove `endpoint` when convenient. It is tolerated and ignored indefinitely.
    Put the deployed Worker URL in the monolith's
    `ATOMS_ENDPOINT` setting instead.
 3. Add a non-empty `worker_name` to every environment. The top-level `project`
    is no longer used as a fallback.
-4. Move account selection to the environment's `account_id` or
-   `CLOUDFLARE_ACCOUNT_ID`, and make sure both values agree if both are set.
-5. Deploy scripts that pass `--callback-url` keep working — the flag still
-   overrides the file. What changed is that an *ambient* `ATOMS_CALLBACK_URL`
-   no longer replaces a declared file value on deploy; it must agree with it.
+4. Move account selection to the environment's `account_id`, to
+   `CLOUDFLARE_ACCOUNT_ID`, or to neither. Both may be set and differ; the
+   variable wins.
+5. Deploy scripts that pass `--callback-url`, or that export
+   `ATOMS_CALLBACK_URL`, keep working: both override the file entry, and
+   neither can collide with it.
 
 ## `atoms-composer.json`
 

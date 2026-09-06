@@ -76,10 +76,12 @@ final class InitCommand extends AbstractCommand
             // Forwarded by both `atoms dev` and `atoms deploy` as the
             // ATOMS_CALLBACK_URL var, so each entry is live for its
             // environment. CI may use a whole-value ${VARIABLE} reference;
-            // local dev can supply --callback-url or ATOMS_CALLBACK_URL.
+            // --callback-url or ATOMS_CALLBACK_URL override this file on any
+            // command.
             //
-            // Empty, not a placeholder host: this file is the sole authority
-            // for a named deployment, so an example.com left in by accident
+            // Empty, not a placeholder host: this file is the committed
+            // default for a named deployment, so an example.com left in by
+            // accident
             // would POST signed callbacks — carrying method arguments — to a
             // third party, and surface only as ATOMS-E083 ("callback request
             // failed"), which names neither the file nor the key. Empty means

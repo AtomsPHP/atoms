@@ -25,26 +25,26 @@ atoms shared-secret:unset --env X  # Remove ATOMS_SHARED_SECRET_PREVIOUS, closin
 
 Credentials: either `CLOUDFLARE_API_TOKEN` or an existing `wrangler login`
 session — with no token set, Atoms injects nothing and Wrangler uses its own.
-`CLOUDFLARE_ACCOUNT_ID` is the fallback for an empty environment `account_id`.
-When both are non-empty they must agree or the CLI raises ATOMS-E070. A single
-reachable account can still resolve without either; several reachable
-accounts produce ATOMS-E075. Whatever the CLI does resolve goes straight to
-your own Wrangler; Atoms never proxies or retains it. In CI, supply them to the
-deploy action as `cloudflare-api-token` / `cloudflare-account-id`: a runner has
-no login session to fall back on.
+`CLOUDFLARE_ACCOUNT_ID` overrides the environment's `account_id` in atoms.json
+on every command, dev and deploy alike; there is no `--account-id` flag and no
+check that the two values agree. A single reachable account can still resolve
+without either; several reachable accounts produce ATOMS-E075. Whatever the CLI does resolve goes
+straight to your own Wrangler; Atoms never proxies or retains it. In CI, supply
+them to the deploy action as `cloudflare-api-token` / `cloudflare-account-id`:
+a runner has no login session to fall back on.
 
 Every configured environment must have a non-empty `worker_name`; the
-top-level `project` is not a fallback. A deploy callback, when needed, is
-declared only in the top-level `callback_url.<env>` map in `atoms.json`.
-Deploy has no `--callback-url` option and never uses ambient
-`ATOMS_CALLBACK_URL` as a fallback: an ambient value must agree with the
-literal or resolved file value, and an ambient value with no file declaration
-is ATOMS-E070. An empty literal leaves callbacks unavailable and deploy warns.
-Whole-value `${ENV_VAR}` references must be set and non-empty or they are
-ATOMS-E070. `atoms dev` accepts `--callback-url` or ambient
-`ATOMS_CALLBACK_URL` as local sources; they must agree when both are present,
-and either may differ from the file value. With neither local source, dev uses
-the file value when configured.
+top-level `project` is not a fallback. A callback, when needed, is declared in
+the top-level `callback_url.<env>` map in `atoms.json`, and resolves the same
+way on every command: `--callback-url` (on `deploy` and `dev`), then
+`ATOMS_CALLBACK_URL` in the process environment, then the file entry. The
+nearer source wins silently — nothing is compared and no combination is a
+conflict. An empty or whitespace-only file entry declares no callback, and
+deploy warns. A file entry may be a whole-value `${ENV_VAR}` reference, read
+only when neither flag nor `ATOMS_CALLBACK_URL` supplied a value; anything else
+containing `${` is ATOMS-E070. A well-formed reference that resolves to nothing
+is ATOMS-E070 on deploy, and on `atoms dev` simply no callback plus a warning —
+the variable may be one only CI holds.
 
 Deploy needs the committed Worker directory, `atoms-worker/` beside atoms.json
 (or `--worker-dir`; atoms.json does not name it), with `npm ci` already run in

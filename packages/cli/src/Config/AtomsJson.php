@@ -13,8 +13,10 @@ use Atoms\Errors\ErrorCode;
  * every structural problem surfaces as ATOMS-E070 with the catalog fix line.
  *
  * Deploy-target facts live here: every environment names its Worker
- * explicitly. account_id may fall back to CLOUDFLARE_ACCOUNT_ID, but the two
- * values must agree if both are supplied. Legacy endpoint keys are ignored:
+ * explicitly. This file is the committed default, and the process environment
+ * overrides it: `CLOUDFLARE_ACCOUNT_ID` wins over an environment's account_id,
+ * and `ATOMS_CALLBACK_URL` wins over its callback_url entry, on every command.
+ * Nothing compares the two sources. Legacy endpoint keys are ignored:
  * Wrangler reports deployed URLs; the monolith configures ATOMS_ENDPOINT.
  * Callback environment references stay literal during parsing and building.
  *

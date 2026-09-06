@@ -39,7 +39,7 @@ final class RollbackCommand extends AbstractCommand
         $this->addArgument('version', InputArgument::OPTIONAL, 'Worker version id (default: previous)');
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment');
         $this->addOption('message', 'm', InputOption::VALUE_REQUIRED, 'Reason for the rollback');
-        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
+        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (default: atoms-worker/ beside atoms.json)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int

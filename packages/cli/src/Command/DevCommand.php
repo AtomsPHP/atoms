@@ -57,9 +57,13 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * The callback URL is passed to the Worker as an `ATOMS_CALLBACK_URL` var, and
  * the Worker calls back through it for `$this->app()` and `$this->dispatch()`.
- * A local URL comes from --callback-url or ATOMS_CALLBACK_URL; if both are
- * set they must agree. Without either, callback_url.<env> is the fallback.
- * The local URL belongs to this machine, independently of the deploy target.
+ * It resolves in the order every command uses: --callback-url, then
+ * ATOMS_CALLBACK_URL in the environment, then callback_url.<env> from
+ * atoms.json. The nearer source simply wins. Dev differs from deploy in one
+ * respect only: a file reference such as ${ATOMS_CALLBACK_URL} that resolves
+ * to nothing is a warning and no callback here, where deploy makes it
+ * ATOMS-E070 — the variable may belong to CI alone, and a local URL belongs
+ * to this machine, independently of the deploy target.
  */
 #[AsCommand(name: 'dev', description: 'Run the Atoms Worker locally with wrangler dev')]
 final class DevCommand extends AbstractCommand
@@ -86,8 +90,8 @@ final class DevCommand extends AbstractCommand
         parent::configure();
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Environment whose settings to use', 'staging');
         $this->addOption('port', null, InputOption::VALUE_REQUIRED, 'Port for wrangler dev', self::DEFAULT_PORT);
-        $this->addOption('callback-url', null, InputOption::VALUE_REQUIRED, 'Local callback URL (must agree with ATOMS_CALLBACK_URL if set; else atoms.json callback_url)');
-        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (default: atoms-worker)');
+        $this->addOption('callback-url', null, InputOption::VALUE_REQUIRED, 'Local callback URL (beats ATOMS_CALLBACK_URL and atoms.json callback_url)');
+        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (default: atoms-worker/ beside atoms.json)');
         $this->addOption('no-build', null, InputOption::VALUE_NONE, 'Use the bundle already staged in the Worker project');
     }
 

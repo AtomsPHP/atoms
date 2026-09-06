@@ -309,7 +309,7 @@
             "code": "ATOMS-E070",
             "title": "atoms.json missing or invalid",
             "message": "atoms.json at the repository root is missing, invalid, or does not apply cleanly: {reason}.",
-            "fix": "Run `atoms init` to create it if it is missing, fix the reported problem in the file, or \u2014 when the reason names an environment variable \u2014 unset that variable or make it agree with the file.",
+            "fix": "Run `atoms init` to create it if it is missing, or fix the reported problem in the file. When the reason names an environment variable, set that variable to a non-empty value.",
             "severity": "error",
             "phase": "cli"
         },

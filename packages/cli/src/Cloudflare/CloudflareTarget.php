@@ -65,9 +65,11 @@ final class CloudflareTarget
      * The Worker var carrying the monolith's callback endpoint — where
      * `$this->app()` and `$this->dispatch()` reach the app. Not a secret.
      *
-     * Named deployments read callback_url from atoms.json, optionally through
-     * an explicit ${VARIABLE} reference. Local dev may supply a machine URL;
-     * local flag and environment values must agree when both are present.
+     * Resolved the same way on every command: `--callback-url`, then
+     * `ATOMS_CALLBACK_URL` in the process environment, then the selected
+     * `callback_url.<env>` entry in atoms.json — which may be an explicit
+     * ${VARIABLE} reference, expanded only when neither nearer source
+     * supplied a value.
      */
     public const CALLBACK_VAR = 'ATOMS_CALLBACK_URL';
 
@@ -98,18 +100,22 @@ final class CloudflareTarget
      * say: one directory serves every environment, so every environment
      * deploys the same runtime.
      *
-     * Missing credentials are left to Wrangler, but a file account id and
-     * CLOUDFLARE_ACCOUNT_ID must agree. A callback is resolved only for
-     * commands that configure the runtime; operating commands opt out.
+     * Missing credentials are left to Wrangler. Everything else resolves in
+     * one order — flag, then process environment, then atoms.json — and the
+     * nearer source wins silently: `CLOUDFLARE_ACCOUNT_ID` outranks the
+     * environment's `account_id` (there is no `--account-id` flag), and
+     * `--callback-url` outranks `ATOMS_CALLBACK_URL`, which outranks the file.
+     * Nothing here compares two sources or errors when they differ. A callback
+     * is resolved only for commands that configure the runtime; operating
+     * commands opt out.
      *
-     * @param string|null $callbackUrl A local dev callback URL; invalid outside local mode.
-     * @param bool $local Whether this invocation runs a local Worker.
+     * @param string|null $callbackUrl An explicit callback URL for this invocation; outranks the environment and the file.
+     * @param bool $local Whether this invocation runs a local Worker. Only softens an unresolvable `${VAR}` file reference into "no callback".
      * @param bool $resolveCallback Whether this command configures runtime vars.
      *
-     * @throws AtomsError E070 (unknown environment; a file value that disagrees
-     *                    with the environment; a malformed or unresolvable
-     *                    `${VAR}` callback reference; `--callback-url` outside
-     *                    local mode), E076 (unusable Worker directory)
+     * @throws AtomsError E070 (unknown environment; a malformed `${VAR}`
+     *                    callback reference, or one that resolves to nothing
+     *                    outside local mode), E076 (unusable Worker directory)
      */
     public static function resolve(
         AtomsJson $config,
@@ -125,17 +131,13 @@ final class CloudflareTarget
         // Absent is a legitimate answer for both: Wrangler resolves its own
         // credentials, and its own account, when this process supplies none.
         $token = self::firstNonEmpty($apiToken, self::env('CLOUDFLARE_API_TOKEN'));
-        $fileAccount = self::firstNonEmpty($env['account_id']);
-        $shellAccount = self::env('CLOUDFLARE_ACCOUNT_ID');
-        // Only where an account is actually selected. `wrangler dev` runs
-        // workerd locally and never reads the account, so a developer whose
-        // shell points at a different account than the file must still be able
-        // to start a dev server.
-        if (!$local && $fileAccount !== null && $shellAccount !== null && $fileAccount !== $shellAccount) {
-            throw self::invalid('environments.' . $environment . '.account_id conflicts with '
-                . 'CLOUDFLARE_ACCOUNT_ID; unset the environment variable or make the values agree');
-        }
-        $accountId = $fileAccount ?? $shellAccount ?? '';
+        // One order, everywhere: flag, then environment, then file. Nothing
+        // here errors on disagreement — the nearer source simply wins, the way
+        // the AWS CLI, npm and Pulumi resolve theirs. Atoms has no
+        // --account-id flag, so this is the environment over the file.
+        $accountId = self::env('CLOUDFLARE_ACCOUNT_ID')
+            ?? self::firstNonEmpty($env['account_id'])
+            ?? '';
 
         $dir = self::firstNonEmpty($workerDir) ?? self::DEFAULT_WORKER_DIR;
 
@@ -271,18 +273,15 @@ final class CloudflareTarget
         ?string $callbackUrl,
         bool $local,
     ): ?string {
+        // Flag, then environment, then file — the same order every command
+        // uses, and the one the surrounding ecosystem uses. A nearer source
+        // wins silently; none of this is an agreement check.
         $flag = self::firstNonEmpty($callbackUrl);
-        $shell = self::env(self::CALLBACK_VAR);
-
-        // An explicit flag is the operator's final say and outranks both the
-        // file and the environment, the way `terraform -var`, `pulumi`'s flags
-        // and `wrangler --var` do. Typing it is a deliberate act for this one
-        // invocation; ambient state is not, which is why only the flag may
-        // override the file and a stray ATOMS_CALLBACK_URL still may not.
         if ($flag !== null) {
             return $flag;
         }
-        if ($local && $shell !== null) {
+        $shell = self::env(self::CALLBACK_VAR);
+        if ($shell !== null) {
             return $shell;
         }
 
@@ -290,35 +289,21 @@ final class CloudflareTarget
         // is declared. Trimming here keeps that equivalent to the trim applied
         // to an expanded reference below, rather than forwarding "   " as a var.
         $callback = self::firstNonEmpty(trim((string) ($config->callbackUrls[$environment] ?? '')));
-        $reference = null;
         if ($callback !== null && str_contains($callback, '${')) {
             if (preg_match('/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/D', $callback, $match) !== 1) {
                 throw self::invalid('callback_url.' . $environment
                     . ' must use a whole-value environment reference such as ${ATOMS_CALLBACK_URL}');
             }
-            $reference = $match[1];
-            $expanded = self::env($reference);
+            $expanded = self::env($match[1]);
             $callback = $expanded === null || trim($expanded) === '' ? null : $expanded;
             if ($callback === null && !$local) {
                 throw self::invalid('callback_url.' . $environment . ' requires environment variable '
-                    . $reference . ' to be set to a non-empty callback URL');
+                    . $match[1] . ' to be set to a non-empty callback URL');
             }
             // Locally, an unset reference is simply no callback. `atoms dev`
             // needs one only for $this->app()/dispatch(), warns when it has
             // none, and must not require a variable that belongs to CI.
         }
-        if (!$local && $shell !== null && $shell !== $callback) {
-            throw self::invalid('ATOMS_CALLBACK_URL conflicts with callback_url.' . $environment
-                . ' in atoms.json; ' . ($reference !== null
-                    // Pointing at ${ATOMS_CALLBACK_URL} here would repoint the
-                    // environment's declared reference at whatever this shell
-                    // happens to hold — usually a developer's dev tunnel.
-                    ? 'that entry reads ${' . $reference . '}, so unset ATOMS_CALLBACK_URL '
-                        . '(it is a local source for atoms dev) or set ' . $reference . ' instead'
-                    : 'unset it or declare "${ATOMS_CALLBACK_URL}" in the file '
-                        . 'if this deployment should read the environment'));
-        }
-
         return $callback;
     }
 
