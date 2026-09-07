@@ -95,7 +95,7 @@ final class DevCommand extends AbstractCommand
     protected function configure(): void
     {
         parent::configure();
-        $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Environment whose settings to use', 'staging');
+        $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Environment whose settings to use');
         $this->addOption('port', null, InputOption::VALUE_REQUIRED, 'Port for wrangler dev', self::DEFAULT_PORT);
         $this->addOption('callback-url', null, InputOption::VALUE_REQUIRED, 'Local callback URL (beats ATOMS_CALLBACK_URL and atoms.json callback_url)');
         $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (default: atoms-worker/ beside atoms.json)');
@@ -104,7 +104,17 @@ final class DevCommand extends AbstractCommand
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $env = self::stringOption($input, 'env') ?? 'staging';
+        $env = self::stringOption($input, 'env');
+        if ($env === null) {
+            // No default environment name, here or anywhere: the names are the
+            // user's to choose, and guessing one meant `atoms dev` silently
+            // handed the *local* Worker a *deployed* environment's callback
+            // URL — so $this->app() from an Atom on this machine POSTed signed
+            // callbacks at a deployed app.
+            $output->writeln('<error>--env is required</error>');
+
+            return self::FAILURE;
+        }
         $port = self::stringOption($input, 'port') ?? self::DEFAULT_PORT;
 
         try {

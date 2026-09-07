@@ -384,4 +384,28 @@ final class DevCommandTest extends TestCase
         self::assertSame([], $runner->runs);
         self::assertSame([], $wrangler->calls);
     }
+    /**
+     * Environment names are the user's to choose, so no command invents one.
+     * `dev` used to default to `staging`, which meant a project that happened
+     * to have an environment by that name silently handed the *local* Worker
+     * that *deployed* environment's callback URL — `$this->app()` from an Atom
+     * running on this machine POSTed signed callbacks, carrying method
+     * arguments, at the deployed app. A project with no `staging` got a bare
+     * ATOMS-E070 instead, naming an environment the user never asked for.
+     */
+    public function testDevRequiresAnExplicitEnvironmentRatherThanGuessingOne(): void
+    {
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DevCommand($wrangler, processRunner: new FakeProcessRunner()));
+
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--worker-dir' => $this->workerDir(),
+            '--no-build' => true,
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('--env is required', $tester->getDisplay());
+        self::assertNull($wrangler->lastCall('dev'), 'nothing may start without a named environment');
+    }
 }

@@ -64,7 +64,7 @@ have to paste the secret itself into a header. This example calls the `join`
 method from the [overview](/):
 
 ```bash
-curl -H "Authorization: Bearer $(vendor/bin/atoms token --env production)" \
+curl -H "Authorization: Bearer $(vendor/bin/atoms token)" \
   -H 'Content-Type: application/json' \
   --data '{"args":["ada"]}' \
   https://your-worker.example.workers.dev/invoke/GameRoom/room-42/join
@@ -72,7 +72,10 @@ curl -H "Authorization: Bearer $(vendor/bin/atoms token --env production)" \
 
 `atoms token` needs the secret itself, and reads it from
 `ATOMS_SHARED_SECRET` in the environment the command was started with — or, for
-local runs, from the Worker project's `.dev.vars`. It is deliberately the one
+local runs, from the Worker project's `.dev.vars`. It takes no `--env`: the
+bearer is derived from whichever secret it finds, and a secret is not
+per-environment as far as this command is concerned — you select the
+environment by supplying that environment's secret. It is deliberately the one
 value that does **not** come from
 [`.env.atoms.<environment>`](/guides/configuration/#envatomsenvironment): that
 file is for deployment configuration, and this is the key both halves
@@ -81,7 +84,7 @@ in your shell:
 
 ```bash
 BEARER=$(ATOMS_SHARED_SECRET=$(op read op://vault/atoms/shared-secret) \
-  vendor/bin/atoms token --env production)
+  vendor/bin/atoms token)
 ```
 
 ## Application secrets

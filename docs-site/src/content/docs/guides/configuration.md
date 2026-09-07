@@ -66,10 +66,12 @@ whitespace-only value declares nothing, so unless `ATOMS_CALLBACK_URL` or
 [ATOMS-E080](/reference/errors/#atoms-e080). The URLs above show a completed
 file.
 
-Every Cloudflare-facing command takes `--env <name>` — `deploy`, `status`,
-`rollback`, `secrets:set`, `secrets:list`, `shared-secret:set` and
-`shared-secret:unset` require it; `dev` and `token` default to `staging`. The
-flag selects one entry for that invocation. A build is project-wide and does
+Every Cloudflare-facing command takes `--env <name>` and **requires** it:
+`deploy`, `dev`, `status`, `rollback`, `secrets:set`, `secrets:list`,
+`shared-secret:set` and `shared-secret:unset`. No command invents a default —
+the names are yours to choose, so there is no name Atoms could guess. (`token`
+takes no `--env` at all: the bearer comes from `ATOMS_SHARED_SECRET`, which is
+not per-environment.) The flag selects one entry for that invocation. A build is project-wide and does
 not select or resolve an environment, callback URL, or account; it does
 validate the required shape of every configured environment, including its
 `worker_name`.
