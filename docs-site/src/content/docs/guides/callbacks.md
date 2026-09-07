@@ -13,7 +13,7 @@ An Atom can cross from Atom-side back into the host application in two ways:
 For these callbacks to work, you must configure a shared secret and a callback
 URL. Each lives in a specific place:
 
-- `callback_url.<environment>` in `atoms.json` declares the committed default
+- `environments.<name>.callback_url` in `atoms.json` declares the committed default
   callback URL for a deploy target. The entry is optional, and an empty or
   absent one does **not** mean callbacks are unavailable — it only means the
   file supplies nothing, leaving the three nearer sources below to answer.
@@ -38,13 +38,19 @@ adapter verifies the signature before your Methods class or job runs. See the
 
 ## Callback URL
 
-Declare the URL in the top-level `callback_url` map in `atoms.json`:
+Declare the URL on the environment it belongs to, beside its `worker_name`:
 
 ```json
 {
-    "callback_url": {
-        "production": "https://example.com/atoms/callback",
-        "staging": "${STAGING_CALLBACK_URL}"
+    "environments": {
+        "production": {
+            "worker_name": "my-app",
+            "callback_url": "https://example.com/atoms/callback"
+        },
+        "staging": {
+            "worker_name": "my-app-staging",
+            "callback_url": "${STAGING_CALLBACK_URL}"
+        }
     }
 }
 ```
@@ -66,7 +72,7 @@ and `dev` resolve the callback URL in one order:
 3. `ATOMS_CALLBACK_URL` in `.env.atoms.<env>` beside `atoms.json` — where a
    developer tunnel or a local port belongs, since the file is gitignored and
    read only for the target you named.
-4. The selected `callback_url.<env>` entry in `atoms.json`.
+4. The selected environment's `callback_url` in `atoms.json`.
 
 The nearer source wins, silently. Nothing is compared, and no combination of
 sources is an error. With no source at all, deploy warns and forwards no

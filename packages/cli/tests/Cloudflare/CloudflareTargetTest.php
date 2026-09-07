@@ -50,7 +50,7 @@ final class CloudflareTargetTest extends TestCase
         try {
             $root = $this->tempCopy('sample-app');
             $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-            $json['callback_url']['staging'] = '${DEPLOY_CALLBACK_URL}';
+            $json['environments']['staging']['callback_url'] = '${DEPLOY_CALLBACK_URL}';
             file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
 
             $fromIndirection = CloudflareTarget::resolve(
@@ -72,7 +72,9 @@ final class CloudflareTargetTest extends TestCase
 
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true);
-        unset($json['callback_url']);
+        foreach (array_keys($json['environments']) as $name) {
+            $json['environments'][$name]['callback_url'] = '';
+        }
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
 
         $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
@@ -274,7 +276,7 @@ final class CloudflareTargetTest extends TestCase
     {
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $json['callback_url']['production'] = '${NOT-A_VALID_NAME}';
+        $json['environments']['production']['callback_url'] = '${NOT-A_VALID_NAME}';
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
 
         $this->expectException(AtomsError::class);
@@ -286,7 +288,7 @@ final class CloudflareTargetTest extends TestCase
     {
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $json['callback_url']['production'] = '${DEPLOY_CALLBACK_URL}';
+        $json['environments']['production']['callback_url'] = '${DEPLOY_CALLBACK_URL}';
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
         putenv('DEPLOY_CALLBACK_URL=');
 
@@ -317,7 +319,9 @@ final class CloudflareTargetTest extends TestCase
     {
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        unset($json['callback_url']);
+        foreach (array_keys($json['environments']) as $name) {
+            $json['environments'][$name]['callback_url'] = '';
+        }
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
         putenv(CloudflareTarget::CALLBACK_VAR . '=https://ambient.example.test/callback');
 
@@ -359,7 +363,7 @@ final class CloudflareTargetTest extends TestCase
     {
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $json['callback_url']['production'] = '${UNSET_DEPLOYMENT_CALLBACK}';
+        $json['environments']['production']['callback_url'] = '${UNSET_DEPLOYMENT_CALLBACK}';
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
 
         $target = CloudflareTarget::resolve(
@@ -410,7 +414,7 @@ final class CloudflareTargetTest extends TestCase
         putenv('LOCAL_CALLBACK_URL=https://file.example.test/callback');
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $json['callback_url']['production'] = '${LOCAL_CALLBACK_URL}';
+        $json['environments']['production']['callback_url'] = '${LOCAL_CALLBACK_URL}';
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
 
         try {
@@ -432,7 +436,7 @@ final class CloudflareTargetTest extends TestCase
         // has none, so dev must not be the stricter of the two.
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $json['callback_url']['production'] = '${CI_ONLY_CALLBACK_URL}';
+        $json['environments']['production']['callback_url'] = '${CI_ONLY_CALLBACK_URL}';
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
         putenv('CI_ONLY_CALLBACK_URL');
 
@@ -446,7 +450,7 @@ final class CloudflareTargetTest extends TestCase
     {
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $json['callback_url']['production'] = '${CI_ONLY_CALLBACK_URL}';
+        $json['environments']['production']['callback_url'] = '${CI_ONLY_CALLBACK_URL}';
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
         putenv('CI_ONLY_CALLBACK_URL');
 
@@ -461,7 +465,7 @@ final class CloudflareTargetTest extends TestCase
         // even consulted — and cannot fail for being unset.
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $json['callback_url']['production'] = '${UNSET_PRODUCTION_CALLBACK_URL}';
+        $json['environments']['production']['callback_url'] = '${UNSET_PRODUCTION_CALLBACK_URL}';
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
         putenv('UNSET_PRODUCTION_CALLBACK_URL');
         putenv(CloudflareTarget::CALLBACK_VAR . '=https://ambient.example.test/callback');
@@ -475,7 +479,7 @@ final class CloudflareTargetTest extends TestCase
     {
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $json['callback_url']['production'] = '   ';
+        $json['environments']['production']['callback_url'] = '   ';
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
 
         $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');

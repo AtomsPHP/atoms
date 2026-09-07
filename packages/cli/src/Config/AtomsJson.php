@@ -13,12 +13,14 @@ use Atoms\Errors\ErrorCode;
  * every structural problem surfaces as ATOMS-E070 with the catalog fix line.
  *
  * Deploy-target facts live here: every environment names its Worker
- * explicitly. This file is the committed default, and the process environment
- * overrides it: `CLOUDFLARE_ACCOUNT_ID` wins over an environment's account_id,
- * and `ATOMS_CALLBACK_URL` wins over its callback_url entry, on every command.
- * Nothing compares the two sources. Legacy endpoint keys are ignored:
- * Wrangler reports deployed URLs; the monolith configures ATOMS_ENDPOINT.
- * Callback environment references stay literal during parsing and building.
+ * explicitly, and holds every setting that differs between environments —
+ * `account_id`, `debug_endpoints` and `callback_url`. This file is the
+ * committed default, and the environment layers override it:
+ * `CLOUDFLARE_ACCOUNT_ID` wins over an environment's account_id, and
+ * `ATOMS_CALLBACK_URL` wins over its callback_url, on every command. Nothing
+ * compares the two sources. Legacy endpoint keys are ignored: Wrangler
+ * reports deployed URLs; the monolith configures ATOMS_ENDPOINT. Callback
+ * environment references stay literal during parsing and building.
  *
  * The Worker directory is not a setting: it is a committed part of the
  * repository at `atoms-worker/` beside this file
@@ -30,13 +32,12 @@ use Atoms\Errors\ErrorCode;
  * `atoms dev`/`atoms deploy` forward it to Wrangler as a `--var` override.
  * Off unless explicitly true.
  *
- * @phpstan-type Environment array{region: string, worker_name: string, account_id: string, debug_endpoints: bool}
+ * @phpstan-type Environment array{region: string, worker_name: string, account_id: string, debug_endpoints: bool, callback_url: string}
  */
 final class AtomsJson
 {
     /**
      * @param array<string, Environment> $environments
-     * @param array<string, string>      $callbackUrls
      * @param array<string, mixed>       $atomConfig
      */
     private function __construct(
@@ -46,7 +47,6 @@ final class AtomsJson
         public readonly string $sharedPath,
         public readonly string $php,
         public readonly array $environments,
-        public readonly array $callbackUrls,
         public readonly array $atomConfig,
     ) {
     }
@@ -151,19 +151,6 @@ final class AtomsJson
 
         $environments = self::parseEnvironments($decoded['environments'] ?? null);
 
-        $callbackUrls = [];
-        if (isset($decoded['callback_url'])) {
-            if (!\is_array($decoded['callback_url'])) {
-                throw self::invalid('"callback_url" must be an object of environment => url');
-            }
-            foreach ($decoded['callback_url'] as $env => $url) {
-                if (!\is_string($env) || !\is_string($url)) {
-                    throw self::invalid('"callback_url" entries must be strings');
-                }
-                $callbackUrls[$env] = $url;
-            }
-        }
-
         $atomConfig = [];
         if (isset($decoded['atom_config'])) {
             if (!\is_array($decoded['atom_config'])) {
@@ -180,7 +167,6 @@ final class AtomsJson
             sharedPath: trim($sharedPath, '/'),
             php: $php,
             environments: $environments,
-            callbackUrls: $callbackUrls,
             atomConfig: $atomConfig,
         );
     }
@@ -210,6 +196,12 @@ final class AtomsJson
                 'worker_name' => self::requireString($env, "environments.{$name}.worker_name", 'worker_name'),
                 'account_id' => self::optionalString($env, 'account_id'),
                 'debug_endpoints' => self::optionalBool($env, "environment '{$name}'", 'debug_endpoints'),
+                // Beside worker_name and account_id, not in a parallel map
+                // keyed by the same names: a second block would let
+                // `"prodction"` name an environment that does not exist,
+                // parse clean, and leave the real one with no callback while
+                // the file plainly declares one.
+                'callback_url' => self::optionalString($env, 'callback_url'),
             ];
         }
 

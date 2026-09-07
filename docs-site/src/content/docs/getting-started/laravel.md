@@ -115,7 +115,7 @@ ATOMS_ENVIRONMENT=staging
 
 The shared secret takes care of itself locally: `atoms dev` generates one into `.env` when it is absent and projects it into the Worker's `.dev.vars` whenever the two differ, so the local Worker and the application always agree without you handling the value.
 
-`--callback-url` tells the local Worker where your application's callback endpoint lives, so `app()` and `dispatch()` work against the `php artisan serve` process. `--callback-url` wins over everything; without it `atoms dev` uses `ATOMS_CALLBACK_URL` from the environment it was started with, then from `.env.atoms.<env>` beside `atoms.json`, then the selected environment's `callback_url` entry. Any of them may differ from a committed production callback. `--port` moves the Worker off 8787, and `--no-build` reuses the bundle from the last build. See the [CLI reference](/reference/cli/) for the full option surface.
+`--callback-url` tells the local Worker where your application's callback endpoint lives, so `app()` and `dispatch()` work against the `php artisan serve` process. `--callback-url` wins over everything; without it `atoms dev` uses `ATOMS_CALLBACK_URL` from the environment it was started with, then from `.env.atoms.<env>` beside `atoms.json`, then the selected environment's `callback_url`. Any of them may differ from a committed production callback. `--port` moves the Worker off 8787, and `--no-build` reuses the bundle from the last build. See the [CLI reference](/reference/cli/) for the full option surface.
 
 ## Build and deploy
 

@@ -127,7 +127,7 @@ final class DeployCommandTest extends TestCase
             'the deploy log must show which callback URL shipped',
         );
         self::assertStringContainsString(
-            '(atoms.json "callback_url.production")',
+            '(atoms.json "environments.production.callback_url")',
             $tester->getDisplay(),
             'and which source supplied it',
         );
@@ -160,7 +160,7 @@ final class DeployCommandTest extends TestCase
 
         $root = $this->tempCopy('sample-app');
         $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $config['callback_url']['production'] = '${ATOMS_CALLBACK_URL}';
+        $config['environments']['production']['callback_url'] = '${ATOMS_CALLBACK_URL}';
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
         putenv(CloudflareTarget::CALLBACK_VAR . '=https://ci.example.test/atoms/callback');
 
@@ -184,7 +184,7 @@ final class DeployCommandTest extends TestCase
     {
         $root = $this->tempCopy('sample-app');
         $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $config['callback_url']['production'] = '${UNSET_DEPLOY_CALLBACK}';
+        $config['environments']['production']['callback_url'] = '${UNSET_DEPLOY_CALLBACK}';
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
         putenv('UNSET_DEPLOY_CALLBACK');
 
@@ -220,7 +220,9 @@ final class DeployCommandTest extends TestCase
     {
         $root = $this->tempCopy('sample-app');
         $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
-        unset($config['callback_url']);
+        foreach (array_keys($config['environments']) as $name) {
+            $config['environments'][$name]['callback_url'] = '';
+        }
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
 
         $wrangler = new FakeWrangler();
@@ -237,11 +239,12 @@ final class DeployCommandTest extends TestCase
         self::assertNotNull($deploy);
         self::assertSame([], $deploy['args']['vars']);
         self::assertStringContainsString('ATOMS-E080', $tester->getDisplay());
-        // The advice names all three sources, nearest first — the file entry
+        // The advice names all four sources, nearest first — the file entry
         // is the committed default, not the only way to supply a callback.
         self::assertStringContainsString('--callback-url', $tester->getDisplay());
         self::assertStringContainsString('ATOMS_CALLBACK_URL', $tester->getDisplay());
-        self::assertStringContainsString('"callback_url"."production"', $tester->getDisplay());
+        self::assertStringContainsString('.env.atoms.production', $tester->getDisplay());
+        self::assertStringContainsString('"environments"."production"."callback_url"', $tester->getDisplay());
     }
 
     /**

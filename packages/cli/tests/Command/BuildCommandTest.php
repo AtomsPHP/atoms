@@ -57,8 +57,8 @@ final class BuildCommandTest extends TestCase
     {
         $root = $this->tempCopy('sample-app');
         $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $config['callback_url']['production'] = '${UNSET_BUILD_CALLBACK}';
-        $config['callback_url']['staging'] = '${ALSO_UNSET_BUILD_CALLBACK}';
+        $config['environments']['production']['callback_url'] = '${UNSET_BUILD_CALLBACK}';
+        $config['environments']['staging']['callback_url'] = '${ALSO_UNSET_BUILD_CALLBACK}';
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
         putenv('UNSET_BUILD_CALLBACK');
         putenv('ALSO_UNSET_BUILD_CALLBACK');

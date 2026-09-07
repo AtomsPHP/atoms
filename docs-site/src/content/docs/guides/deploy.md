@@ -26,7 +26,7 @@ what `--env` resolves from it.
 callback URL resolves in one order, the same one `atoms dev` uses:
 `--callback-url`, then `ATOMS_CALLBACK_URL` in the environment this command was
 started with, then in `.env.atoms.<name>` beside `atoms.json`, then the
-optional `callback_url.<name>` entry in the top-level `callback_url` map. The
+optional `callback_url` on the selected environment block. The
 nearer source wins silently — nothing is compared, and no combination is an
 error. A whole-value `${ENV_VAR}` reference in the file is expanded when the
 deploy runs, and only when no nearer source supplied anything; an unset or
@@ -42,7 +42,7 @@ Environment: production
   Worker:       my-app                              (atoms.json)
   Account:      cf-account-1234                     (caller environment: CLOUDFLARE_ACCOUNT_ID)
   API token:    (hidden)                            (.env.atoms.production: CLOUDFLARE_API_TOKEN)
-  Callback:     https://example.com/atoms/callback  (atoms.json "callback_url.production")
+  Callback:     https://example.com/atoms/callback  (atoms.json "environments.production.callback_url")
   Debug routes: disabled                            (atoms.json "debug_endpoints")
 ```
 

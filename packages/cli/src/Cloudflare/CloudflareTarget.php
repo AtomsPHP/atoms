@@ -72,7 +72,7 @@ final class CloudflareTarget
      *
      * Resolved the same way on every command: `--callback-url`, then
      * `ATOMS_CALLBACK_URL` from the caller's environment, then from
-     * `.env.atoms.<env>`, then the selected `callback_url.<env>` entry in
+     * `.env.atoms.<env>`, then the selected environment's `callback_url` in
      * atoms.json — which may be an explicit ${VARIABLE} reference, resolved
      * against those same two environment layers. The file entry is read at all
      * only when no nearer source supplied a value, so nothing in it — a
@@ -193,7 +193,7 @@ final class CloudflareTarget
         $dir = self::firstNonEmpty($workerDir) ?? self::DEFAULT_WORKER_DIR;
 
         $callback = $resolveCallback
-            ? self::resolveCallback($config, $values, $environment, $callbackUrl, $local)
+            ? self::resolveCallback($env['callback_url'], $values, $environment, $callbackUrl, $local)
             : null;
         if ($callback !== null) {
             $sources['callback_url'] = $callback->source;
@@ -347,7 +347,7 @@ final class CloudflareTarget
     }
 
     private static function resolveCallback(
-        AtomsJson $config,
+        string $declaredInFile,
         TargetEnvironment $values,
         string $environment,
         ?string $callbackUrl,
@@ -371,16 +371,16 @@ final class CloudflareTarget
         // A whitespace-only literal means the same as an empty one: no callback
         // is declared. Trimming here keeps that equivalent to the trim applied
         // to an expanded reference below, rather than forwarding "   " as a var.
-        $declared = self::firstNonEmpty(trim((string) ($config->callbackUrls[$environment] ?? '')));
+        $declared = self::firstNonEmpty(trim($declaredInFile));
         if ($declared === null) {
             return null;
         }
         if (!str_contains($declared, '${')) {
-            return new ConfiguredValue($declared, 'atoms.json "callback_url.' . $environment . '"');
+            return new ConfiguredValue($declared, 'atoms.json "environments.' . $environment . '.callback_url"');
         }
 
         if (preg_match('/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/D', $declared, $match) !== 1) {
-            throw self::invalid('callback_url.' . $environment
+            throw self::invalid('environments.' . $environment . '.callback_url'
                 . ' must use a whole-value environment reference such as ${ATOMS_CALLBACK_URL}');
         }
         // The reference resolves against the same two environment layers as
@@ -391,11 +391,11 @@ final class CloudflareTarget
         if ($expanded !== null) {
             return new ConfiguredValue(
                 $expanded->value,
-                'atoms.json "callback_url.' . $environment . '" -> ' . $expanded->source,
+                'atoms.json "environments.' . $environment . '.callback_url" -> ' . $expanded->source,
             );
         }
         if (!$local) {
-            throw self::invalid('callback_url.' . $environment . ' requires environment variable '
+            throw self::invalid('environments.' . $environment . '.callback_url requires environment variable '
                 . $match[1] . ' to be set to a non-empty callback URL');
         }
 

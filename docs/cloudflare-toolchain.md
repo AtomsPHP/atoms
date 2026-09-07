@@ -65,7 +65,7 @@ Resolved values are trimmed.
 
 | Setting | Flag | Environment layers | File |
 |---|---|---|---|
-| Callback URL | `--callback-url`, on `deploy` and `dev` | `ATOMS_CALLBACK_URL`, on `deploy` and `dev` | `callback_url.<name>` |
+| Callback URL | `--callback-url`, on `deploy` and `dev` | `ATOMS_CALLBACK_URL`, on `deploy` and `dev` | `environments.<name>.callback_url` |
 | Account id | — (there is no `--account-id`) | `CLOUDFLARE_ACCOUNT_ID` | `environments.<name>.account_id` |
 | API token | — (deliberately; see §Credentials) | `CLOUDFLARE_API_TOKEN` | — (never in a file) |
 | Worker name | — | — | `environments.<name>.worker_name`, required |
@@ -162,7 +162,7 @@ For a deployment whose callback host comes from CI, either set
 committed file:
 
 ```json
-{ "callback_url": { "production": "${ATOMS_CALLBACK_URL}" } }
+{ "environments": { "production": { "callback_url": "${ATOMS_CALLBACK_URL}" } } }
 ```
 
 Both reach the same value, and a reference resolves through the same two
@@ -196,8 +196,12 @@ reports Worker versions without claiming an unverified URL.
 
 ### Migrating an existing atoms.json
 
-Keep callback declarations in the top-level `callback_url.<env>` map; it is the
-committed default for every command. An `ATOMS_CALLBACK_URL` from the caller's
+Keep each callback declaration on the environment block it belongs to, as
+`environments.<env>.callback_url`; it is the committed default for every
+command. It used to be a separate top-level map keyed by environment name,
+parsed independently of `environments` and never checked against it — so a
+misspelled key parsed clean and left the real environment with no callback.
+The parallel map is not part of the schema and is not read. An `ATOMS_CALLBACK_URL` from the caller's
 environment overrides that entry on `deploy` as well as `dev`, a
 `.env.atoms.<env>` entry overrides it too, and `--callback-url` overrides all
 three, so deploy scripts that pass either keep working and none can collide
@@ -586,7 +590,7 @@ travel to the Worker by two different, deliberately asymmetric paths
 - **`ATOMS_CALLBACK_URL`** — not a secret, the monolith's callback endpoint.
   It resolves in the one order, on `deploy` and `dev` alike: `--callback-url`,
   then `ATOMS_CALLBACK_URL` in the caller's environment, then in the selected
-  `.env.atoms.<env>`, then the `callback_url.<env>` file entry. The nearer
+  `.env.atoms.<env>`, then the selected environment's `callback_url`. The nearer
   source wins silently; nothing is compared and no combination is an error, so
   a developer tunnel needs no change to the committed file. The resolved value goes to Wrangler as
   an ordinary `--var ATOMS_CALLBACK_URL:<url>`. When no source supplies one,
@@ -1011,7 +1015,7 @@ Nothing in this sequence contacts a service operated by Atoms.
 
 - **The callback URL is configuration, not a verified endpoint.** Both commands
   resolve it the same way — `--callback-url`, then `ATOMS_CALLBACK_URL`, then
-  the selected `callback_url.<env>` file entry — and pass whatever they get to
+  the selected environment's `callback_url` — and pass whatever they get to
   the Worker as an `ATOMS_CALLBACK_URL` var. With no source, deploy warns and
   sends no callback var. Nothing here checks that the URL answers. The Worker half is
   real: `Atom::app()`/`dispatch()` call back through it

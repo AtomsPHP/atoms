@@ -45,22 +45,21 @@ choose the names; `atoms init` scaffolds `production` and `staging`:
             // Optional when the credentials reach one account; required when
             // they reach more than one.
             "account_id": "",
-            "debug_endpoints": false
+            "debug_endpoints": false,
+            // Where the Worker reaches your app for app() and dispatch().
+            "callback_url": "https://example.com/atoms/callback"
         },
         "staging": {
             "worker_name": "my-app-staging",
             "account_id": "",
-            "debug_endpoints": true
+            "debug_endpoints": true,
+            "callback_url": "https://staging.example.com/atoms/callback"
         }
-    },
-    "callback_url": {
-        "production": "https://example.com/atoms/callback",
-        "staging": "https://staging.example.com/atoms/callback"
     }
 }
 ```
 
-`atoms init` writes this shape with `callback_url` **empty** — an empty or
+`atoms init` writes this shape with each `callback_url` **empty** — an empty or
 whitespace-only value declares nothing, so unless `ATOMS_CALLBACK_URL` or
 `--callback-url` supplies one, `deploy` warns and `$this->app()` and
 `$this->dispatch()` fail with
@@ -83,7 +82,7 @@ its callback configuration.
 environment. It is the exact name passed to Wrangler; there is no fallback to
 the top-level `project`.
 
-`callback_url.<name>` is optional, and is the committed default rather than
+`callback_url` is optional, and is the committed default rather than
 the last word: an `ATOMS_CALLBACK_URL` from the environment the command was
 started with, or failing that from `.env.atoms.<name>`, overrides it, and
 `--callback-url` overrides all three (see [Precedence](#precedence) below). An empty or
@@ -98,7 +97,7 @@ reference is a warning and no callback (see [Precedence](#precedence)). For
 example:
 
 ```json
-{ "callback_url": { "production": "${ATOMS_CALLBACK_URL}" } }
+{ "environments": { "production": { "callback_url": "${ATOMS_CALLBACK_URL}" } } }
 ```
 
 The Worker requires HTTPS, except that HTTP loopback URLs such as
@@ -131,7 +130,7 @@ never passes Wrangler's own `-e`/`--env`. Wrangler's `env.<name>` sections in
 Put routes, custom domains, logging and runtime settings at the **top level**
 of `atoms-worker/wrangler.jsonc`. That one file serves every environment,
 which is why per-environment settings such as `debug_endpoints` and
-`callback_url.<name>` live in `atoms.json` and are forwarded for the selected
+`callback_url` live in `atoms.json` and are forwarded for the selected
 target.
 
 ## Configuration mental model
@@ -175,7 +174,7 @@ runs, never while a bundle is built.
 | `php` | no | `8.3` |
 | `environments.<name>.worker_name` | yes | — |
 | `environments.<name>.account_id` | no | overridden by `CLOUDFLARE_ACCOUNT_ID` from either environment layer; used when that is unset |
-| `callback_url.<name>` | no | overridden by `--callback-url` and by `ATOMS_CALLBACK_URL` from either environment layer; empty, whitespace-only or unset means the file supplies nothing, not that callbacks are unavailable; literal or whole-value `${ENV_VAR}` |
+| `environments.<name>.callback_url` | no | overridden by `--callback-url` and by `ATOMS_CALLBACK_URL` from either environment layer; empty, whitespace-only or unset means the file supplies nothing, not that callbacks are unavailable; literal or whole-value `${ENV_VAR}` |
 | `environments.<name>.debug_endpoints` | no | `false` |
 
 Structural problems in this file are reported as
@@ -255,7 +254,7 @@ which of the two supplied the value differs, and the deploy output says which.
 
 | Setting | 1. Flag | 2. Caller's environment | 3. `.env.atoms.<name>` | 4. `atoms.json` |
 |---|---|---|---|---|
-| Callback URL | `--callback-url`, on `deploy` and `dev` | `ATOMS_CALLBACK_URL` | `ATOMS_CALLBACK_URL` | `callback_url.<name>` |
+| Callback URL | `--callback-url`, on `deploy` and `dev` | `ATOMS_CALLBACK_URL` | `ATOMS_CALLBACK_URL` | `environments.<name>.callback_url` |
 | Account id | — (there is no `--account-id`) | `CLOUDFLARE_ACCOUNT_ID` | `CLOUDFLARE_ACCOUNT_ID` | `environments.<name>.account_id` |
 | API token | — (a credential in argv is visible to every process) | `CLOUDFLARE_API_TOKEN` | `CLOUDFLARE_API_TOKEN` | — (never in a committed file) |
 | Worker name | — | — | — | `worker_name`, required |
@@ -305,9 +304,11 @@ HTTPS is required except for loopback HTTP.
 
 ## Migrating older configuration
 
-1. Keep callback URLs in the top-level `callback_url.<environment>` map, as a
-   literal or a whole-value `${ENV_VAR}` reference. It is the committed default
-   for `deploy` and `dev` alike.
+1. Put each callback URL in its own environment block, as
+   `environments.<name>.callback_url` — a literal or a whole-value `${ENV_VAR}`
+   reference. It is the committed default for `deploy` and `dev` alike. A
+   top-level `callback_url` map is no longer part of the schema and is not
+   read.
 2. Remove `endpoint` when convenient. It is tolerated and ignored indefinitely.
    Put the deployed Worker URL in the monolith's
    `ATOMS_ENDPOINT` setting instead.

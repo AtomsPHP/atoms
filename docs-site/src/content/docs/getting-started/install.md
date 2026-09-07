@@ -69,8 +69,8 @@ cd ..
 ```
 
 Then fill in the generated `atoms.json` — at minimum a non-empty
-`worker_name` for each environment you deploy to. Declare a top-level
-`callback_url.<environment>` when that Worker must call `app()` or `dispatch()`;
+`worker_name` for each environment you deploy to. Declare a
+`callback_url` on that environment when its Worker must call `app()` or `dispatch()`;
 the deployed Worker URL belongs in the monolith's independent
 `ATOMS_ENDPOINT`. See
 [Configuration](/guides/configuration/) for every key, and for which settings

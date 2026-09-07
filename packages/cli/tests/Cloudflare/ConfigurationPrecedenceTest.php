@@ -43,12 +43,12 @@ final class ConfigurationPrecedenceTest extends TestCase
 
     public function testCallbackUrlWalksAllFourLayers(): void
     {
-        $config = $this->project(['callback_url' => ['production' => 'https://file.example/cb']]);
+        $config = $this->project(['production' => 'https://file.example/cb']);
 
         // Bottom layer: nothing but atoms.json.
         $target = CloudflareTarget::resolve($config, 'production');
         self::assertSame('https://file.example/cb', $target->callbackUrl);
-        self::assertSame('atoms.json "callback_url.production"', $target->sources['callback_url']);
+        self::assertSame('atoms.json "environments.production.callback_url"', $target->sources['callback_url']);
 
         // The dotenv file beats atoms.json.
         $this->writeDotenv($config->rootDir, 'production', "ATOMS_CALLBACK_URL=https://dotenv.example/cb\n");
@@ -71,9 +71,7 @@ final class ConfigurationPrecedenceTest extends TestCase
 
     public function testAccountIdAndApiTokenUseTheSameOrderMinusTheFlagLayer(): void
     {
-        $config = $this->project(['environments' => [
-            'production' => ['worker_name' => 'acme', 'account_id' => 'from-file', 'debug_endpoints' => false],
-        ]]);
+        $config = $this->project([], ['production' => ['account_id' => 'from-file']]);
 
         $target = CloudflareTarget::resolve($config, 'production');
         self::assertSame('from-file', $target->accountId);
@@ -104,7 +102,7 @@ final class ConfigurationPrecedenceTest extends TestCase
      */
     public function testAnotherTargetsFileIsNeverRead(): void
     {
-        $config = $this->project(['callback_url' => ['production' => 'https://file.example/cb']]);
+        $config = $this->project(['production' => 'https://file.example/cb']);
         $this->writeDotenv($config->rootDir, 'staging', "ATOMS_CALLBACK_URL=https://staging-only.example/cb\n");
         file_put_contents($config->rootDir . '/.env', "ATOMS_CALLBACK_URL=http://localhost:8000/cb\n");
         file_put_contents($config->rootDir . '/.env.atoms', "ATOMS_CALLBACK_URL=http://generic.example/cb\n");
@@ -122,13 +120,13 @@ final class ConfigurationPrecedenceTest extends TestCase
      */
     public function testAFileReferenceResolvesThroughTheSameLayersAndSaysSo(): void
     {
-        $config = $this->project(['callback_url' => ['production' => '${CI_CALLBACK_URL}']]);
+        $config = $this->project(['production' => '${CI_CALLBACK_URL}']);
 
         $this->writeDotenv($config->rootDir, 'production', "CI_CALLBACK_URL=https://dotenv.example/cb\n");
         $target = CloudflareTarget::resolve($config, 'production');
         self::assertSame('https://dotenv.example/cb', $target->callbackUrl);
         self::assertSame(
-            'atoms.json "callback_url.production" -> .env.atoms.production: CI_CALLBACK_URL',
+            'atoms.json "environments.production.callback_url" -> .env.atoms.production: CI_CALLBACK_URL',
             $target->sources['callback_url'],
         );
 
@@ -136,9 +134,50 @@ final class ConfigurationPrecedenceTest extends TestCase
         $target = CloudflareTarget::resolve($config, 'production');
         self::assertSame('https://caller.example/cb', $target->callbackUrl);
         self::assertSame(
-            'atoms.json "callback_url.production" -> caller environment: CI_CALLBACK_URL',
+            'atoms.json "environments.production.callback_url" -> caller environment: CI_CALLBACK_URL',
             $target->sources['callback_url'],
         );
+    }
+
+    /**
+     * `callback_url` lives inside the environment block it belongs to, and
+     * nowhere else. It used to be a top-level map keyed by environment name,
+     * parsed independently of `environments` and never checked against it — so
+     * a typo'd `"prodction"` key parsed clean, and `--env production` resolved
+     * no callback while the file plainly declared one. A parallel map is now
+     * simply not part of the schema, and this fails if one is ever read again.
+     */
+    public function testATopLevelCallbackUrlMapIsNotPartOfTheSchema(): void
+    {
+        $root = $this->freshDir();
+        file_put_contents($root . '/atoms.json', json_encode([
+            'project' => 'acme',
+            'paths' => ['atoms' => 'app/Atoms'],
+            'environments' => [
+                'production' => ['worker_name' => 'acme', 'account_id' => '', 'debug_endpoints' => false],
+            ],
+            'callback_url' => ['production' => 'https://parallel-map.example/cb'],
+        ], JSON_THROW_ON_ERROR));
+
+        $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+
+        self::assertNull($target->callbackUrl);
+    }
+
+    /**
+     * And the shape that replaced it cannot drift: a callback is declared on
+     * the same block that names the Worker, so there is no second place for an
+     * environment name to be misspelled.
+     */
+    public function testACallbackIsDeclaredOnTheEnvironmentItBelongsTo(): void
+    {
+        $config = $this->project(['production' => 'https://prod.example/cb', 'staging' => 'https://stg.example/cb']);
+
+        self::assertSame('https://prod.example/cb', CloudflareTarget::resolve($config, 'production')->callbackUrl);
+        self::assertSame('https://stg.example/cb', CloudflareTarget::resolve($config, 'staging')->callbackUrl);
+
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*prodction/s');
+        CloudflareTarget::resolve($config, 'prodction');
     }
 
     public function testAnUnreadableTargetFileIsE109AndNotSilentlySkipped(): void
@@ -160,7 +199,7 @@ final class ConfigurationPrecedenceTest extends TestCase
      */
     public function testTheReportShowsEverySourceAndHidesTheCredential(): void
     {
-        $config = $this->project(['callback_url' => ['production' => 'https://file.example/cb']]);
+        $config = $this->project(['production' => 'https://file.example/cb']);
         putenv('CLOUDFLARE_API_TOKEN=super-secret-token');
 
         $rows = CloudflareTarget::resolve($config, 'production')->report();
@@ -168,24 +207,31 @@ final class ConfigurationPrecedenceTest extends TestCase
 
         self::assertStringNotContainsString('super-secret-token', $flat);
         self::assertContains(['API token', '(hidden)', 'caller environment: CLOUDFLARE_API_TOKEN'], $rows);
-        self::assertContains(['Callback', 'https://file.example/cb', 'atoms.json "callback_url.production"'], $rows);
+        self::assertContains(['Callback', 'https://file.example/cb', 'atoms.json "environments.production.callback_url"'], $rows);
         self::assertContains(['Worker', 'acme', 'atoms.json'], $rows);
     }
 
     /**
-     * @param array<string, mixed> $overrides
+     * @param array<string, string> $callbacks   environment => callback_url
+     * @param array<string, mixed>  $overrides   merged over the environment blocks
      */
-    private function project(array $overrides): AtomsJson
+    private function project(array $callbacks, array $overrides = []): AtomsJson
     {
         $root = $this->freshDir();
+        $environments = [
+            'production' => ['worker_name' => 'acme', 'account_id' => '', 'debug_endpoints' => false],
+            'staging' => ['worker_name' => 'acme-staging', 'account_id' => '', 'debug_endpoints' => false],
+        ];
+        foreach ($callbacks as $name => $url) {
+            $environments[$name]['callback_url'] = $url;
+        }
+        foreach ($overrides as $name => $settings) {
+            $environments[$name] = [...$environments[$name] ?? [], ...$settings];
+        }
         $json = [
             'project' => 'acme',
             'paths' => ['atoms' => 'app/Atoms'],
-            'environments' => [
-                'production' => ['worker_name' => 'acme', 'account_id' => '', 'debug_endpoints' => false],
-                'staging' => ['worker_name' => 'acme-staging', 'account_id' => '', 'debug_endpoints' => false],
-            ],
-            ...$overrides,
+            'environments' => $environments,
         ];
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
 

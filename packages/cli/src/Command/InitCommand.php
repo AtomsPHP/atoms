@@ -61,36 +61,34 @@ final class InitCommand extends AbstractCommand
             //
             // The Worker directory is committed at atoms-worker/ beside this
             // file, so no environment names one.
+            // One block per environment, holding every setting that differs
+            // between them. `callback_url` is where the Worker reaches the app
+            // for $this->app()/dispatch(), forwarded by both `atoms dev` and
+            // `atoms deploy` as the ATOMS_CALLBACK_URL var. CI may use a
+            // whole-value ${VARIABLE} reference; --callback-url and
+            // ATOMS_CALLBACK_URL override the file on any command.
+            //
+            // Empty, not a placeholder host: this file is the committed
+            // default for a named deployment, so an example.com left in by
+            // accident would POST signed callbacks — carrying method
+            // arguments — to a third party, and surface only as ATOMS-E083
+            // ("callback request failed"), which names neither the file nor
+            // the key. Empty means "no callback declared": deploy warns, and
+            // app()/dispatch() fail with ATOMS-E080, whose fix line says
+            // exactly what to set.
             'environments' => [
                 'production' => [
                     'worker_name' => $project,
                     'account_id' => '',
                     'debug_endpoints' => false,
+                    'callback_url' => '',
                 ],
                 'staging' => [
                     'worker_name' => $project . '-staging',
                     'account_id' => '',
                     'debug_endpoints' => false,
+                    'callback_url' => '',
                 ],
-            ],
-            // Where the Worker reaches the app for $this->app()/dispatch().
-            // Forwarded by both `atoms dev` and `atoms deploy` as the
-            // ATOMS_CALLBACK_URL var, so each entry is live for its
-            // environment. CI may use a whole-value ${VARIABLE} reference;
-            // --callback-url or ATOMS_CALLBACK_URL override this file on any
-            // command.
-            //
-            // Empty, not a placeholder host: this file is the committed
-            // default for a named deployment, so an example.com left in by
-            // accident
-            // would POST signed callbacks — carrying method arguments — to a
-            // third party, and surface only as ATOMS-E083 ("callback request
-            // failed"), which names neither the file nor the key. Empty means
-            // "no callback declared": deploy warns, and app()/dispatch() fail
-            // with ATOMS-E080, whose fix line says exactly what to set.
-            'callback_url' => [
-                'production' => '',
-                'staging' => '',
             ],
         ];
 

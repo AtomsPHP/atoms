@@ -24,7 +24,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  * else — Atoms never proxies or retains them.
  *
  * The Worker vars atoms.json declares for the environment — `debug_endpoints`
- * and `callback_url.<env>` — ride along as `wrangler deploy --var`, the same
+ * and `callback_url` — ride along as `wrangler deploy --var`, the same
  * way `atoms dev` forwards them. The callback resolves in the order every
  * command and every setting uses: `--callback-url`, then `ATOMS_CALLBACK_URL`
  * in the environment this command was started with, then in
@@ -129,7 +129,8 @@ final class DeployCommand extends AbstractCommand
                     . 'Supply one from any of the four sources, nearest first: --callback-url, '
                     . $target::CALLBACK_VAR . ' in the environment this command was started with, '
                     . $target::CALLBACK_VAR . ' in ' . AtomsDotenv::fileName($env) . ' beside atoms.json, '
-                    . 'or atoms.json "callback_url"."' . $env . '" set to a URL or "${ATOMS_CALLBACK_URL}".'
+                    . 'or atoms.json "environments"."' . $env . '"."callback_url" set to a URL '
+                    . 'or "${ATOMS_CALLBACK_URL}".'
                 );
             }
             $wrangler = $this->wrangler->deploy($target, $target->runtimeVars());

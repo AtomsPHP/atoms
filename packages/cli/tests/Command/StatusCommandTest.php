@@ -68,7 +68,7 @@ final class StatusCommandTest extends TestCase
     {
         $root = $this->tempCopy('sample-app');
         $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $config['callback_url']['production'] = '${UNSET_DEPLOYMENT_CALLBACK}';
+        $config['environments']['production']['callback_url'] = '${UNSET_DEPLOYMENT_CALLBACK}';
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
         putenv('UNSET_DEPLOYMENT_CALLBACK');
         putenv(\Atoms\Cli\Cloudflare\CloudflareTarget::CALLBACK_VAR);

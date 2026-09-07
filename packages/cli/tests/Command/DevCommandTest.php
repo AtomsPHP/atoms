@@ -268,7 +268,7 @@ final class DevCommandTest extends TestCase
         putenv(DevCommand::CALLBACK_VAR);
         $root = $this->tempCopy('sample-app');
         $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
-        $config['callback_url']['staging'] = '${CI_ONLY_CALLBACK_URL}';
+        $config['environments']['staging']['callback_url'] = '${CI_ONLY_CALLBACK_URL}';
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
         putenv('CI_ONLY_CALLBACK_URL');
 
@@ -365,7 +365,7 @@ final class DevCommandTest extends TestCase
         $dir = $this->workerDir();
         $root = $this->tempCopy('sample-app');
         $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
-        $config['callback_url']['production'] = 'https://${HOST}/atoms/callback';
+        $config['environments']['production']['callback_url'] = 'https://${HOST}/atoms/callback';
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
         $runner = new FakeProcessRunner();
         $wrangler = new FakeWrangler();

@@ -8,10 +8,8 @@
     "environments": {
         "production": {
             "worker_name": "atoms-laravel-example",
-            "account_id": ""
+            "account_id": "",
+            "callback_url": "https://your-laravel-app.example/atoms/callback"
         }
-    },
-    "callback_url": {
-        "production": "https://your-laravel-app.example/atoms/callback"
     }
 }

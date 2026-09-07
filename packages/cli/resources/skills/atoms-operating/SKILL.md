@@ -37,7 +37,8 @@ a runner has no login session to fall back on.
 
 Every configured environment must have a non-empty `worker_name`; the
 top-level `project` is not a fallback. A callback, when needed, is declared in
-the top-level `callback_url.<env>` map in `atoms.json`, and resolves the same
+the selected environment's `callback_url` in `atoms.json`, beside its
+`worker_name`, and resolves the same
 way on every command and for every setting: `--callback-url` (on `deploy` and
 `dev`), then `ATOMS_CALLBACK_URL` in the environment the command was started
 with, then in `.env.atoms.<env>` beside atoms.json, then the file entry. The

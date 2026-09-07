@@ -35,7 +35,9 @@ final class InitCommandTest extends TestCase
         // Empty means the file declares nothing; unless ATOMS_CALLBACK_URL or
         // --callback-url supplies one, deploy warns and app()/dispatch() raise
         // E080.
-        self::assertSame(['production' => '', 'staging' => ''], $config['callback_url']);
+        self::assertArrayNotHasKey('callback_url', $config, 'callback_url is per-environment, not a parallel top-level map');
+        self::assertSame('', $config['environments']['production']['callback_url']);
+        self::assertSame('', $config['environments']['staging']['callback_url']);
         self::assertStringContainsString(
             RuntimeVersion::scaffoldCommand(),
             $tester->getDisplay(),
@@ -44,8 +46,15 @@ final class InitCommandTest extends TestCase
         self::assertStringContainsString('atoms-runtime-cloudflare upgrade', $tester->getDisplay());
         // The Worker directory is committed beside atoms.json, so an
         // environment holds exactly its own settings.
+        // One block per environment, holding every setting that differs
+        // between them — a second top-level map keyed by the same names is
+        // what let a typo'd environment parse clean and silently supply
+        // nothing.
         foreach ($config['environments'] as $environment) {
-            self::assertSame(['worker_name', 'account_id', 'debug_endpoints'], array_keys($environment));
+            self::assertSame(
+                ['worker_name', 'account_id', 'debug_endpoints', 'callback_url'],
+                array_keys($environment),
+            );
             self::assertArrayNotHasKey('endpoint', $environment);
         }
 

@@ -164,11 +164,12 @@ final class DevCommand extends AbstractCommand
                 // must not be stricter: an Atom that never calls app() or
                 // dispatch() needs no callback at all, and the file's entry may
                 // name a variable that only CI holds.
-                $declared = $config->callbackUrls[$env] ?? '';
+                $declared = $config->environment($env)['callback_url'];
                 $output->writeln(
                     '  No callback URL configured'
                     . (str_contains($declared, '${')
-                        ? ': callback_url.' . $env . ' reads ' . $declared . ', which is unset here'
+                        ? ': environments.' . $env . '.callback_url reads ' . $declared
+                            . ', which is unset here'
                         : '')
                     . '. $this->app() and $this->dispatch() will fail with ATOMS-E080; pass '
                     . '--callback-url, or set ' . self::CALLBACK_VAR . ' in '
