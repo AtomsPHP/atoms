@@ -69,7 +69,7 @@
             "dist": {
                 "type": "path",
                 "url": "packages/client",
-                "reference": "851f77a470f74b13027b1ebe29ebedbfe6ce4b8d"
+                "reference": "6427955170951e0c2cda24a02c2eef22def45b2d"
             },
             "require": {
                 "atoms/core": "^0.6",
@@ -86,7 +86,10 @@
             "autoload": {
                 "psr-4": {
                     "Atoms\\Client\\": "src/"
-                }
+                },
+                "files": [
+                    "src/Deployment/bootstrap.php"
+                ]
             },
             "autoload-dev": {
                 "psr-4": {
