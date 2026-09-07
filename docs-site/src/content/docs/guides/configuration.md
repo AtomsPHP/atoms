@@ -55,11 +55,12 @@ choose the names; `atoms init` scaffolds `production` and `staging`:
 }
 ```
 
-`atoms init` writes this shape with `callback_url` **empty** — an empty value
-means no callback is declared, so `deploy` warns and `$this->app()` and
+`atoms init` writes this shape with `callback_url` **empty** — an empty or
+whitespace-only value declares nothing, so unless `ATOMS_CALLBACK_URL` or
+`--callback-url` supplies one, `deploy` warns and `$this->app()` and
 `$this->dispatch()` fail with
-[ATOMS-E080](/reference/errors/#atoms-e080) until you fill it in. The URLs above
-show a completed file.
+[ATOMS-E080](/reference/errors/#atoms-e080). The URLs above show a completed
+file.
 
 Every Cloudflare-facing command takes `--env <name>` — `deploy`, `status`,
 `rollback`, `secrets:set`, `secrets:list`, `shared-secret:set` and
@@ -80,11 +81,15 @@ the top-level `project`.
 `callback_url.<name>` is optional, and is the committed default rather than
 the last word: `ATOMS_CALLBACK_URL` overrides it, and `--callback-url`
 overrides both (see [Precedence](#precedence) below). An empty or
-whitespace-only literal means unset. A non-empty literal is passed to the
-Worker, and a whole-value reference such as `"${PRODUCTION_CALLBACK_URL}"` —
-read only when neither the flag nor `ATOMS_CALLBACK_URL` supplied a value — must
-resolve to a non-empty value or the CLI raises
-[ATOMS-E070](/reference/errors/#atoms-e070). For example:
+whitespace-only value means unset — from the flag and the environment variable
+as well as from the file; every source normalises the same way, so a value that
+is only whitespace never wins precedence over a real one. A non-empty literal
+is passed to the Worker, and a whole-value reference such as
+`"${PRODUCTION_CALLBACK_URL}"` — read only when neither the flag nor
+`ATOMS_CALLBACK_URL` supplied a value — must resolve to a non-empty value or
+`deploy` raises [ATOMS-E070](/reference/errors/#atoms-e070); on `atoms dev` an
+unresolved reference is a warning and no callback (see
+[Precedence](#precedence)). For example:
 
 ```json
 { "callback_url": { "production": "${ATOMS_CALLBACK_URL}" } }
@@ -95,8 +100,10 @@ The Worker requires HTTPS, except that HTTP loopback URLs such as
 `http://[::1]:8000/...` are valid for local development. This URL is where the
 Worker sends `app()` and `dispatch()` callbacks; it is independent of the
 monolith's `ATOMS_ENDPOINT`, which points the application at the Worker for
-ordinary RPC. If a deploy has no callback entry, it warns that `app()` and
-`dispatch()` are unavailable and forwards no callback variable.
+ordinary RPC. A missing file entry is not by itself a missing callback: only
+when no source at all supplies one — no `--callback-url`, no
+`ATOMS_CALLBACK_URL`, no file entry — does deploy warn that `app()` and
+`dispatch()` are unavailable and forward no callback variable.
 
 `account_id` may be empty. A non-empty `CLOUDFLARE_ACCOUNT_ID` in the
 environment wins over whatever the file says, on every command; there is no
@@ -158,7 +165,7 @@ runs, never while a bundle is built.
 | `php` | no | `8.3` |
 | `environments.<name>.worker_name` | yes | — |
 | `environments.<name>.account_id` | no | overridden by `CLOUDFLARE_ACCOUNT_ID`; used when that is unset |
-| `callback_url.<name>` | no | overridden by `--callback-url` and `ATOMS_CALLBACK_URL`; empty/unset means callbacks are unavailable; literal or whole-value `${ENV_VAR}` |
+| `callback_url.<name>` | no | overridden by `--callback-url` and `ATOMS_CALLBACK_URL`; empty, whitespace-only or unset means the file supplies nothing, not that callbacks are unavailable; literal or whole-value `${ENV_VAR}` |
 | `environments.<name>.debug_endpoints` | no | `false` |
 
 Structural problems in this file are reported as
@@ -176,7 +183,8 @@ ignored — Cloudflare places a Durable Object itself.
 **One order, for every value and every command: flag, then environment, then
 file.** The nearer source wins, silently. Nothing is compared against anything
 else, no combination of sources is an error, and there is no agreement check
-anywhere — the same model the AWS CLI, npm and Pulumi use.
+anywhere — the model the AWS CLI and npm document for their own
+configuration.
 
 | Setting | Flag | Environment | File |
 |---|---|---|---|
@@ -198,11 +206,20 @@ resolves to nothing is simply no callback plus a warning, where `deploy` makes
 it [ATOMS-E070](/reference/errors/#atoms-e070) — the variable may be one only
 CI holds.
 
-A `${ENV_VAR}` reference in the file is expanded only when neither the flag nor
-`ATOMS_CALLBACK_URL` already supplied a value, so a reference naming a variable
-that is unset here cannot fail when a nearer source answered. A value
-containing `${` that is not a whole-value `${NAME}` is always
-[ATOMS-E070](/reference/errors/#atoms-e070).
+The file entry is **read** only when neither the flag nor `ATOMS_CALLBACK_URL`
+already supplied a value, so a reference naming a variable that is unset here
+cannot fail when a nearer source answered. That short-circuit is deliberate,
+and it covers malformed entries too: a value containing `${` that is not a
+whole-value `${NAME}` — `"https://${HOST}/callback"`, say — is
+[ATOMS-E070](/reference/errors/#atoms-e070) **when the file wins**, and is
+never inspected at all when the flag or the variable answered, so the command
+succeeds.
+
+A blank value is not a value. An empty or whitespace-only string means "unset"
+in every source alike — `--callback-url`, `ATOMS_CALLBACK_URL`,
+`CLOUDFLARE_ACCOUNT_ID` and the file entries — so a blank nearer source falls
+through to the next rather than winning with nothing. Resolved values are
+trimmed.
 
 If nothing supplies a callback at all, deploy proceeds with a warning and
 forwards no callback variable. All callback values are validated by the Worker:

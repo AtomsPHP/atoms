@@ -123,7 +123,9 @@ final class DeployCommand extends AbstractCommand
                 $output->writeln(
                     '  No callback URL configured: $this->app() and $this->dispatch() will fail with '
                     . 'ATOMS-E080 unless ' . $target::CALLBACK_VAR . ' is set on the Worker some other way. '
-                    . 'Set atoms.json "callback_url"."' . $env . '" to a URL or "${ATOMS_CALLBACK_URL}".'
+                    . 'Supply one from any of the three sources, nearest first: --callback-url, '
+                    . $target::CALLBACK_VAR . ' in this environment, or atoms.json '
+                    . '"callback_url"."' . $env . '" set to a URL or "${ATOMS_CALLBACK_URL}".'
                 );
             }
             $wrangler = $this->wrangler->deploy($target, $target->runtimeVars());

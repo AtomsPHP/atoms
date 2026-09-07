@@ -68,8 +68,10 @@ final class CloudflareTarget
      * Resolved the same way on every command: `--callback-url`, then
      * `ATOMS_CALLBACK_URL` in the process environment, then the selected
      * `callback_url.<env>` entry in atoms.json — which may be an explicit
-     * ${VARIABLE} reference, expanded only when neither nearer source
-     * supplied a value.
+     * ${VARIABLE} reference. The file entry is read at all only when neither
+     * nearer source supplied a value, so nothing in it — a malformed
+     * reference included — can fail a command that was already answered.
+     * An empty or whitespace-only value is "unset" from every source alike.
      */
     public const CALLBACK_VAR = 'ATOMS_CALLBACK_URL';
 
@@ -113,7 +115,8 @@ final class CloudflareTarget
      * @param bool $local Whether this invocation runs a local Worker. Only softens an unresolvable `${VAR}` file reference into "no callback".
      * @param bool $resolveCallback Whether this command configures runtime vars.
      *
-     * @throws AtomsError E070 (unknown environment; a malformed `${VAR}`
+     * @throws AtomsError E070 (unknown environment; or, only when the file
+     *                    entry is the source that wins, a malformed `${VAR}`
      *                    callback reference, or one that resolves to nothing
      *                    outside local mode), E076 (unusable Worker directory)
      */
@@ -132,9 +135,10 @@ final class CloudflareTarget
         // credentials, and its own account, when this process supplies none.
         $token = self::firstNonEmpty($apiToken, self::env('CLOUDFLARE_API_TOKEN'));
         // One order, everywhere: flag, then environment, then file. Nothing
-        // here errors on disagreement — the nearer source simply wins, the way
-        // the AWS CLI, npm and Pulumi resolve theirs. Atoms has no
-        // --account-id flag, so this is the environment over the file.
+        // here errors on disagreement — the nearer source simply wins, the
+        // order the AWS CLI and npm document for their own configuration.
+        // Atoms has no --account-id flag, so this is the environment over the
+        // file.
         $accountId = self::env('CLOUDFLARE_ACCOUNT_ID')
             ?? self::firstNonEmpty($env['account_id'])
             ?? '';
@@ -274,8 +278,10 @@ final class CloudflareTarget
         bool $local,
     ): ?string {
         // Flag, then environment, then file — the same order every command
-        // uses, and the one the surrounding ecosystem uses. A nearer source
-        // wins silently; none of this is an agreement check.
+        // uses. A nearer source wins silently; none of this is an agreement
+        // check. Each return below is also a short-circuit: the file entry is
+        // never even read once a nearer source answered, so a malformed
+        // ${...} entry cannot fail a command that never needed it.
         $flag = self::firstNonEmpty($callbackUrl);
         if ($flag !== null) {
             return $flag;
@@ -338,13 +344,19 @@ final class CloudflareTarget
     private static function env(string $name): ?string
     {
         $value = getenv($name);
+        $value = \is_string($value) ? trim($value) : '';
 
-        return \is_string($value) && $value !== '' ? $value : null;
+        // Trimmed, so a variable holding only whitespace reads as unset rather
+        // than winning precedence and reaching Wrangler as a blank --var. The
+        // file path normalises the same way; every source must agree on what
+        // "no value" is, or the answer depends on which source supplied it.
+        return $value !== '' ? $value : null;
     }
 
     private static function firstNonEmpty(?string ...$candidates): ?string
     {
         foreach ($candidates as $candidate) {
+            $candidate = $candidate === null ? null : trim($candidate);
             if ($candidate !== null && $candidate !== '') {
                 return $candidate;
             }

@@ -39,12 +39,16 @@ the top-level `callback_url.<env>` map in `atoms.json`, and resolves the same
 way on every command: `--callback-url` (on `deploy` and `dev`), then
 `ATOMS_CALLBACK_URL` in the process environment, then the file entry. The
 nearer source wins silently — nothing is compared and no combination is a
-conflict. An empty or whitespace-only file entry declares no callback, and
-deploy warns. A file entry may be a whole-value `${ENV_VAR}` reference, read
-only when neither flag nor `ATOMS_CALLBACK_URL` supplied a value; anything else
-containing `${` is ATOMS-E070. A well-formed reference that resolves to nothing
-is ATOMS-E070 on deploy, and on `atoms dev` simply no callback plus a warning —
-the variable may be one only CI holds.
+conflict, and an empty or whitespace-only value means "unset" from every source
+alike. With no source at all there is no callback, and deploy warns; an absent
+file entry on its own is not that, since an exported `ATOMS_CALLBACK_URL` needs
+no file entry. The file entry is read only when neither the flag nor
+`ATOMS_CALLBACK_URL` supplied a value, so nothing in it can fail a command a
+nearer source answered: a value containing `${` that is not a whole-value
+`${ENV_VAR}` reference is ATOMS-E070 when the file wins, and is never inspected
+otherwise. A well-formed reference that resolves to nothing is ATOMS-E070 on
+deploy, and on `atoms dev` simply no callback plus a warning — the variable may
+be one only CI holds.
 
 Deploy needs the committed Worker directory, `atoms-worker/` beside atoms.json
 (or `--worker-dir`; atoms.json does not name it), with `npm ci` already run in

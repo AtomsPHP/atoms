@@ -25,10 +25,12 @@ final class InitCommandTest extends TestCase
         $config = json_decode((string) file_get_contents($dir . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
         self::assertSame('acme', $config['project']);
         self::assertSame('app/Atoms', $config['paths']['atoms']);
-        // No placeholder host. atoms.json is the sole authority for a named
-        // deployment, so an example.com left in by accident would POST signed
-        // callbacks — carrying method arguments — to a third party. Empty means
-        // "no callback declared": deploy warns and app()/dispatch() raise E080.
+        // No placeholder host. The file entry is the committed default for a
+        // named deployment, so an example.com left in by accident would POST
+        // signed callbacks — carrying method arguments — to a third party.
+        // Empty means the file declares nothing; unless ATOMS_CALLBACK_URL or
+        // --callback-url supplies one, deploy warns and app()/dispatch() raise
+        // E080.
         self::assertSame(['production' => '', 'staging' => ''], $config['callback_url']);
         self::assertStringContainsString(
             RuntimeVersion::scaffoldCommand(),

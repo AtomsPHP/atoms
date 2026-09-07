@@ -97,8 +97,9 @@ final class CloudflareTargetTest extends TestCase
         $target = CloudflareTarget::resolve($this->sampleApp(), 'production');
 
         self::assertSame('from-env', $target->apiToken);
-        // atoms.json carries the account id for this fixture, so it wins the
-        // fallback chain without the environment being consulted.
+        // CLOUDFLARE_ACCOUNT_ID is unset here, so the file entry answers.
+        // The environment outranks the file, but only when it holds a value —
+        // an absent variable is not a source.
         self::assertSame('cf-account-1234', $target->accountId);
     }
 
@@ -133,7 +134,7 @@ final class CloudflareTargetTest extends TestCase
         self::assertSame([], $target->credentialEnv());
     }
 
-    public function testAccountIdFallsBackToTheEnvironmentWhenTheFileOmitsIt(): void
+    public function testAccountIdComesFromTheEnvironmentWhenTheFileOmitsIt(): void
     {
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);

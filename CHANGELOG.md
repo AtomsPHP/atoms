@@ -8,22 +8,28 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 - **Changed:** one precedence rule now resolves every deploy-target value, on
   every command: **flag, then environment, then file.** The file is the
   committed default, an environment variable overrides it, and a flag
-  overrides both — the way the AWS CLI, npm and Pulumi resolve configuration.
-  The nearer source wins silently: nothing is compared between sources, and no
-  combination of them is an error. For the callback URL that is
+  overrides both — the order the AWS CLI and npm document for their own
+  configuration. The nearer source wins silently: nothing is compared between
+  sources, and no combination of them is an error. For the callback URL that is
   `--callback-url` (now on `deploy` as well as `dev`, and on `php artisan
   atoms:deploy` too), then `ATOMS_CALLBACK_URL`, then `callback_url.<env>` in
   `atoms.json`. For the account id it is `CLOUDFLARE_ACCOUNT_ID`, then the
   environment's `account_id` — there is no `--account-id` flag. `atoms dev`
   uses the same order as `atoms deploy`.
 - **Changed:** a `callback_url.<env>` entry may be a whole-value reference such
-  as `"${ATOMS_CALLBACK_URL}"`, expanded only when neither `--callback-url` nor
-  `ATOMS_CALLBACK_URL` already supplied a value. Anything else containing `${`
-  is `ATOMS-E070`. A well-formed reference that resolves to nothing is
-  `ATOMS-E070` on `deploy`, and simply no callback plus a warning on `dev`,
-  where the variable may be one only CI holds. An empty or whitespace-only
-  entry declares no callback. Builds and operational commands resolve no
-  callback at all.
+  as `"${ATOMS_CALLBACK_URL}"`. The entry is read at all only when neither
+  `--callback-url` nor `ATOMS_CALLBACK_URL` supplied a value, so nothing in it
+  can fail a command a nearer source already answered: anything else containing
+  `${` is `ATOMS-E070` **when the file wins**, and is never inspected
+  otherwise. A well-formed reference that resolves to nothing is `ATOMS-E070`
+  on `deploy`, and simply no callback plus a warning on `dev`, where the
+  variable may be one only CI holds. An empty or whitespace-only entry declares
+  no callback. Builds and operational commands resolve no callback at all.
+- **Changed:** an empty or whitespace-only value now means "unset" in every
+  source alike — `--callback-url`, `ATOMS_CALLBACK_URL` and
+  `CLOUDFLARE_ACCOUNT_ID` as well as the `atoms.json` entries, which alone
+  trimmed before. A blank nearer source falls through to the next instead of
+  winning with nothing, and no blank `--var` reaches Wrangler.
 - **Changed:** every configured environment must declare a non-empty
   `worker_name`; it no longer falls back to `project`.
 - **Removed:** `environments.<env>.endpoint` as CLI configuration. Legacy keys

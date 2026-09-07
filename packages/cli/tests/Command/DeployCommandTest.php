@@ -232,7 +232,11 @@ final class DeployCommandTest extends TestCase
         self::assertNotNull($deploy);
         self::assertSame([], $deploy['args']['vars']);
         self::assertStringContainsString('ATOMS-E080', $tester->getDisplay());
-        self::assertStringNotContainsString('--callback-url', $tester->getDisplay());
+        // The advice names all three sources, nearest first — the file entry
+        // is the committed default, not the only way to supply a callback.
+        self::assertStringContainsString('--callback-url', $tester->getDisplay());
+        self::assertStringContainsString('ATOMS_CALLBACK_URL', $tester->getDisplay());
+        self::assertStringContainsString('"callback_url"."production"', $tester->getDisplay());
     }
 
     /**

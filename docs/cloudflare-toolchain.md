@@ -22,8 +22,13 @@ variable selects a CLI environment.
 **One order resolves everything, on every command: flag, then the process
 environment, then `atoms.json`.** The nearer source wins silently. Nothing is
 compared against anything else, no combination of sources is a conflict, and
-there is no agreement check anywhere — the same model the AWS CLI, npm and
-Pulumi use. `atoms dev` uses the same order as `atoms deploy`.
+there is no agreement check anywhere — the model the AWS CLI and npm document
+for their own configuration. `atoms dev` uses the same order as `atoms deploy`.
+
+A blank value is not a value: an empty or whitespace-only string reads as
+"unset" from every source alike — the flag, the process environment and the
+file — so it falls through to the next source rather than winning with nothing.
+Resolved values are trimmed.
 
 | Setting | Flag | Environment | File |
 |---|---|---|---|
@@ -47,15 +52,19 @@ principal are environment facts, and the invocation selects one environment
 with `--env`.
 
 The callback file value can be a literal or a whole-value `${ENV_VAR}`
-reference. The reference is expanded for the selected environment at `dev` or
+reference. The file entry is read for the selected environment at `dev` or
 `deploy` time, and **only when neither `--callback-url` nor
 `ATOMS_CALLBACK_URL` already supplied a value** — a nearer source means the
-file is never consulted, so a reference naming an unset variable cannot fail.
-Anything containing `${` that is not a whole-value `${NAME}` is always an
-**ATOMS-E070** configuration error. A well-formed reference that resolves to
-nothing is **ATOMS-E070** on `deploy`; on `dev` it simply means no callback,
-with a warning, because the variable may belong to CI. An empty or
-whitespace-only file value declares no callback at all.
+file is never consulted at all. Nothing in the entry can therefore fail a
+command a nearer source answered, and that is deliberate rather than an
+oversight: it applies to a malformed entry exactly as it applies to a
+reference naming an unset variable. Anything containing `${` that is not a
+whole-value `${NAME}` — `"https://${HOST}/callback"`, for instance — is an
+**ATOMS-E070** configuration error **when the file wins**, and is simply never
+inspected otherwise. A well-formed reference that resolves to nothing is
+**ATOMS-E070** on `deploy`; on `dev` it simply means no callback, with a
+warning, because the variable may belong to CI. An empty or whitespace-only
+file value declares no callback at all.
 
 The deployed Worker validates callback URLs: HTTPS is required, with HTTP
 allowed only for loopback hosts. They are used by the Worker for `app()` and

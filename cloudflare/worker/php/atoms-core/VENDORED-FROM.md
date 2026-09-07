@@ -34,7 +34,8 @@ reason the Cloudflare runtime can claim the real API runs inside the guest.
 | Re-verified | 2026-09-05, on the documentation wording pass — `resources/errors.json` re-vendored with E002/E020/E053/E062/E067/E084/E101/E105 reworded; byte-identical to `packages/core/resources/errors.json`, with the digest below refreshed. |
 | Re-verified | 2026-09-05, on the docs-site error-catalog path — `Errors/ErrorCatalog.php` re-vendored: `DOCS_BASE` was `https://docs.atomsphp.dev/errors#`, a path the published site has never served; the built page is `/reference/errors/` and its anchors are the lowercased codes, so only the path changed and every `docsUrl` anchor is unchanged. Still 24 files total, the other 23 digests are unchanged |
 | Re-verified | 2026-09-06, on the E070 rewording — `resources/errors.json` re-vendored: E070's message and fix described only an unreadable or malformed file, but the code has long also covered an undefined environment and now covers environment-vs-file disagreements, where "fix the reported JSON error" and running `atoms init` were both wrong advice. Message and fix reworded only; no code added, renumbered or repointed. Still 24 files total, the other 23 digests are unchanged |
-| Re-verified | 2026-09-06, on dropping the configuration agreement checks — `resources/errors.json` re-vendored: E070's fix line told the reader to unset an environment variable or make it agree with the file, which describes a rule the CLI no longer has, and was backwards for the one case where E070 still names a variable (an unset `${VAR}` callback reference on deploy, where the variable must be set). Fix line reworded only; no code added, renumbered or repointed. Still 24 files total, the other 23 digests are unchanged |
+| Re-verified | 2026-09-06, on dropping the configuration agreement checks — `resources/errors.json` re-vendored: E070's fix line told the reader to unset an environment variable or make it agree with the file, which describes a rule the CLI no longer has, and was backwards for the one case where E070 still names a variable (a `${VAR}` callback reference on deploy). Fix line reworded only; no code added, renumbered or repointed. Still 24 files total, the other 23 digests are unchanged |
+| Re-verified | 2026-09-07, on review of the precedence change — `resources/errors.json` re-vendored: E070's fix line told the reader to set whichever variable the reason named, but a malformed reference names `${ATOMS_CALLBACK_URL}` only as an example of the right shape, so setting it would mask the broken declaration through precedence rather than repair it. The fix now separates correcting reference syntax from setting an unset referenced variable. Fix line reworded only; no code added, renumbered or repointed. Still 24 files total, the other 23 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -131,7 +132,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
 a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
 b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
-6db2abc3f370894ab0ed554355c304669e49f77885dd418c43e269c020026c92  resources/errors.json
+87017d56cfdf485a6f261301cf2834604b7be9c47fa1e7d51d6384e9c3ae4be2  resources/errors.json
 ```
 
 Verify with, from this directory:

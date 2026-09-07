@@ -707,7 +707,7 @@ atoms.json at the repository root is missing, invalid, or does not apply cleanly
 
 **Fix**
 
-Run `atoms init` to create it if it is missing, or fix the reported problem in the file. When the reason names an environment variable, set that variable to a non-empty value.
+Run `atoms init` to create it if it is missing, or fix the reported problem in the file. A callback_url reference must be a whole value such as "${ATOMS_CALLBACK_URL}" — correct the syntax when the reason says so, and set the named variable to a non-empty value when the reason says it is unset or empty.
 
 
 <a id="atoms-e071"></a>
