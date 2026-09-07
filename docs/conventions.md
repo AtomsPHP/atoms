@@ -343,6 +343,28 @@ read `paths.atoms` / `paths.shared` from `atoms.json`. `atoms-composer.json`
 is a normal composer.json restricted to `require` + `repositories`; the beta
 package allowlist lives in `packages/cli/resources/allowed-packages.json`.
 
+## Deployment configuration is one contract across four packages
+
+`docs/cloudflare-toolchain.md` §Configuration precedence and lifecycle is
+normative. Two rules bind code outside the CLI:
+
+- **One order, everywhere**: flag, then the caller's own environment, then
+  `.env.atoms.<environment>` beside `atoms.json`, then the selected
+  `atoms.json` entry. The nearer source wins silently, blank means unset in
+  every source, and nothing anywhere compares two sources or errors when they
+  differ. `atoms deploy` and `atoms dev` print what they resolved and which
+  source supplied it.
+- **An adapter must not widen "the caller's environment."** A console wrapper
+  runs after its framework has loaded the application's `.env`; a child process
+  that inherited that would silently make application configuration a
+  deployment input. `Atoms\Client\Deployment\CallerEnvironment` snapshots the
+  environment from a Composer `files` autoload entry — the one place in this
+  repository with an autoload side effect, and it is there because nothing a
+  framework offers can run earlier — and every wrapper hands that snapshot to
+  the process it starts. A new adapter that shells out to `atoms` must do the
+  same; `tests/Integration/DeploymentEnvironmentIsolationTest.php` is the
+  end-to-end check, through a real bootstrap and a real child process.
+
 ## Manifest schema (CLI emits, client loads)
 
 `manifest.json`, `"schema": 1`. Top-level keys: `project`, `atoms` (list of
