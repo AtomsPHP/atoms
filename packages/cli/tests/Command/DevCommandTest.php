@@ -258,7 +258,7 @@ final class DevCommandTest extends TestCase
             $dev['args']['vars'],
         );
         // Enabling a debug surface must be visible at startup.
-        self::assertStringContainsString('ATOMS_DEBUG_ENDPOINTS=1', $tester->getDisplay());
+        self::assertStringContainsString('Debug routes: enabled', $tester->getDisplay());
     }
 
     public function testDevStartsWithoutACallbackWhenTheFileReferenceIsUnsetHere(): void
@@ -309,8 +309,14 @@ final class DevCommandTest extends TestCase
                 [DevCommand::CALLBACK_VAR => 'https://tunnel.example.test/atoms/callback'],
                 $dev['args']['vars'],
             );
+            // Printed with the source that won, so a surprising callback URL
+            // is one line of output rather than a bisection.
             self::assertStringContainsString(
-                DevCommand::CALLBACK_VAR . '=https://tunnel.example.test/atoms/callback',
+                'Callback:     https://tunnel.example.test/atoms/callback',
+                $tester->getDisplay(),
+            );
+            self::assertStringContainsString(
+                '(caller environment: ' . DevCommand::CALLBACK_VAR . ')',
                 $tester->getDisplay(),
             );
 

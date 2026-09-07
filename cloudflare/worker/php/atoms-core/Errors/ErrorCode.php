@@ -77,4 +77,5 @@ enum ErrorCode: string
     case SchemaBuilderUnavailable = 'ATOMS-E106';
     case FastBuildWithDependencies = 'ATOMS-E107';
     case WorkerRuntimeVersionMismatch = 'ATOMS-E108';
+    case AtomsEnvFileInvalid = 'ATOMS-E109';
 }

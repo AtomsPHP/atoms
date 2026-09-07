@@ -325,7 +325,7 @@
             "code": "ATOMS-E072",
             "title": "Deploy credentials missing",
             "message": "`wrangler {command}` found no Cloudflare credentials to use.",
-            "fix": "Either export CLOUDFLARE_API_TOKEN with Workers Scripts:Edit on the target account, or run `wrangler login` in the Worker directory so Wrangler holds its own OAuth session — Atoms passes through whichever it finds, and injects nothing when there is no token. A token is never accepted as a command-line option: a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`; a runner has no login session to fall back on.",
+            "fix": "Either set CLOUDFLARE_API_TOKEN — in this shell, as a CI variable, or in `.env.atoms.<environment>` beside atoms.json — with Workers Scripts:Edit on the target account, or run `wrangler login` in the Worker directory so Wrangler holds its own OAuth session — Atoms passes through whichever it finds, and injects nothing when there is no token. A token is never accepted as a command-line option: a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`; a runner has no login session to fall back on.",
             "severity": "error",
             "phase": "cli"
         },
@@ -510,6 +510,14 @@
             "title": "Worker directory does not match the CLI release",
             "message": "The Worker directory {dir} was scaffolded from {package} {found}, but this CLI is release {expected}; deploying would ship a runtime that does not match your PHP packages. Run: {command}",
             "fix": "Bring the committed Worker directory up to the CLI's release with the `atoms-runtime-cloudflare upgrade` command printed in the message (it rewrites runtime-owned files and leaves wrangler.jsonc alone), review the diff, run `npm ci` inside the directory, and commit. If the Worker directory is the newer side, update the atoms/* Composer packages to its version instead.",
+            "severity": "error",
+            "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E109",
+            "title": "Atoms environment file is unreadable or malformed",
+            "message": "{file} could not be used: {reason}.",
+            "fix": "`.env.atoms.<environment>` beside atoms.json is optional, and is read only for the environment you named. Fix the reported line, or delete the file to resolve from the caller's environment and atoms.json alone. Each line is KEY=value (an `export ` prefix is allowed); values may be bare, 'single-quoted' or \"double-quoted\"; there is no interpolation and no multi-line value.",
             "severity": "error",
             "phase": "cli"
         }

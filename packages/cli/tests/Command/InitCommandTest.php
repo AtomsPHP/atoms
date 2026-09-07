@@ -20,7 +20,11 @@ final class InitCommandTest extends TestCase
         self::assertSame(0, $exit);
         self::assertFileExists($dir . '/atoms.json');
         self::assertFileExists($dir . '/atoms-composer.json');
-        self::assertSame("/.atoms/\n", file_get_contents($dir . '/.gitignore'));
+        // .env.atoms.<environment> is the per-target file the CLI reads below
+        // whatever the caller supplied, so it is where a local Cloudflare
+        // token or machine-specific callback URL goes — and it must never be
+        // committed. Anything shared and non-secret belongs in atoms.json.
+        self::assertSame("/.atoms/\n/.env.atoms.*\n", file_get_contents($dir . '/.gitignore'));
 
         $config = json_decode((string) file_get_contents($dir . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
         self::assertSame('acme', $config['project']);
@@ -58,6 +62,23 @@ final class InitCommandTest extends TestCase
         $tester = new CommandTester(new InitCommand());
 
         self::assertSame(0, $tester->execute(['--root' => $dir]));
-        self::assertSame("/vendor/\n/.atoms/\n", file_get_contents($dir . '/.gitignore'));
+        self::assertSame("/vendor/\n/.atoms/\n/.env.atoms.*\n", file_get_contents($dir . '/.gitignore'));
+    }
+
+    /**
+     * Each entry is added only if it is missing, and independently of the
+     * other: a project that already ignores one keeps its own spelling.
+     */
+    public function testAnEntryAlreadyPresentIsNotAddedAgain(): void
+    {
+        $dir = $this->freshDir();
+        file_put_contents($dir . '/.gitignore', ".env.atoms.production\n.env.atoms.staging\n");
+        $tester = new CommandTester(new InitCommand());
+
+        self::assertSame(0, $tester->execute(['--root' => $dir]));
+        self::assertSame(
+            ".env.atoms.production\n.env.atoms.staging\n/.atoms/\n",
+            file_get_contents($dir . '/.gitignore'),
+        );
     }
 }

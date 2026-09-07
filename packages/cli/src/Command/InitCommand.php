@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Command;
 
+use Atoms\Cli\Config\AtomsDotenv;
 use Atoms\Cli\Release\RuntimeVersion;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -109,11 +110,26 @@ final class InitCommand extends AbstractCommand
         // Build output and the vendor cache live under .atoms/. The Worker
         // directory does not: atoms-worker/ is committed, and its own
         // .gitignore covers everything deploy and dev generate inside it.
+        //
+        // `.env.atoms.<environment>` is ignored for a different reason: it is
+        // the per-target environment file the CLI reads below whatever the
+        // caller supplied, which makes it the natural home for a local
+        // CLOUDFLARE_API_TOKEN or a machine-specific callback URL. Anything in
+        // it that is *not* a secret and *is* shared belongs in atoms.json
+        // instead — which is the whole reason this file has no committed role
+        // to lose by being ignored.
         $gitignorePath = $root . '/.gitignore';
         $gitignore = is_file($gitignorePath) ? (string) file_get_contents($gitignorePath) : '';
+        $additions = '';
         if (preg_match('/^\/?\.atoms\/?$/m', $gitignore) !== 1) {
+            $additions .= "/.atoms/\n";
+        }
+        if (preg_match('/^\/?\.env\.atoms\./m', $gitignore) !== 1) {
+            $additions .= "/.env.atoms.*\n";
+        }
+        if ($additions !== '') {
             $prefix = $gitignore === '' || str_ends_with($gitignore, "\n") ? '' : "\n";
-            file_put_contents($gitignorePath, $prefix . "/.atoms/\n", FILE_APPEND);
+            file_put_contents($gitignorePath, $prefix . $additions, FILE_APPEND);
         }
 
         $output->writeln('<info>✓ Wrote atoms.json and atoms-composer.json.</info>');
@@ -126,7 +142,8 @@ final class InitCommand extends AbstractCommand
         $output->writeln('  cd ' . RuntimeVersion::WORKER_DIR . ' && npm ci && cd - && git add ' . RuntimeVersion::WORKER_DIR);
         $output->writeln('  (' . RuntimeVersion::WORKER_DIR . '/ is part of your repository from now on; its README explains');
         $output->writeln('  which files you own and how `atoms-runtime-cloudflare upgrade` moves it to a new release.)');
-        $output->writeln('  Authenticate with Cloudflare — export CLOUDFLARE_API_TOKEN, or use the');
+        $output->writeln('  Authenticate with Cloudflare — set CLOUDFLARE_API_TOKEN in '
+            . AtomsDotenv::fileName('staging') . ', or use the');
         $output->writeln('  `wrangler login` session you already have — and run `atoms deploy --env staging`.');
 
         return Command::SUCCESS;

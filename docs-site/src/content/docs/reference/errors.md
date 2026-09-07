@@ -743,7 +743,7 @@ atoms-composer.json may only contain `require` (from the approved package list) 
 
 **Fix**
 
-Either export CLOUDFLARE_API_TOKEN with Workers Scripts:Edit on the target account, or run `wrangler login` in the Worker directory so Wrangler holds its own OAuth session — Atoms passes through whichever it finds, and injects nothing when there is no token. A token is never accepted as a command-line option: a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`; a runner has no login session to fall back on.
+Either set CLOUDFLARE_API_TOKEN — in this shell, as a CI variable, or in `.env.atoms.<environment>` beside atoms.json — with Workers Scripts:Edit on the target account, or run `wrangler login` in the Worker directory so Wrangler holds its own OAuth session — Atoms passes through whichever it finds, and injects nothing when there is no token. A token is never accepted as a command-line option: a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`; a runner has no login session to fall back on.
 
 
 <a id="atoms-e073"></a>
@@ -1158,3 +1158,21 @@ The Worker directory {dir} was scaffolded from {package} {found}, but this CLI i
 **Fix**
 
 Bring the committed Worker directory up to the CLI's release with the `atoms-runtime-cloudflare upgrade` command printed in the message (it rewrites runtime-owned files and leaves wrangler.jsonc alone), review the diff, run `npm ci` inside the directory, and commit. If the Worker directory is the newer side, update the atoms/* Composer packages to its version instead.
+
+
+<a id="atoms-e109"></a>
+
+## ATOMS-E109: Atoms environment file is unreadable or malformed
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `cli` |
+
+**Message**
+
+{file} could not be used: {reason}.
+
+**Fix**
+
+`.env.atoms.<environment>` beside atoms.json is optional, and is read only for the environment you named. Fix the reported line, or delete the file to resolve from the caller's environment and atoms.json alone. Each line is KEY=value (an `export ` prefix is allowed); values may be bare, 'single-quoted' or "double-quoted"; there is no interpolation and no multi-line value.

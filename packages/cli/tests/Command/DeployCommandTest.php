@@ -122,9 +122,14 @@ final class DeployCommandTest extends TestCase
             $deploy['args']['vars'],
         );
         self::assertStringContainsString(
-            CloudflareTarget::CALLBACK_VAR . '=https://acme.example.com',
+            'Callback:     https://acme.example.com',
             $tester->getDisplay(),
             'the deploy log must show which callback URL shipped',
+        );
+        self::assertStringContainsString(
+            '(atoms.json "callback_url.production")',
+            $tester->getDisplay(),
+            'and which source supplied it',
         );
     }
 
@@ -269,8 +274,10 @@ final class DeployCommandTest extends TestCase
             ['ATOMS_DEBUG_ENDPOINTS' => '1', CloudflareTarget::CALLBACK_VAR => 'https://acme.example.com'],
             $deploy['args']['vars'],
         );
-        // Enabling a debug surface must be visible in the deploy log.
-        self::assertStringContainsString('ATOMS_DEBUG_ENDPOINTS=1', $tester->getDisplay());
+        // Enabling a debug surface must be visible in the deploy log, and the
+        // resolved-configuration table is where it is now stated.
+        self::assertStringContainsString('Debug routes: enabled', $tester->getDisplay());
+        self::assertStringContainsString('/debug is reachable on this Worker', $tester->getDisplay());
     }
 
     /**

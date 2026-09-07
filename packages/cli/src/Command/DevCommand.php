@@ -9,6 +9,7 @@ use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
 use Atoms\Cli\Cloudflare\DevVars;
 use Atoms\Cli\Cloudflare\Wrangler;
+use Atoms\Cli\Config\AtomsDotenv;
 use Atoms\Cli\Config\EnvFile;
 use Atoms\Cli\Process\ProcessRunner;
 use Atoms\Cli\Process\SymfonyProcessRunner;
@@ -58,12 +59,18 @@ use Symfony\Component\Console\Output\OutputInterface;
  * The callback URL is passed to the Worker as an `ATOMS_CALLBACK_URL` var, and
  * the Worker calls back through it for `$this->app()` and `$this->dispatch()`.
  * It resolves in the order every command uses: --callback-url, then
- * ATOMS_CALLBACK_URL in the environment, then callback_url.<env> from
- * atoms.json. The nearer source simply wins. Dev differs from deploy in one
- * respect only: a file reference such as ${ATOMS_CALLBACK_URL} that resolves
- * to nothing is a warning and no callback here, where deploy makes it
+ * ATOMS_CALLBACK_URL in the environment this command was started with, then in
+ * `.env.atoms.<env>` beside atoms.json, then callback_url.<env> from
+ * atoms.json. The nearer source simply wins, and the whole resolution is
+ * printed with its sources before wrangler starts. Dev differs from deploy in
+ * one respect only: a file reference such as ${ATOMS_CALLBACK_URL} that
+ * resolves to nothing is a warning and no callback here, where deploy makes it
  * ATOMS-E070 — the variable may belong to CI alone, and a local URL belongs
  * to this machine, independently of the deploy target.
+ *
+ * Note that a local Worker reaches the app over loopback. `ATOMS_CALLBACK_URL`
+ * points the *Worker* at the *app*, so a `atoms dev` on the same machine as
+ * the app needs `http://127.0.0.1:<app port>/...` and no tunnel at all.
  */
 #[AsCommand(name: 'dev', description: 'Run the Atoms Worker locally with wrangler dev')]
 final class DevCommand extends AbstractCommand
@@ -136,17 +143,17 @@ final class DevCommand extends AbstractCommand
             $vars = $target->runtimeVars();
             $callback = $target->callbackUrl;
 
+            self::writeResolvedConfiguration($output, $target);
+            $output->writeln('');
             $output->writeln('Starting wrangler dev on port ' . $port . '…');
             if ($target->debugEndpoints) {
                 $output->writeln(
-                    '  ' . $target::DEBUG_ENDPOINTS_VAR . '=1 (debug endpoints enabled by atoms.json '
-                    . '"debug_endpoints" for ' . $env . '; /debug stays behind the Worker\'s bearer check '
-                    . 'unless ATOMS_BEARER_AUTH=disabled, where this flag is the only gate)'
+                    '  <comment>/debug stays behind the Worker\'s bearer check unless '
+                    . 'ATOMS_BEARER_AUTH=disabled, where this flag is the only gate.</comment>'
                 );
             }
             if ($callback !== null) {
-                $output->writeln('  ' . self::CALLBACK_VAR . '=' . $callback);
-                $output->writeln('  The Worker will call back to this URL for $this->app() and $this->dispatch().');
+                $output->writeln('  The Worker will call back to the URL above for $this->app() and $this->dispatch().');
             } else {
                 // Deploy warns rather than failing here (DeployCommand), and dev
                 // must not be stricter: an Atom that never calls app() or
@@ -159,7 +166,8 @@ final class DevCommand extends AbstractCommand
                         ? ': callback_url.' . $env . ' reads ' . $declared . ', which is unset here'
                         : '')
                     . '. $this->app() and $this->dispatch() will fail with ATOMS-E080; pass '
-                    . '--callback-url or export ' . self::CALLBACK_VAR . ' to supply one.'
+                    . '--callback-url, or set ' . self::CALLBACK_VAR . ' in '
+                    . AtomsDotenv::fileName($env) . ' beside atoms.json, to supply one.'
                 );
             }
 
