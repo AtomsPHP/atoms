@@ -531,9 +531,10 @@ authorisation failure, its error names the missing permission verbatim.
 **Where the account id lives.** Cloudflare dashboard → **Workers & Pages** →
 the overview page shows **Account ID** in the right-hand column. It may also
 be committed, as `environments.<env>.account_id` in `atoms.json`; that is the
-default, and a non-empty `CLOUDFLARE_ACCOUNT_ID` overrides it silently
-(`CloudflareTarget::resolve()`). The two are never compared, and the order is
-the same on every command.
+default, and a non-empty `CLOUDFLARE_ACCOUNT_ID` overrides it silently —
+from the caller's environment first, then from `.env.atoms.<env>`
+(`CloudflareTarget::resolve()`). The sources are never compared, and the order
+is the same on every command.
 
 **Which commands need it.** `deploy`, `rollback`, `status`, `secrets:list`,
 `secrets:set`, `shared-secret:set` and `shared-secret:unset` contact
@@ -552,10 +553,19 @@ without a Cloudflare account at all.
 - **A secret manager, read per command.** `CLOUDFLARE_API_TOKEN=$(op read
   op://vault/cloudflare/token) atoms deploy --env production`, or the
   equivalent for `pass`, `gopass`, Vault, or your platform keychain.
-- **A per-project, gitignored `.env`**, loaded deliberately — `direnv`, or
-  `set -a; . ./.env; set +a` in the shell that is about to deploy. Add it to
-  `.gitignore` *before* writing the token into it.
+- **`.env.atoms.<environment>`**, beside `atoms.json`. The CLI reads it
+  itself, only for the target you named, so there is no shell to load it into
+  and no session for it to leak past. `atoms init` gitignores it; a project
+  created before that existed needs `/.env.atoms.*` adding to `.gitignore`
+  *before* the token is written into it.
 - **A session-scoped export**, typed into the terminal doing a one-off deploy.
+  Prefer either of the two above: an export outlives the deploy it was for,
+  and every later command in that shell inherits it.
+
+An application's own `.env` is not on this list. It is loaded by the
+application, for the application, and the console wrappers deliberately keep
+it out of a deployment's inputs (§Which sources participate) — so a token put
+there would silently not be used.
 
 What the CLI does with the token is §Credentials, immediately above: it reads
 the environment and places the value in the Wrangler child process's
@@ -577,9 +587,8 @@ travel to the Worker by two different, deliberately asymmetric paths
   It resolves in the one order, on `deploy` and `dev` alike: `--callback-url`,
   then `ATOMS_CALLBACK_URL` in the caller's environment, then in the selected
   `.env.atoms.<env>`, then the `callback_url.<env>` file entry. The nearer
-  source wins silently;
-  nothing is compared and no combination is an error, so a developer tunnel
-  needs no change to the committed file. The resolved value goes to Wrangler as
+  source wins silently; nothing is compared and no combination is an error, so
+  a developer tunnel needs no change to the committed file. The resolved value goes to Wrangler as
   an ordinary `--var ATOMS_CALLBACK_URL:<url>`. When no source supplies one,
   deploy warns that `app()`/`dispatch()` are unavailable and forwards no
   callback variable. All values are validated by the Worker as HTTPS or an HTTP

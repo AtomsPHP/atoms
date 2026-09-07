@@ -25,6 +25,8 @@ atoms shared-secret:unset --env X  # Remove ATOMS_SHARED_SECRET_PREVIOUS, closin
 
 Credentials: either `CLOUDFLARE_API_TOKEN` or an existing `wrangler login`
 session — with no token set, Atoms injects nothing and Wrangler uses its own.
+A token may come from the environment the command was started with or from
+`.env.atoms.<env>` beside atoms.json, never from a committed file.
 `CLOUDFLARE_ACCOUNT_ID` overrides the environment's `account_id` in atoms.json
 on every command, dev and deploy alike; there is no `--account-id` flag and no
 check that the two values agree. A single reachable account can still resolve
@@ -36,19 +38,29 @@ a runner has no login session to fall back on.
 Every configured environment must have a non-empty `worker_name`; the
 top-level `project` is not a fallback. A callback, when needed, is declared in
 the top-level `callback_url.<env>` map in `atoms.json`, and resolves the same
-way on every command: `--callback-url` (on `deploy` and `dev`), then
-`ATOMS_CALLBACK_URL` in the process environment, then the file entry. The
+way on every command and for every setting: `--callback-url` (on `deploy` and
+`dev`), then `ATOMS_CALLBACK_URL` in the environment the command was started
+with, then in `.env.atoms.<env>` beside atoms.json, then the file entry. The
 nearer source wins silently — nothing is compared and no combination is a
 conflict, and an empty or whitespace-only value means "unset" from every source
-alike. With no source at all there is no callback, and deploy warns; an absent
-file entry on its own is not that, since an exported `ATOMS_CALLBACK_URL` needs
-no file entry. The file entry is read only when neither the flag nor
-`ATOMS_CALLBACK_URL` supplied a value, so nothing in it can fail a command a
-nearer source answered: a value containing `${` that is not a whole-value
-`${ENV_VAR}` reference is ATOMS-E070 when the file wins, and is never inspected
-otherwise. A well-formed reference that resolves to nothing is ATOMS-E070 on
-deploy, and on `atoms dev` simply no callback plus a warning — the variable may
-be one only CI holds.
+alike. `deploy` and `dev` print what they resolved and which source supplied
+it before doing anything with it. With no source at all there is no callback,
+and deploy warns; an absent file entry on its own is not that, since an
+`ATOMS_CALLBACK_URL` from either environment layer needs no file entry. The
+file entry is read only when no nearer source supplied a value, so nothing in
+it can fail a command a nearer source answered: a value containing `${` that is
+not a whole-value `${ENV_VAR}` reference is ATOMS-E070 when the file wins, and
+is never inspected otherwise. A well-formed reference that resolves to nothing
+is ATOMS-E070 on deploy, and on `atoms dev` simply no callback plus a warning —
+the variable may be one only CI holds.
+
+`.env.atoms.<env>` is optional, gitignored by `atoms init`, and read only for
+the environment named on the command line — never the application's `.env`,
+another target's file, or a generic `.env.atoms`. An existing but unparseable
+one is ATOMS-E109. This is also why `php artisan atoms:deploy` and
+`bin/console atoms:deploy` resolve identically to `vendor/bin/atoms deploy`:
+the wrappers hand the child the environment the command was started with, not
+the one the framework built after loading the app's `.env`.
 
 Deploy needs the committed Worker directory, `atoms-worker/` beside atoms.json
 (or `--worker-dir`; atoms.json does not name it), with `npm ci` already run in
