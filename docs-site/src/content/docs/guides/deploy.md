@@ -39,11 +39,11 @@ each value came from:
 
 ```text
 Environment: production
-  Worker:       my-app                            (atoms.json)
-  Account:      cf-account-1234                   (caller environment: CLOUDFLARE_ACCOUNT_ID)
-  API token:    (hidden)                          (caller environment: CLOUDFLARE_API_TOKEN)
+  Worker:       my-app                              (atoms.json)
+  Account:      cf-account-1234                     (caller environment: CLOUDFLARE_ACCOUNT_ID)
+  API token:    (hidden)                            (.env.atoms.production: CLOUDFLARE_API_TOKEN)
   Callback:     https://example.com/atoms/callback  (atoms.json "callback_url.production")
-  Debug routes: disabled                          (atoms.json "debug_endpoints")
+  Debug routes: disabled                            (atoms.json "debug_endpoints")
 ```
 
 Read that table when a deployment does something you did not expect. It is the
@@ -64,8 +64,8 @@ When `CLOUDFLARE_API_TOKEN` is unset, Wrangler uses that saved login session.
 
 For headless or scripted deploys, supply an API token instead — a CI runner has
 no login session to fall back on. In CI, set `CLOUDFLARE_API_TOKEN` as a job
-variable from your secret store. Locally, put it in the environment file for
-the target you are deploying, beside `atoms.json`:
+variable from your secret store. Locally, put it in `.env.atoms.<environment>`
+beside `atoms.json`, for the target you are deploying:
 
 ```bash
 # .env.atoms.production — gitignored by `atoms init`

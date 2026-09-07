@@ -49,7 +49,7 @@ To restore a selected Worker version, follow [Rollback](/guides/rollback/).
 
 ## Command options
 
-- **`init`** — `--project` (defaults to the directory name), `--path` (defaults to `app/Atoms`). Refuses if `atoms.json` already exists.
+- **`init`** — `--project` (defaults to the directory name), `--path` (defaults to `app/Atoms`). Refuses if `atoms.json` already exists. Also appends `/.atoms/` and `/.env.atoms.*` to `.gitignore`, each only if absent.
 - **`make:atom NAME`** — `--with-methods`, `--with-migration`, `--websocket`. `NAME` must be a valid PHP class name.
 - **`validate`** — `--json` for machine-readable output.
 - **`build`** — `--fast` skips the vendor stage (refuses with `ATOMS-E107` if `atoms-composer.json` declares packages); `--out` (defaults to `.atoms/build`).
@@ -87,10 +87,19 @@ Run `npm ci` in the Worker directory to install its pinned Wrangler version.
 ## Credentials
 
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` pass directly into Wrangler's
-environment and are never written to a file or a log. `CLOUDFLARE_ACCOUNT_ID`
-overrides the selected environment's `account_id` in `atoms.json`, on every
-command; there is no `--account-id` flag. See
+environment and are never written to a file or a log. Both resolve in the one
+order — the environment the command was started with, then
+[`.env.atoms.<env>`](/guides/configuration/#envatomsenvironment) beside
+`atoms.json`, then, for the account id only, `environments.<env>.account_id`.
+There is no `--account-id` flag and no `--api-token`: a credential in argv is
+visible to every process on the machine. See
 [Authenticate with Cloudflare](/guides/deploy/#authenticate-with-cloudflare).
+
+This applies to every command that contacts Cloudflare, not only `deploy` —
+`status`, `rollback`, `secrets:set`, `secrets:list`, `shared-secret:set` and
+`shared-secret:unset` read the same two environment layers for the same two
+values. A `.env.atoms.<env>` that exists but cannot be parsed is
+[ATOMS-E109](/reference/errors/#atoms-e109) on any of them.
 
 `atoms status` reports Worker versions. It does not report an endpoint URL from
 `atoms.json`; configure the monolith's independent `ATOMS_ENDPOINT` yourself.

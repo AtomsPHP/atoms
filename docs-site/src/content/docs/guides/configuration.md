@@ -15,8 +15,7 @@ Three committed files configure an Atoms project:
 prints writes the third.
 
 Alongside them, each deployment target may have one **uncommitted** file —
-`.env.atoms.<environment>`, described in [The environment
-file](#the-environment-file) below. It is optional, it is gitignored, and it
+[`.env.atoms.<environment>`](#envatomsenvironment), described below. It is optional, it is gitignored, and it
 exists for values that belong to one machine or one secret store rather than to
 the repository.
 
@@ -85,9 +84,9 @@ environment. It is the exact name passed to Wrangler; there is no fallback to
 the top-level `project`.
 
 `callback_url.<name>` is optional, and is the committed default rather than
-the last word: an `ATOMS_CALLBACK_URL` from the environment file or from the
-environment the command was started with overrides it, and `--callback-url`
-overrides all of them (see [Precedence](#precedence) below). An empty or
+the last word: an `ATOMS_CALLBACK_URL` from the environment the command was
+started with, or failing that from `.env.atoms.<name>`, overrides it, and
+`--callback-url` overrides all three (see [Precedence](#precedence) below). An empty or
 whitespace-only value means unset — from the flag and both environment layers
 as well as from the file; every source normalises the same way, so a value that
 is only whitespace never wins precedence over a real one. A non-empty literal
@@ -112,8 +111,8 @@ when no source at all supplies one does deploy warn that `app()` and
 `dispatch()` are unavailable and forward no callback variable.
 
 `account_id` may be empty. A non-empty `CLOUDFLARE_ACCOUNT_ID` — from the
-environment the command was started with, or failing that from the environment
-file — wins over whatever `atoms.json` says, on every command; there is no
+environment the command was started with, or failing that from
+`.env.atoms.<name>` — wins over whatever `atoms.json` says, on every command; there is no
 `--account-id` flag, and the values are never compared. If neither is set,
 Wrangler may still resolve a single reachable account. An ambiguous Wrangler
 login remains an [ATOMS-E075](/reference/errors/#atoms-e075) failure.
@@ -149,8 +148,8 @@ its Worker project.
 | `atoms build` | Build | Project paths, PHP version, Atom dependencies; validates environment shape | It does not select an environment or resolve callback/account values |
 | `atoms dev` | Before starting local Wrangler | Selected `worker_name`, `debug_endpoints`, the account id and the callback URL in the one precedence order | It does not need an account at all — `wrangler dev` runs workerd locally |
 | `atoms deploy` | Before staging the selected target | Selected `worker_name`, runtime vars, and the account id and callback URL in the same order as `dev` | It does not compare two sources or refuse a value for differing from the file |
-| `.env.atoms.<name>` | Read once the target is selected, on `dev` and `deploy` | Whatever it sets, below the environment the command was started with | It is never read for another target, and never as a fallback for the app's `.env` |
-| `atoms status` / `rollback` / secrets | Before invoking Wrangler | Selected `worker_name` and account target | Status does not claim an endpoint URL |
+| `.env.atoms.<name>` | Read once the target is selected, on **every** command that takes `--env` and talks to Cloudflare | Whatever it sets, below the environment the command was started with | It is never read for another target, and never as a fallback for the app's `.env` |
+| `atoms status` / `rollback` / secrets | Before invoking Wrangler | Selected `worker_name`, and the account id and API token in the same precedence order as `deploy` | They resolve no callback URL, and status does not claim an endpoint URL |
 | Wrangler | `dev` or deploy invocation | Its own Worker project, command-line vars, credentials, and config | It does not choose the Atoms environment |
 | Deployed Worker | Request and callback handling | Deployed vars/secrets, including `ATOMS_CALLBACK_URL`, and the bundle manifest | It does not read `atoms.json` or the monolith's environment |
 | Laravel, Symfony, or plain PHP | Application startup and callback requests | `ATOMS_ENDPOINT`, shared secret, `ATOMS_ENVIRONMENT` for logging, and the callback route | It does not read `atoms.json` to choose its Worker |
@@ -189,7 +188,7 @@ accepted for migration and ignored.
 `environments.<name>.region` is accepted so older files still load, and is
 ignored — Cloudflare places a Durable Object itself.
 
-## The environment file
+## `.env.atoms.<environment>`
 
 Each deployment target may have one optional file beside `atoms.json`, named
 after the target:
@@ -251,18 +250,28 @@ combination of sources is an error, and there is no agreement check anywhere —
 the model the AWS CLI and npm document for their own configuration. A setting
 with no flag simply has no flag layer.
 
-| Setting | Flag | Environment and `.env.atoms.<name>` | `atoms.json` |
-|---|---|---|---|
-| Callback URL | `--callback-url`, on `deploy` and `dev` | `ATOMS_CALLBACK_URL`, on `deploy` and `dev` | `callback_url.<name>` |
-| Account id | — (there is no `--account-id`) | `CLOUDFLARE_ACCOUNT_ID` | `environments.<name>.account_id` |
-| API token | — (a credential in argv is visible to every process) | `CLOUDFLARE_API_TOKEN` | — (never in a committed file) |
-| Worker name | — | — | `worker_name`, required |
-| Debug endpoints | — | — | `debug_endpoints`, default `false` |
-| Worker directory | `--worker-dir` | — | not a key; `atoms-worker/` beside `atoms.json` |
+The variable names in the two environment columns are the same names; only
+which of the two supplied the value differs, and the deploy output says which.
+
+| Setting | 1. Flag | 2. Caller's environment | 3. `.env.atoms.<name>` | 4. `atoms.json` |
+|---|---|---|---|---|
+| Callback URL | `--callback-url`, on `deploy` and `dev` | `ATOMS_CALLBACK_URL` | `ATOMS_CALLBACK_URL` | `callback_url.<name>` |
+| Account id | — (there is no `--account-id`) | `CLOUDFLARE_ACCOUNT_ID` | `CLOUDFLARE_ACCOUNT_ID` | `environments.<name>.account_id` |
+| API token | — (a credential in argv is visible to every process) | `CLOUDFLARE_API_TOKEN` | `CLOUDFLARE_API_TOKEN` | — (never in a committed file) |
+| Worker name | — | — | — | `worker_name`, required |
+| Debug endpoints | — | — | — | `debug_endpoints`, default `false` |
+| Worker directory | `--worker-dir` | — | — | not a key; `atoms-worker/` beside `atoms.json` |
 
 Because silent precedence is easy to be surprised by, `deploy` and `dev` print
-what they resolved and which source supplied it before doing anything with it.
-That output is the answer to "why did it use that URL".
+what they resolved and which source supplied it — before the build, before
+anything is staged, and before `dev` touches a dev secret. That output is the
+answer to "why did it use that URL". In it, layer 2 is labelled
+`caller environment`, and layer 3 by the file's own name:
+
+```text
+  Callback:  https://example.com/atoms/callback  (.env.atoms.production: ATOMS_CALLBACK_URL)
+  Account:   cf-account-1234                     (caller environment: CLOUDFLARE_ACCOUNT_ID)
+```
 
 `atoms.json` is the committed default, which is why a tunnel host or a local
 port — a fact about a machine rather than about the deployment — goes in

@@ -203,7 +203,7 @@ environment overrides that entry on `deploy` as well as `dev`, a
 three, so deploy scripts that pass either keep working and none can collide
 with the file.
 
-Nothing needs migrating for the environment file: it is optional, and a project
+Nothing needs migrating for `.env.atoms.<env>`: it is optional, and a project
 that never adds one resolves exactly as it did before.
 
 Remove `endpoint` from `atoms.json` when convenient; it remains tolerated and

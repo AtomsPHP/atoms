@@ -124,6 +124,13 @@ final class DevCommand extends AbstractCommand
             // this machine do not match, and the confusion would surface as
             // a guest error rather than as the skew it is.
             $target->assertRuntimeVersion();
+
+            // Before the dev secret is generated and before the build, for the
+            // same reason deploy prints it before staging: the first thing to
+            // check when a local Worker behaves oddly is what it resolved.
+            self::writeResolvedConfiguration($output, $target);
+            $output->writeln('');
+
             $this->ensureDevSecret($config->rootDir, $target->workerDir, $output);
 
             if ($input->getOption('no-build') !== true) {
@@ -143,8 +150,6 @@ final class DevCommand extends AbstractCommand
             $vars = $target->runtimeVars();
             $callback = $target->callbackUrl;
 
-            self::writeResolvedConfiguration($output, $target);
-            $output->writeln('');
             $output->writeln('Starting wrangler dev on port ' . $port . '…');
             if ($target->debugEndpoints) {
                 $output->writeln(

@@ -10,6 +10,12 @@ vendor/bin/atoms status --env production
 vendor/bin/atoms rollback VERSION_ID --env production --message "restore known code"
 ```
 
+Both commands reach Cloudflare through Wrangler, so both need credentials, and
+both resolve them exactly as `deploy` does — see [Authenticate with
+Cloudflare](/guides/deploy/#authenticate-with-cloudflare) and
+[Precedence](/guides/configuration/#precedence). Neither resolves a callback
+URL: they ship no code.
+
 Without a version id, Wrangler selects the previous **Worker version**.
 Changing a secret also creates a Worker version, so the previous version
 may contain the same code.

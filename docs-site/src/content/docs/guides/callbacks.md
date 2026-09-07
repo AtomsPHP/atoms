@@ -16,7 +16,7 @@ URL. Each lives in a specific place:
 - `callback_url.<environment>` in `atoms.json` declares the committed default
   callback URL for a deploy target. The entry is optional, and an empty or
   absent one does **not** mean callbacks are unavailable — it only means the
-  file supplies nothing, leaving the two nearer sources below to answer.
+  file supplies nothing, leaving the three nearer sources below to answer.
 - `ATOMS_CALLBACK_URL` in `.env.atoms.<environment>` beside `atoms.json`
   supplies the same value without editing anything committed — the file is
   gitignored, and read only for the target you named.
