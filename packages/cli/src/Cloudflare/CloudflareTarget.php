@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Atoms\Cli\Cloudflare;
 
 use Atoms\Cli\Config\AtomsJson;
+use Atoms\Cli\Config\ConfiguredValue;
+use Atoms\Cli\Config\TargetEnvironment;
 use Atoms\Cli\Release\RuntimeVersion;
 use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCatalog;
@@ -24,7 +26,10 @@ use Atoms\Errors\ErrorCode;
  * process on the machine, and usually in shell history as well — which would
  * make the invariant above false at the very first hop. `$apiToken` stays a
  * parameter for testing and for callers that already hold the value; the only
- * way a user supplies one is `CLOUDFLARE_API_TOKEN` in the environment.
+ * way a user supplies one is `CLOUDFLARE_API_TOKEN` — from the environment
+ * this command was started with, or from the gitignored
+ * `.env.atoms.<environment>` beside atoms.json. Both are inlets, not outlets:
+ * Atoms still writes a credential nowhere.
  *
  * **No token is not an error here.** Wrangler resolves credentials itself, and
  * an existing `wrangler login` OAuth session is one Atoms never sees: with no
@@ -65,34 +70,43 @@ final class CloudflareTarget
      * The Worker var carrying the monolith's callback endpoint — where
      * `$this->app()` and `$this->dispatch()` reach the app. Not a secret.
      *
-     * A callback URL is per deployment and often per developer (a tunnel host,
-     * a local port, a staging domain that differs by machine), so a committed value
-     * is the wrong default. An explicit `--callback-url` wins, then this same
-     * name in the CLI's own process environment, then atoms.json's
-     * `callback_url.<env>`. The name is deliberately the Worker's: it is what
-     * the value is called everywhere else, and setting it in the shell that
-     * runs `atoms dev` reads as "give the Worker this var".
+     * Resolved the same way on every command: `--callback-url`, then
+     * `ATOMS_CALLBACK_URL` from the caller's environment, then from
+     * `.env.atoms.<env>`, then the selected environment's `callback_url` in
+     * atoms.json — which may be an explicit ${VARIABLE} reference, resolved
+     * against those same two environment layers. The file entry is read at all
+     * only when no nearer source supplied a value, so nothing in it — a
+     * malformed reference included — can fail a command that was already
+     * answered. An empty or whitespace-only value is "unset" from every source
+     * alike.
      */
     public const CALLBACK_VAR = 'ATOMS_CALLBACK_URL';
 
     /**
-     * @param string      $endpoint   Base URL the deployed Worker serves on; what `atoms/client` calls.
      * @param string      $workerName `wrangler --name`.
      * @param string      $accountId  Cloudflare account id; '' when unresolved.
      * @param string|null $apiToken   Cloudflare API token; null when unresolved.
      * @param string      $workerDir  Absolute path to the Worker project (holds wrangler + src/).
      * @param bool        $debugEndpoints Whether atoms.json enables the Worker's /debug routes for this environment.
      * @param string|null $callbackUrl The monolith's callback endpoint; null when nothing configures one.
+     * @param list<string> $routes Route patterns for this environment, `wrangler deploy --route`.
+     * @param list<string> $customDomains Hostnames for this environment, `wrangler deploy --domain`.
+     * @param array<string, string> $sources Where each resolved setting came from, keyed by
+     *                                       `worker_name`, `account_id`, `api_token`, `callback_url`;
+     *                                       a setting nothing supplied is absent. Labels only —
+     *                                       {@see self::report()} prints them and nothing parses them.
      */
     public function __construct(
         public readonly string $environment,
-        public readonly string $endpoint,
         public readonly string $workerName,
         public readonly string $accountId,
         public readonly ?string $apiToken,
         public readonly string $workerDir,
         public readonly bool $debugEndpoints = false,
         public readonly ?string $callbackUrl = null,
+        public readonly array $routes = [],
+        public readonly array $customDomains = [],
+        public readonly array $sources = [],
     ) {
     }
 
@@ -104,23 +118,39 @@ final class CloudflareTarget
      * say: one directory serves every environment, so every environment
      * deploys the same runtime.
      *
-     * Nothing about credentials fails here any more. Neither half is Atoms'
-     * to adjudicate: the token may be a `wrangler login` session this process
-     * cannot see, and the account may be the only one that session can reach,
-     * in which case Wrangler selects it without being told. Both answers live
-     * in the child process, so both are read back out of its failure by
-     * {@see WranglerResult::assertOk()} — E072 and E075 respectively.
+     * Missing credentials are left to Wrangler. Everything else resolves in
+     * one order, on every command and for every setting:
      *
-     * There is consequently no `$requireCredentials` flag left to pass: the
-     * commands that never touch Cloudflare's API used it to opt out of checks
-     * that no longer exist.
+     * ```text
+     * explicit CLI flag
+     *     > the caller's own environment (shell, CI, process supervisor)
+     *     > .env.atoms.<environment>, beside atoms.json, when present
+     *     > the selected entry in atoms.json
+     * ```
      *
-     * @param string|null $callbackUrl An explicit `--callback-url`; beats
-     *                                 `ATOMS_CALLBACK_URL` in the environment,
-     *                                 which beats atoms.json's `callback_url`.
+     * The nearer source wins silently: `CLOUDFLARE_ACCOUNT_ID` outranks the
+     * environment's `account_id` (there is no `--account-id` flag), and
+     * `--callback-url` outranks `ATOMS_CALLBACK_URL`, which outranks the file.
+     * A setting with no flag simply has no flag layer. Nothing here compares
+     * two sources or errors when they differ — but every winning source is
+     * recorded in {@see self::$sources}, so `atoms deploy` can say which one it
+     * used before it uses it. A callback is resolved only for commands that
+     * configure the runtime; operating commands opt out.
      *
-     * @throws AtomsError E070 (unknown environment),
-     *                    E076 (unusable Worker directory)
+     * The target is selected *before* the dotenv file is looked for: the file
+     * is chosen by the environment the user named, so every entry point — the
+     * binary, an Artisan wrapper, a Symfony console wrapper — lands on the
+     * same one.
+     *
+     * @param string|null $callbackUrl An explicit callback URL for this invocation; outranks the environment and the file.
+     * @param bool $local Whether this invocation runs a local Worker. Only softens an unresolvable `${VAR}` file reference into "no callback".
+     * @param bool $resolveCallback Whether this command configures runtime vars.
+     *
+     * @throws AtomsError E070 (unknown environment; or, only when the file
+     *                    entry is the source that wins, a malformed `${VAR}`
+     *                    callback reference, or one that resolves to nothing
+     *                    outside local mode), E076 (unusable Worker directory),
+     *                    E109 (an unreadable or malformed .env.atoms.<env>)
      */
     public static function resolve(
         AtomsJson $config,
@@ -128,32 +158,96 @@ final class CloudflareTarget
         ?string $apiToken = null,
         ?string $workerDir = null,
         ?string $callbackUrl = null,
+        bool $local = false,
+        bool $resolveCallback = true,
     ): self {
         $env = $config->environment($environment);
+        // The target first, then its file. Nothing about an application's own
+        // environment may reach back and change which target this is.
+        $values = TargetEnvironment::load($config->rootDir, $environment);
+
+        $sources = ['worker_name' => 'atoms.json'];
 
         // Absent is a legitimate answer for both: Wrangler resolves its own
         // credentials, and its own account, when this process supplies none.
-        $token = self::firstNonEmpty($apiToken, self::env('CLOUDFLARE_API_TOKEN'));
-        $accountId = self::firstNonEmpty($env['account_id'], self::env('CLOUDFLARE_ACCOUNT_ID')) ?? '';
+        $token = self::firstNonEmpty($apiToken);
+        if ($token !== null) {
+            $sources['api_token'] = 'caller-supplied';
+        } else {
+            $fromEnv = $values->lookup('CLOUDFLARE_API_TOKEN');
+            $token = $fromEnv?->value;
+            if ($fromEnv !== null) {
+                // The source only. The value is a credential, and this array
+                // is printed.
+                $sources['api_token'] = $fromEnv->source;
+            }
+        }
+
+        // Atoms has no --account-id flag, so the order starts at the
+        // environment.
+        $account = $values->lookup('CLOUDFLARE_ACCOUNT_ID');
+        if ($account === null) {
+            $fromFile = self::firstNonEmpty($env['account_id']);
+            $account = $fromFile === null ? null : new ConfiguredValue($fromFile, 'atoms.json');
+        }
+        if ($account !== null) {
+            $sources['account_id'] = $account->source;
+        }
 
         $dir = self::firstNonEmpty($workerDir) ?? self::DEFAULT_WORKER_DIR;
 
-        $callback = self::firstNonEmpty(
-            $callbackUrl,
-            self::env(self::CALLBACK_VAR),
-            $config->callbackUrls[$environment] ?? null,
-        );
+        $callback = $resolveCallback
+            ? self::resolveCallback($env['callback_url'], $values, $environment, $callbackUrl, $local)
+            : null;
+        if ($callback !== null) {
+            $sources['callback_url'] = $callback->source;
+        }
 
         return new self(
             environment: $environment,
-            endpoint: $env['endpoint'],
-            workerName: $env['worker_name'] !== '' ? $env['worker_name'] : $config->project,
-            accountId: $accountId,
+            workerName: $env['worker_name'],
+            accountId: $account === null ? '' : $account->value,
             apiToken: $token,
             workerDir: self::absolute($config->rootDir, $dir),
             debugEndpoints: $env['debug_endpoints'],
-            callbackUrl: $callback,
+            callbackUrl: $callback?->value,
+            routes: $env['routes'],
+            customDomains: $env['custom_domains'],
+            sources: $sources,
         );
+    }
+
+    /**
+     * The resolved configuration, one `label => [value, source]` row per
+     * setting, for printing before a command does anything.
+     *
+     * Credentials are represented by their source alone: the API token's row
+     * says where it came from and never what it is, which is the same rule
+     * that keeps it out of argv and out of every log.
+     *
+     * @return list<array{string, string, string}> label, value, source
+     */
+    public function report(): array
+    {
+        $rows = [['Worker', $this->workerName, $this->sources['worker_name'] ?? 'atoms.json']];
+
+        $rows[] = ['Account', $this->accountId === '' ? '(left to wrangler)' : $this->accountId,
+            $this->sources['account_id'] ?? 'unset'];
+        $rows[] = ['API token', $this->apiToken === null ? '(left to wrangler)' : '(hidden)',
+            $this->sources['api_token'] ?? 'unset'];
+        $rows[] = ['Callback', $this->callbackUrl ?? '(none)', $this->sources['callback_url'] ?? 'unset'];
+        $rows[] = ['Debug routes', $this->debugEndpoints ? 'enabled' : 'disabled', 'atoms.json "debug_endpoints"'];
+
+        // Where this Worker answers. Worth a row of its own: a custom domain
+        // moves to whichever Worker claimed it last without complaint, and a
+        // route collision fails the deploy only after the script has
+        // uploaded — so "which hostnames is this deploy about to claim" is a
+        // question the log should answer before the deploy, not after.
+        $where = [...$this->routes, ...$this->customDomains];
+        $rows[] = ['Serving', $where === [] ? '(workers.dev only)' : implode(', ', $where),
+            $where === [] ? 'unset' : 'atoms.json "routes"/"custom_domains"'];
+
+        return $rows;
     }
 
     /**
@@ -267,18 +361,70 @@ final class CloudflareTarget
         return $env;
     }
 
-    /**
-     * The URL `atoms/client` would call to reach a given Atom on this
-     * deployment — the Worker's single-tenant, prefixless invoke route.
-     */
-    public function invokeUrl(string $type, string $id, string $method): string
+    private static function resolveCallback(
+        string $declaredInFile,
+        TargetEnvironment $values,
+        string $environment,
+        ?string $callbackUrl,
+        bool $local,
+    ): ?ConfiguredValue {
+        // Flag, then the caller's environment, then this target's dotenv file,
+        // then atoms.json — the same order every command and every setting
+        // uses. A nearer source wins silently; none of this is an agreement
+        // check. Each return below is also a short-circuit: the file entry is
+        // never even read once a nearer source answered, so a malformed
+        // ${...} entry cannot fail a command that never needed it.
+        $flag = self::firstNonEmpty($callbackUrl);
+        if ($flag !== null) {
+            return new ConfiguredValue($flag, '--callback-url');
+        }
+        $fromEnv = $values->lookup(self::CALLBACK_VAR);
+        if ($fromEnv !== null) {
+            return $fromEnv;
+        }
+
+        // A whitespace-only literal means the same as an empty one: no callback
+        // is declared. Trimming here keeps that equivalent to the trim applied
+        // to an expanded reference below, rather than forwarding "   " as a var.
+        $declared = self::firstNonEmpty(trim($declaredInFile));
+        if ($declared === null) {
+            return null;
+        }
+        if (!str_contains($declared, '${')) {
+            return new ConfiguredValue($declared, 'atoms.json "environments.' . $environment . '.callback_url"');
+        }
+
+        if (preg_match('/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/D', $declared, $match) !== 1) {
+            throw self::invalid('environments.' . $environment . '.callback_url'
+                . ' must use a whole-value environment reference such as ${ATOMS_CALLBACK_URL}');
+        }
+        // The reference resolves against the same two environment layers as
+        // everything else, and against nothing else: naming a variable in
+        // atoms.json must not open a path to values Atoms would otherwise
+        // never read.
+        $expanded = $values->lookup($match[1]);
+        if ($expanded !== null) {
+            return new ConfiguredValue(
+                $expanded->value,
+                'atoms.json "environments.' . $environment . '.callback_url" -> ' . $expanded->source,
+            );
+        }
+        if (!$local) {
+            throw self::invalid('environments.' . $environment . '.callback_url requires environment variable '
+                . $match[1] . ' to be set to a non-empty callback URL');
+        }
+
+        // Locally, an unset reference is simply no callback. `atoms dev`
+        // needs one only for $this->app()/dispatch(), warns when it has
+        // none, and must not require a variable that belongs to CI.
+        return null;
+    }
+
+    private static function invalid(string $reason): AtomsError
     {
-        return sprintf(
-            '%s/invoke/%s/%s/%s',
-            rtrim($this->endpoint, '/'),
-            rawurlencode($type),
-            rawurlencode($id),
-            rawurlencode($method),
+        return new AtomsError(
+            ErrorCode::AtomsJsonInvalid,
+            ErrorCatalog::format(ErrorCode::AtomsJsonInvalid, ['reason' => $reason]),
         );
     }
 
@@ -302,16 +448,10 @@ final class CloudflareTarget
         return rtrim($rootDir, '/') . '/' . trim($dir, '/');
     }
 
-    private static function env(string $name): ?string
-    {
-        $value = getenv($name);
-
-        return \is_string($value) && $value !== '' ? $value : null;
-    }
-
     private static function firstNonEmpty(?string ...$candidates): ?string
     {
         foreach ($candidates as $candidate) {
+            $candidate = $candidate === null ? null : trim($candidate);
             if ($candidate !== null && $candidate !== '') {
                 return $candidate;
             }

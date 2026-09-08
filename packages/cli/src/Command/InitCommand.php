@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Command;
 
+use Atoms\Cli\Config\AtomsDotenv;
 use Atoms\Cli\Release\RuntimeVersion;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -49,10 +50,8 @@ final class InitCommand extends AbstractCommand
                 'shared' => $atomsPath . '/Shared',
             ],
             'php' => '8.3',
-            // Deploys go to the user's own Cloudflare account, so there is no
-            // Atoms-hosted endpoint to default to. The workers.dev placeholders
-            // below are obviously placeholders on purpose: a plausible-looking
-            // wrong default is worse than one that cannot be mistaken for real.
+            // Each target has an explicit Worker name; Wrangler reports the
+            // deployed URL, which the app uses as ATOMS_ENDPOINT.
             // `debug_endpoints` is the supported switch for the Worker's
             // /debug routes (off by default). It lives here rather than in the
             // committed Worker directory's wrangler.jsonc because that file is
@@ -62,29 +61,34 @@ final class InitCommand extends AbstractCommand
             //
             // The Worker directory is committed at atoms-worker/ beside this
             // file, so no environment names one.
+            // One block per environment, holding every setting that differs
+            // between them. `callback_url` is where the Worker reaches the app
+            // for $this->app()/dispatch(), forwarded by both `atoms dev` and
+            // `atoms deploy` as the ATOMS_CALLBACK_URL var. CI may use a
+            // whole-value ${VARIABLE} reference; --callback-url and
+            // ATOMS_CALLBACK_URL override the file on any command.
+            //
+            // Empty, not a placeholder host: this file is the committed
+            // default for a named deployment, so an example.com left in by
+            // accident would POST signed callbacks — carrying method
+            // arguments — to a third party, and surface only as ATOMS-E083
+            // ("callback request failed"), which names neither the file nor
+            // the key. Empty means "no callback declared": deploy warns, and
+            // app()/dispatch() fail with ATOMS-E080, whose fix line says
+            // exactly what to set.
             'environments' => [
                 'production' => [
-                    'endpoint' => 'https://' . $project . '.<your-subdomain>.workers.dev',
                     'worker_name' => $project,
                     'account_id' => '',
                     'debug_endpoints' => false,
+                    'callback_url' => '',
                 ],
                 'staging' => [
-                    'endpoint' => 'https://' . $project . '-staging.<your-subdomain>.workers.dev',
                     'worker_name' => $project . '-staging',
                     'account_id' => '',
                     'debug_endpoints' => false,
+                    'callback_url' => '',
                 ],
-            ],
-            // Where the Worker reaches the app for $this->app()/dispatch().
-            // Forwarded by both `atoms dev` and `atoms deploy` as the
-            // ATOMS_CALLBACK_URL var, so each entry is live for its
-            // environment. A value that differs per machine (a tunnel host)
-            // is better left to `ATOMS_CALLBACK_URL` in the environment or
-            // `--callback-url`, both of which beat this file.
-            'callback_url' => [
-                'production' => 'https://example.com/atoms/callback',
-                'staging' => 'https://staging.example.com/atoms/callback',
             ],
         ];
 
@@ -104,23 +108,40 @@ final class InitCommand extends AbstractCommand
         // Build output and the vendor cache live under .atoms/. The Worker
         // directory does not: atoms-worker/ is committed, and its own
         // .gitignore covers everything deploy and dev generate inside it.
+        //
+        // `.env.atoms.<environment>` is ignored for a different reason: it is
+        // the per-target environment file the CLI reads below whatever the
+        // caller supplied, which makes it the natural home for a local
+        // CLOUDFLARE_API_TOKEN or a machine-specific callback URL. Anything in
+        // it that is *not* a secret and *is* shared belongs in atoms.json
+        // instead — which is the whole reason this file has no committed role
+        // to lose by being ignored.
         $gitignorePath = $root . '/.gitignore';
         $gitignore = is_file($gitignorePath) ? (string) file_get_contents($gitignorePath) : '';
+        $additions = '';
         if (preg_match('/^\/?\.atoms\/?$/m', $gitignore) !== 1) {
+            $additions .= "/.atoms/\n";
+        }
+        if (preg_match('/^\/?\.env\.atoms\./m', $gitignore) !== 1) {
+            $additions .= "/.env.atoms.*\n";
+        }
+        if ($additions !== '') {
             $prefix = $gitignore === '' || str_ends_with($gitignore, "\n") ? '' : "\n";
-            file_put_contents($gitignorePath, $prefix . "/.atoms/\n", FILE_APPEND);
+            file_put_contents($gitignorePath, $prefix . $additions, FILE_APPEND);
         }
 
         $output->writeln('<info>✓ Wrote atoms.json and atoms-composer.json.</info>');
         $output->writeln('  Next: atoms make:atom GameRoom --with-methods --with-migration');
-        $output->writeln('  Then, to deploy: set each environment\'s "endpoint", "account_id" and "callback_url"');
-        $output->writeln('  (or export ATOMS_CALLBACK_URL / pass --callback-url to override the callback URL),');
+        $output->writeln('  Then, to deploy: set each environment\'s "worker_name", "account_id" and "callback_url"');
+        $output->writeln('  ("callback_url" starts empty, so $this->app()/dispatch() are unavailable until you set it;');
+        $output->writeln('  use "${ATOMS_CALLBACK_URL}" there to explicitly read CI\'s environment),');
         $output->writeln('  scaffold the release-matched Worker directory and commit it:');
         $output->writeln('  ' . RuntimeVersion::scaffoldCommand());
         $output->writeln('  cd ' . RuntimeVersion::WORKER_DIR . ' && npm ci && cd - && git add ' . RuntimeVersion::WORKER_DIR);
         $output->writeln('  (' . RuntimeVersion::WORKER_DIR . '/ is part of your repository from now on; its README explains');
         $output->writeln('  which files you own and how `atoms-runtime-cloudflare upgrade` moves it to a new release.)');
-        $output->writeln('  Authenticate with Cloudflare — export CLOUDFLARE_API_TOKEN, or use the');
+        $output->writeln('  Authenticate with Cloudflare — set CLOUDFLARE_API_TOKEN in '
+            . AtomsDotenv::fileName('staging') . ', or use the');
         $output->writeln('  `wrangler login` session you already have — and run `atoms deploy --env staging`.');
 
         return Command::SUCCESS;

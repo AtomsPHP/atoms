@@ -49,18 +49,18 @@ To restore a selected Worker version, follow [Rollback](/guides/rollback/).
 
 ## Command options
 
-- **`init`** — `--project` (defaults to the directory name), `--path` (defaults to `app/Atoms`). Refuses if `atoms.json` already exists.
+- **`init`** — `--project` (defaults to the directory name), `--path` (defaults to `app/Atoms`). Refuses if `atoms.json` already exists. Also appends `/.atoms/` and `/.env.atoms.*` to `.gitignore`, each only if absent.
 - **`make:atom NAME`** — `--with-methods`, `--with-migration`, `--websocket`. `NAME` must be a valid PHP class name.
 - **`validate`** — `--json` for machine-readable output.
 - **`build`** — `--fast` skips the vendor stage (refuses with `ATOMS-E107` if `atoms-composer.json` declares packages); `--out` (defaults to `.atoms/build`).
 - **`diff`** — `--against` a saved `manifest.json` to compare with the current one.
-- **`dev`** — `--env` (defaults to `staging`), `--port` (defaults to `8787`), `--callback-url` (defaults to `ATOMS_CALLBACK_URL` in the process environment, then `atoms.json`'s `callback_url.<env>`), `--worker-dir` (defaults to `atoms-worker/` beside `atoms.json`), `--no-build` to reuse the bundle already staged in the Worker project.
-- **`deploy`** — `--env` (required), `--callback-url` (defaults to `ATOMS_CALLBACK_URL` in the process environment, then `atoms.json`'s `callback_url.<env>`), `--bundle` to deploy a prebuilt bundle instead of building, `--manifest` (defaults to `manifest.json` beside `--bundle`), `--worker-dir`.
+- **`dev`** — `--env` (required), `--port` (defaults to `8787`), `--callback-url` (overrides everything else; otherwise `ATOMS_CALLBACK_URL` from the environment this command was started with, then from `.env.atoms.<env>`, then the selected environment's `callback_url`), `--worker-dir` (defaults to `atoms-worker/` beside `atoms.json`), `--no-build` to reuse the bundle already staged in the Worker project.
+- **`deploy`** — `--env` (required), `--bundle` to deploy a prebuilt bundle instead of building, `--manifest` (defaults to `manifest.json` beside `--bundle`), `--worker-dir`, `--callback-url` (overrides everything else; otherwise `ATOMS_CALLBACK_URL` from the environment this command was started with, then from `.env.atoms.<env>`, then the selected environment's `callback_url` — the same order `dev` uses).
 - **`status`**, **`secrets:list`**, **`shared-secret:unset`** — `--env` (required), `--worker-dir`.
 - **`rollback [VERSION]`** — `--env` (required), `--message`/`-m`, `--worker-dir`. `VERSION` defaults to the previous version.
 - **`secrets:set KEY [VALUE]`** — `--env` (required), `--worker-dir`. Reads the value from stdin when the `VALUE` argument is omitted.
 - **`shared-secret:set`** — `--env` (required), `--worker-dir`, `--previous` to target `ATOMS_SHARED_SECRET_PREVIOUS` instead of `ATOMS_SHARED_SECRET`, `--force` to overwrite an existing value. Reads the secret from stdin. Leaves an existing secret unchanged unless you pass `--force`.
-- **`token`** — `--env` (defaults to `staging`, used only to resolve a fallback `.dev.vars`), `--worker-dir`.
+- **`token`** — `--worker-dir` (defaults to `atoms-worker/` beside `atoms.json`). There is no `--env`: the bearer is derived from `ATOMS_SHARED_SECRET` alone, and the Worker directory is the same for every environment.
 
 ## Secrets
 
@@ -87,7 +87,21 @@ Run `npm ci` in the Worker directory to install its pinned Wrangler version.
 ## Credentials
 
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` pass directly into Wrangler's
-environment and are never written to a file or a log. See
+environment and are never written to a file or a log. Both resolve in the one
+order — the environment the command was started with, then
+[`.env.atoms.<env>`](/guides/configuration/#envatomsenvironment) beside
+`atoms.json`, then, for the account id only, `environments.<env>.account_id`.
+There is no `--account-id` flag and no `--api-token`: a credential in argv is
+visible to every process on the machine. See
 [Authenticate with Cloudflare](/guides/deploy/#authenticate-with-cloudflare).
+
+This applies to every command that contacts Cloudflare, not only `deploy` —
+`status`, `rollback`, `secrets:set`, `secrets:list`, `shared-secret:set` and
+`shared-secret:unset` read the same two environment layers for the same two
+values. A `.env.atoms.<env>` that exists but cannot be parsed is
+[ATOMS-E109](/reference/errors/#atoms-e109) on any of them.
+
+`atoms status` reports Worker versions. It does not report an endpoint URL from
+`atoms.json`; configure the monolith's independent `ATOMS_ENDPOINT` yourself.
 
 For data recovery limitations, see [Rollback](/guides/rollback/#data-recovery).

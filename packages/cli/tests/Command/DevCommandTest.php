@@ -258,16 +258,44 @@ final class DevCommandTest extends TestCase
             $dev['args']['vars'],
         );
         // Enabling a debug surface must be visible at startup.
-        self::assertStringContainsString('ATOMS_DEBUG_ENDPOINTS=1', $tester->getDisplay());
+        self::assertStringContainsString('Debug routes: enabled', $tester->getDisplay());
+    }
+
+    public function testDevStartsWithoutACallbackWhenTheFileReferenceIsUnsetHere(): void
+    {
+        // The file may name a variable only CI holds. Deploy warns rather than
+        // failing when it resolves no callback; dev must not be stricter.
+        putenv(DevCommand::CALLBACK_VAR);
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        $config['environments']['staging']['callback_url'] = '${CI_ONLY_CALLBACK_URL}';
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+        putenv('CI_ONLY_CALLBACK_URL');
+
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DevCommand($wrangler, processRunner: new FakeProcessRunner()));
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'staging',
+            '--worker-dir' => $this->workerDir(),
+            '--no-build' => true,
+        ]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        $dev = $wrangler->lastCall('dev');
+        self::assertNotNull($dev);
+        self::assertArrayNotHasKey(DevCommand::CALLBACK_VAR, $dev['args']['vars']);
+        // Silence would leave E080 at runtime unexplained.
+        self::assertStringContainsString('No callback URL configured', $tester->getDisplay());
+        self::assertStringContainsString('CI_ONLY_CALLBACK_URL', $tester->getDisplay());
     }
 
     /**
-     * `ATOMS_CALLBACK_URL` in the shell that runs `atoms dev` overrides
-     * atoms.json's `callback_url`, and `--callback-url` overrides both. This lets
-     * developers set a per-machine tunnel URL without committing it or
-     * passing it on every invocation.
+     * Local development may use a machine-specific callback URL. A local flag
+     * and environment value are both accepted; the flag wins when both are
+     * present, and the file callback remains the fallback when neither is.
      */
-    public function testCallbackUrlFromTheEnvironmentBeatsAtomsJsonAndTheFlagBeatsBoth(): void
+    public function testLocalCallbackUrlUsesFlagOrEnvironmentAndTheFlagWinsWhenBothAreSet(): void
     {
         putenv(DevCommand::CALLBACK_VAR . '=https://tunnel.example.test/atoms/callback');
         try {
@@ -281,11 +309,19 @@ final class DevCommandTest extends TestCase
                 [DevCommand::CALLBACK_VAR => 'https://tunnel.example.test/atoms/callback'],
                 $dev['args']['vars'],
             );
+            // Printed with the source that won, so a surprising callback URL
+            // is one line of output rather than a bisection.
             self::assertStringContainsString(
-                DevCommand::CALLBACK_VAR . '=https://tunnel.example.test/atoms/callback',
+                'Callback:     https://tunnel.example.test/atoms/callback',
+                $tester->getDisplay(),
+            );
+            self::assertStringContainsString(
+                '(caller environment: ' . DevCommand::CALLBACK_VAR . ')',
                 $tester->getDisplay(),
             );
 
+            // The flag outranks the environment value: same order as deploy,
+            // flag then environment then file, nearest source wins.
             $wrangler = new FakeWrangler();
             $tester = new CommandTester(new DevCommand($wrangler, processRunner: new FakeProcessRunner()));
             $tester->execute([
@@ -296,14 +332,80 @@ final class DevCommandTest extends TestCase
                 '--callback-url' => 'http://127.0.0.1:8000/atoms/callback',
             ]);
 
-            $dev = $wrangler->lastCall('dev');
-            self::assertNotNull($dev);
+            self::assertSame(0, $tester->getStatusCode(), $tester->getDisplay());
             self::assertSame(
                 [DevCommand::CALLBACK_VAR => 'http://127.0.0.1:8000/atoms/callback'],
-                $dev['args']['vars'],
+                $wrangler->lastCall('dev')['args']['vars'],
+            );
+
+            $wrangler = new FakeWrangler();
+            $tester = new CommandTester(new DevCommand($wrangler, processRunner: new FakeProcessRunner()));
+            $tester->execute([
+                '--root' => $this->fixtureDir('sample-app'),
+                '--env' => 'production',
+                '--worker-dir' => $this->workerDir(),
+                '--no-build' => true,
+                '--callback-url' => 'https://tunnel.example.test/atoms/callback',
+            ]);
+            self::assertSame(0, $tester->getStatusCode(), $tester->getDisplay());
+            self::assertSame(
+                [DevCommand::CALLBACK_VAR => 'https://tunnel.example.test/atoms/callback'],
+                $wrangler->lastCall('dev')['args']['vars'],
             );
         } finally {
             putenv(DevCommand::CALLBACK_VAR);
         }
+    }
+
+    public function testLocalCallbackConfigurationFailureHappensBeforeDevSecretProvisioning(): void
+    {
+        // A malformed reference is a file-shape error and still fails locally,
+        // which is what keeps this ordering guarantee testable: no other
+        // combination of sources fails, since the nearest one simply wins.
+        $dir = $this->workerDir();
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        $config['environments']['production']['callback_url'] = 'https://${HOST}/atoms/callback';
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+        $runner = new FakeProcessRunner();
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DevCommand($wrangler, processRunner: $runner));
+
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'production',
+            '--worker-dir' => $dir,
+            '--no-build' => true,
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E070', $tester->getDisplay());
+        self::assertFileDoesNotExist($dir . '/.dev.vars');
+        self::assertSame([], $runner->runs);
+        self::assertSame([], $wrangler->calls);
+    }
+    /**
+     * Environment names are the user's to choose, so no command invents one.
+     * `dev` used to default to `staging`, which meant a project that happened
+     * to have an environment by that name silently handed the *local* Worker
+     * that *deployed* environment's callback URL — `$this->app()` from an Atom
+     * running on this machine POSTed signed callbacks, carrying method
+     * arguments, at the deployed app. A project with no `staging` got a bare
+     * ATOMS-E070 instead, naming an environment the user never asked for.
+     */
+    public function testDevRequiresAnExplicitEnvironmentRatherThanGuessingOne(): void
+    {
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DevCommand($wrangler, processRunner: new FakeProcessRunner()));
+
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--worker-dir' => $this->workerDir(),
+            '--no-build' => true,
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('--env is required', $tester->getDisplay());
+        self::assertNull($wrangler->lastCall('dev'), 'nothing may start without a named environment');
     }
 }

@@ -30,7 +30,7 @@ final class StatusCommand extends AbstractCommand
     {
         parent::configure();
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment');
-        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
+        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (default: atoms-worker/ beside atoms.json)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -48,6 +48,7 @@ final class StatusCommand extends AbstractCommand
                 $env,
                 null,
                 self::stringOption($input, 'worker-dir'),
+                resolveCallback: false,
             );
 
             $result = $this->wrangler->versions($target);
@@ -63,7 +64,6 @@ final class StatusCommand extends AbstractCommand
 
         $output->writeln('Environment: ' . $env);
         $output->writeln('Worker:      ' . $target->workerName);
-        $output->writeln('Endpoint:    ' . $target->endpoint);
 
         $versions = $result->json();
         if ($versions === null) {

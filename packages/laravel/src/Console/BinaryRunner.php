@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Laravel\Console;
 
+use Atoms\Client\Deployment\CallerEnvironment;
 use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\Process;
 
@@ -17,6 +18,23 @@ use Symfony\Component\Process\Process;
  * Discovery order: an explicit override → `vendor/bin/atoms` → `$PATH` → the
  * monorepo-relative fallback `packages/cli/bin/atoms` (useful only when this
  * package is developed inside the atoms-framework monorepo itself).
+ *
+ * ## The child's environment
+ *
+ * The child is given the environment *this process was started with*, not the
+ * one it currently has. Artisan runs after Laravel has loaded the
+ * application's `.env`, and the Atoms CLI resolves deployment configuration
+ * from its own environment — so an inherited environment would quietly make
+ * the application's local `.env` a deployment input, and a developer's
+ * `ATOMS_CALLBACK_URL=http://localhost:8000/...` would outrank the committed
+ * production one on `php artisan atoms:deploy --env production`.
+ *
+ * {@see CallerEnvironment} snapshots the environment during autoload, before
+ * any of that bootstrap runs, and {@see CallerEnvironment::restoration()}
+ * turns it into the map handed to Process here: shell and CI values survive
+ * untouched, and names the bootstrap added are removed. A `.env.atoms.<env>`
+ * beside atoms.json is how a developer supplies those values locally instead;
+ * the CLI reads it, below whatever the caller supplied.
  */
 class BinaryRunner
 {
@@ -61,7 +79,14 @@ class BinaryRunner
      */
     public function run(array $args, ?callable $onOutput = null, ?string $cwd = null): int
     {
-        $process = new Process([$this->locate(), ...$args], $cwd ?? $this->resolvedBasePath());
+        $process = new Process(
+            [$this->locate(), ...$args],
+            $cwd ?? $this->resolvedBasePath(),
+            // Empty when nothing snapshotted an environment — the standalone
+            // binary, or a test — and then the child inherits as before.
+            // Symfony's Process reads `false` as "remove this variable".
+            CallerEnvironment::restoration(),
+        );
         $process->setTimeout(null);
         $process->run(static function (string $type, string $buffer) use ($onOutput): void {
             if ($onOutput !== null) {

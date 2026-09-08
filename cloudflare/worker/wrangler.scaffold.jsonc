@@ -10,8 +10,20 @@
 	// The keys marked RUNTIME-REQUIRED below are what the runtime needs from
 	// this file to load at all. A release that changes one says so in its
 	// changelog rather than changing it behind your back. Everything else —
-	// name, vars, observability, routes, custom domains, placement, limits —
-	// is yours to set.
+	// name, vars, observability, placement, limits — is yours to set.
+	//
+	// ROUTES AND CUSTOM DOMAINS ARE THE EXCEPTION: declare them per
+	// environment in atoms.json ("routes" / "custom_domains"), not here.
+	// This file is shared by every environment you deploy — the CLI selects
+	// the Worker with `--name`, never `-e` — so a hostname here ships with
+	// every deploy, and neither kind survives that:
+	//
+	//   a custom domain moves to whichever environment deployed last, with
+	//     no error on either deploy;
+	//   a route is refused, and that deploy fails *after* uploading the
+	//     script — so the environment ends up with new code and no routing.
+	//
+	// `atoms deploy` warns if it finds routing here.
 	//
 	// (Monorepo note: this is `wrangler.scaffold.jsonc`, which
 	// `scripts/pack-runtime.mjs` ships as the template's `wrangler.jsonc`. The
@@ -20,7 +32,7 @@
 	// and keep the differences (worker name, debug endpoints) deliberate.)
 
 	// Cosmetic for `atoms deploy`, which selects the real Worker with `--name`
-	// from atoms.json (`worker_name`, defaulting to the project).
+	// from atoms.json (`worker_name`, required for every environment).
 	"name": "atoms-worker",
 
 	// RUNTIME-REQUIRED: the Worker entrypoint the runtime ships.

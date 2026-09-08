@@ -25,14 +25,43 @@ atoms shared-secret:unset --env X  # Remove ATOMS_SHARED_SECRET_PREVIOUS, closin
 
 Credentials: either `CLOUDFLARE_API_TOKEN` or an existing `wrangler login`
 session — with no token set, Atoms injects nothing and Wrangler uses its own.
-`CLOUDFLARE_ACCOUNT_ID` (or `account_id` in atoms.json) is recommended and not
-required: it pins the deploy target explicitly, but credentials reaching a
-single account resolve without it. Neither is pre-checked — Wrangler reports
-what it cannot resolve, as ATOMS-E072 (no credentials) or ATOMS-E075 (several
-accounts, none chosen). Whatever the CLI does resolve goes straight to your own
-Wrangler; Atoms never proxies or retains it. In CI, supply them to the deploy
-action as `cloudflare-api-token` / `cloudflare-account-id`: a runner has no
-login session to fall back on.
+A token may come from the environment the command was started with or from
+`.env.atoms.<env>` beside atoms.json, never from a committed file.
+`CLOUDFLARE_ACCOUNT_ID` overrides the environment's `account_id` in atoms.json
+on every command, dev and deploy alike; there is no `--account-id` flag and no
+check that the two values agree. A single reachable account can still resolve
+without either; several reachable accounts produce ATOMS-E075. Whatever the CLI does resolve goes
+straight to your own Wrangler; Atoms never proxies or retains it. In CI, supply
+them to the deploy action as `cloudflare-api-token` / `cloudflare-account-id`:
+a runner has no login session to fall back on.
+
+Each environment may declare `routes` and `custom_domains`; `atoms deploy` forwards them as `--route`/`--domain`. They must not go in the Worker project's wrangler config, which is shared by every environment: a custom domain there moves to whichever environment deployed last with no error, and a route there is refused, failing that deploy after the script has already uploaded (new code, stale routing). Routes additionally need Zone -> Workers Routes -> Edit and Zone -> Zone -> Read; without them the attach fails with `Authentication error [code: 10000]`, also post-upload. Both post-upload failures report ATOMS-E110 rather than the generic ATOMS-E074, because the state they leave is not "nothing shipped". Every command that takes `--env` requires it — no command defaults to an environment name, because the names are the user's to choose. (`atoms token` takes no `--env`: the bearer comes from ATOMS_SHARED_SECRET alone.) Every configured environment must have a non-empty `worker_name`; the
+top-level `project` is not a fallback. A callback, when needed, is declared in
+the selected environment's `callback_url` in `atoms.json`, beside its
+`worker_name`, and resolves the same
+way on every command and for every setting: `--callback-url` (on `deploy` and
+`dev`), then `ATOMS_CALLBACK_URL` in the environment the command was started
+with, then in `.env.atoms.<env>` beside atoms.json, then the file entry. The
+nearer source wins silently — nothing is compared and no combination is a
+conflict, and an empty or whitespace-only value means "unset" from every source
+alike. `deploy` and `dev` print what they resolved and which source supplied
+it before doing anything with it. With no source at all there is no callback,
+and deploy warns; an absent file entry on its own is not that, since an
+`ATOMS_CALLBACK_URL` from either environment layer needs no file entry. The
+file entry is read only when no nearer source supplied a value, so nothing in
+it can fail a command a nearer source answered: a value containing `${` that is
+not a whole-value `${ENV_VAR}` reference is ATOMS-E070 when the file wins, and
+is never inspected otherwise. A well-formed reference that resolves to nothing
+is ATOMS-E070 on deploy, and on `atoms dev` simply no callback plus a warning —
+the variable may be one only CI holds.
+
+`.env.atoms.<env>` is optional, gitignored by `atoms init`, and read only for
+the environment named on the command line — never the application's `.env`,
+another target's file, or a generic `.env.atoms`. An existing but unparseable
+one is ATOMS-E109. This is also why `php artisan atoms:deploy` and
+`bin/console atoms:deploy` resolve identically to `vendor/bin/atoms deploy`:
+the wrappers hand the child the environment the command was started with, not
+the one the framework built after loading the app's `.env`.
 
 Deploy needs the committed Worker directory, `atoms-worker/` beside atoms.json
 (or `--worker-dir`; atoms.json does not name it), with `npm ci` already run in

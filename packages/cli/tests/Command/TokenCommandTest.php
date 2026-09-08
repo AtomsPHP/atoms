@@ -133,4 +133,44 @@ final class TokenCommandTest extends TestCase
 
         self::assertSame(self::EXPECTED_BEARER . "\n", $tester->getDisplay());
     }
+    /**
+     * The `.dev.vars` fallback must not depend on an environment name.
+     *
+     * This command used to take `--env`, defaulting to `staging`, purely to
+     * locate the Worker directory through `CloudflareTarget::resolve()` — but
+     * the Worker directory is a committed convention shared by every
+     * environment, so the option never changed the answer. What it did change
+     * was failure: a project whose environments are named anything but
+     * `staging` threw ATOMS-E070 inside that lookup, the fallback was skipped,
+     * and `atoms token` reported ATOMS-E105 with a perfectly good secret
+     * sitting in `atoms-worker/.dev.vars`.
+     */
+    public function testFallsBackToDevVarsWhateverTheProjectsEnvironmentsAreCalled(): void
+    {
+        putenv('ATOMS_SHARED_SECRET');
+        $root = $this->freshDir();
+        file_put_contents($root . '/atoms.json', json_encode([
+            'project' => 'acme',
+            'paths' => ['atoms' => 'app/Atoms'],
+            // Deliberately no environment named `staging`.
+            'environments' => ['live' => ['worker_name' => 'acme']],
+        ], JSON_THROW_ON_ERROR));
+        mkdir($root . '/atoms-worker');
+        file_put_contents($root . '/atoms-worker/.dev.vars', 'ATOMS_SHARED_SECRET=' . self::TEST_SECRET . "\n");
+
+        $tester = new CommandTester(new TokenCommand());
+        $exit = $tester->execute(['--root' => $root]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        self::assertSame(self::EXPECTED_BEARER . "\n", $tester->getDisplay());
+    }
+
+    /**
+     * And the option is gone rather than silently ignored: `--env` never
+     * affected the bearer, which is derived from ATOMS_SHARED_SECRET alone.
+     */
+    public function testThereIsNoEnvironmentOption(): void
+    {
+        self::assertFalse((new TokenCommand())->getDefinition()->hasOption('env'));
+    }
 }

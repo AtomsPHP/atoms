@@ -94,6 +94,15 @@ try {
 		!templateWrangler.includes('"name": "atoms-conformance"'),
 		'the scaffolded wrangler.jsonc must not carry the conformance harness worker name',
 	);
+	// Routing belongs to atoms.json, per environment. This file is shared by
+	// every environment, so a hostname scaffolded here would break every
+	// project with more than one: a custom domain silently moves to the last
+	// environment deployed, and a route collision fails the deploy after the
+	// script has already uploaded.
+	assert.ok(
+		!/^\s*"routes?"\s*:/m.test(templateWrangler),
+		'the scaffolded wrangler.jsonc must not declare routes; they are per-environment in atoms.json',
+	);
 
 	const pack = run('npm', ['pack', stage, '--pack-destination', packed, '--json'], { env: npmEnvironment });
 	const packResult = JSON.parse(pack.stdout);

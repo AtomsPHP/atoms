@@ -703,11 +703,11 @@ Claims are a flat map of string keys to string values: at most 16 entries, at mo
 
 **Message**
 
-Could not read atoms.json at the repository root: {reason}.
+atoms.json at the repository root is missing, invalid, or does not apply cleanly: {reason}.
 
 **Fix**
 
-Run `atoms init` to create it, or fix the reported JSON error.
+Run `atoms init` to create it if it is missing, or fix the reported problem in the file. A callback_url reference must be a whole value such as "${ATOMS_CALLBACK_URL}" — correct the syntax when the reason says so, and set the named variable to a non-empty value when the reason says it is unset or empty.
 
 
 <a id="atoms-e071"></a>
@@ -743,7 +743,7 @@ atoms-composer.json may only contain `require` (from the approved package list) 
 
 **Fix**
 
-Either export CLOUDFLARE_API_TOKEN with Workers Scripts:Edit on the target account, or run `wrangler login` in the Worker directory so Wrangler holds its own OAuth session — Atoms passes through whichever it finds, and injects nothing when there is no token. A token is never accepted as a command-line option: a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`; a runner has no login session to fall back on.
+Either set CLOUDFLARE_API_TOKEN — in this shell, as a CI variable, or in `.env.atoms.<environment>` beside atoms.json — with Workers Scripts:Edit on the target account, or run `wrangler login` in the Worker directory so Wrangler holds its own OAuth session — Atoms passes through whichever it finds, and injects nothing when there is no token. A token is never accepted as a command-line option: a credential in argv is visible to every process on the machine. In CI, supply it to the deploy action as `cloudflare-api-token`; a runner has no login session to fall back on.
 
 
 <a id="atoms-e073"></a>
@@ -1158,3 +1158,39 @@ The Worker directory {dir} was scaffolded from {package} {found}, but this CLI i
 **Fix**
 
 Bring the committed Worker directory up to the CLI's release with the `atoms-runtime-cloudflare upgrade` command printed in the message (it rewrites runtime-owned files and leaves wrangler.jsonc alone), review the diff, run `npm ci` inside the directory, and commit. If the Worker directory is the newer side, update the atoms/* Composer packages to its version instead.
+
+
+<a id="atoms-e109"></a>
+
+## ATOMS-E109: Atoms environment file is unreadable or malformed
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `cli` |
+
+**Message**
+
+{file} could not be used: {reason}.
+
+**Fix**
+
+`.env.atoms.<environment>` beside atoms.json is optional, and is read only for the environment you named. Fix the reported line, or delete the file to resolve from the caller's environment and atoms.json alone. Each line is KEY=value (an `export ` prefix is allowed); values may be bare, 'single-quoted' or "double-quoted"; there is no interpolation and no multi-line value.
+
+
+<a id="atoms-e110"></a>
+
+## ATOMS-E110: Worker uploaded, routing not attached
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `cli` |
+
+**Message**
+
+`wrangler {command}` uploaded the script, but Cloudflare refused the routing this environment declares; the Worker is now serving the new bundle on its previous routes.
+
+**Fix**
+
+Wrangler's output above names which routing failed. A pattern already assigned to another Worker is refused, not taken over (API code 10020) — remove it there, or give this environment its own pattern under atoms.json "environments"."<environment>"."routes". An authentication error on /workers/routes means the credential can upload but not route: add Zone → Workers Routes:Edit and Zone → Zone:Read on the pattern's zone (custom_domains needs neither). Fixing either and re-running the deploy is safe.

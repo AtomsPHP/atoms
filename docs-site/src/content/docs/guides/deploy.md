@@ -22,6 +22,35 @@ this page takes `--env <name>` to select one. See
 [Configuration](/guides/configuration/#environments) for what an entry holds and
 what `--env` resolves from it.
 
+`worker_name` is required and identifies the Worker Wrangler receives. The
+callback URL resolves in one order, the same one `atoms dev` uses:
+`--callback-url`, then `ATOMS_CALLBACK_URL` in the environment this command was
+started with, then in `.env.atoms.<name>` beside `atoms.json`, then the
+optional `callback_url` on the selected environment block. The
+nearer source wins silently — nothing is compared, and no combination is an
+error. A whole-value `${ENV_VAR}` reference in the file is expanded when the
+deploy runs, and only when no nearer source supplied anything; an unset or
+empty reference is then [ATOMS-E070](/reference/errors/#atoms-e070). With no
+source at all, callbacks are unavailable: deploy warns and sends no callback
+variable.
+
+Before it builds or ships anything, `deploy` prints what it resolved and where
+each value came from:
+
+```text
+Environment: production
+  Worker:       my-app                              (atoms.json)
+  Account:      cf-account-1234                     (caller environment: CLOUDFLARE_ACCOUNT_ID)
+  API token:    (hidden)                            (.env.atoms.production: CLOUDFLARE_API_TOKEN)
+  Callback:     https://example.com/atoms/callback  (atoms.json "environments.production.callback_url")
+  Debug routes: disabled                            (atoms.json "debug_endpoints")
+  Serving:      atoms.example.com                   (atoms.json "routes"/"custom_domains")
+```
+
+Read that table when a deployment does something you did not expect. It is the
+answer to "why that callback URL", and the API token is the one value it names
+without showing.
+
 ## Authenticate with Cloudflare
 
 On your own machine, authenticate with the installed Wrangler:
@@ -34,17 +63,20 @@ cd ..
 
 When `CLOUDFLARE_API_TOKEN` is unset, Wrangler uses that saved login session.
 
-For headless or scripted deploys, set an API token in the environment instead —
-a CI runner has no login session to fall back on:
+For headless or scripted deploys, supply an API token instead — a CI runner has
+no login session to fall back on. In CI, set `CLOUDFLARE_API_TOKEN` as a job
+variable from your secret store. Locally, put it in `.env.atoms.<environment>`
+beside `atoms.json`, for the target you are deploying:
 
 ```bash
-export CLOUDFLARE_API_TOKEN='…'
+# .env.atoms.production — gitignored by `atoms init`
+CLOUDFLARE_API_TOKEN=…
 ```
 
-A token needs permission to edit Workers Scripts in the target account. Do not
-commit it to your repository. Atoms passes both `CLOUDFLARE_API_TOKEN` and
-`CLOUDFLARE_ACCOUNT_ID` into the Wrangler child process and nowhere else: never
-to a file, a log, or the command line.
+A token needs permission to edit Workers Scripts in the target account. Never
+commit it. Atoms passes both `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`
+into the Wrangler child process and nowhere else: never to a file, a log, or the
+command line.
 
 ## Build and deploy
 
@@ -90,6 +122,10 @@ vendor/bin/atoms status --env production
 Verify the new Atom methods are available before deploying application code that
 calls them. To move a Worker back to an earlier version, see
 [Rollback](/guides/rollback/).
+
+`status` lists Worker version data from Wrangler. It does not infer or print a
+Worker endpoint from `atoms.json`; set the application's `ATOMS_ENDPOINT`
+independently.
 
 ## Upgrade the runtime
 

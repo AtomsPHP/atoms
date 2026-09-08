@@ -62,7 +62,7 @@ final class SharedSecretSetCommand extends AbstractCommand
     {
         parent::configure();
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment');
-        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
+        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (default: atoms-worker/ beside atoms.json)');
         $this->addOption('previous', null, InputOption::VALUE_NONE, 'Set ' . self::PREVIOUS_KEY . ' instead (rotation overlap)');
         $this->addOption('force', null, InputOption::VALUE_NONE, 'Overwrite an existing value (how a rotation is applied)');
     }
@@ -87,6 +87,7 @@ final class SharedSecretSetCommand extends AbstractCommand
                 $env,
                 null,
                 self::stringOption($input, 'worker-dir'),
+                resolveCallback: false,
             );
 
             if ($input->getOption('force') !== true && $this->alreadySet($target, $key)) {

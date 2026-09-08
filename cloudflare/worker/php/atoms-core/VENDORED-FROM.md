@@ -33,6 +33,11 @@ reason the Cloudflare runtime can claim the real API runs inside the guest.
 | Re-verified | 2026-09-04, on the committed Worker directory — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E108 added: Worker directory does not match the CLI release, raised by the CLI's deploy/dev skew check against the directory's `atoms-runtime.json` stamp; E073 and E076 fix lines reworded to name the committed `atoms-worker/` directory). Nothing in the guest raises it; the copy carries them because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-09-05, on the documentation wording pass — `resources/errors.json` re-vendored with E002/E020/E053/E062/E067/E084/E101/E105 reworded; byte-identical to `packages/core/resources/errors.json`, with the digest below refreshed. |
 | Re-verified | 2026-09-05, on the docs-site error-catalog path — `Errors/ErrorCatalog.php` re-vendored: `DOCS_BASE` was `https://docs.atomsphp.dev/errors#`, a path the published site has never served; the built page is `/reference/errors/` and its anchors are the lowercased codes, so only the path changed and every `docsUrl` anchor is unchanged. Still 24 files total, the other 23 digests are unchanged |
+| Re-verified | 2026-09-06, on the E070 rewording — `resources/errors.json` re-vendored: E070's message and fix described only an unreadable or malformed file, but the code has long also covered an undefined environment and now covers environment-vs-file disagreements, where "fix the reported JSON error" and running `atoms init` were both wrong advice. Message and fix reworded only; no code added, renumbered or repointed. Still 24 files total, the other 23 digests are unchanged |
+| Re-verified | 2026-09-06, on dropping the configuration agreement checks — `resources/errors.json` re-vendored: E070's fix line told the reader to unset an environment variable or make it agree with the file, which describes a rule the CLI no longer has, and was backwards for the one case where E070 still names a variable (a `${VAR}` callback reference on deploy). Fix line reworded only; no code added, renumbered or repointed. Still 24 files total, the other 23 digests are unchanged |
+| Re-verified | 2026-09-07, on review of the precedence change — `resources/errors.json` re-vendored: E070's fix line told the reader to set whichever variable the reason named, but a malformed reference names `${ATOMS_CALLBACK_URL}` only as an example of the right shape, so setting it would mask the broken declaration through precedence rather than repair it. The fix now separates correcting reference syntax from setting an unset referenced variable. Fix line reworded only; no code added, renumbered or repointed. Still 24 files total, the other 23 digests are unchanged |
+| Re-verified | 2026-09-07, on the Atoms deployment dotenv contract — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E109 added: an `.env.atoms.<environment>` file beside atoms.json that exists but cannot be read or parsed, raised by the CLI while resolving a deployment target; E072's fix line reworded, since `export CLOUDFLARE_API_TOKEN` is no longer the only way to supply a token to a local deploy). Nothing in the guest raises E109; the copy carries it because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
+| Re-verified | 2026-09-08, on the routing failure recognizer — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E110 added: a `wrangler deploy` that uploaded the script and then could not attach the routing the environment declares, raised by the CLI from Wrangler's own output). Nothing in the guest raises E110; the copy carries it because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -115,7 +120,7 @@ bdccde339e844104309093d66577483269595946973cba4a77abb1d10bc1401c  Database.php
 7c996f6c31cff9bf210040f311bb534a140e79ae3c62b721c6266ad6d78353e2  Errors/AtomsError.php
 0b4bfcf9ea74ed277614139157b03696f4eae42dc85f420120f96663cf654283  Errors/CatalogEntry.php
 6fd9aca635612d35077fccb6fee7d749bf04df54ccf5a45eea5e4921a402c9fe  Errors/ErrorCatalog.php
-513c73971051c947ff0ebe5901d89b3ea437923384c9635fa16eab7a5db6e239  Errors/ErrorCode.php
+cb667e214ea4e6705c0d66049a1851667a9a77ddcd9e0885012e3f0c6b751a68  Errors/ErrorCode.php
 e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Migration.php
 6ad41de5de3dcc255650f6d9dd29d80fc1c01625f90c8c8f5129cbb965a04069  Migrations/MigrationEntry.php
 addfe71f9472e7f2e76422227ef06586818b546e09842cdcba8e8a97a1dcd690  Migrations/MigrationSet.php
@@ -129,7 +134,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
 a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
 b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
-7def654248dd68b2892c36bdce6307002cc3ad0568030c269280287751daa082  resources/errors.json
+fa6df1b79af6e47d48f5a51aa68f66914f5bf9b39805bc4bd4a9429151c2105b  resources/errors.json
 ```
 
 Verify with, from this directory:

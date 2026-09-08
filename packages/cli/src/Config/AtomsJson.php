@@ -12,12 +12,15 @@ use Atoms\Errors\ErrorCode;
  * The repo-root toolchain anchor. Parsed and validated;
  * every structural problem surfaces as ATOMS-E070 with the catalog fix line.
  *
- * `endpoint` is the base URL the deployed Worker serves on — what `atoms/client`
- * calls, and what `atoms status` reports. The Cloudflare keys (`worker_name`,
- * `account_id`) are optional here because each has a fallback: the project
- * name and `$CLOUDFLARE_ACCOUNT_ID` respectively. An account id in particular
- * is better supplied by the environment than committed, which is why
- * atoms.json only offers to hold it.
+ * Deploy-target facts live here: every environment names its Worker
+ * explicitly, and holds every setting that differs between environments —
+ * `account_id`, `debug_endpoints` and `callback_url`. This file is the
+ * committed default, and the environment layers override it:
+ * `CLOUDFLARE_ACCOUNT_ID` wins over an environment's account_id, and
+ * `ATOMS_CALLBACK_URL` wins over its callback_url, on every command. Nothing
+ * compares the two sources. No Worker URL is configured here: Wrangler reports
+ * deployed URLs, and the monolith configures ATOMS_ENDPOINT. Callback
+ * environment references stay literal during parsing and building.
  *
  * The Worker directory is not a setting: it is a committed part of the
  * repository at `atoms-worker/` beside this file
@@ -29,13 +32,12 @@ use Atoms\Errors\ErrorCode;
  * `atoms dev`/`atoms deploy` forward it to Wrangler as a `--var` override.
  * Off unless explicitly true.
  *
- * @phpstan-type Environment array{endpoint: string, region: string, worker_name: string, account_id: string, debug_endpoints: bool}
+ * @phpstan-type Environment array{worker_name: string, account_id: string, debug_endpoints: bool, callback_url: string, routes: list<string>, custom_domains: list<string>}
  */
 final class AtomsJson
 {
     /**
      * @param array<string, Environment> $environments
-     * @param array<string, string>      $callbackUrls
      * @param array<string, mixed>       $atomConfig
      */
     private function __construct(
@@ -45,7 +47,6 @@ final class AtomsJson
         public readonly string $sharedPath,
         public readonly string $php,
         public readonly array $environments,
-        public readonly array $callbackUrls,
         public readonly array $atomConfig,
     ) {
     }
@@ -150,19 +151,6 @@ final class AtomsJson
 
         $environments = self::parseEnvironments($decoded['environments'] ?? null);
 
-        $callbackUrls = [];
-        if (isset($decoded['callback_url'])) {
-            if (!\is_array($decoded['callback_url'])) {
-                throw self::invalid('"callback_url" must be an object of environment => url');
-            }
-            foreach ($decoded['callback_url'] as $env => $url) {
-                if (!\is_string($env) || !\is_string($url)) {
-                    throw self::invalid('"callback_url" entries must be strings');
-                }
-                $callbackUrls[$env] = $url;
-            }
-        }
-
         $atomConfig = [];
         if (isset($decoded['atom_config'])) {
             if (!\is_array($decoded['atom_config'])) {
@@ -179,7 +167,6 @@ final class AtomsJson
             sharedPath: trim($sharedPath, '/'),
             php: $php,
             environments: $environments,
-            callbackUrls: $callbackUrls,
             atomConfig: $atomConfig,
         );
     }
@@ -202,19 +189,26 @@ final class AtomsJson
             if (!\is_string($name) || !\is_array($env)) {
                 throw self::invalid('each environment must be an object keyed by name');
             }
-            $endpoint = $env['endpoint'] ?? null;
-            if (!\is_string($endpoint) || $endpoint === '') {
-                throw self::invalid("environment '{$name}' is missing a string \"endpoint\"");
-            }
-
             $out[$name] = [
-                'endpoint' => rtrim($endpoint, '/'),
-                // Vestigial: Cloudflare places a Durable Object itself. Still
-                // parsed so an older atoms.json loads, and ignored everywhere.
-                'region' => self::optionalString($env, 'region'),
-                'worker_name' => self::optionalString($env, 'worker_name'),
+                'worker_name' => self::requireString($env, "environments.{$name}.worker_name", 'worker_name'),
                 'account_id' => self::optionalString($env, 'account_id'),
                 'debug_endpoints' => self::optionalBool($env, "environment '{$name}'", 'debug_endpoints'),
+                // Beside worker_name and account_id, not in a parallel map
+                // keyed by the same names: a second block would let
+                // `"prodction"` name an environment that does not exist,
+                // parse clean, and leave the real one with no callback while
+                // the file plainly declares one.
+                'callback_url' => self::optionalString($env, 'callback_url'),
+                // Where this environment's Worker is reachable. Per
+                // environment because `wrangler.jsonc` is one file for every
+                // environment and `atoms deploy` selects the Worker with
+                // `--name`: a hostname declared there travels with every
+                // deploy. Measured, not assumed — a shared custom domain moves
+                // to the last Worker that claimed it with no error at all, and
+                // a shared route is refused outright, failing the deploy after
+                // the script has already uploaded.
+                'routes' => self::optionalStringList($env, "environments.{$name}.routes", 'routes'),
+                'custom_domains' => self::optionalStringList($env, "environments.{$name}.custom_domains", 'custom_domains'),
             ];
         }
 
@@ -239,6 +233,36 @@ final class AtomsJson
     }
 
     /**
+     * A list of non-empty strings, or []. Anything else is refused rather
+     * than coerced: a route silently dropped because it was written as an
+     * object, or a bare string where a list was meant, is a hostname that
+     * quietly does not get served.
+     *
+     * @param array<array-key, mixed> $source
+     * @return list<string>
+     */
+    private static function optionalStringList(array $source, string $label, string $key): array
+    {
+        $value = $source[$key] ?? null;
+        if ($value === null) {
+            return [];
+        }
+        if (!\is_array($value) || array_is_list($value) === false) {
+            throw self::invalid("\"{$label}\" must be an array of strings");
+        }
+
+        $out = [];
+        foreach ($value as $entry) {
+            if (!\is_string($entry) || trim($entry) === '') {
+                throw self::invalid("\"{$label}\" entries must be non-empty strings");
+            }
+            $out[] = trim($entry);
+        }
+
+        return $out;
+    }
+
+    /**
      * @param array<array-key, mixed> $source
      */
     private static function optionalString(array $source, string $key): string
@@ -255,7 +279,7 @@ final class AtomsJson
     {
         $key ??= $label;
         $value = $source[$key] ?? null;
-        if (!\is_string($value) || $value === '') {
+        if (!\is_string($value) || trim($value) === '') {
             throw self::invalid("\"{$label}\" must be a non-empty string");
         }
 

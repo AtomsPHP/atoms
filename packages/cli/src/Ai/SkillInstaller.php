@@ -150,9 +150,9 @@ final class SkillInstaller
             return "_No environments configured in atoms.json._";
         }
 
-        $rows = ['| Environment | Endpoint | Region |', '| --- | --- | --- |'];
+        $rows = ['| Environment | Worker | Account |', '| --- | --- | --- |'];
         foreach ($this->config->environments as $name => $env) {
-            $rows[] = sprintf('| `%s` | %s | %s |', $name, $env['endpoint'], $env['region']);
+            $rows[] = sprintf('| `%s` | %s | %s |', $name, $env['worker_name'], $env['account_id']);
         }
 
         return implode("\n", $rows);

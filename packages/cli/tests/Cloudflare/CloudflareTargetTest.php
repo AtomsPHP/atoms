@@ -22,6 +22,8 @@ final class CloudflareTargetTest extends TestCase
         putenv('CLOUDFLARE_ACCOUNT_ID');
         putenv(CloudflareTarget::CALLBACK_VAR);
         putenv(WranglerBinary::ENV_OVERRIDE);
+        putenv('DEPLOY_CALLBACK_URL');
+        putenv('LOCAL_CALLBACK_URL');
     }
 
     protected function tearDown(): void
@@ -30,15 +32,12 @@ final class CloudflareTargetTest extends TestCase
         putenv('CLOUDFLARE_ACCOUNT_ID');
         putenv(CloudflareTarget::CALLBACK_VAR);
         putenv(WranglerBinary::ENV_OVERRIDE);
+        putenv('DEPLOY_CALLBACK_URL');
+        putenv('LOCAL_CALLBACK_URL');
         parent::tearDown();
     }
 
-    /**
-     * An explicit callback URL beats the environment, which beats atoms.json.
-     * A callback URL is often per machine (a tunnel host, a local port), so
-     * the committed file must not be its only home.
-     */
-    public function testCallbackUrlResolvesFlagThenEnvironmentThenAtomsJson(): void
+    public function testDeploymentCallbackUrlComesFromAtomsJson(): void
     {
         $fromJson = CloudflareTarget::resolve($this->sampleApp(), 'staging');
         self::assertSame('https://staging.acme.example.com', $fromJson->callbackUrl);
@@ -47,16 +46,21 @@ final class CloudflareTargetTest extends TestCase
             $fromJson->runtimeVars(),
         );
 
-        putenv(CloudflareTarget::CALLBACK_VAR . '=https://tunnel.example.test/atoms/callback');
-        $fromEnv = CloudflareTarget::resolve($this->sampleApp(), 'staging');
-        self::assertSame('https://tunnel.example.test/atoms/callback', $fromEnv->callbackUrl);
+        putenv('DEPLOY_CALLBACK_URL=https://ci.example.test/atoms/callback');
+        try {
+            $root = $this->tempCopy('sample-app');
+            $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+            $json['environments']['staging']['callback_url'] = '${DEPLOY_CALLBACK_URL}';
+            file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
 
-        $fromFlag = CloudflareTarget::resolve(
-            $this->sampleApp(),
-            'staging',
-            callbackUrl: 'http://127.0.0.1:8000/atoms/callback',
-        );
-        self::assertSame('http://127.0.0.1:8000/atoms/callback', $fromFlag->callbackUrl);
+            $fromIndirection = CloudflareTarget::resolve(
+                AtomsJson::load($root . '/atoms.json'),
+                'staging',
+            );
+            self::assertSame('https://ci.example.test/atoms/callback', $fromIndirection->callbackUrl);
+        } finally {
+            putenv('DEPLOY_CALLBACK_URL');
+        }
     }
 
     public function testCallbackUrlIsPerEnvironmentAndAbsentWhenNothingConfiguresIt(): void
@@ -68,7 +72,9 @@ final class CloudflareTargetTest extends TestCase
 
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true);
-        unset($json['callback_url']);
+        foreach (array_keys($json['environments']) as $name) {
+            $json['environments'][$name]['callback_url'] = '';
+        }
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
 
         $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
@@ -93,8 +99,9 @@ final class CloudflareTargetTest extends TestCase
         $target = CloudflareTarget::resolve($this->sampleApp(), 'production');
 
         self::assertSame('from-env', $target->apiToken);
-        // atoms.json carries the account id for this fixture, so it wins the
-        // fallback chain without the environment being consulted.
+        // CLOUDFLARE_ACCOUNT_ID is unset here, so the file entry answers.
+        // The environment outranks the file, but only when it holds a value —
+        // an absent variable is not a source.
         self::assertSame('cf-account-1234', $target->accountId);
     }
 
@@ -129,24 +136,55 @@ final class CloudflareTargetTest extends TestCase
         self::assertSame([], $target->credentialEnv());
     }
 
-    public function testWorkerNameFallsBackToTheProject(): void
+    public function testAccountIdComesFromTheEnvironmentWhenTheFileOmitsIt(): void
     {
-        $config = $this->sampleApp();
-        $target = CloudflareTarget::resolve($config, 'production', 'token');
-        self::assertSame('acme-games', $target->workerName);
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        unset($json['environments']['production']['account_id']);
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+        putenv('CLOUDFLARE_ACCOUNT_ID=env-account-5678');
 
-        // With no worker_name in atoms.json, the project names the Worker.
+        $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+
+        self::assertSame('env-account-5678', $target->accountId);
+        self::assertSame(['CLOUDFLARE_ACCOUNT_ID' => 'env-account-5678'], $target->credentialEnv());
+    }
+
+    public function testAccountIdTakesTheEnvironmentOverTheFile(): void
+    {
+        putenv('CLOUDFLARE_ACCOUNT_ID=cf-account-1234');
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production', 'token');
+        self::assertSame('cf-account-1234', $target->accountId);
+
+        // One order, no comparison: the fixture's file value says
+        // cf-account-1234, and CLOUDFLARE_ACCOUNT_ID overrides it silently.
+        putenv('CLOUDFLARE_ACCOUNT_ID=other-account');
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production', 'token');
+        self::assertSame('other-account', $target->accountId);
+    }
+
+    public function testWorkerNameIsRequiredAndDoesNotFallBackToTheProject(): void
+    {
         $root = $this->tempCopy('sample-app');
         $json = json_decode((string) file_get_contents($root . '/atoms.json'), true);
         unset($json['environments']['production']['worker_name']);
         file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
 
-        $target = CloudflareTarget::resolve(
-            \Atoms\Cli\Config\AtomsJson::load($root . '/atoms.json'),
-            'production',
-            'token',
-        );
-        self::assertSame('acme-games', $target->workerName);
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*worker_name/s');
+        AtomsJson::load($root . '/atoms.json');
+    }
+
+    public function testEmptyWorkerNameIsRejected(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['environments']['production']['worker_name'] = '   ';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*worker_name/s');
+        AtomsJson::load($root . '/atoms.json');
     }
 
     public function testWorkerDirDefaultsUnderTheRepoRootAndResolvesRelativeOverrides(): void
@@ -222,14 +260,230 @@ final class CloudflareTargetTest extends TestCase
         \Atoms\Cli\Config\AtomsJson::load($root . '/atoms.json');
     }
 
-    public function testInvokeUrlIsThePrefixlessSingleTenantRoute(): void
+    public function testMalformedCallbackReferenceIsE070(): void
     {
-        $target = CloudflareTarget::resolve($this->sampleApp(), 'production', 'token');
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['environments']['production']['callback_url'] = '${NOT-A_VALID_NAME}';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
 
-        self::assertSame(
-            'https://acme-games.example.workers.dev/invoke/GameRoom/g-1/ping',
-            $target->invokeUrl('GameRoom', 'g-1', 'ping'),
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*callback_url/s');
+        CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+    }
+
+    public function testCallbackReferenceMustResolveToANonEmptyEnvironmentValue(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['environments']['production']['callback_url'] = '${DEPLOY_CALLBACK_URL}';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+        putenv('DEPLOY_CALLBACK_URL=');
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*DEPLOY_CALLBACK_URL/s');
+        CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+    }
+
+    public function testDeploymentTakesTheEnvironmentCallbackOverTheFile(): void
+    {
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://ambient.example.test/callback');
+
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production');
+
+        self::assertSame('https://ambient.example.test/callback', $target->callbackUrl);
+    }
+
+    public function testDeploymentTakesTheEnvironmentCallbackEvenWhenItMatchesTheFile(): void
+    {
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://acme.example.com');
+
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production');
+
+        self::assertSame('https://acme.example.com', $target->callbackUrl);
+    }
+
+    public function testDeploymentUsesTheEnvironmentCallbackWhenTheFileHasNone(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        foreach (array_keys($json['environments']) as $name) {
+            $json['environments'][$name]['callback_url'] = '';
+        }
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://ambient.example.test/callback');
+
+        $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+
+        self::assertSame('https://ambient.example.test/callback', $target->callbackUrl);
+    }
+
+    public function testDeploymentCallbackFlagOverridesTheFile(): void
+    {
+        // Typing the flag is a deliberate act scoped to one invocation, so it
+        // is the operator's final say — as with `terraform -var` and
+        // `wrangler --var`. It is the nearest of the three sources.
+        $target = CloudflareTarget::resolve(
+            $this->sampleApp(),
+            'production',
+            callbackUrl: 'https://flag.example.test/callback',
         );
+
+        self::assertSame('https://flag.example.test/callback', $target->callbackUrl);
+    }
+
+    public function testDeploymentCallbackFlagAlsoOutranksTheEnvironment(): void
+    {
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://ambient.example.test/callback');
+
+        $target = CloudflareTarget::resolve(
+            $this->sampleApp(),
+            'production',
+            callbackUrl: 'https://flag.example.test/callback',
+        );
+
+        // Same order as everywhere else: flag, then environment, then file.
+        // Without the flag this variable would have supplied the callback.
+        self::assertSame('https://flag.example.test/callback', $target->callbackUrl);
+    }
+
+    public function testCallbackResolutionCanBeSkippedForOperationalTargets(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['environments']['production']['callback_url'] = '${UNSET_DEPLOYMENT_CALLBACK}';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+
+        $target = CloudflareTarget::resolve(
+            AtomsJson::load($root . '/atoms.json'),
+            'production',
+            resolveCallback: false,
+        );
+
+        self::assertNull($target->callbackUrl);
+        self::assertSame([], $target->runtimeVars());
+    }
+
+    public function testLocalCallbackFlagOrEnvironmentWinsOverTheFile(): void
+    {
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://local.example.test/callback');
+        $target = CloudflareTarget::resolve(
+            $this->sampleApp(),
+            'production',
+            local: true,
+        );
+        self::assertSame('https://local.example.test/callback', $target->callbackUrl);
+
+        $target = CloudflareTarget::resolve(
+            $this->sampleApp(),
+            'production',
+            callbackUrl: 'https://local.example.test/callback',
+            local: true,
+        );
+        self::assertSame('https://local.example.test/callback', $target->callbackUrl);
+    }
+
+    public function testLocalCallbackFlagOutranksTheEnvironment(): void
+    {
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://env.example.test/callback');
+
+        $target = CloudflareTarget::resolve(
+            $this->sampleApp(),
+            'production',
+            callbackUrl: 'https://flag.example.test/callback',
+            local: true,
+        );
+
+        self::assertSame('https://flag.example.test/callback', $target->callbackUrl);
+    }
+
+    public function testLocalWithoutFlagOrEnvironmentFallsBackToTheFileIncludingIndirection(): void
+    {
+        putenv('LOCAL_CALLBACK_URL=https://file.example.test/callback');
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['environments']['production']['callback_url'] = '${LOCAL_CALLBACK_URL}';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+
+        try {
+            $target = CloudflareTarget::resolve(
+                AtomsJson::load($root . '/atoms.json'),
+                'production',
+                local: true,
+            );
+            self::assertSame('https://file.example.test/callback', $target->callbackUrl);
+        } finally {
+            putenv('LOCAL_CALLBACK_URL');
+        }
+    }
+
+    public function testLocalTreatsAnUnresolvedFileReferenceAsNoCallback(): void
+    {
+        // The file may name a variable only CI holds. `atoms dev` needs a
+        // callback only for app()/dispatch(), and deploy merely warns when it
+        // has none, so dev must not be the stricter of the two.
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['environments']['production']['callback_url'] = '${CI_ONLY_CALLBACK_URL}';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+        putenv('CI_ONLY_CALLBACK_URL');
+
+        $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production', local: true);
+
+        self::assertNull($target->callbackUrl);
+        self::assertArrayNotHasKey(CloudflareTarget::CALLBACK_VAR, $target->runtimeVars());
+    }
+
+    public function testDeploymentStillRequiresAnUnresolvedFileReference(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['environments']['production']['callback_url'] = '${CI_ONLY_CALLBACK_URL}';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+        putenv('CI_ONLY_CALLBACK_URL');
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*CI_ONLY_CALLBACK_URL/s');
+        CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+    }
+
+    public function testAnEnvironmentCallbackOutranksAFileReferenceWithoutExpandingIt(): void
+    {
+        // The environment is nearer than the file, so a declared ${VAR} is not
+        // even consulted — and cannot fail for being unset.
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['environments']['production']['callback_url'] = '${UNSET_PRODUCTION_CALLBACK_URL}';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+        putenv('UNSET_PRODUCTION_CALLBACK_URL');
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://ambient.example.test/callback');
+
+        $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+
+        self::assertSame('https://ambient.example.test/callback', $target->callbackUrl);
+    }
+
+    public function testAnEmptyOrBlankFileCallbackMeansNoCallbackDeclared(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['environments']['production']['callback_url'] = '   ';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+
+        $target = CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+
+        self::assertNull($target->callbackUrl);
+        self::assertArrayNotHasKey(CloudflareTarget::CALLBACK_VAR, $target->runtimeVars());
+    }
+
+    public function testAccountIdPrecedenceIsTheSameLocallyAndOnDeploy(): void
+    {
+        putenv('CLOUDFLARE_ACCOUNT_ID=some-other-account');
+
+        foreach ([true, false] as $local) {
+            $target = CloudflareTarget::resolve($this->sampleApp(), 'production', local: $local);
+            self::assertSame('some-other-account', $target->accountId);
+        }
     }
 
     public function testRuntimeVersionMatchesTheStamp(): void

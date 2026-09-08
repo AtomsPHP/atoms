@@ -140,7 +140,7 @@ Before deploying, run PHPStan with `vendor/atoms/phpstan-rules/rules.neon` inclu
 `atoms dev` builds your Atoms and serves them through the real Worker runtime you scaffolded on your machine in the "Install" step. No Cloudflare account is needed:
 
 ```bash
-vendor/bin/atoms dev --callback-url http://127.0.0.1:8000/atoms/callback
+vendor/bin/atoms dev --env staging --callback-url http://127.0.0.1:8000/atoms/callback
 ```
 
 Point the application at the local Worker while it runs. Route `atoms.endpoint` through an environment variable so it can differ per environment:
@@ -158,7 +158,7 @@ ATOMS_ENDPOINT=http://127.0.0.1:8787
 
 The shared secret takes care of itself locally: `atoms dev` generates one into `.env.local` when it is absent and projects it into the Worker's `.dev.vars` whenever the two differ, so the local Worker and the application always agree without you handling the value.
 
-`--callback-url` tells the local Worker where your application's callback endpoint lives, so `app()` and `dispatch()` work against the local web server; set `callback_url` in `atoms.json` once and `atoms dev` picks it up automatically. `--port` moves the Worker off 8787, and `--no-build` reuses the bundle from the last build. See the [CLI reference](/reference/cli/) for the full option surface.
+`--callback-url` tells the local Worker where your application's callback endpoint lives, so `app()` and `dispatch()` work against the local web server. `--callback-url` wins over everything; without it `atoms dev` uses `ATOMS_CALLBACK_URL` from the environment it was started with, then from `.env.atoms.<env>` beside `atoms.json`, then the selected environment's `callback_url`. Any of them may differ from a committed production callback. `--env` is required and names one of *your* environments — `dev` reads that entry's `debug_endpoints`, and falls back to its `callback_url` only when nothing nearer supplies one, which is why the flag above matters. `--port` moves the Worker off 8787, and `--no-build` reuses the bundle from the last build. See the [CLI reference](/reference/cli/) for the full option surface.
 
 ## Build and deploy
 
@@ -169,6 +169,20 @@ vendor/bin/atoms deploy --env production
 ```
 
 See [Deploy](/guides/deploy/) for credentials, callback configuration, and propagation behavior.
+
+### Through the console
+
+The bundle registers `atoms:deploy`, `atoms:rollback` and `atoms:list`. Each
+shells out to the same `atoms` binary and forwards the arguments after the
+command name, so `bin/console atoms:deploy --env production` and
+`vendor/bin/atoms deploy --env production` resolve identically.
+
+Identically is the deliberate part. `bin/console` runs after your application's
+`.env` has been loaded, and the wrapper hands the child the environment the
+*command* was started with rather than the one the framework built — so a local
+`ATOMS_CALLBACK_URL` in your `.env` is not a deployment input, while one from
+your shell or from CI still is. See [Framework commands read the same
+sources](/guides/configuration/#framework-commands-read-the-same-sources).
 
 ## Shipped behavior
 

@@ -7,18 +7,14 @@
     "php": "8.3",
     "environments": {
         "production": {
-            "endpoint": "https://acme-games.example.workers.dev",
             "worker_name": "acme-games",
-            "account_id": "cf-account-1234"
+            "account_id": "cf-account-1234",
+            "callback_url": "https://acme.example.com"
         },
         "staging": {
-            "endpoint": "https://acme-games-staging.example.workers.dev",
             "worker_name": "acme-games-staging",
-            "account_id": "cf-account-1234"
+            "account_id": "cf-account-1234",
+            "callback_url": "https://staging.acme.example.com"
         }
-    },
-    "callback_url": {
-        "production": "https://acme.example.com",
-        "staging": "https://staging.acme.example.com"
     }
 }
