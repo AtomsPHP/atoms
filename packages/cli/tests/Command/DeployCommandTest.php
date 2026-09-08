@@ -581,4 +581,81 @@ final class DeployCommandTest extends TestCase
         self::assertStringContainsString('ATOMS-E076', $tester->getDisplay());
         self::assertSame([], $wrangler->calls);
     }
+    /**
+     * The per-environment hostnames reach Wrangler as flags, so a Worker
+     * project config shared by every environment cannot decide them.
+     */
+    public function testRoutesAndDomainsAreForwardedAsWranglerFlags(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        $config['environments']['production']['routes'] = ['acme.example.com/*'];
+        $config['environments']['production']['custom_domains'] = ['atoms.example.com'];
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        $deploy = $wrangler->lastCall('deploy');
+        self::assertNotNull($deploy);
+        self::assertSame(['acme.example.com/*'], $deploy['target']->routes);
+        self::assertSame(['atoms.example.com'], $deploy['target']->customDomains);
+        self::assertStringContainsString('Serving:', $tester->getDisplay());
+        self::assertStringContainsString('atoms.example.com', $tester->getDisplay());
+    }
+
+    /**
+     * Warned, not refused. Cloudflare gives a custom domain to whichever
+     * Worker claimed it last and says nothing, so a production hostname left
+     * in the shared Worker config is taken by the next staging deploy — but a
+     * single-environment project that put its domain there is not wrong, and
+     * this command must not start failing for it.
+     */
+    public function testTopLevelRoutingInTheWorkerConfigWarnsWithoutFailing(): void
+    {
+        $dir = $this->workerDir();
+        file_put_contents($dir . '/wrangler.jsonc', json_encode([
+            'name' => 'atoms-worker',
+            'main' => 'src/index.js',
+            'compatibility_date' => '2026-08-01',
+            'routes' => [['pattern' => 'atoms.example.com', 'custom_domain' => true]],
+        ], JSON_THROW_ON_ERROR));
+
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $dir,
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        self::assertNotNull($wrangler->lastCall('deploy'), 'the deploy still happens');
+        $display = $tester->getDisplay();
+        self::assertStringContainsString('declares routes or a custom domain at the top level', $display);
+        self::assertStringContainsString('claimed it last', $display);
+        self::assertStringContainsString('"routes"/"custom_domains"', $display);
+    }
+
+    public function testAWorkerConfigWithoutRoutingSaysNothing(): void
+    {
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertStringNotContainsString('top level', $tester->getDisplay());
+    }
 }

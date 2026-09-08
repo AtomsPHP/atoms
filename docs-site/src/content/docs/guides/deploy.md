@@ -44,6 +44,7 @@ Environment: production
   API token:    (hidden)                            (.env.atoms.production: CLOUDFLARE_API_TOKEN)
   Callback:     https://example.com/atoms/callback  (atoms.json "environments.production.callback_url")
   Debug routes: disabled                            (atoms.json "debug_endpoints")
+  Serving:      atoms.example.com                   (atoms.json "routes"/"custom_domains")
 ```
 
 Read that table when a deployment does something you did not expect. It is the

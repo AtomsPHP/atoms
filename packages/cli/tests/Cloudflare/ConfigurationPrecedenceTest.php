@@ -212,6 +212,81 @@ final class ConfigurationPrecedenceTest extends TestCase
     }
 
     /**
+     * Routes and custom domains are per environment, and reach Wrangler as
+     * flags rather than as config in the Worker project.
+     *
+     * Measured against a real account: deploying one hostname under two Worker
+     * names left a single attachment, pointing at the second — Cloudflare
+     * moves a custom domain to whichever Worker claimed it last, and says
+     * nothing. The Worker project's wrangler config is one file for every
+     * environment, so a hostname declared there is exactly that situation:
+     * production's domain, taken by the next staging deploy.
+     */
+    public function testRoutesAndCustomDomainsAreResolvedPerEnvironment(): void
+    {
+        $config = $this->project([], [
+            'production' => [
+                'routes' => ['acme.example.com/*'],
+                'custom_domains' => ['atoms.example.com'],
+            ],
+            'staging' => ['custom_domains' => ['atoms-staging.example.com']],
+        ]);
+
+        $production = CloudflareTarget::resolve($config, 'production');
+        self::assertSame(['acme.example.com/*'], $production->routes);
+        self::assertSame(['atoms.example.com'], $production->customDomains);
+
+        $staging = CloudflareTarget::resolve($config, 'staging');
+        self::assertSame([], $staging->routes);
+        self::assertSame(['atoms-staging.example.com'], $staging->customDomains);
+
+        // And they are visible before the deploy that would claim them.
+        self::assertContains(
+            ['Serving', 'acme.example.com/*, atoms.example.com', 'atoms.json "routes"/"custom_domains"'],
+            $production->report(),
+        );
+    }
+
+    public function testAnEnvironmentWithNoRoutingIsWorkersDevOnly(): void
+    {
+        $target = CloudflareTarget::resolve($this->project([]), 'production');
+
+        self::assertSame([], $target->routes);
+        self::assertSame([], $target->customDomains);
+        self::assertContains(['Serving', '(workers.dev only)', 'unset'], $target->report());
+    }
+
+    /**
+     * @return iterable<string, array{mixed, string}>
+     */
+    public static function badRoutingProvider(): iterable
+    {
+        yield 'bare string' => ['acme.example.com', 'must be an array of strings'];
+        yield 'object' => [['pattern' => 'x'], 'must be an array of strings'];
+        yield 'non-string entry' => [[123], 'entries must be non-empty strings'];
+        yield 'blank entry' => [['   '], 'entries must be non-empty strings'];
+    }
+
+    /**
+     * Refused rather than coerced: a route quietly dropped for being the wrong
+     * shape is a hostname that silently does not get served.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('badRoutingProvider')]
+    public function testAMalformedRoutesValueIsE070(mixed $value, string $expected): void
+    {
+        $root = $this->freshDir();
+        file_put_contents($root . '/atoms.json', json_encode([
+            'project' => 'acme',
+            'paths' => ['atoms' => 'app/Atoms'],
+            'environments' => ['production' => ['worker_name' => 'acme', 'routes' => $value]],
+        ], JSON_THROW_ON_ERROR));
+
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*environments\.production\.routes/s');
+        $this->expectExceptionMessageMatches('/' . preg_quote($expected, '/') . '/');
+        AtomsJson::load($root . '/atoms.json');
+    }
+
+    /**
      * @param array<string, string> $callbacks   environment => callback_url
      * @param array<string, mixed>  $overrides   merged over the environment blocks
      */

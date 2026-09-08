@@ -69,6 +69,7 @@ Resolved values are trimmed.
 | Account id | — (there is no `--account-id`) | `CLOUDFLARE_ACCOUNT_ID` | `environments.<name>.account_id` |
 | API token | — (deliberately; see §Credentials) | `CLOUDFLARE_API_TOKEN` | — (never in a file) |
 | Worker name | — | — | `environments.<name>.worker_name`, required |
+| Routes, custom domains | — | — | `environments.<name>.routes`, `.custom_domains` |
 | Worker directory | `--worker-dir` | — | — (a convention: `atoms-worker/` beside `atoms.json`) |
 
 ### Which sources participate
@@ -188,6 +189,33 @@ environment's `account_id`. This is identical on `atoms dev` and
 `atoms deploy`; dev merely needs no account to run workerd locally. Neither
 source is required — Wrangler resolves its own account when Atoms supplies
 none, and reports **ATOMS-E075** when it can reach several.
+
+### Routing is per environment, and measured
+
+`routes` and `custom_domains` on each environment are forwarded as
+`wrangler deploy --route` / `--domain`. They are **not** read from the Worker
+project's `wrangler.jsonc`, and must not be written there.
+
+That file is one file for every environment — the CLI selects the Worker with
+`--name` and never passes `-e` — so a hostname declared in it ships with every
+deploy. Cloudflare then attaches a custom domain to whichever Worker claimed it
+last, and reports success on both. Measured on a real account: the same
+hostname deployed under two Worker names left a **single** attachment, pointing
+at the second, with no warning from either deploy. A production hostname in
+that shared file is therefore taken by the next staging deploy, and production
+traffic reaches staging code.
+
+So `atoms deploy` warns when `WorkerConfig::$declaresRouting` finds top-level
+`routes`/`route` there, the scaffold's header says not to put them there, and
+the runtime package test asserts the scaffolded file declares none. It is a
+warning rather than a refusal: a single-environment project that put its domain
+there is not wrong.
+
+Note the permission split, which is separate: attaching a **custom domain**
+works with an ordinary Workers Scripts token, while anything touching zone
+**routes** needs Zone → Workers Routes on the zone. A token without it fails
+the deploy at `/zones/{zone}/workers/routes` with `Authentication error [code:
+10000]` *after* the script has already uploaded.
 
 `worker_name` is mandatory and non-empty for every configured environment; the
 top-level `project` is not a fallback. A legacy `endpoint` key is tolerated and

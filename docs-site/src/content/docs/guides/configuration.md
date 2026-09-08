@@ -129,11 +129,46 @@ Wrangler printed it, and `atoms status` reports Worker version data only.
 never passes Wrangler's own `-e`/`--env`. Wrangler's `env.<name>` sections in
 `wrangler.jsonc` therefore do not apply to anything Atoms deploys.
 
-Put routes, custom domains, logging and runtime settings at the **top level**
+Put logging, placement, limits and other runtime settings at the **top level**
 of `atoms-worker/wrangler.jsonc`. That one file serves every environment,
-which is why per-environment settings such as `debug_endpoints` and
-`callback_url` live in `atoms.json` and are forwarded for the selected
-target.
+which is why per-environment settings such as `debug_endpoints`,
+`callback_url`, `routes` and `custom_domains` live in `atoms.json` and are
+forwarded for the selected target.
+
+### Where each environment is served
+
+`routes` and `custom_domains` name the hostnames an environment's Worker
+answers on. Both are optional; with neither, the Worker is reachable at its
+`workers.dev` URL only.
+
+```jsonc
+"environments": {
+    "production": {
+        "worker_name": "my-app",
+        // Patterns on a zone you already have. `wrangler deploy --route`.
+        "routes": ["my-app.example.com/*"],
+        // Hostnames Cloudflare also creates DNS for. `wrangler deploy --domain`.
+        "custom_domains": ["atoms.example.com"]
+    },
+    "staging": {
+        "worker_name": "my-app-staging",
+        "custom_domains": ["atoms-staging.example.com"]
+    }
+}
+```
+
+:::danger
+**Do not declare routes in `atoms-worker/wrangler.jsonc`.** That file is shared
+by every environment — `atoms deploy` selects the Worker with `--name` and
+never passes Wrangler's `-e` — so a hostname there ships with *every* deploy.
+Cloudflare attaches a custom domain to whichever Worker claimed it last,
+without an error on either deploy: a production hostname in that file is taken
+by your next staging deploy, and production traffic starts reaching staging
+code. `atoms deploy` warns when it finds routing in that file.
+:::
+
+`atoms deploy` prints the hostnames it is about to claim, on the `Serving:`
+row of its resolved-configuration table, before it uploads anything.
 
 ## Configuration mental model
 
@@ -178,6 +213,8 @@ runs, never while a bundle is built.
 | `environments.<name>.account_id` | no | overridden by `CLOUDFLARE_ACCOUNT_ID` from either environment layer; used when that is unset |
 | `environments.<name>.callback_url` | no | overridden by `--callback-url` and by `ATOMS_CALLBACK_URL` from either environment layer; empty, whitespace-only or unset means the file supplies nothing, not that callbacks are unavailable; literal or whole-value `${ENV_VAR}` |
 | `environments.<name>.debug_endpoints` | no | `false` |
+| `environments.<name>.routes` | no | `[]`; route patterns, forwarded as `wrangler deploy --route` |
+| `environments.<name>.custom_domains` | no | `[]`; hostnames, forwarded as `wrangler deploy --domain` |
 
 Structural problems in this file are reported as
 [ATOMS-E070](/reference/errors/#atoms-e070). A legacy `endpoint` key is
@@ -261,6 +298,7 @@ which of the two supplied the value differs, and the deploy output says which.
 | API token | — (a credential in argv is visible to every process) | `CLOUDFLARE_API_TOKEN` | `CLOUDFLARE_API_TOKEN` | — (never in a committed file) |
 | Worker name | — | — | — | `worker_name`, required |
 | Debug endpoints | — | — | — | `debug_endpoints`, default `false` |
+| Routes, custom domains | — | — | — | `routes`, `custom_domains`, default `[]` |
 | Worker directory | `--worker-dir` | — | — | not a key; `atoms-worker/` beside `atoms.json` |
 
 Because silent precedence is easy to be surprised by, `deploy` and `dev` print

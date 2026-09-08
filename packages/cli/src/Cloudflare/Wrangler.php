@@ -18,7 +18,8 @@ interface Wrangler
     /**
      * `wrangler deploy --name {worker}`, with `--var` pairs injected — the
      * same override channel `dev()` uses, so a setting declared once in
-     * atoms.json reaches both. The Worker project directory is the working
+     * atoms.json reaches both — plus the selected environment's `--route` and
+     * `--domain` values. The Worker project directory is the working
      * directory, so its wrangler config and `src/` are what ships.
      *
      * @param array<string, string> $vars

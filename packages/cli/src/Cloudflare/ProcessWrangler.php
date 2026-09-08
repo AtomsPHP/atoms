@@ -33,6 +33,18 @@ final class ProcessWrangler implements Wrangler
             $argv[] = '--var';
             $argv[] = $name . ':' . $value;
         }
+        // Per environment, from atoms.json, for the same reason the vars above
+        // are: the Worker project's wrangler config is one file for every
+        // environment, so a hostname declared there would ride along on every
+        // deploy and land on whichever Worker deployed last.
+        foreach ($target->routes as $route) {
+            $argv[] = '--route';
+            $argv[] = $route;
+        }
+        foreach ($target->customDomains as $domain) {
+            $argv[] = '--domain';
+            $argv[] = $domain;
+        }
 
         return $this->run($target, $argv);
     }

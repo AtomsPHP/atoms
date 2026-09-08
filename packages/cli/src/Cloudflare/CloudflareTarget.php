@@ -89,6 +89,8 @@ final class CloudflareTarget
      * @param string      $workerDir  Absolute path to the Worker project (holds wrangler + src/).
      * @param bool        $debugEndpoints Whether atoms.json enables the Worker's /debug routes for this environment.
      * @param string|null $callbackUrl The monolith's callback endpoint; null when nothing configures one.
+     * @param list<string> $routes Route patterns for this environment, `wrangler deploy --route`.
+     * @param list<string> $customDomains Hostnames for this environment, `wrangler deploy --domain`.
      * @param array<string, string> $sources Where each resolved setting came from, keyed by
      *                                       `worker_name`, `account_id`, `api_token`, `callback_url`;
      *                                       a setting nothing supplied is absent. Labels only —
@@ -102,6 +104,8 @@ final class CloudflareTarget
         public readonly string $workerDir,
         public readonly bool $debugEndpoints = false,
         public readonly ?string $callbackUrl = null,
+        public readonly array $routes = [],
+        public readonly array $customDomains = [],
         public readonly array $sources = [],
     ) {
     }
@@ -207,6 +211,8 @@ final class CloudflareTarget
             workerDir: self::absolute($config->rootDir, $dir),
             debugEndpoints: $env['debug_endpoints'],
             callbackUrl: $callback?->value,
+            routes: $env['routes'],
+            customDomains: $env['custom_domains'],
             sources: $sources,
         );
     }
@@ -231,6 +237,14 @@ final class CloudflareTarget
             $this->sources['api_token'] ?? 'unset'];
         $rows[] = ['Callback', $this->callbackUrl ?? '(none)', $this->sources['callback_url'] ?? 'unset'];
         $rows[] = ['Debug routes', $this->debugEndpoints ? 'enabled' : 'disabled', 'atoms.json "debug_endpoints"'];
+
+        // Where this Worker answers. Worth a row of its own: Cloudflare moves
+        // a custom domain to whichever Worker claimed it last, without
+        // complaint, so "which hostnames is this deploy about to take" is a
+        // question the log should answer before the deploy, not after.
+        $where = [...$this->routes, ...$this->customDomains];
+        $rows[] = ['Serving', $where === [] ? '(workers.dev only)' : implode(', ', $where),
+            $where === [] ? 'unset' : 'atoms.json "routes"/"custom_domains"'];
 
         return $rows;
     }

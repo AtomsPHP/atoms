@@ -35,7 +35,7 @@ straight to your own Wrangler; Atoms never proxies or retains it. In CI, supply
 them to the deploy action as `cloudflare-api-token` / `cloudflare-account-id`:
 a runner has no login session to fall back on.
 
-Every command that takes `--env` requires it — no command defaults to an environment name, because the names are the user's to choose. (`atoms token` takes no `--env`: the bearer comes from ATOMS_SHARED_SECRET alone.) Every configured environment must have a non-empty `worker_name`; the
+Each environment may declare `routes` and `custom_domains`; `atoms deploy` forwards them as `--route`/`--domain`. They must not go in the Worker project's wrangler config, which is shared by every environment: Cloudflare gives a custom domain to whichever Worker claimed it last, silently, so a production hostname there is taken by the next staging deploy. Every command that takes `--env` requires it — no command defaults to an environment name, because the names are the user's to choose. (`atoms token` takes no `--env`: the bearer comes from ATOMS_SHARED_SECRET alone.) Every configured environment must have a non-empty `worker_name`; the
 top-level `project` is not a fallback. A callback, when needed, is declared in
 the selected environment's `callback_url` in `atoms.json`, beside its
 `worker_name`, and resolves the same

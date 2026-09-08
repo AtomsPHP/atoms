@@ -10,8 +10,16 @@
 	// The keys marked RUNTIME-REQUIRED below are what the runtime needs from
 	// this file to load at all. A release that changes one says so in its
 	// changelog rather than changing it behind your back. Everything else —
-	// name, vars, observability, routes, custom domains, placement, limits —
-	// is yours to set.
+	// name, vars, observability, placement, limits — is yours to set.
+	//
+	// ROUTES AND CUSTOM DOMAINS ARE THE EXCEPTION: declare them per
+	// environment in atoms.json ("routes" / "custom_domains"), not here.
+	// This file is shared by every environment you deploy — the CLI selects
+	// the Worker with `--name`, never `-e` — so a hostname here ships with
+	// every deploy, and Cloudflare gives a custom domain to whichever Worker
+	// claimed it last, silently. A production hostname in this file is
+	// therefore taken by your next staging deploy, with no error on either
+	// one. `atoms deploy` warns if it finds routing here.
 	//
 	// (Monorepo note: this is `wrangler.scaffold.jsonc`, which
 	// `scripts/pack-runtime.mjs` ships as the template's `wrangler.jsonc`. The

@@ -8,6 +8,7 @@ use Atoms\Cli\Build\Builder;
 use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
 use Atoms\Cli\Cloudflare\Wrangler;
+use Atoms\Cli\Cloudflare\WorkerConfig;
 use Atoms\Cli\Config\AtomsDotenv;
 use Atoms\Errors\AtomsError;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -89,6 +90,30 @@ final class DeployCommand extends AbstractCommand
             // silent by design; this is what keeps it explicable.
             self::writeResolvedConfiguration($output, $target);
             $output->writeln('');
+
+            // The Worker project's wrangler config is one file for every
+            // environment, and this command selects the Worker with `--name`,
+            // so a hostname declared there ships with every deploy — and
+            // Cloudflare moves a custom domain to whichever Worker claimed it
+            // last, without complaint. A production hostname left in that file
+            // is therefore taken by the next staging deploy, silently. Warned
+            // rather than refused: a single-environment project that put its
+            // domain there is not wrong, and this command must not start
+            // failing for it.
+            $workerConfig = WorkerConfig::fromWorkerDir($target->workerDir);
+            if ($workerConfig->declaresRouting) {
+                $output->writeln('<comment>! ' . ($workerConfig->source ?? 'the Worker config')
+                    . ' declares routes or a custom domain at the top level.</comment>');
+                $output->writeln('<comment>  That file is shared by every environment, so those hostnames ship '
+                    . 'with every deploy, and</comment>');
+                $output->writeln('<comment>  Cloudflare gives a custom domain to whichever Worker claimed it '
+                    . 'last. Deploying one</comment>');
+                $output->writeln('<comment>  environment can take a hostname from another. Move them to '
+                    . '"routes"/"custom_domains"</comment>');
+                $output->writeln('<comment>  on each environment in atoms.json, which this command forwards '
+                    . 'per target.</comment>');
+                $output->writeln('');
+            }
 
             $bundleOpt = self::stringOption($input, 'bundle');
             if ($bundleOpt !== null) {

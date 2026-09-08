@@ -32,7 +32,7 @@ use Atoms\Errors\ErrorCode;
  * `atoms dev`/`atoms deploy` forward it to Wrangler as a `--var` override.
  * Off unless explicitly true.
  *
- * @phpstan-type Environment array{region: string, worker_name: string, account_id: string, debug_endpoints: bool, callback_url: string}
+ * @phpstan-type Environment array{region: string, worker_name: string, account_id: string, debug_endpoints: bool, callback_url: string, routes: list<string>, custom_domains: list<string>}
  */
 final class AtomsJson
 {
@@ -202,6 +202,16 @@ final class AtomsJson
                 // parse clean, and leave the real one with no callback while
                 // the file plainly declares one.
                 'callback_url' => self::optionalString($env, 'callback_url'),
+                // Where this environment's Worker is reachable. Per
+                // environment because `wrangler.jsonc` is one file for every
+                // environment and `atoms deploy` selects the Worker with
+                // `--name`: a hostname declared there travels with every
+                // deploy, and Cloudflare moves a custom domain to the last
+                // Worker that claimed it, silently. Measured, not assumed —
+                // two deploys of the same hostname under different names left
+                // one attachment, pointing at the second.
+                'routes' => self::optionalStringList($env, "environments.{$name}.routes", 'routes'),
+                'custom_domains' => self::optionalStringList($env, "environments.{$name}.custom_domains", 'custom_domains'),
             ];
         }
 
@@ -223,6 +233,36 @@ final class AtomsJson
         }
 
         return $value;
+    }
+
+    /**
+     * A list of non-empty strings, or []. Anything else is refused rather
+     * than coerced: a route silently dropped because it was written as an
+     * object, or a bare string where a list was meant, is a hostname that
+     * quietly does not get served.
+     *
+     * @param array<array-key, mixed> $source
+     * @return list<string>
+     */
+    private static function optionalStringList(array $source, string $label, string $key): array
+    {
+        $value = $source[$key] ?? null;
+        if ($value === null) {
+            return [];
+        }
+        if (!\is_array($value) || array_is_list($value) === false) {
+            throw self::invalid("\"{$label}\" must be an array of strings");
+        }
+
+        $out = [];
+        foreach ($value as $entry) {
+            if (!\is_string($entry) || trim($entry) === '') {
+                throw self::invalid("\"{$label}\" entries must be non-empty strings");
+            }
+            $out[] = trim($entry);
+        }
+
+        return $out;
     }
 
     /**
