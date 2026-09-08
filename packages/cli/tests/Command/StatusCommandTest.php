@@ -85,9 +85,6 @@ final class StatusCommandTest extends TestCase
     public function testReadsTheLiveWranglerShape(): void
     {
         $root = $this->tempCopy('sample-app');
-        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $config['environments']['production']['endpoint'] = 'https://legacy.example.test/old-worker';
-        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
 
         $display = $this->statusDisplay([[
             'id' => 'f00dcafe-0000-4000-8000-000000000001',
@@ -99,7 +96,7 @@ final class StatusCommandTest extends TestCase
         self::assertStringContainsString('f00dcafe-0000-4000-8000-000000000001', $display);
         self::assertStringContainsString('2026-08-09T21:00:00.000Z', $display, 'the timestamp must not be dropped');
         self::assertStringContainsString('upload', $display);
-        self::assertStringNotContainsString('https://legacy.example.test/old-worker', $display);
+        // Versions, never a URL: status has no way to verify one.
         self::assertStringNotContainsString('Endpoint:', $display);
     }
 

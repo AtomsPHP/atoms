@@ -55,7 +55,6 @@ final class InitCommandTest extends TestCase
                 ['worker_name', 'account_id', 'debug_endpoints', 'callback_url'],
                 array_keys($environment),
             );
-            self::assertArrayNotHasKey('endpoint', $environment);
         }
 
         // Second run must refuse rather than overwrite.

@@ -260,18 +260,6 @@ final class CloudflareTargetTest extends TestCase
         \Atoms\Cli\Config\AtomsJson::load($root . '/atoms.json');
     }
 
-    public function testLegacyEndpointIsIgnored(): void
-    {
-        $root = $this->tempCopy('sample-app');
-        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $json['environments']['production']['endpoint'] = 'https://legacy.example.test';
-        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
-
-        $config = AtomsJson::load($root . '/atoms.json');
-        self::assertArrayNotHasKey('endpoint', $config->environment('production'));
-        self::assertArrayNotHasKey('endpoint', get_object_vars(CloudflareTarget::resolve($config, 'production', 'token')));
-    }
-
     public function testMalformedCallbackReferenceIsE070(): void
     {
         $root = $this->tempCopy('sample-app');

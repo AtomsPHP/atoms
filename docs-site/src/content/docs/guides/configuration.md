@@ -118,10 +118,10 @@ environment the command was started with, or failing that from
 Wrangler may still resolve a single reachable account. An ambiguous Wrangler
 login remains an [ATOMS-E075](/reference/errors/#atoms-e075) failure.
 
-`endpoint` is no longer part of the parsed configuration. Older files may keep
-the key; it is tolerated and ignored indefinitely. The CLI never invents
-or reports a Worker URL from it. Wrangler's deploy output is passed through as
-Wrangler printed it, and `atoms status` reports Worker version data only.
+`endpoint` is not part of the configuration. The CLI never reports a Worker
+URL: Wrangler's deploy output is passed through as Wrangler printed it, and
+`atoms status` reports Worker version data only. The deployed Worker's URL is
+the monolith's setting, not a deploy input.
 
 ### These are not Wrangler environments
 
@@ -241,8 +241,7 @@ runs, never while a bundle is built.
 | `environments.<name>.custom_domains` | no | `[]`; hostnames, forwarded as `wrangler deploy --domain` |
 
 Structural problems in this file are reported as
-[ATOMS-E070](/reference/errors/#atoms-e070). A legacy `endpoint` key is
-accepted for migration and ignored.
+[ATOMS-E070](/reference/errors/#atoms-e070).
 
 `debug_endpoints` takes a JSON boolean and nothing else:
 `"debug_endpoints": "false"` is refused rather than read as `true`.
@@ -373,9 +372,8 @@ HTTPS is required except for loopback HTTP.
    reference. It is the committed default for `deploy` and `dev` alike. A
    top-level `callback_url` map is no longer part of the schema and is not
    read.
-2. Remove `endpoint` when convenient. It is tolerated and ignored indefinitely.
-   Put the deployed Worker URL in the monolith's
-   `ATOMS_ENDPOINT` setting instead.
+2. Delete `endpoint`. It is not part of the schema; the deployed Worker URL
+   belongs in the monolith's `ATOMS_ENDPOINT` setting.
 3. Add a non-empty `worker_name` to every environment. The top-level `project`
    is no longer used as a fallback.
 4. Move account selection to the environment's `account_id`, to

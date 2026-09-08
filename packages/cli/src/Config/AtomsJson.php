@@ -18,8 +18,8 @@ use Atoms\Errors\ErrorCode;
  * committed default, and the environment layers override it:
  * `CLOUDFLARE_ACCOUNT_ID` wins over an environment's account_id, and
  * `ATOMS_CALLBACK_URL` wins over its callback_url, on every command. Nothing
- * compares the two sources. Legacy endpoint keys are ignored: Wrangler
- * reports deployed URLs; the monolith configures ATOMS_ENDPOINT. Callback
+ * compares the two sources. No Worker URL is configured here: Wrangler reports
+ * deployed URLs, and the monolith configures ATOMS_ENDPOINT. Callback
  * environment references stay literal during parsing and building.
  *
  * The Worker directory is not a setting: it is a committed part of the

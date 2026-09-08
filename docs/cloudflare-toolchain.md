@@ -286,9 +286,9 @@ Verified as sufficient on a working credential; not proven minimal — no
 subtractive test with a hand-built token was run.
 
 `worker_name` is mandatory and non-empty for every configured environment; the
-top-level `project` is not a fallback. A legacy `endpoint` key is tolerated and
-ignored indefinitely. Wrangler's deploy output is passed through, and status
-reports Worker versions without claiming an unverified URL.
+top-level `project` is not a fallback. Wrangler's deploy output is passed
+through, and status reports Worker versions without claiming an unverified
+URL.
 
 ### Migrating an existing atoms.json
 
@@ -306,8 +306,8 @@ with the file.
 Nothing needs migrating for `.env.atoms.<env>`: it is optional, and a project
 that never adds one resolves exactly as it did before.
 
-Remove `endpoint` from `atoms.json` when convenient; it remains tolerated and
-ignored. Put the Worker URL in the monolith's `ATOMS_ENDPOINT` setting. Add a
+Delete `endpoint` from `atoms.json`: it is no longer part of the schema, and
+the Worker URL belongs in the monolith's `ATOMS_ENDPOINT` setting. Add a
 non-empty `worker_name` to every environment. A file `account_id` and
 `CLOUDFLARE_ACCOUNT_ID` may both be set and differ; the variable wins.
 

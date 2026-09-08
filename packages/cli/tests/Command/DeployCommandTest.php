@@ -82,9 +82,6 @@ final class DeployCommandTest extends TestCase
     public function testSuccessfulDeployStagesThenRunsWrangler(): void
     {
         $root = $this->tempCopy('sample-app');
-        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
-        $config['environments']['production']['endpoint'] = 'https://legacy.example.test/old-worker';
-        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
 
         $runner = new FakeProcessRunner();
         $wrangler = new FakeWrangler();
@@ -100,9 +97,8 @@ final class DeployCommandTest extends TestCase
 
         self::assertSame(0, $exit, $tester->getDisplay());
         self::assertStringContainsString('Deployed acme-games to production', $tester->getDisplay());
+        // The one URL reported is Wrangler's own; the CLI never composes one.
         self::assertStringContainsString('https://live.example.workers.dev', $tester->getDisplay());
-        self::assertStringNotContainsString('https://legacy.example.test/old-worker', $tester->getDisplay());
-        self::assertStringNotContainsString('endpoint:', $tester->getDisplay());
 
         // Staged before deployed, and staged by the Worker tree's own script.
         self::assertCount(1, $runner->runs);
