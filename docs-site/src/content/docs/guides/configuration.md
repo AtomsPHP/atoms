@@ -118,10 +118,10 @@ environment the command was started with, or failing that from
 Wrangler may still resolve a single reachable account. An ambiguous Wrangler
 login remains an [ATOMS-E075](/reference/errors/#atoms-e075) failure.
 
-`endpoint` is not part of the configuration. The CLI never reports a Worker
-URL: Wrangler's deploy output is passed through as Wrangler printed it, and
-`atoms status` reports Worker version data only. The deployed Worker's URL is
-the monolith's setting, not a deploy input.
+The CLI never reports a Worker URL. Wrangler's deploy output is passed
+through as Wrangler printed it, and `atoms status` reports Worker version data
+only. Where the deployed Worker is reachable from your application is the
+monolith's own setting, not a deploy input.
 
 ### These are not Wrangler environments
 
@@ -246,9 +246,6 @@ Structural problems in this file are reported as
 `debug_endpoints` takes a JSON boolean and nothing else:
 `"debug_endpoints": "false"` is refused rather than read as `true`.
 
-There is no `region` key. Cloudflare places a Durable Object itself, so there
-is nothing for an Atoms setting to decide.
-
 ## `.env.atoms.<environment>`
 
 Each deployment target may have one optional file beside `atoms.json`, named
@@ -364,27 +361,6 @@ winning with nothing. Resolved values are trimmed.
 If nothing supplies a callback at all, deploy proceeds with a warning and
 forwards no callback variable. All callback values are validated by the Worker:
 HTTPS is required except for loopback HTTP.
-
-## Migrating older configuration
-
-1. Put each callback URL in its own environment block, as
-   `environments.<name>.callback_url` — a literal or a whole-value `${ENV_VAR}`
-   reference. It is the committed default for `deploy` and `dev` alike. A
-   top-level `callback_url` map is no longer part of the schema and is not
-   read.
-2. Delete `endpoint` and `region`. Neither is part of the schema; the deployed
-   Worker URL belongs in the monolith's `ATOMS_ENDPOINT` setting, and
-   Cloudflare places a Durable Object itself.
-3. Add a non-empty `worker_name` to every environment. The top-level `project`
-   is no longer used as a fallback.
-4. Move account selection to the environment's `account_id`, to
-   `CLOUDFLARE_ACCOUNT_ID`, or to neither. Both may be set and differ; the
-   variable wins.
-5. Deploy scripts that pass `--callback-url`, or that set
-   `ATOMS_CALLBACK_URL`, keep working: both override the file entry, and
-   neither can collide with it.
-6. Nothing needs migrating for `.env.atoms.<name>`. It is optional, and a
-   project that never adds one resolves exactly as it did before.
 
 ## `atoms-composer.json`
 

@@ -290,26 +290,20 @@ top-level `project` is not a fallback. Wrangler's deploy output is passed
 through, and status reports Worker versions without claiming an unverified
 URL.
 
-### Migrating an existing atoms.json
+### Why `callback_url` sits on the environment block
 
-Keep each callback declaration on the environment block it belongs to, as
-`environments.<env>.callback_url`; it is the committed default for every
-command. It used to be a separate top-level map keyed by environment name,
-parsed independently of `environments` and never checked against it — so a
-misspelled key parsed clean and left the real environment with no callback.
-The parallel map is not part of the schema and is not read. An `ATOMS_CALLBACK_URL` from the caller's
-environment overrides that entry on `deploy` as well as `dev`, a
-`.env.atoms.<env>` entry overrides it too, and `--callback-url` overrides all
-three, so deploy scripts that pass either keep working and none can collide
-with the file.
+Each callback declaration lives on the environment it belongs to, as
+`environments.<env>.callback_url`.
 
-Nothing needs migrating for `.env.atoms.<env>`: it is optional, and a project
-that never adds one resolves exactly as it did before.
-
-Delete `endpoint` from `atoms.json`: it is no longer part of the schema, and
-the Worker URL belongs in the monolith's `ATOMS_ENDPOINT` setting. Add a
-non-empty `worker_name` to every environment. A file `account_id` and
-`CLOUDFLARE_ACCOUNT_ID` may both be set and differ; the variable wins.
+The rejected alternative is a separate top-level map keyed by environment
+name, worth recording because it looks tidier and reads fine. It is parsed
+independently of `environments`, and nothing checks the two agree, so
+`"prodction"` parses clean and leaves the real environment with no callback at
+all: `atoms deploy --env production` warns that `app()` and `dispatch()` are
+unavailable and deploys, while the file plainly declares a production
+callback. A setting that differs per environment belongs in the block that
+names the environment, where a typo is an unknown environment
+(**ATOMS-E070**) rather than a silent nothing.
 
 ## 1. Runtime auth: prefixless routes, and the bearer is derived
 
