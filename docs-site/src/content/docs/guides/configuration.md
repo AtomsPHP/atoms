@@ -129,6 +129,13 @@ Wrangler printed it, and `atoms status` reports Worker version data only.
 never passes Wrangler's own `-e`/`--env`. Wrangler's `env.<name>` sections in
 `wrangler.jsonc` therefore do not apply to anything Atoms deploys.
 
+Using them would mean naming every environment twice — once here, once in
+`wrangler.jsonc` — with nothing checking the two agree, and Wrangler's
+non-inheritable keys would force each block to restate the Durable Object
+binding and migrations that `atoms-runtime-cloudflare upgrade` owns. The
+rationale in full is in
+[`docs/cloudflare-toolchain.md`](https://github.com/AtomsPHP/atoms/blob/main/docs/cloudflare-toolchain.md).
+
 Put logging, placement, limits and other runtime settings at the **top level**
 of `atoms-worker/wrangler.jsonc`. That one file serves every environment,
 which is why per-environment settings such as `debug_endpoints`,
@@ -171,7 +178,7 @@ with `--name` and never passes Wrangler's `-e` — so a hostname there ships wit
   another Worker, so it cannot be stolen — but the deploy fails *after the
   script has uploaded*. That environment ends up running new code behind stale
   routing, and the command exits with
-  [ATOMS-E074](/reference/errors/#atoms-e074).
+  [ATOMS-E110](/reference/errors/#atoms-e110), which says so.
 
 `atoms deploy` warns when it finds routing in that file.
 :::
@@ -179,7 +186,8 @@ with `--name` and never passes Wrangler's `-e` — so a hostname there ships wit
 Routes also need more Cloudflare permission than the rest of a deploy: Zone →
 Workers Routes → Edit and Zone → Zone → Read on the zone, on top of the
 account's Workers Scripts → Edit. Without them a route attach fails with
-`Authentication error [code: 10000]`, once again after the script has uploaded.
+`Authentication error [code: 10000]`, once again after the script has uploaded
+— also [ATOMS-E110](/reference/errors/#atoms-e110).
 Custom domains need no zone grant. See [Authenticate with
 Cloudflare](/guides/deploy/#authenticate-with-cloudflare).
 

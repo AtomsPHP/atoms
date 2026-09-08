@@ -259,3 +259,4 @@ locally; the CLI does not read it from `atoms.json`.
 | `ATOMS-E105` | Shared secret missing or malformed | The `shared-secret` input is not 32 bytes of base64. Regenerate with `openssl rand -base64 32`. |
 | `ATOMS-E076` | Worker directory missing or incomplete | Commit the Worker directory (§The Worker directory), or point `worker-directory` at where it lives. |
 | `ATOMS-E108` | Worker directory does not match the CLI release | The Atoms packages moved without the Worker directory. Run the `atoms-runtime-cloudflare upgrade` command the error prints, review, `npm ci`, commit. |
+| `ATOMS-E110` | The script uploaded, but its routing did not attach | The environment is live on new code behind its old routing. Either the `routes` pattern belongs to another Worker (Cloudflare refuses it rather than moving it), or the token lacks **Zone → Workers Routes:Edit** and **Zone → Zone:Read** on that zone. Fix and re-run; the deploy is safe to repeat. |

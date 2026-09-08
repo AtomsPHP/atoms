@@ -190,6 +190,42 @@ environment's `account_id`. This is identical on `atoms dev` and
 source is required — Wrangler resolves its own account when Atoms supplies
 none, and reports **ATOMS-E075** when it can reach several.
 
+### Why `--name` and not Wrangler's `-e`
+
+Wrangler has its own environments: `env.<name>` blocks in `wrangler.jsonc`,
+selected with `-e`. Atoms does not use them. Every deploy is
+`wrangler deploy --name <worker_name>`, with the name taken from the selected
+`atoms.json` environment, and `-e` is never passed.
+
+The rejected alternative is the obvious one: let `atoms.json` name a Wrangler
+environment and hand `-e` through. It was rejected on three counts.
+
+**Environment names would live in two files, keyed identically.** Adding
+`staging` would mean adding it to `atoms.json` *and* to `wrangler.jsonc`, with
+nothing checking the two agree — the same drift shape the top-level
+`callback_url` map had, where a misspelled key parsed clean. Here it is worse:
+a typo would not deploy nothing, it would deploy the wrong Worker.
+
+**Wrangler's non-inheritable keys make each block a copy of the whole
+config.** Bindings — `vars`, `durable_objects`, `kv_namespaces` — are not
+inherited by an environment, and if any one non-inheritable key is set on an
+environment then all of them must be. Atoms sets `vars` per deploy, so every
+`env.<name>` block would have to restate the `ATOMS` Durable Object binding
+and the `migrations` list. Those are exactly the runtime-owned keys
+`atoms-runtime-cloudflare upgrade` maintains, and they would become
+per-environment copies a customer edits by hand.
+
+**Worker naming would go derived or duplicated.** Under `-e`, an unqualified
+`name` becomes `<name>-<environment>` unless each block restates `name` — so
+either the Worker name stops being the value in `atoms.json`, or it is written
+twice.
+
+Against that, `-e` would have bought per-environment routing. `routes` and
+`custom_domains` on each `atoms.json` environment now buy it directly, without
+a second keyspace. Isolation was never at stake: a distinct `--name` is a
+distinct Worker, hence a distinct Durable Object namespace and distinct Atom
+storage, whether or not Wrangler has a word for it.
+
 ### Routing is per environment, and measured
 
 `routes` and `custom_domains` on each environment are forwarded as
@@ -212,9 +248,16 @@ assigned elsewhere — Wrangler pre-flights it (`Can't deploy routes that are
 assigned to another worker`) and the API refuses a direct write too (`10020: A
 route with the same pattern already exists`). So the second environment cannot
 steal the pattern. What it *does* do is fail the deploy **after uploading the
-script**: `Uploaded …` prints before the error, and the command exits non-zero
-as **ATOMS-E074**. That environment ends up running new code behind stale
-routing. Redeploying the Worker that already owns a pattern is idempotent, and
+script**: `Uploaded …` prints before the error, and the command exits
+non-zero. That environment ends up running new code behind stale routing —
+which is why `WranglerResult::routingFailure()` recognises this and the
+permission failure below, and raises **ATOMS-E110**, whose message says the
+script uploaded, rather than the generic **ATOMS-E074** that says only that the
+command failed. The recognizer is deliberately narrow: a phrase must match
+*and* Wrangler must have printed an upload marker, or it degrades to E074
+rather than claim an upload it cannot see.
+
+Redeploying the Worker that already owns a pattern is idempotent, and
 the record is not immutable — an explicit `PUT` to the route moves it — it is
 only uncapturable *by a deploy*.
 
@@ -230,7 +273,8 @@ Separate from the above, and worth stating because the failure is confusing.
 Attaching a **custom domain** works with an ordinary account-scoped Workers
 Scripts token. Anything touching a zone **route** does not: without the zone
 grant the deploy fails at `/zones/{zone}/workers/routes` with `Authentication
-error [code: 10000]`, again *after* the script has uploaded.
+error [code: 10000]`, again *after* the script has uploaded — so it reports
+**ATOMS-E110** too, and that code's fix line names these two grants.
 
 | Permission | Needed for |
 |---|---|
@@ -1059,7 +1103,8 @@ atoms deploy --env production
    passed through unedited.
 8. Non-zero exit ⇒ **ATOMS-E074**, with Wrangler's diagnosis already printed;
    or **ATOMS-E072** when that diagnosis is that it had no credentials at all,
-   or **ATOMS-E075** when it could not choose between several accounts.
+   **ATOMS-E075** when it could not choose between several accounts, or
+   **ATOMS-E110** when the script uploaded and only the routing failed.
 
 Nothing in this sequence contacts a service operated by Atoms.
 

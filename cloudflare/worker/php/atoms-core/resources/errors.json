@@ -520,6 +520,14 @@
             "fix": "`.env.atoms.<environment>` beside atoms.json is optional, and is read only for the environment you named. Fix the reported line, or delete the file to resolve from the caller's environment and atoms.json alone. Each line is KEY=value (an `export ` prefix is allowed); values may be bare, 'single-quoted' or \"double-quoted\"; there is no interpolation and no multi-line value.",
             "severity": "error",
             "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E110",
+            "title": "Worker uploaded, routing not attached",
+            "message": "`wrangler {command}` uploaded the script, but Cloudflare refused the routing this environment declares; the Worker is now serving the new bundle on its previous routes.",
+            "fix": "Wrangler's output above names which routing failed. A pattern already assigned to another Worker is refused, not taken over (API code 10020) \u2014 remove it there, or give this environment its own pattern under atoms.json \"environments\".\"<environment>\".\"routes\". An authentication error on /workers/routes means the credential can upload but not route: add Zone \u2192 Workers Routes:Edit and Zone \u2192 Zone:Read on the pattern's zone (custom_domains needs neither). Fixing either and re-running the deploy is safe.",
+            "severity": "error",
+            "phase": "cli"
         }
     ]
 }

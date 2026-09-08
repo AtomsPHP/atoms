@@ -78,4 +78,5 @@ enum ErrorCode: string
     case FastBuildWithDependencies = 'ATOMS-E107';
     case WorkerRuntimeVersionMismatch = 'ATOMS-E108';
     case AtomsEnvFileInvalid = 'ATOMS-E109';
+    case RoutingNotAttached = 'ATOMS-E110';
 }

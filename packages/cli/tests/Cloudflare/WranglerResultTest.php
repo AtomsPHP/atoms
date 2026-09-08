@@ -116,6 +116,72 @@ final class WranglerResultTest extends TestCase
         self::assertStringContainsString('ATOMS-E074', $this->errorFrom($result)->getMessage());
     }
 
+    /**
+     * Measured against a real Cloudflare account: a pattern already assigned
+     * to another Worker is refused, and the refusal lands *after* the upload.
+     */
+    public function testARouteAlreadyAssignedElsewhereIsE110(): void
+    {
+        $result = $this->failure(
+            "✘ [ERROR] Can't deploy routes that are assigned to another worker.\n"
+            . "  \"acme-staging\" is already assigned to routes:\n"
+            . "    - acme.example.com/*\n",
+            "Total Upload: 412.03 KiB / gzip: 98.11 KiB\nUploaded acme-production (7.15 sec)\n",
+        );
+
+        self::assertTrue($result->routingFailure());
+
+        $error = $this->errorFrom($result);
+        self::assertSame(ErrorCode::RoutingNotAttached, $error->errorCode);
+        self::assertStringContainsString('ATOMS-E110', $error->getMessage());
+        // The half-applied state is the entire reason this is not E074: the
+        // bundle is live, the routing it was meant to arrive on is not.
+        self::assertStringContainsString('uploaded the script', $error->getMessage());
+        self::assertStringContainsString('previous routes', $error->getMessage());
+        // And both measured causes are named in the fix line.
+        self::assertStringContainsString('10020', $error->getMessage());
+        self::assertStringContainsString('Workers Routes:Edit', $error->getMessage());
+    }
+
+    public function testACredentialThatCanUploadButNotRouteIsE110(): void
+    {
+        // Workers Scripts:Edit without Zone -> Workers Routes:Edit. The script
+        // uploads; the route call is the one that 10000s.
+        $result = $this->failure(
+            "✘ [ERROR] A request to the Cloudflare API (/zones/abc123/workers/routes) failed.\n"
+            . "  Authentication error [code: 10000]\n",
+            "Uploaded acme-production (4.02 sec)\n",
+        );
+
+        self::assertTrue($result->routingFailure());
+        self::assertSame(ErrorCode::RoutingNotAttached, $this->errorFrom($result)->errorCode);
+    }
+
+    public function testARoutingFailureBeforeAnyUploadStaysE074(): void
+    {
+        // The narrowing that keeps E110 honest. Without Wrangler's own upload
+        // marker there is no evidence the script shipped, and E110's message
+        // asserts that it did — so this degrades to the generic code rather
+        // than telling the reader something unverified.
+        $result = $this->failure(
+            "✘ [ERROR] Can't deploy routes that are assigned to another worker.\n"
+        );
+
+        self::assertFalse($result->routingFailure());
+        self::assertSame(ErrorCode::WranglerFailed, $this->errorFrom($result)->errorCode);
+    }
+
+    public function testAnUploadedDeployThatFailedForSomeOtherReasonStaysE074(): void
+    {
+        $result = $this->failure(
+            "✘ [ERROR] A request to the Cloudflare API failed.\n  workers.api.error [code: 10021]\n",
+            "Uploaded acme-production (3.55 sec)\n",
+        );
+
+        self::assertFalse($result->routingFailure());
+        self::assertSame(ErrorCode::WranglerFailed, $this->errorFrom($result)->errorCode);
+    }
+
     private function failure(string $stderr, string $stdout = ''): WranglerResult
     {
         return new WranglerResult(['wrangler', 'deploy', '--name', 'acme'], 1, $stdout, $stderr);
