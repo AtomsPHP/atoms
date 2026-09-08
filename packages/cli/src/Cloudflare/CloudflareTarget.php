@@ -238,9 +238,10 @@ final class CloudflareTarget
         $rows[] = ['Callback', $this->callbackUrl ?? '(none)', $this->sources['callback_url'] ?? 'unset'];
         $rows[] = ['Debug routes', $this->debugEndpoints ? 'enabled' : 'disabled', 'atoms.json "debug_endpoints"'];
 
-        // Where this Worker answers. Worth a row of its own: Cloudflare moves
-        // a custom domain to whichever Worker claimed it last, without
-        // complaint, so "which hostnames is this deploy about to take" is a
+        // Where this Worker answers. Worth a row of its own: a custom domain
+        // moves to whichever Worker claimed it last without complaint, and a
+        // route collision fails the deploy only after the script has
+        // uploaded — so "which hostnames is this deploy about to claim" is a
         // question the log should answer before the deploy, not after.
         $where = [...$this->routes, ...$this->customDomains];
         $rows[] = ['Serving', $where === [] ? '(workers.dev only)' : implode(', ', $where),

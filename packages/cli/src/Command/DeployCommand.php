@@ -93,25 +93,34 @@ final class DeployCommand extends AbstractCommand
 
             // The Worker project's wrangler config is one file for every
             // environment, and this command selects the Worker with `--name`,
-            // so a hostname declared there ships with every deploy — and
-            // Cloudflare moves a custom domain to whichever Worker claimed it
-            // last, without complaint. A production hostname left in that file
-            // is therefore taken by the next staging deploy, silently. Warned
-            // rather than refused: a single-environment project that put its
-            // domain there is not wrong, and this command must not start
-            // failing for it.
+            // so a hostname declared there ships with every deploy. The two
+            // kinds then fail differently, both measured against a real
+            // account:
+            //
+            //   custom domain — Cloudflare hands it to whichever Worker
+            //     claimed it last. Both deploys report success; the hostname
+            //     just moves.
+            //   route — Cloudflare refuses it (API 10020) and the deploy
+            //     fails. But the script has already uploaded by then, so the
+            //     environment gets the new code without the routing.
+            //
+            // Warned rather than refused: a single-environment project that
+            // put its hostname there is not wrong, and this command must not
+            // start failing for it.
             $workerConfig = WorkerConfig::fromWorkerDir($target->workerDir);
             if ($workerConfig->declaresRouting) {
                 $output->writeln('<comment>! ' . ($workerConfig->source ?? 'the Worker config')
                     . ' declares routes or a custom domain at the top level.</comment>');
                 $output->writeln('<comment>  That file is shared by every environment, so those hostnames ship '
-                    . 'with every deploy, and</comment>');
-                $output->writeln('<comment>  Cloudflare gives a custom domain to whichever Worker claimed it '
-                    . 'last. Deploying one</comment>');
-                $output->writeln('<comment>  environment can take a hostname from another. Move them to '
-                    . '"routes"/"custom_domains"</comment>');
-                $output->writeln('<comment>  on each environment in atoms.json, which this command forwards '
-                    . 'per target.</comment>');
+                    . 'with every deploy.</comment>');
+                $output->writeln('<comment>  A custom domain then moves to whichever environment deployed last, '
+                    . 'with no error.</comment>');
+                $output->writeln('<comment>  A route is refused instead, and the deploy fails after the script '
+                    . 'has uploaded —</comment>');
+                $output->writeln('<comment>  new code live, routing not. Move them to '
+                    . '"routes"/"custom_domains" on each</comment>');
+                $output->writeln('<comment>  environment in atoms.json, which this command forwards per '
+                    . 'target.</comment>');
                 $output->writeln('');
             }
 

@@ -206,10 +206,10 @@ final class AtomsJson
                 // environment because `wrangler.jsonc` is one file for every
                 // environment and `atoms deploy` selects the Worker with
                 // `--name`: a hostname declared there travels with every
-                // deploy, and Cloudflare moves a custom domain to the last
-                // Worker that claimed it, silently. Measured, not assumed —
-                // two deploys of the same hostname under different names left
-                // one attachment, pointing at the second.
+                // deploy. Measured, not assumed — a shared custom domain moves
+                // to the last Worker that claimed it with no error at all, and
+                // a shared route is refused outright, failing the deploy after
+                // the script has already uploaded.
                 'routes' => self::optionalStringList($env, "environments.{$name}.routes", 'routes'),
                 'custom_domains' => self::optionalStringList($env, "environments.{$name}.custom_domains", 'custom_domains'),
             ];

@@ -612,10 +612,15 @@ final class DeployCommandTest extends TestCase
     }
 
     /**
-     * Warned, not refused. Cloudflare gives a custom domain to whichever
-     * Worker claimed it last and says nothing, so a production hostname left
-     * in the shared Worker config is taken by the next staging deploy — but a
-     * single-environment project that put its domain there is not wrong, and
+     * Warned, not refused.
+     *
+     * Both kinds go wrong when the shared Worker config declares them, and
+     * they go wrong differently — measured against a real account. A custom
+     * domain moves to whichever Worker claimed it last, with no error on
+     * either deploy. A route is refused (`10020`) and the deploy fails, but
+     * only after the script has uploaded, so that environment ends up running
+     * new code with stale routing. The warning has to say both; a
+     * single-environment project that put its hostname there is not wrong, and
      * this command must not start failing for it.
      */
     public function testTopLevelRoutingInTheWorkerConfigWarnsWithoutFailing(): void
@@ -641,7 +646,10 @@ final class DeployCommandTest extends TestCase
         self::assertNotNull($wrangler->lastCall('deploy'), 'the deploy still happens');
         $display = $tester->getDisplay();
         self::assertStringContainsString('declares routes or a custom domain at the top level', $display);
-        self::assertStringContainsString('claimed it last', $display);
+        // Both consequences, stated separately — they are not the same failure.
+        self::assertStringContainsString('moves to whichever environment deployed last', $display);
+        self::assertStringContainsString('refused', $display);
+        self::assertStringContainsString('after the script has uploaded', $display);
         self::assertStringContainsString('"routes"/"custom_domains"', $display);
     }
 

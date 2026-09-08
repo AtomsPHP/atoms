@@ -16,10 +16,14 @@
 	// environment in atoms.json ("routes" / "custom_domains"), not here.
 	// This file is shared by every environment you deploy — the CLI selects
 	// the Worker with `--name`, never `-e` — so a hostname here ships with
-	// every deploy, and Cloudflare gives a custom domain to whichever Worker
-	// claimed it last, silently. A production hostname in this file is
-	// therefore taken by your next staging deploy, with no error on either
-	// one. `atoms deploy` warns if it finds routing here.
+	// every deploy, and neither kind survives that:
+	//
+	//   a custom domain moves to whichever environment deployed last, with
+	//     no error on either deploy;
+	//   a route is refused, and that deploy fails *after* uploading the
+	//     script — so the environment ends up with new code and no routing.
+	//
+	// `atoms deploy` warns if it finds routing here.
 	//
 	// (Monorepo note: this is `wrangler.scaffold.jsonc`, which
 	// `scripts/pack-runtime.mjs` ships as the template's `wrangler.jsonc`. The

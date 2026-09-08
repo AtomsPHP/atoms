@@ -158,14 +158,30 @@ answers on. Both are optional; with neither, the Worker is reachable at its
 ```
 
 :::danger
-**Do not declare routes in `atoms-worker/wrangler.jsonc`.** That file is shared
-by every environment — `atoms deploy` selects the Worker with `--name` and
-never passes Wrangler's `-e` — so a hostname there ships with *every* deploy.
-Cloudflare attaches a custom domain to whichever Worker claimed it last,
-without an error on either deploy: a production hostname in that file is taken
-by your next staging deploy, and production traffic starts reaching staging
-code. `atoms deploy` warns when it finds routing in that file.
+**Do not declare routes or custom domains in `atoms-worker/wrangler.jsonc`.**
+That file is shared by every environment — `atoms deploy` selects the Worker
+with `--name` and never passes Wrangler's `-e` — so a hostname there ships with
+*every* deploy. Both kinds break, differently:
+
+- **A custom domain moves.** Cloudflare hands it to whichever Worker deployed
+  last, with no error on either deploy. Your production hostname ends up on the
+  staging Worker, and production traffic reaches staging code with nothing to
+  see.
+- **A route is refused.** Cloudflare rejects a pattern already assigned to
+  another Worker, so it cannot be stolen — but the deploy fails *after the
+  script has uploaded*. That environment ends up running new code behind stale
+  routing, and the command exits with
+  [ATOMS-E074](/reference/errors/#atoms-e074).
+
+`atoms deploy` warns when it finds routing in that file.
 :::
+
+Routes also need more Cloudflare permission than the rest of a deploy: Zone →
+Workers Routes → Edit and Zone → Zone → Read on the zone, on top of the
+account's Workers Scripts → Edit. Without them a route attach fails with
+`Authentication error [code: 10000]`, once again after the script has uploaded.
+Custom domains need no zone grant. See [Authenticate with
+Cloudflare](/guides/deploy/#authenticate-with-cloudflare).
 
 `atoms deploy` prints the hostnames it is about to claim, on the `Serving:`
 row of its resolved-configuration table, before it uploads anything.

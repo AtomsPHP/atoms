@@ -256,11 +256,17 @@ final class WorkerConfig
      *
      * That file is shared by every environment, and `atoms deploy` selects the
      * Worker with `--name`, so a hostname declared there travels with every
-     * deploy. Cloudflare attaches a custom domain to whichever Worker claimed
-     * it last, without complaint — measured: two deploys of one hostname under
-     * two names left a single attachment, pointing at the second. So a
-     * production hostname declared here is taken by the next staging deploy,
-     * silently. `atoms deploy` warns when this is true; the per-environment
+     * deploy. Both kinds then go wrong, differently, and both were measured
+     * against a real account:
+     *
+     * - A **custom domain** is handed to whichever Worker claimed it last. Two
+     *   deploys of one hostname under two names left a single attachment,
+     *   pointing at the second; both reported success.
+     * - A **route** is refused (`10020: A route with the same pattern already
+     *   exists`) and the deploy fails — after the script has uploaded, so that
+     *   environment gets new code with stale routing.
+     *
+     * `atoms deploy` warns when this is true; the per-environment
      * `routes`/`custom_domains` in atoms.json are the supported channel.
      */
     private static function jsoncDeclaresRouting(string $raw): bool

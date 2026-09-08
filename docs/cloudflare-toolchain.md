@@ -198,24 +198,48 @@ project's `wrangler.jsonc`, and must not be written there.
 
 That file is one file for every environment — the CLI selects the Worker with
 `--name` and never passes `-e` — so a hostname declared in it ships with every
-deploy. Cloudflare then attaches a custom domain to whichever Worker claimed it
-last, and reports success on both. Measured on a real account: the same
-hostname deployed under two Worker names left a **single** attachment, pointing
-at the second, with no warning from either deploy. A production hostname in
-that shared file is therefore taken by the next staging deploy, and production
-traffic reaches staging code.
+deploy. **The two kinds then fail differently**, and both were measured against
+a real account rather than reasoned about.
+
+**A custom domain is taken, silently.** The same hostname deployed under two
+Worker names left a **single** attachment, pointing at the second. Both deploys
+printed `(custom domain)`; neither errored. A production domain in the shared
+file is therefore claimed by the next staging deploy, and production traffic
+reaches staging code with nothing to see.
+
+**A route is refused, loudly, but late.** Cloudflare rejects a pattern already
+assigned elsewhere — Wrangler pre-flights it (`Can't deploy routes that are
+assigned to another worker`) and the API refuses a direct write too (`10020: A
+route with the same pattern already exists`). So the second environment cannot
+steal the pattern. What it *does* do is fail the deploy **after uploading the
+script**: `Uploaded …` prints before the error, and the command exits non-zero
+as **ATOMS-E074**. That environment ends up running new code behind stale
+routing. Redeploying the Worker that already owns a pattern is idempotent, and
+the record is not immutable — an explicit `PUT` to the route moves it — it is
+only uncapturable *by a deploy*.
 
 So `atoms deploy` warns when `WorkerConfig::$declaresRouting` finds top-level
 `routes`/`route` there, the scaffold's header says not to put them there, and
 the runtime package test asserts the scaffolded file declares none. It is a
-warning rather than a refusal: a single-environment project that put its domain
-there is not wrong.
+warning rather than a refusal: a single-environment project that put its
+hostname there is not wrong.
 
-Note the permission split, which is separate: attaching a **custom domain**
-works with an ordinary Workers Scripts token, while anything touching zone
-**routes** needs Zone → Workers Routes on the zone. A token without it fails
-the deploy at `/zones/{zone}/workers/routes` with `Authentication error [code:
-10000]` *after* the script has already uploaded.
+### The permissions routing needs
+
+Separate from the above, and worth stating because the failure is confusing.
+Attaching a **custom domain** works with an ordinary account-scoped Workers
+Scripts token. Anything touching a zone **route** does not: without the zone
+grant the deploy fails at `/zones/{zone}/workers/routes` with `Authentication
+error [code: 10000]`, again *after* the script has uploaded.
+
+| Permission | Needed for |
+|---|---|
+| Account → Workers Scripts → Edit | uploading the script at all |
+| Zone → Workers Routes → Edit | attaching or detaching a `routes` pattern |
+| Zone → Zone → Read | resolving which zone a pattern belongs to |
+
+Verified as sufficient on a working credential; not proven minimal — no
+subtractive test with a hand-built token was run.
 
 `worker_name` is mandatory and non-empty for every configured environment; the
 top-level `project` is not a fallback. A legacy `endpoint` key is tolerated and
