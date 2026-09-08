@@ -246,8 +246,8 @@ Structural problems in this file are reported as
 `debug_endpoints` takes a JSON boolean and nothing else:
 `"debug_endpoints": "false"` is refused rather than read as `true`.
 
-`environments.<name>.region` is accepted so older files still load, and is
-ignored — Cloudflare places a Durable Object itself.
+There is no `region` key. Cloudflare places a Durable Object itself, so there
+is nothing for an Atoms setting to decide.
 
 ## `.env.atoms.<environment>`
 
@@ -372,8 +372,9 @@ HTTPS is required except for loopback HTTP.
    reference. It is the committed default for `deploy` and `dev` alike. A
    top-level `callback_url` map is no longer part of the schema and is not
    read.
-2. Delete `endpoint`. It is not part of the schema; the deployed Worker URL
-   belongs in the monolith's `ATOMS_ENDPOINT` setting.
+2. Delete `endpoint` and `region`. Neither is part of the schema; the deployed
+   Worker URL belongs in the monolith's `ATOMS_ENDPOINT` setting, and
+   Cloudflare places a Durable Object itself.
 3. Add a non-empty `worker_name` to every environment. The top-level `project`
    is no longer used as a fallback.
 4. Move account selection to the environment's `account_id`, to

@@ -32,7 +32,7 @@ use Atoms\Errors\ErrorCode;
  * `atoms dev`/`atoms deploy` forward it to Wrangler as a `--var` override.
  * Off unless explicitly true.
  *
- * @phpstan-type Environment array{region: string, worker_name: string, account_id: string, debug_endpoints: bool, callback_url: string, routes: list<string>, custom_domains: list<string>}
+ * @phpstan-type Environment array{worker_name: string, account_id: string, debug_endpoints: bool, callback_url: string, routes: list<string>, custom_domains: list<string>}
  */
 final class AtomsJson
 {
@@ -190,9 +190,6 @@ final class AtomsJson
                 throw self::invalid('each environment must be an object keyed by name');
             }
             $out[$name] = [
-                // Vestigial: Cloudflare places a Durable Object itself. Still
-                // parsed so an older atoms.json loads, and ignored everywhere.
-                'region' => self::optionalString($env, 'region'),
                 'worker_name' => self::requireString($env, "environments.{$name}.worker_name", 'worker_name'),
                 'account_id' => self::optionalString($env, 'account_id'),
                 'debug_endpoints' => self::optionalBool($env, "environment '{$name}'", 'debug_endpoints'),
