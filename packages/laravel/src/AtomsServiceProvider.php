@@ -153,7 +153,6 @@ final class AtomsServiceProvider extends ServiceProvider
                 'timeout' => $config['timeout'] ?? 10.0,
                 'maxAttempts' => $config['max_attempts'] ?? 3,
                 'manifestPath' => is_string($manifestPath) ? $this->resolvePath($manifestPath) : null,
-                'environment' => $config['environment'] ?? 'production',
                 'wsTicketTtlMs' => $config['ws_ticket_ttl_ms'] ?? 60000,
             ]);
         });

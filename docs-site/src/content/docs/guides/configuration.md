@@ -21,9 +21,8 @@ the repository.
 
 How your application calls a deployed Worker is configured in the application
 itself, not in `atoms.json`. Set `ATOMS_ENDPOINT` in the monolith to the
-Worker's URL. `ATOMS_ENVIRONMENT` is an application-side label for logging and
-does not select the CLI environment or override any Worker setting. See
-[Laravel](/getting-started/laravel/) or [Symfony](/getting-started/symfony/).
+Worker's URL. See [Laravel](/getting-started/laravel/) or
+[Symfony](/getting-started/symfony/).
 
 ## Environments
 
@@ -212,7 +211,7 @@ its Worker project.
 | `atoms status` / `rollback` / secrets | Before invoking Wrangler | Selected `worker_name`, and the account id and API token in the same precedence order as `deploy` | They resolve no callback URL, and status does not claim an endpoint URL |
 | Wrangler | `dev` or deploy invocation | Its own Worker project, command-line vars, credentials, and config | It does not choose the Atoms environment |
 | Deployed Worker | Request and callback handling | Deployed vars/secrets, including `ATOMS_CALLBACK_URL`, and the bundle manifest | It does not read `atoms.json` or the monolith's environment |
-| Laravel, Symfony, or plain PHP | Application startup and callback requests | `ATOMS_ENDPOINT`, shared secret, `ATOMS_ENVIRONMENT` for logging, and the callback route | It does not read `atoms.json` to choose its Worker |
+| Laravel, Symfony, or plain PHP | Application startup and callback requests | `ATOMS_ENDPOINT`, shared secret, and the callback route | It does not read `atoms.json` to choose its Worker |
 
 The lifecycle is therefore: write the project file, build the manifest
 artifact while validating every environment's shape, select one environment

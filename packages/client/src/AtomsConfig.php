@@ -38,7 +38,6 @@ final class AtomsConfig
      * @param string|null $sharedSecretPrevious   ATOMS_SHARED_SECRET_PREVIOUS: the rotation overlap secret — see below.
      * @param int         $callbackTimestampWindow Allowed |now - timestamp| skew for callbacks, seconds.
      * @param string|null $manifestPath           Path to a local manifest.json, or null when none is bundled.
-     * @param string      $environment            Environment name (e.g. production, staging) for logging/telemetry.
      * @param int         $wsTicketTtlMs          Lifetime stamped into a WebSocket ticket's `exp`, milliseconds — see below.
      *
      * $sharedSecret is the single root of the app ↔ Worker boundary
@@ -77,7 +76,6 @@ final class AtomsConfig
         public readonly ?string $sharedSecretPrevious = null,
         public readonly int $callbackTimestampWindow = 300,
         public readonly ?string $manifestPath = null,
-        public readonly string $environment = 'production',
         public readonly int $wsTicketTtlMs = 60000,
     ) {
         KeyDerivation::decodeSecret($sharedSecret);
@@ -113,7 +111,6 @@ final class AtomsConfig
             sharedSecretPrevious: self::nullableString($data['sharedSecretPrevious'] ?? $data['shared_secret_previous'] ?? null),
             callbackTimestampWindow: (int) ($data['callbackTimestampWindow'] ?? $data['callback_timestamp_window'] ?? 300),
             manifestPath: self::nullableString($data['manifestPath'] ?? $data['manifest_path'] ?? null),
-            environment: (string) ($data['environment'] ?? 'production'),
             wsTicketTtlMs: (int) ($data['wsTicketTtlMs'] ?? $data['ws_ticket_ttl_ms'] ?? 60000),
         );
     }

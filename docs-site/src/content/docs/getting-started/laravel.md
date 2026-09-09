@@ -17,13 +17,10 @@ Set your deployed Worker endpoint:
 
 ```dotenv
 ATOMS_ENDPOINT=https://your-atoms-worker.example.workers.dev
-ATOMS_ENVIRONMENT=production
 ATOMS_SHARED_SECRET=base64-of-32-random-bytes
 ```
 
 `ATOMS_ENDPOINT` is the application-side URL for ordinary Atom RPC.
-`ATOMS_ENVIRONMENT` labels the application environment in logs; it does not
-select the CLI environment in `atoms.json`.
 
 `ATOMS_SHARED_SECRET` is required and must be identical on this application and the Worker. Set it on the Worker with `vendor/bin/atoms shared-secret:set`, not with `atoms:install` or `secrets:set`. See [Secrets and authentication](/guides/secrets/) for generating it, what it authenticates, and how to rotate it.
 
@@ -110,7 +107,6 @@ Point the application at the local Worker while it runs:
 
 ```dotenv
 ATOMS_ENDPOINT=http://127.0.0.1:8787
-ATOMS_ENVIRONMENT=staging
 ```
 
 The shared secret takes care of itself locally: `atoms dev` generates one into `.env` when it is absent and projects it into the Worker's `.dev.vars` whenever the two differ, so the local Worker and the application always agree without you handling the value.

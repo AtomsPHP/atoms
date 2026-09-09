@@ -48,7 +48,6 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
  * layering is wrong — fix the layering, not this file (docs/conventions.md).
  *
  * @phpstan-type AtomsBundleConfig array{
- *     environment: string,
  *     endpoint: string,
  *     shared_secret: string,
  *     shared_secret_previous: string|null,
@@ -88,7 +87,6 @@ final class AtomsBundle extends AbstractBundle
     {
         $definition->rootNode()
             ->children()
-                ->scalarNode('environment')->defaultValue('production')->end()
                 ->scalarNode('endpoint')
                     ->isRequired()
                     ->cannotBeEmpty()
@@ -160,7 +158,6 @@ final class AtomsBundle extends AbstractBundle
                 'sharedSecretPrevious' => $config['shared_secret_previous'],
                 'timeout' => $config['timeout'],
                 'maxAttempts' => $config['max_attempts'],
-                'environment' => $config['environment'],
                 'wsTicketTtlMs' => $config['ws_ticket_ttl_ms'],
             ]])
             ->setPublic(true);

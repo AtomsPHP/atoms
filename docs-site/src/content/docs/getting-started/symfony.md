@@ -18,7 +18,6 @@ return [
 ```yaml
 # config/packages/atoms.yaml
 atoms:
-    environment: '%env(APP_ENV)%'
     endpoint: 'https://your-atoms-worker.example.workers.dev'
     shared_secret: '%env(ATOMS_SHARED_SECRET)%'
     timeout: 10.0

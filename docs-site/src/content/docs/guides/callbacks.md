@@ -93,8 +93,7 @@ is the only way the two commands differ here.
 
 The callback URL is for reverse calls from the Worker. Configure the
 application's `ATOMS_ENDPOINT` separately with the Worker URL used for normal
-Atom RPC. `ATOMS_ENVIRONMENT` may label the application environment in logs;
-it does not select an `atoms.json` environment.
+Atom RPC.
 
 ## Synchronous `app()`
 

@@ -16,8 +16,7 @@ the alternatives are all reasonable and will otherwise be re-proposed.
 selected only when a target command runs; `atoms build` remains project-wide and
 does not resolve a callback URL, account, or Worker name. The application has its
 own runtime configuration: `ATOMS_ENDPOINT` points the monolith at the Worker,
-and `ATOMS_ENVIRONMENT` is an application-side label used for logging. Neither
-variable selects a CLI environment.
+and does not select a CLI environment.
 
 Two questions have to be answered separately, and confusing them is what makes
 deployment configuration go wrong:
@@ -131,7 +130,7 @@ produce the same deployment through every entry point.
 | `atoms status`, `rollback`, and secret commands | Cloudflare invocation | Selected environment's Worker name and account; no callback is resolved |
 | Wrangler | `dev` or deploy invocation | Its Worker project, credentials, config, and command-line vars |
 | Deployed Worker | Request and callback handling | Deployed vars/secrets and the bundle manifest |
-| Laravel, Symfony, or plain PHP | Application startup and callback requests | `ATOMS_ENDPOINT`, the shared secret, `ATOMS_ENVIRONMENT` for logging, and the callback route |
+| Laravel, Symfony, or plain PHP | Application startup and callback requests | `ATOMS_ENDPOINT`, the shared secret, and the callback route |
 
 The entity rule is simple: the deploy target is a file fact, the machine and
 principal are environment facts, and the invocation selects one environment
