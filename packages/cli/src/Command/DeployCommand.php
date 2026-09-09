@@ -7,8 +7,8 @@ namespace Atoms\Cli\Command;
 use Atoms\Cli\Build\Builder;
 use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
+use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\Wrangler;
-use Atoms\Cli\Cloudflare\WorkerConfig;
 use Atoms\Cli\Config\AtomsDotenv;
 use Atoms\Errors\AtomsError;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -25,17 +25,18 @@ use Symfony\Component\Console\Output\OutputInterface;
  * else — Atoms never proxies or retains them.
  *
  * The Worker vars atoms.json declares for the environment — `debug_endpoints`
- * and `callback_url` — ride along as `wrangler deploy --var`, the same
- * way `atoms dev` forwards them. The callback resolves in the order every
+ * and `callback_url` — go into the generated Wrangler config this command
+ * writes for the environment ({@see GeneratedWranglerConfig}), the same way
+ * `atoms dev` passes them. The callback resolves in the order every
  * command and every setting uses: `--callback-url`, then `ATOMS_CALLBACK_URL`
  * in the environment this command was started with, then in
  * `.env.atoms.<env>` beside atoms.json, then the file entry, which may be an
  * explicit ${VARIABLE} reference resolved against those same two environment
  * layers. The nearer source simply wins; nothing is compared or refused —
  * instead the whole resolution is printed, with its sources, before anything
- * is built or shipped. The callback URL is not a secret, so argv is a fine
- * road for it; `ATOMS_SHARED_SECRET` is not forwarded here and never will be —
- * that is `atoms shared-secret:set`.
+ * is built or shipped. The callback URL is not a secret, so a config file on
+ * disk is a fine road for it; `ATOMS_SHARED_SECRET` is not forwarded here and
+ * never will be — that is `atoms shared-secret:set`.
  */
 #[AsCommand(name: 'deploy', description: 'Deploy an Atoms bundle to your Cloudflare account')]
 final class DeployCommand extends AbstractCommand
@@ -91,36 +92,20 @@ final class DeployCommand extends AbstractCommand
             self::writeResolvedConfiguration($output, $target);
             $output->writeln('');
 
-            // The Worker project's wrangler config is one file for every
-            // environment, and this command selects the Worker with `--name`,
-            // so a hostname declared there ships with every deploy. The two
-            // kinds then fail differently, both measured against a real
-            // account:
-            //
-            //   custom domain — Cloudflare hands it to whichever Worker
-            //     claimed it last. Both deploys report success; the hostname
-            //     just moves.
-            //   route — Cloudflare refuses it (API 10020) and the deploy
-            //     fails. But the script has already uploaded by then, so the
-            //     environment gets the new code without the routing.
-            //
-            // Warned rather than refused: a single-environment project that
-            // put its hostname there is not wrong, and this command must not
-            // start failing for it.
-            $workerConfig = WorkerConfig::fromWorkerDir($target->workerDir);
-            if ($workerConfig->declaresRouting) {
-                $output->writeln('<comment>! ' . ($workerConfig->source ?? 'the Worker config')
+            // Derived now, before the build, so a Worker config that cannot
+            // be read fails in seconds rather than after a build that was
+            // never going to ship. Written just before wrangler runs.
+            $generated = GeneratedWranglerConfig::generate($target, $target->runtimeVars());
+            if ($generated->declaresRouting) {
+                // Top-level routing in the user's file is dropped from the
+                // generated config: the environment's own `custom_domains`
+                // replace it. Said out loud, because a hostname someone wrote
+                // there is otherwise silently unserved.
+                $output->writeln('<comment>! ' . $generated->source
                     . ' declares routes or a custom domain at the top level.</comment>');
-                $output->writeln('<comment>  That file is shared by every environment, so those hostnames ship '
-                    . 'with every deploy.</comment>');
-                $output->writeln('<comment>  A custom domain then moves to whichever environment deployed last, '
-                    . 'with no error.</comment>');
-                $output->writeln('<comment>  A route is refused instead, and the deploy fails after the script '
-                    . 'has uploaded —</comment>');
-                $output->writeln('<comment>  new code live, routing not. Move them to '
-                    . '"routes"/"custom_domains" on each</comment>');
-                $output->writeln('<comment>  environment in atoms.json, which this command forwards per '
-                    . 'target.</comment>');
+                $output->writeln('<comment>  Those are ignored: each environment is served from its own '
+                    . '"custom_domains"</comment>');
+                $output->writeln('<comment>  in atoms.json, and this deploy uses the ones on "' . $env . '".</comment>');
                 $output->writeln('');
             }
 
@@ -167,7 +152,15 @@ final class DeployCommand extends AbstractCommand
                     . 'or "${ATOMS_CALLBACK_URL}".'
                 );
             }
-            $wrangler = $this->wrangler->deploy($target, $target->runtimeVars());
+            // The environment's Wrangler config, written where wrangler
+            // deploy looks for a generated one, and removed again once it
+            // has run so the directory is left as it was found.
+            $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
+            try {
+                $wrangler = $this->wrangler->deploy($target);
+            } finally {
+                $generated->remove();
+            }
 
             // Wrangler's own output is the deploy log — including the URL it
             // published to and any Cloudflare API rejection. Reprinting it is

@@ -4,7 +4,6 @@
         "atoms": "app/Atoms",
         "shared": "app/Atoms/Shared"
     },
-    "php": "8.3",
     "environments": {
         "production": {
             "worker_name": "bad-app",

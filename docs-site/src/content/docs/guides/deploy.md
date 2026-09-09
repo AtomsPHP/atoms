@@ -19,7 +19,7 @@ nothing does that for you, and a missing Wrangler surfaces as
 
 Deployment targets an environment named in `atoms.json`, and every command on
 this page takes `--env <name>` to select one. See
-[Configuration](/guides/configuration/#environments) for what an entry holds and
+[Environments](/guides/environments/) for what an entry holds and
 what `--env` resolves from it.
 
 `worker_name` is required and identifies the Worker Wrangler receives. The
@@ -28,7 +28,7 @@ callback URL resolves in one order, the same one `atoms dev` uses:
 started with, then in `.env.atoms.<name>` beside `atoms.json`, then the
 optional `callback_url` on the selected environment block. The
 nearer source wins silently — nothing is compared, and no combination is an
-error. A whole-value `${ENV_VAR}` reference in the file is expanded when the
+error. A `${VAR_NAME}` placeholder in the file is expanded when the
 deploy runs, and only when no nearer source supplied anything; an unset or
 empty reference is then [ATOMS-E070](/reference/errors/#atoms-e070). With no
 source at all, callbacks are unavailable: deploy warns and sends no callback
@@ -44,12 +44,21 @@ Environment: production
   API token:    (hidden)                            (.env.atoms.production: CLOUDFLARE_API_TOKEN)
   Callback:     https://example.com/atoms/callback  (atoms.json "environments.production.callback_url")
   Debug routes: disabled                            (atoms.json "debug_endpoints")
-  Serving:      atoms.example.com                   (atoms.json "routes"/"custom_domains")
+  Serving:      atoms.example.com                   (atoms.json "custom_domains")
 ```
 
 Read that table when a deployment does something you did not expect. It is the
 answer to "why that callback URL", and the API token is the one value it names
 without showing.
+
+The values in it reach Wrangler through a config file rather than flags.
+`deploy` writes a copy of `atoms-worker/wrangler.jsonc` for the selected
+environment to `atoms-worker/.wrangler/deploy/wrangler.json`, prints its path
+on the `Generated config:` line, and removes it once Wrangler has finished.
+Wrangler's own output opens with "Using redirected Wrangler configuration"
+naming that file. [These are not Wrangler
+environments](/guides/environments/#these-are-not-wrangler-environments)
+describes what the copy contains.
 
 ## Authenticate with Cloudflare
 

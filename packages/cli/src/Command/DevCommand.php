@@ -8,6 +8,7 @@ use Atoms\Cli\Build\Builder;
 use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
 use Atoms\Cli\Cloudflare\DevVars;
+use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\Wrangler;
 use Atoms\Cli\Config\AtomsDotenv;
 use Atoms\Cli\Config\EnvFile;
@@ -43,9 +44,10 @@ use Symfony\Component\Console\Output\OutputInterface;
  * carries exactly the one var the Worker needs rather than the app's whole
  * environment. Treat it as a build artifact.
  *
- * The value reaches Wrangler through that file rather than argv or a `--var`
- * flag, which would put a secret in the process table and shell history — the
- * CLI-never-holds-a-credential rule. It is never printed either: terminal
+ * The value reaches Wrangler through that file rather than argv or the
+ * generated Wrangler config, which would put a secret in the process table or
+ * in a file that also carries ordinary settings — the CLI-never-holds-a-credential
+ * rule. It is never printed either: terminal
  * scrollback is the surface a developer shares most casually.
  *
  * Any file about to hold the secret must be gitignored if it sits in a git
@@ -154,10 +156,11 @@ final class DevCommand extends AbstractCommand
             }
 
             // atoms.json holds per-environment settings; the committed
-            // wrangler.jsonc is shared by every environment. Dev and deploy
-            // forward runtime vars; dev resolves a local callback independently
-            // of the named deployment when the machine supplies one.
-            $vars = $target->runtimeVars();
+            // wrangler.jsonc is the user's. Dev and deploy both derive the
+            // environment's Wrangler config from the two, and dev resolves a
+            // local callback independently of the named deployment when the
+            // machine supplies one.
+            $generated = GeneratedWranglerConfig::generate($target, $target->runtimeVars());
             $callback = $target->callbackUrl;
 
             $output->writeln('Starting wrangler dev on port ' . $port . '…');
@@ -187,7 +190,12 @@ final class DevCommand extends AbstractCommand
                 );
             }
 
-            $result = $this->wrangler->dev($target, $port, $vars);
+            $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
+            try {
+                $result = $this->wrangler->dev($target, $port);
+            } finally {
+                $generated->remove();
+            }
         } catch (AtomsError $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
 

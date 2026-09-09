@@ -52,6 +52,7 @@ Environment: production
   API token:    (hidden)                          (caller environment: CLOUDFLARE_API_TOKEN)
   Callback:     https://acme.example.com/atoms/callback  (.env.atoms.production: ATOMS_CALLBACK_URL)
   Debug routes: disabled                          (atoms.json "debug_endpoints")
+  Serving:      atoms.example.com                 (atoms.json "custom_domains")
 ```
 
 The API token is the one value named without being shown — the same rule that
@@ -68,7 +69,7 @@ Resolved values are trimmed.
 | Account id | — (there is no `--account-id`) | `CLOUDFLARE_ACCOUNT_ID` | `environments.<name>.account_id` |
 | API token | — (deliberately; see §Credentials) | `CLOUDFLARE_API_TOKEN` | — (never in a file) |
 | Worker name | — | — | `environments.<name>.worker_name`, required |
-| Routes, custom domains | — | — | `environments.<name>.routes`, `.custom_domains` |
+| Custom domains | — | — | `environments.<name>.custom_domains` |
 | Worker directory | `--worker-dir` | — | — (a convention: `atoms-worker/` beside `atoms.json`) |
 
 ### Which sources participate
@@ -128,7 +129,7 @@ produce the same deployment through every entry point.
 | `atoms dev` | Local invocation | Selected environment, plus the callback sources in the order above |
 | `atoms deploy` | Target invocation | Selected environment's Worker name, account and runtime vars, plus the callback sources in the order above |
 | `atoms status`, `rollback`, and secret commands | Cloudflare invocation | Selected environment's Worker name and account; no callback is resolved |
-| Wrangler | `dev` or deploy invocation | Its Worker project, credentials, config, and command-line vars |
+| Wrangler | `dev` or deploy invocation | Its Worker project, credentials, and the per-environment config the CLI generated from the project's own |
 | Deployed Worker | Request and callback handling | Deployed vars/secrets and the bundle manifest |
 | Laravel, Symfony, or plain PHP | Application startup and callback requests | `ATOMS_ENDPOINT`, the shared secret, and the callback route |
 
@@ -136,15 +137,16 @@ The entity rule is simple: the deploy target is a file fact, the machine and
 principal are environment facts, and the invocation selects one environment
 with `--env`.
 
-The callback file value can be a literal or a whole-value `${ENV_VAR}`
-reference. The file entry is read for the selected environment at `dev` or
+The callback file value can be a URL or a placeholder for an environment
+variable using the syntax `${VAR_NAME}`. The placeholder has to be the entire
+value; the CLI does not build a URL out of a variable and other text. The file entry is read for the selected environment at `dev` or
 `deploy` time, and **only when neither `--callback-url` nor
 `ATOMS_CALLBACK_URL` already supplied a value** — a nearer source means the
 file is never consulted at all. Nothing in the entry can therefore fail a
 command a nearer source answered, and that is deliberate rather than an
 oversight: it applies to a malformed entry exactly as it applies to a
-reference naming an unset variable. Anything containing `${` that is not a
-whole-value `${NAME}` — `"https://${HOST}/callback"`, for instance — is an
+reference naming an unset variable. A value that mixes a placeholder with
+other text, `"https://${HOST}/callback"` for instance, is an
 **ATOMS-E070** configuration error **when the file wins**, and is simply never
 inspected otherwise. A well-formed reference that resolves to nothing is
 **ATOMS-E070** on `deploy`; on `dev` it simply means no callback, with a
@@ -177,9 +179,9 @@ local port — `.env.atoms.<env>` is the place to put it, rather than an
 `export` in a shell profile that outlives the work it was for.
 
 `--callback-url` sits above both sources, on `deploy` as well as `dev`, which
-matches `terraform -var`, Pulumi's flags and `wrangler --var`: typing a flag is
-a decision made for one invocation and is visible in the command that made it.
-It is not a secret, so argv is a fine road for it.
+matches `terraform -var` and Pulumi's flags: typing a flag is a decision made
+for one invocation and is visible in the command that made it. It is not a
+secret, so argv is a fine road for it.
 
 The account id follows the same order, minus the flag Atoms does not have:
 `CLOUDFLARE_ACCOUNT_ID` wins when it is set and non-empty — from the caller's
@@ -189,15 +191,49 @@ environment's `account_id`. This is identical on `atoms dev` and
 source is required — Wrangler resolves its own account when Atoms supplies
 none, and reports **ATOMS-E075** when it can reach several.
 
-### Why `--name` and not Wrangler's `-e`
+### Why a generated config and not Wrangler's `-e`
 
 Wrangler has its own environments: `env.<name>` blocks in `wrangler.jsonc`,
-selected with `-e`. Atoms does not use them. Every deploy is
-`wrangler deploy --name <worker_name>`, with the name taken from the selected
-`atoms.json` environment, and `-e` is never passed.
+selected with `-e`. Atoms does not use them, and never passes `-e`. Instead
+`atoms deploy` and `atoms dev` use Wrangler's [generated
+configuration](https://developers.cloudflare.com/workers/wrangler/configuration/#generated-wrangler-configuration)
+redirect, the mechanism Cloudflare documents for build tools that already
+know which environment they target. Before running Wrangler, the CLI
+(`Atoms\Cli\Cloudflare\GeneratedWranglerConfig`) writes two files under the
+Worker directory:
+
+```
+.wrangler/deploy/config.json    { "configPath": "wrangler.json" }
+.wrangler/deploy/wrangler.json  the environment's config
+```
+
+`wrangler deploy` and `wrangler dev` find the first, read the second in place
+of the user's `wrangler.jsonc`, and print "Using redirected Wrangler
+configuration" naming both. The generated document is the user's file with
+the selected environment applied: `name` is its `worker_name`; `routes` is
+rebuilt from its `custom_domains`, each flagged as a custom domain; the
+runtime vars the CLI resolves (`ATOMS_CALLBACK_URL`,
+`ATOMS_DEBUG_ENDPOINTS`) are merged into `vars` over the file's own; `env`
+blocks are dropped, since a generated config targets one environment by
+construction; and `main` and the other keys Wrangler resolves relative to the
+config file's directory are rewritten to point back at the Worker directory.
+Everything else travels through unchanged. Both files are removed once
+Wrangler exits, so a `wrangler deploy` run by hand in that directory sees the
+user's own file, and `git status` stays clean. `.dev.vars` is unaffected:
+Wrangler resolves it beside the user's config, not the generated one, which
+was checked in the pinned Wrangler rather than assumed.
+
+The redirect applies to `deploy`, `dev`, `versions upload` and
+`versions deploy` only. `atoms status`, `rollback` and the secrets commands
+run `wrangler versions list`, `wrangler rollback` and `wrangler secret ...`
+with `--name <worker_name>`, and read nothing from the generated file.
+
+A `wrangler.toml` is refused (**ATOMS-E076**, naming the conversion): the
+CLI carries no TOML parser, and the scaffold ships JSONC.
 
 The rejected alternative is the obvious one: let `atoms.json` name a Wrangler
-environment and hand `-e` through. It was rejected on three counts.
+environment and hand `-e` through. It was rejected on three counts, and each
+still holds against hand-written `env.<name>` blocks.
 
 **Environment names would live in two files, keyed identically.** Adding
 `staging` would mean adding it to `atoms.json` *and* to `wrangler.jsonc`, with
@@ -219,67 +255,89 @@ per-environment copies a customer edits by hand.
 either the Worker name stops being the value in `atoms.json`, or it is written
 twice.
 
-Against that, `-e` would have bought per-environment routing. `routes` and
-`custom_domains` on each `atoms.json` environment now buy it directly, without
-a second keyspace. Isolation was never at stake: a distinct `--name` is a
+Against that, `-e` would have bought per-environment routing.
+`custom_domains` on each `atoms.json` environment now buys it directly,
+without a second keyspace. Isolation was never at stake: a distinct Worker name is a
 distinct Worker, hence a distinct Durable Object namespace and distinct Atom
 storage, whether or not Wrangler has a word for it.
 
+*Superseded: steering Wrangler with flags.* Before the generated config, the
+CLI passed `--name`, one `--var` per runtime variable, and `--route` /
+`--domain` per hostname, and the user's `wrangler.jsonc` went to Wrangler as
+it was. That worked, but it made the command line a second source of truth
+that nobody could review after the fact, and it left the user's file as one
+file for every environment, so a hostname written there shipped with every
+deploy and had to be warned about. The generated config is the same
+conclusion Cloudflare states for build tools, one flat config per
+environment, reached through the channel Wrangler provides for it.
+
 ### Routing is per environment, and measured
 
-`routes` and `custom_domains` on each environment are forwarded as
-`wrangler deploy --route` / `--domain`. They are **not** read from the Worker
-project's `wrangler.jsonc`, and must not be written there.
+`custom_domains` on each environment become the `routes` of the generated
+config, each as `{ "pattern": ..., "custom_domain": true }`: the object form
+is what makes Wrangler treat a pattern as a custom domain (measured with
+`wrangler deploy --dry-run`). There is no `routes` key, and one present on an
+environment is **ATOMS-E070**. A Cloudflare route pattern can hand a path
+prefix such as `app.example.com/atoms/*` to a Worker, but this Worker serves
+only its own prefixless paths (§1), so a request arriving under a prefix is
+`not_found`; the key would let a user declare traffic the Worker cannot
+answer. Top-level `routes` or `route` in the user's `wrangler.jsonc` are left
+out of the generated config, and `atoms deploy` prints a notice naming the
+file when it finds them, so a hostname someone wrote there is not silently
+unserved.
 
-That file is one file for every environment — the CLI selects the Worker with
-`--name` and never passes `-e` — so a hostname declared in it ships with every
-deploy. **The two kinds then fail differently**, and both were measured against
-a real account rather than reasoned about.
+Each hostname therefore belongs to one environment, and two custom-domain
+behaviours were measured against a real account rather than reasoned about,
+because neither fails loudly.
 
 **A custom domain is taken, silently.** The same hostname deployed under two
 Worker names left a **single** attachment, pointing at the second. Both deploys
-printed `(custom domain)`; neither errored. A production domain in the shared
-file is therefore claimed by the next staging deploy, and production traffic
-reaches staging code with nothing to see.
+printed `(custom domain)`; neither errored. A production domain declared on
+the staging environment as well is therefore claimed by the next staging
+deploy, and production traffic reaches staging code with nothing to see.
 
-**A route is refused, loudly, but late.** Cloudflare rejects a pattern already
-assigned elsewhere — Wrangler pre-flights it (`Can't deploy routes that are
-assigned to another worker`) and the API refuses a direct write too (`10020: A
-route with the same pattern already exists`). So the second environment cannot
-steal the pattern. What it *does* do is fail the deploy **after uploading the
-script**: `Uploaded …` prints before the error, and the command exits
-non-zero. That environment ends up running new code behind stale routing —
-which is why `WranglerResult::routingFailure()` recognises this and the
-permission failure below, and raises **ATOMS-E110**, whose message says the
-script uploaded, rather than the generic **ATOMS-E074** that says only that the
-command failed. The recognizer is deliberately narrow: a phrase must match
-*and* Wrangler must have printed an upload marker, or it degrades to E074
-rather than claim an upload it cannot see.
+**An existing DNS record or custom domain is overridden, silently.** Wrangler
+checks the account's domain changeset and prompts before overriding an
+existing origin or a conflicting DNS record, but only when its stdout is a
+TTY; otherwise it sets `override_existing_origin` and
+`override_existing_dns_record` and proceeds (Wrangler's `publishCustomDomains`,
+read in the pinned build). `ProcessWrangler` runs it as a child process with
+piped output, so the CLI always takes the non-interactive path.
 
-Redeploying the Worker that already owns a pattern is idempotent, and
-the record is not immutable — an explicit `PUT` to the route moves it — it is
-only uncapturable *by a deploy*.
+Zone **routes** were measured too, before the key was removed, and the
+findings stay on record because `WranglerResult::routingFailure()` still
+recognises them. Cloudflare refuses a pattern already assigned elsewhere —
+Wrangler pre-flights it (`Can't deploy routes that are assigned to another
+worker`) and the API refuses a direct write too (`10020: A route with the same
+pattern already exists`) — but only **after uploading the script**, leaving
+new code behind stale routing; and a token without the zone grants fails at
+`/zones/{zone}/workers/routes` with `Authentication error [code: 10000]`, also
+post-upload. Both raise **ATOMS-E110**, whose message says the script
+uploaded, rather than the generic **ATOMS-E074**. The recognizer is
+deliberately narrow: a phrase must match *and* Wrangler must have printed an
+upload marker, or it degrades to E074 rather than claim an upload it cannot
+see. With no route pattern ever written to the generated config, neither
+failure has a path to happen from Atoms configuration; the recognizer is kept
+because the state it names is the one a reader would otherwise misread.
 
-So `atoms deploy` warns when `WorkerConfig::$declaresRouting` finds top-level
-`routes`/`route` there, the scaffold's header says not to put them there, and
-the runtime package test asserts the scaffolded file declares none. It is a
-warning rather than a refusal: a single-environment project that put its
-hostname there is not wrong.
+The scaffold's header says where routing goes, the runtime package test
+asserts the scaffolded file declares none, and `GeneratedWranglerConfig`
+records whether the user's file did so the deploy can say what it left out.
+It is a notice rather than a refusal: a project that put its hostname there
+is not wrong, only unserved until the hostname moves to its environment.
 
 ### The permissions routing needs
 
-Separate from the above, and worth stating because the failure is confusing.
 Attaching a **custom domain** works with an ordinary account-scoped Workers
-Scripts token. Anything touching a zone **route** does not: without the zone
-grant the deploy fails at `/zones/{zone}/workers/routes` with `Authentication
-error [code: 10000]`, again *after* the script has uploaded — so it reports
-**ATOMS-E110** too, and that code's fix line names these two grants.
+Scripts token; no zone grant is involved. The zone grants below are what a
+zone route would have needed, recorded because the ATOMS-E110 fix line still
+names them.
 
 | Permission | Needed for |
 |---|---|
-| Account → Workers Scripts → Edit | uploading the script at all |
-| Zone → Workers Routes → Edit | attaching or detaching a `routes` pattern |
-| Zone → Zone → Read | resolving which zone a pattern belongs to |
+| Account → Workers Scripts → Edit | uploading the script, and attaching custom domains |
+| Zone → Workers Routes → Edit | attaching or detaching a zone route pattern (none is written) |
+| Zone → Zone → Read | resolving which zone a route pattern belongs to (none is written) |
 
 Verified as sufficient on a working credential; not proven minimal — no
 subtractive test with a hand-built token was run.
@@ -434,8 +492,8 @@ unless you pass `--worker-dir`; the deploy Action looks there unless you set
 gitignored `.atoms/worker`, named per environment by `worker_dir` in
 `atoms.json`, and the deploy Action re-scaffolded it on every fresh checkout.
 That made every edit to its `wrangler.jsonc` non-durable — which is why
-settings such as `debug_endpoints` had to be forwarded from `atoms.json` as
-`--var`s — and it let two environments deploy two different runtimes. Now
+settings such as `debug_endpoints` had to come from `atoms.json` — and it let
+two environments deploy two different runtimes. Now
 there is one directory, it is part of the repository like `composer.lock`,
 and its `wrangler.jsonc` is yours to edit. `atoms.json` does not name it; a
 `worker_dir` key is an ordinary unknown key, tolerated like any other.
@@ -515,11 +573,14 @@ it. Review the diff, commit.
 - **Unknown files** — anything you add — are left alone.
 
 *Rejected: splitting `wrangler.jsonc` into a runtime part and a user part.*
-Wrangler has no include mechanism, so a split would mean the CLI merging two
-files into a third at deploy time, and `wrangler deploy` by hand would no
-longer see the same config. *Rejected: keeping `wrangler.jsonc`
-runtime-owned and forwarding every user setting from `atoms.json`.* That is
-the design being replaced. *Rejected: a structural checker for the user's
+Wrangler has no include mechanism, so a split would mean two committed files
+to keep in step by hand. The CLI does derive a third file at deploy time, the
+generated config described under §Why a generated config and not Wrangler's
+`-e`, but from the one user-owned file rather than from two halves, and it
+removes the derived file afterwards, so `wrangler deploy` by hand still sees
+the same committed config the CLI started from. *Rejected: keeping
+`wrangler.jsonc` runtime-owned and forwarding every user setting from
+`atoms.json`.* That is the design being replaced. *Rejected: a structural checker for the user's
 `wrangler.jsonc` in `upgrade`.* It would need a JSONC parser of our own and
 would check for changes no release has made yet; the changelog and Wrangler's
 own validation cover the day one does. One file, owned by the user, with its
@@ -529,9 +590,10 @@ requirements marked in place, is the smallest honest shape.
 owned; shipped as `gitignore.scaffold` from this repository, distinct from
 the monorepo worker's own, which commits the conformance fixture's bundle)
 covers everything `deploy`, `dev` and `npm ci` write: `src/bundle.generated.js`,
-`node_modules/`, `.php-wasm/`, `.dev.vars`, `.wrangler/`. A deploy never
-leaves the committed directory dirty; `test/runtime-package.mjs` asserts the
-list.
+`node_modules/`, `.php-wasm/`, `.dev.vars`, `.wrangler/` (Wrangler's own
+state, and the generated `deploy/config.json` and `deploy/wrangler.json` for
+the duration of a run). A deploy never leaves the committed directory dirty;
+`test/runtime-package.mjs` asserts the list.
 
 ### Credentials
 
@@ -681,10 +743,11 @@ travel to the Worker by two different, deliberately asymmetric paths
   then `ATOMS_CALLBACK_URL` in the caller's environment, then in the selected
   `.env.atoms.<env>`, then the selected environment's `callback_url`. The nearer
   source wins silently; nothing is compared and no combination is an error, so
-  a developer tunnel needs no change to the committed file. The resolved value goes to Wrangler as
-  an ordinary `--var ATOMS_CALLBACK_URL:<url>`. When no source supplies one,
-  deploy warns that `app()`/`dispatch()` are unavailable and forwards no
-  callback variable. All values are validated by the Worker as HTTPS or an HTTP
+  a developer tunnel needs no change to the committed file. The resolved value
+  goes to Wrangler as an ordinary `ATOMS_CALLBACK_URL` entry in the generated
+  config's `vars`. When no source supplies one, deploy warns that
+  `app()`/`dispatch()` are unavailable and writes no callback variable. All
+  values are validated by the Worker as HTTPS or an HTTP
   loopback URL. Resolution happens only for the selected environment when the
   target command runs, never during build. A file `${ENV_VAR}` reference is
   expanded only when the two nearer sources supplied nothing; on deploy a
@@ -767,21 +830,20 @@ is an explicit, per-environment declaration.
 ```
 
 Both `atoms dev` and `atoms deploy` read it from the environment they target
-and forward it to Wrangler as `--var ATOMS_DEBUG_ENDPOINTS:1`
+and write it into the generated config's `vars` as `ATOMS_DEBUG_ENDPOINTS=1`
 (`CloudflareTarget::runtimeVars()`), so the two always agree on what the one
-declaration means, and both print an `ATOMS_DEBUG_ENDPOINTS=1` line when it
-is in force. It must be a JSON boolean; a string is refused (**ATOMS-E070**)
-rather than coerced, so `"false"` can never silently enable a debug surface.
+declaration means, and both print a line when it is in force. It must be a
+JSON boolean; a string is refused (**ATOMS-E070**) rather than coerced, so
+`"false"` can never silently enable a debug surface.
 
 **Why atoms.json and not the Worker's wrangler.jsonc.** The Worker
 directory is committed, so an edit to its `wrangler.jsonc` is durable. The
-reason for forwarding is that `wrangler.jsonc` is **one file for every
-environment**: the CLI selects the
-Worker with `--name` and never passes Wrangler's `-e`, so a var set there
-applies to staging and production alike, and this is the one setting that
-must be able to differ between them. atoms.json is already where the
-per-environment settings live, and `--var` is already how the callback URL
-reaches `wrangler dev` — this reuses that channel on both paths. The
+reason it lives in atoms.json is that the user's `wrangler.jsonc` feeds
+**every environment's generated config alike**: a var set there applies to
+staging and production together, and this is the one setting that must be
+able to differ between them. atoms.json is already where the per-environment
+settings live, and the generated config's `vars` is already how the callback
+URL reaches the Worker — this reuses that channel on both paths. The
 scaffold's `wrangler.jsonc` says so in its header, and the package test
 asserts the template does not set the var. (The conformance harness in
 `cloudflare/worker` is intentionally different: its own `wrangler.jsonc`
@@ -848,9 +910,9 @@ override, a name the Worker never looks up, and nothing anywhere would say so.
 
 So `Atoms\Cli\Cloudflare\WorkerConfig` reads all three out of the Worker
 project the deploy is going to use. Only top-level `vars` are read; Wrangler's
-per-environment `env.<name>.vars` sections are ignored on purpose, because
-`atoms deploy` selects the Worker with `--name` and never passes `-e`, so those
-sections do not apply to what it deploys. Parsing goes through
+per-environment `env.<name>.vars` sections are ignored on purpose, because the
+generated config `atoms deploy` hands to Wrangler drops `env` blocks, so those
+sections never reach a deployed Worker. Parsing goes through
 `colinodell/json5`, because Wrangler's config is JSON with comments and trailing
 commas and a hand-written stripper that is subtly wrong reintroduces the very
 bug this removes.
@@ -1080,9 +1142,11 @@ atoms deploy --env production
    value. With no source at all, deploy warns that callbacks are unavailable
    and sends no callback var.
 3. Print the resolved configuration and its sources, before any side effect.
-4. Verify the Worker directory exists and has a Wrangler config (E076), and
-   that its `atoms-runtime.json` names this CLI's release (E108). Before the
-   build, so a stale directory costs seconds, not a build.
+4. Verify the Worker directory exists and has a `wrangler.jsonc` or
+   `wrangler.json` (E076; a `wrangler.toml` is refused with the conversion
+   named), that its `atoms-runtime.json` names this CLI's release (E108), and
+   that the file parses, by deriving the environment's generated config from
+   it now. Before the build, so a stale directory costs seconds, not a build.
 5. `atoms build` → `.atoms/build/bundle-{sha}.tar.gz` + `manifest.json`.
    Deterministic; executes no customer code. (`--bundle` skips this and deploys
    a prebuilt one.)
@@ -1090,10 +1154,13 @@ atoms deploy --env production
    inside the Worker directory. The translator refuses a manifest paired with
    the wrong bundle, and refuses a manifest naming a file the bundle does not
    contain. The output is gitignored there.
-7. `wrangler deploy --name {worker}` in that directory, with whatever
-   credentials this process resolved in its environment — possibly none, in
-   which case Wrangler uses its own login session — and Wrangler's own output
-   passed through unedited.
+7. Write the generated config to `.wrangler/deploy/wrangler.json` and the
+   redirect to `.wrangler/deploy/config.json`, print the path, and run
+   `wrangler deploy` in that directory, with whatever credentials this
+   process resolved in its environment — possibly none, in which case
+   Wrangler uses its own login session — and Wrangler's own output passed
+   through unedited. Both generated files are removed once Wrangler exits,
+   whatever the outcome.
 8. Non-zero exit ⇒ **ATOMS-E074**, with Wrangler's diagnosis already printed;
    or **ATOMS-E072** when that diagnosis is that it had no credentials at all,
    **ATOMS-E075** when it could not choose between several accounts, or

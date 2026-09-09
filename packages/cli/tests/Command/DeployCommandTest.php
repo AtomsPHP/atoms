@@ -6,6 +6,7 @@ namespace Atoms\Cli\Tests\Command;
 
 use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
+use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Command\DeployCommand;
 use Atoms\Cli\Process\ProcessResult;
@@ -109,14 +110,21 @@ final class DeployCommandTest extends TestCase
         $deploy = $wrangler->lastCall('deploy');
         self::assertNotNull($deploy);
         self::assertSame('acme-games', $deploy['target']->workerName);
-        // The fixture does not enable debug endpoints, so the only --var that
-        // rides along is the callback URL atoms.json declares for production.
-        // Before this was forwarded, `callback_url.production` was inert: a
-        // value the user believed configured, and ATOMS-E080 at runtime.
+        // The fixture does not enable debug endpoints, so the only var the
+        // generated config adds is the callback URL atoms.json declares for
+        // production. Before this was forwarded, `callback_url.production`
+        // was inert: a value the user believed configured, and ATOMS-E080 at
+        // runtime.
         self::assertSame(
             [CloudflareTarget::CALLBACK_VAR => 'https://acme.example.com'],
             $deploy['args']['vars'],
         );
+        // Wrangler reads the environment's config through its redirect file,
+        // both present while it runs and gone once it has.
+        self::assertSame(['configPath' => GeneratedWranglerConfig::FILE], $deploy['args']['redirect']);
+        self::assertSame('acme-games', $deploy['args']['config']['name']);
+        self::assertFileDoesNotExist($deploy['target']->workerDir . '/' . GeneratedWranglerConfig::relativePath());
+        self::assertStringContainsString('Generated config: ', $tester->getDisplay());
         self::assertStringContainsString(
             'Callback:     https://acme.example.com',
             $tester->getDisplay(),
@@ -578,14 +586,14 @@ final class DeployCommandTest extends TestCase
         self::assertSame([], $wrangler->calls);
     }
     /**
-     * The per-environment hostnames reach Wrangler as flags, so a Worker
-     * project config shared by every environment cannot decide them.
+     * The per-environment hostnames land in the generated config's `routes`,
+     * each flagged as a custom domain, so the user's own file never has to
+     * decide them for every environment at once.
      */
-    public function testRoutesAndDomainsAreForwardedAsWranglerFlags(): void
+    public function testCustomDomainsAreWrittenIntoTheGeneratedConfig(): void
     {
         $root = $this->tempCopy('sample-app');
         $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
-        $config['environments']['production']['routes'] = ['acme.example.com/*'];
         $config['environments']['production']['custom_domains'] = ['atoms.example.com'];
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
 
@@ -601,25 +609,25 @@ final class DeployCommandTest extends TestCase
         self::assertSame(0, $exit, $tester->getDisplay());
         $deploy = $wrangler->lastCall('deploy');
         self::assertNotNull($deploy);
-        self::assertSame(['acme.example.com/*'], $deploy['target']->routes);
         self::assertSame(['atoms.example.com'], $deploy['target']->customDomains);
+        self::assertSame(
+            [['pattern' => 'atoms.example.com', 'custom_domain' => true]],
+            $deploy['args']['config']['routes'],
+        );
         self::assertStringContainsString('Serving:', $tester->getDisplay());
         self::assertStringContainsString('atoms.example.com', $tester->getDisplay());
     }
 
     /**
-     * Warned, not refused.
+     * Noticed, not refused, and not shipped.
      *
-     * Both kinds go wrong when the shared Worker config declares them, and
-     * they go wrong differently — measured against a real account. A custom
-     * domain moves to whichever Worker claimed it last, with no error on
-     * either deploy. A route is refused (`10020`) and the deploy fails, but
-     * only after the script has uploaded, so that environment ends up running
-     * new code with stale routing. The warning has to say both; a
-     * single-environment project that put its hostname there is not wrong, and
-     * this command must not start failing for it.
+     * Routing in the user's file is dropped from the generated config, and
+     * the environment's own routing takes its place. A hostname someone wrote
+     * there would otherwise go quietly unserved, so the deploy says what it
+     * ignored; a project that put its hostname there is not wrong, and this
+     * command must not start failing for it.
      */
-    public function testTopLevelRoutingInTheWorkerConfigWarnsWithoutFailing(): void
+    public function testTopLevelRoutingInTheWorkerConfigIsNoticedAndReplaced(): void
     {
         $dir = $this->workerDir();
         file_put_contents($dir . '/wrangler.jsonc', json_encode([
@@ -639,14 +647,42 @@ final class DeployCommandTest extends TestCase
         ]);
 
         self::assertSame(0, $exit, $tester->getDisplay());
-        self::assertNotNull($wrangler->lastCall('deploy'), 'the deploy still happens');
+        $deploy = $wrangler->lastCall('deploy');
+        self::assertNotNull($deploy, 'the deploy still happens');
         $display = $tester->getDisplay();
         self::assertStringContainsString('declares routes or a custom domain at the top level', $display);
-        // Both consequences, stated separately — they are not the same failure.
-        self::assertStringContainsString('moves to whichever environment deployed last', $display);
-        self::assertStringContainsString('refused', $display);
-        self::assertStringContainsString('after the script has uploaded', $display);
-        self::assertStringContainsString('"routes"/"custom_domains"', $display);
+        self::assertStringContainsString('ignored', $display);
+        self::assertStringContainsString('"custom_domains"', $display);
+        // The fixture environment declares no routing, so none ships — the
+        // file's custom domain in particular does not.
+        self::assertArrayNotHasKey('routes', $deploy['args']['config']);
+        // And the rest of the file travels through, with the entry point
+        // re-anchored to the Worker directory from where the generated file lives.
+        self::assertSame('../../src/index.js', $deploy['args']['config']['main']);
+        self::assertSame('2026-08-01', $deploy['args']['config']['compatibility_date']);
+    }
+
+    public function testAWranglerTomlIsRefusedBeforeAnythingIsBuilt(): void
+    {
+        $dir = $this->workerDir();
+        unlink($dir . '/wrangler.jsonc');
+        file_put_contents($dir . '/wrangler.toml', "name = \"atoms-worker\"\n");
+
+        $wrangler = new FakeWrangler();
+        $runner = new FakeProcessRunner();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $dir,
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E076', $tester->getDisplay());
+        self::assertStringContainsString('convert it to wrangler.jsonc', $tester->getDisplay());
+        self::assertSame([], $runner->runs, 'nothing is staged');
+        self::assertSame([], $wrangler->calls);
     }
 
     public function testAWorkerConfigWithoutRoutingSaysNothing(): void

@@ -139,4 +139,4 @@ from your shell or from CI still is. Note also that Laravel reads its own
 `--env` off the command line, so `--env production` makes it load
 `.env.production`; that no longer decides anything on the Atoms side. See
 [Framework commands read the same
-sources](/guides/configuration/#framework-commands-read-the-same-sources).
+sources](/guides/environments/#framework-commands-read-the-same-sources).

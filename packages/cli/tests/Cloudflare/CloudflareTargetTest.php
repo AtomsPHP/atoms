@@ -551,6 +551,22 @@ final class CloudflareTargetTest extends TestCase
         $target->assertWorkerDir();
     }
 
+    /**
+     * deploy and dev derive a per-environment config from the user's file,
+     * and the CLI reads JSON only; a wrangler.toml is refused with the fix
+     * named, rather than treated as a missing file.
+     */
+    public function testWorkerDirWithOnlyAWranglerTomlIsE076NamingTheConversion(): void
+    {
+        $dir = $this->freshDir();
+        file_put_contents($dir . '/wrangler.toml', "name = \"w\"\n");
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production', 'token', $dir);
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E076.*convert it to wrangler\.jsonc/');
+        $target->assertWorkerDir();
+    }
+
     public function testWranglerResolutionPrefersTheLocalPinOverPath(): void
     {
         $dir = $this->freshDir();

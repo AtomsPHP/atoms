@@ -49,24 +49,24 @@ final class InitCommand extends AbstractCommand
                 'atoms' => $atomsPath,
                 'shared' => $atomsPath . '/Shared',
             ],
-            'php' => '8.3',
             // Each target has an explicit Worker name; Wrangler reports the
             // deployed URL, which the app uses as ATOMS_ENDPOINT.
             // `debug_endpoints` is the supported switch for the Worker's
             // /debug routes (off by default). It lives here rather than in the
-            // committed Worker directory's wrangler.jsonc because that file is
-            // shared by every environment, and this is the one setting that
-            // must be able to differ between them; `atoms dev` and
-            // `atoms deploy` both forward it to Wrangler as a --var.
+            // committed Worker directory's wrangler.jsonc because that file
+            // feeds every environment's generated config alike, and this is
+            // the one setting that must be able to differ between them;
+            // `atoms dev` and `atoms deploy` both merge it into the vars.
             //
             // The Worker directory is committed at atoms-worker/ beside this
             // file, so no environment names one.
             // One block per environment, holding every setting that differs
             // between them. `callback_url` is where the Worker reaches the app
             // for $this->app()/dispatch(), forwarded by both `atoms dev` and
-            // `atoms deploy` as the ATOMS_CALLBACK_URL var. CI may use a
-            // whole-value ${VARIABLE} reference; --callback-url and
-            // ATOMS_CALLBACK_URL override the file on any command.
+            // `atoms deploy` as the ATOMS_CALLBACK_URL var. CI may use an
+            // environment variable placeholder such as ${VARIABLE};
+            // --callback-url and ATOMS_CALLBACK_URL override the file on any
+            // command.
             //
             // Empty, not a placeholder host: this file is the committed
             // default for a named deployment, so an example.com left in by

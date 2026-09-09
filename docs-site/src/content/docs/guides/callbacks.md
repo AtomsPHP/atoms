@@ -55,8 +55,9 @@ Declare the URL on the environment it belongs to, beside its `worker_name`:
 }
 ```
 
-The whole value may be a `${ENV_VAR}` reference, resolved against the same
-environment sources as everything else and against nothing else. A literal
+The value can be a URL or a placeholder for an environment variable using the
+syntax `${VAR_NAME}`, looked up in the same environment sources as everything
+else and nowhere else. A literal
 empty or whitespace-only string declares nothing here — as it does from the
 flag and from `ATOMS_CALLBACK_URL`, which normalise the same way, so a blank
 value never wins over a real one from a further source. The Worker requires
@@ -81,8 +82,8 @@ source supplied the URL before they use it.
 
 The `atoms.json` entry is read only when steps 1 to 3 supplied nothing — so
 nothing in it can fail a command that a nearer source already answered. That
-holds for a malformed entry too: a value containing `${` that is not a
-whole-value reference, such as `"https://${HOST}/callback"`, is
+holds for a malformed entry too: a value that mixes a placeholder with other
+text, such as `"https://${HOST}/callback"`, is
 [ATOMS-E070](/reference/errors/#atoms-e070) only when the file wins, and is
 never inspected when a nearer source supplied a value.
 

@@ -27,12 +27,12 @@ use Atoms\Errors\ErrorCode;
  * ({@see \Atoms\Cli\Cloudflare\CloudflareTarget::DEFAULT_WORKER_DIR}).
  *
  * `debug_endpoints` is the per-environment switch for the Worker's `/debug`
- * routes: wrangler.jsonc is one file for every environment, so the setting
- * that must differ between staging and production lives here, and
- * `atoms dev`/`atoms deploy` forward it to Wrangler as a `--var` override.
+ * routes: wrangler.jsonc feeds every environment's generated config alike, so
+ * the setting that must differ between staging and production lives here, and
+ * `atoms dev`/`atoms deploy` merge it into that environment's `vars`.
  * Off unless explicitly true.
  *
- * @phpstan-type Environment array{worker_name: string, account_id: string, debug_endpoints: bool, callback_url: string, routes: list<string>, custom_domains: list<string>}
+ * @phpstan-type Environment array{worker_name: string, account_id: string, debug_endpoints: bool, callback_url: string, custom_domains: list<string>}
  */
 final class AtomsJson
 {
@@ -189,6 +189,7 @@ final class AtomsJson
             if (!\is_string($name) || !\is_array($env)) {
                 throw self::invalid('each environment must be an object keyed by name');
             }
+            self::rejectRoutes($env, $name);
             $out[$name] = [
                 'worker_name' => self::requireString($env, "environments.{$name}.worker_name", 'worker_name'),
                 'account_id' => self::optionalString($env, 'account_id'),
@@ -204,10 +205,12 @@ final class AtomsJson
                 // environment and `atoms deploy` selects the Worker with
                 // `--name`: a hostname declared there travels with every
                 // deploy. Measured, not assumed — a shared custom domain moves
-                // to the last Worker that claimed it with no error at all, and
-                // a shared route is refused outright, failing the deploy after
-                // the script has already uploaded.
-                'routes' => self::optionalStringList($env, "environments.{$name}.routes", 'routes'),
+                // to the last Worker that claimed it with no error at all.
+                //
+                // Custom domains only. A Cloudflare route pattern would let
+                // a path prefix reach a Worker that serves nothing but its
+                // own paths, so there is no `routes` key, and one that is
+                // present is refused rather than left silently unserved.
                 'custom_domains' => self::optionalStringList($env, "environments.{$name}.custom_domains", 'custom_domains'),
             ];
         }
@@ -233,8 +236,19 @@ final class AtomsJson
     }
 
     /**
+     * @param array<array-key, mixed> $env
+     */
+    private static function rejectRoutes(array $env, string $name): void
+    {
+        if (\array_key_exists('routes', $env) || \array_key_exists('route', $env)) {
+            throw self::invalid("environments.{$name}.routes is not a setting: the Worker serves only its own"
+                . ' paths, so declare the hostname under "custom_domains" instead');
+        }
+    }
+
+    /**
      * A list of non-empty strings, or []. Anything else is refused rather
-     * than coerced: a route silently dropped because it was written as an
+     * than coerced: a hostname silently dropped because it was written as an
      * object, or a bare string where a list was meant, is a hostname that
      * quietly does not get served.
      *

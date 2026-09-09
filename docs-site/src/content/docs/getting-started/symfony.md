@@ -181,7 +181,7 @@ Identically is the deliberate part. `bin/console` runs after your application's
 *command* was started with rather than the one the framework built — so a local
 `ATOMS_CALLBACK_URL` in your `.env` is not a deployment input, while one from
 your shell or from CI still is. See [Framework commands read the same
-sources](/guides/configuration/#framework-commands-read-the-same-sources).
+sources](/guides/environments/#framework-commands-read-the-same-sources).
 
 ## Shipped behavior
 

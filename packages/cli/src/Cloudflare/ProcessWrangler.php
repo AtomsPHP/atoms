@@ -26,27 +26,13 @@ final class ProcessWrangler implements Wrangler
         $this->runner = $runner ?? new SymfonyProcessRunner();
     }
 
-    public function deploy(CloudflareTarget $target, array $vars = []): WranglerResult
+    public function deploy(CloudflareTarget $target): WranglerResult
     {
-        $argv = ['deploy', '--name', $target->workerName];
-        foreach ($vars as $name => $value) {
-            $argv[] = '--var';
-            $argv[] = $name . ':' . $value;
-        }
-        // Per environment, from atoms.json, for the same reason the vars above
-        // are: the Worker project's wrangler config is one file for every
-        // environment, so a hostname declared there would ride along on every
-        // deploy and land on whichever Worker deployed last.
-        foreach ($target->routes as $route) {
-            $argv[] = '--route';
-            $argv[] = $route;
-        }
-        foreach ($target->customDomains as $domain) {
-            $argv[] = '--domain';
-            $argv[] = $domain;
-        }
-
-        return $this->run($target, $argv);
+        // No --name, --var, --route or --domain: the generated config in
+        // .wrangler/deploy/ carries all of them, and Wrangler reads it in
+        // place of the user's file. Passing any of them here would make the
+        // command line a second source for values the file already settles.
+        return $this->run($target, ['deploy']);
     }
 
     public function versions(CloudflareTarget $target): WranglerResult
@@ -90,16 +76,10 @@ final class ProcessWrangler implements Wrangler
         return $this->run($target, ['secret', 'delete', $key, '--name', $target->workerName]);
     }
 
-    public function dev(CloudflareTarget $target, string $port, array $vars): WranglerResult
+    public function dev(CloudflareTarget $target, string $port): WranglerResult
     {
-        $argv = ['dev', '--port', $port];
-        foreach ($vars as $name => $value) {
-            $argv[] = '--var';
-            $argv[] = $name . ':' . $value;
-        }
-
         $binary = WranglerBinary::resolve($this->runner, $target);
-        $command = [$binary, ...$argv];
+        $command = [$binary, 'dev', '--port', $port];
 
         $result = $this->runner->runForeground($command, $target->workerDir, $this->childEnv($target));
 

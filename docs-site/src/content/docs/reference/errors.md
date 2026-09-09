@@ -707,7 +707,7 @@ atoms.json at the repository root is missing, invalid, or does not apply cleanly
 
 **Fix**
 
-Run `atoms init` to create it if it is missing, or fix the reported problem in the file. A callback_url reference must be a whole value such as "${ATOMS_CALLBACK_URL}" — correct the syntax when the reason says so, and set the named variable to a non-empty value when the reason says it is unset or empty.
+Run `atoms init` to create it if it is missing, or fix the reported problem in the file. A callback_url value must be a URL or an environment variable placeholder such as "${ATOMS_CALLBACK_URL}", not a mix of the two — correct the syntax when the reason says so, and set the named variable to a non-empty value when the reason says it is unset or empty.
 
 
 <a id="atoms-e071"></a>
@@ -1193,4 +1193,4 @@ Bring the committed Worker directory up to the CLI's release with the `atoms-run
 
 **Fix**
 
-Wrangler's output above names which routing failed. A pattern already assigned to another Worker is refused, not taken over (API code 10020) — remove it there, or give this environment its own pattern under atoms.json "environments"."<environment>"."routes". An authentication error on /workers/routes means the credential can upload but not route: add Zone → Workers Routes:Edit and Zone → Zone:Read on the pattern's zone (custom_domains needs neither). Fixing either and re-running the deploy is safe.
+Wrangler's output above names which routing failed. A pattern already assigned to another Worker is refused, not taken over (API code 10020) — remove it there, or give this environment its own hostname under atoms.json "environments"."<environment>"."custom_domains". An authentication error on /workers/routes means the credential can upload but not route: add Zone → Workers Routes:Edit and Zone → Zone:Read on the pattern's zone (custom_domains needs neither). Fixing either and re-running the deploy is safe.

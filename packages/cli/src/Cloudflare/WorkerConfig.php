@@ -29,9 +29,10 @@ namespace Atoms\Cli\Cloudflare;
  * deployed from another branch, another machine, or `wrangler deploy -e`.
  *
  * Only top-level `vars` are read. Wrangler's per-environment `env.<name>.vars`
- * sections are deliberately ignored, because `atoms deploy` selects the Worker
- * with `--name` and never passes `-e`, so those sections do not apply to what
- * it deploys.
+ * sections are deliberately ignored: the config `atoms deploy` hands to
+ * Wrangler is generated from this file for one environment
+ * (GeneratedWranglerConfig), and `env` blocks are dropped in the process, so
+ * those sections never reach a deployed Worker.
  */
 final class WorkerConfig
 {
@@ -85,7 +86,6 @@ final class WorkerConfig
      * @param list<string> $configEnvDenyKeys
      * @param string|null  $source            Config file read, or null when none was.
      * @param string|null  $parseError        Why a config file that exists could not be read.
-     * @param bool         $declaresRouting   Whether the file declares top-level routes or a route.
      */
     public function __construct(
         public readonly string $configEnvPrefix = self::DEFAULT_PREFIX,
@@ -93,7 +93,6 @@ final class WorkerConfig
         public readonly array $configEnvDenyKeys = self::DEFAULT_DENY_KEYS,
         public readonly ?string $source = null,
         public readonly ?string $parseError = null,
-        public readonly bool $declaresRouting = false,
     ) {
     }
 
@@ -120,7 +119,7 @@ final class WorkerConfig
             }
 
             try {
-                return self::fromVars(self::jsoncVars($raw), $path, self::jsoncDeclaresRouting($raw));
+                return self::fromVars(self::jsoncVars($raw), $path);
             } catch (\Throwable $e) {
                 return new self(parseError: "could not parse {$path}: " . $e->getMessage());
             }
@@ -134,12 +133,7 @@ final class WorkerConfig
             }
 
             try {
-                return self::fromVars(
-                    self::tomlVars($raw),
-                    $toml,
-                    preg_match('/^\s*\[\[?\s*routes?\s*\]\]?/m', $raw) === 1
-                        || preg_match('/^\s*routes?\s*=/m', $raw) === 1,
-                );
+                return self::fromVars(self::tomlVars($raw), $toml);
             } catch (\Throwable $e) {
                 return new self(parseError: "could not read {$toml}: " . $e->getMessage());
             }
@@ -231,7 +225,7 @@ final class WorkerConfig
     /**
      * @param array<string, string> $vars
      */
-    private static function fromVars(array $vars, string $source, bool $declaresRouting = false): self
+    private static function fromVars(array $vars, string $source): self
     {
         // config.js `str()` falls back when the value is absent OR empty;
         // `list()` falls back when it is absent OR blank after trimming. An
@@ -247,36 +241,9 @@ final class WorkerConfig
             configEnvKeys: self::commaList($vars['ATOMS_CONFIG_ENV_KEYS'] ?? ''),
             configEnvDenyKeys: self::jsTrim($deny) === '' ? self::DEFAULT_DENY_KEYS : self::commaList($deny),
             source: $source,
-            declaresRouting: $declaresRouting,
         );
     }
 
-    /**
-     * Whether the config declares top-level `routes` or `route`.
-     *
-     * That file is shared by every environment, and `atoms deploy` selects the
-     * Worker with `--name`, so a hostname declared there travels with every
-     * deploy. Both kinds then go wrong, differently, and both were measured
-     * against a real account:
-     *
-     * - A **custom domain** is handed to whichever Worker claimed it last. Two
-     *   deploys of one hostname under two names left a single attachment,
-     *   pointing at the second; both reported success.
-     * - A **route** is refused (`10020: A route with the same pattern already
-     *   exists`) and the deploy fails — after the script has uploaded, so that
-     *   environment gets new code with stale routing.
-     *
-     * `atoms deploy` warns when this is true; the per-environment
-     * `routes`/`custom_domains` in atoms.json are the supported channel.
-     */
-    private static function jsoncDeclaresRouting(string $raw): bool
-    {
-        /** @var mixed $decoded */
-        $decoded = json5_decode($raw, true);
-
-        return \is_array($decoded)
-            && (($decoded['routes'] ?? null) !== null || ($decoded['route'] ?? null) !== null);
-    }
 
     /**
      * `vars` from a wrangler.jsonc.

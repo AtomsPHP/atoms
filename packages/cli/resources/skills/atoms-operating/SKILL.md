@@ -35,7 +35,7 @@ straight to your own Wrangler; Atoms never proxies or retains it. In CI, supply
 them to the deploy action as `cloudflare-api-token` / `cloudflare-account-id`:
 a runner has no login session to fall back on.
 
-Each environment may declare `routes` and `custom_domains`; `atoms deploy` forwards them as `--route`/`--domain`. They must not go in the Worker project's wrangler config, which is shared by every environment: a custom domain there moves to whichever environment deployed last with no error, and a route there is refused, failing that deploy after the script has already uploaded (new code, stale routing). Routes additionally need Zone -> Workers Routes -> Edit and Zone -> Zone -> Read; without them the attach fails with `Authentication error [code: 10000]`, also post-upload. Both post-upload failures report ATOMS-E110 rather than the generic ATOMS-E074, because the state they leave is not "nothing shipped". Every command that takes `--env` requires it — no command defaults to an environment name, because the names are the user's to choose. (`atoms token` takes no `--env`: the bearer comes from ATOMS_SHARED_SECRET alone.) Every configured environment must have a non-empty `worker_name`; the
+`atoms deploy` and `atoms dev` do not run Wrangler on the Worker project's wrangler.jsonc directly. They write a copy for the selected environment to `.wrangler/deploy/wrangler.json`, point Wrangler at it through `.wrangler/deploy/config.json` (Wrangler's generated-configuration redirect), and remove both afterwards. The copy carries the environment's `worker_name` as `name`, its `custom_domains` as Wrangler's `routes` (each flagged as a custom domain), and the callback URL and debug switch in `vars`; `env` blocks are dropped. So hostnames are declared per environment under `custom_domains` in atoms.json. There is no `routes` key: the Worker serves only its own paths, so a route pattern with a path prefix would reach nothing, and an environment carrying one is ATOMS-E070. Routes or custom domains written at the top level of wrangler.jsonc are ignored with a notice. Two custom-domain behaviours do not fail loudly: a hostname declared on two environments moves to whichever deployed last with no error, and an existing DNS record or custom domain on the hostname is replaced without asking, because the CLI runs Wrangler non-interactively. ATOMS-E110 (script uploaded, routing not attached) is still recognised for zone-route failures, but no Atoms configuration writes a zone route. Every command that takes `--env` requires it — no command defaults to an environment name, because the names are the user's to choose. (`atoms token` takes no `--env`: the bearer comes from ATOMS_SHARED_SECRET alone.) Every configured environment must have a non-empty `worker_name`; the
 top-level `project` is not a fallback. A callback, when needed, is declared in
 the selected environment's `callback_url` in `atoms.json`, beside its
 `worker_name`, and resolves the same
@@ -49,9 +49,9 @@ it before doing anything with it. With no source at all there is no callback,
 and deploy warns; an absent file entry on its own is not that, since an
 `ATOMS_CALLBACK_URL` from either environment layer needs no file entry. The
 file entry is read only when no nearer source supplied a value, so nothing in
-it can fail a command a nearer source answered: a value containing `${` that is
-not a whole-value `${ENV_VAR}` reference is ATOMS-E070 when the file wins, and
-is never inspected otherwise. A well-formed reference that resolves to nothing
+it can fail a command a nearer source answered: a value that mixes a `${VAR_NAME}`
+placeholder with other text is ATOMS-E070 when the file wins, and
+is never inspected otherwise. A placeholder whose variable is unset
 is ATOMS-E070 on deploy, and on `atoms dev` simply no callback plus a warning —
 the variable may be one only CI holds.
 
@@ -78,9 +78,9 @@ leaves wrangler.jsonc, which is the user's, as it is.
 
 The Worker's `/debug` routes are off by default. To enable them for an
 environment, set `"debug_endpoints": true` on that environment in atoms.json —
-not in wrangler.jsonc, which is shared by every environment and would enable
-them everywhere. `atoms dev` and `atoms deploy` both forward the setting to
-Wrangler as a `--var`. The routes sit behind the Worker's bearer check under
+not in wrangler.jsonc, whose vars reach every environment's generated config
+and would enable them everywhere. `atoms dev` and `atoms deploy` both merge
+the setting into that environment's vars. The routes sit behind the Worker's bearer check under
 the default `ATOMS_BEARER_AUTH=required`; under `ATOMS_BEARER_AUTH=disabled`
 (an authenticating proxy in front of the Worker) the flag is the only gate.
 

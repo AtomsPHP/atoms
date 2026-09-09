@@ -77,7 +77,7 @@ bearer is derived from whichever secret it finds, and a secret is not
 per-environment as far as this command is concerned — you select the
 environment by supplying that environment's secret. It is deliberately the one
 value that does **not** come from
-[`.env.atoms.<environment>`](/guides/configuration/#envatomsenvironment): that
+[`.env.atoms.<environment>`](/guides/environments/#envatomsenvironment): that
 file is for deployment configuration, and this is the key both halves
 authenticate with. Read it per command rather than leaving a production secret
 in your shell:

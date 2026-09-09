@@ -50,6 +50,17 @@ abstract class AbstractCommand extends Command
      * URL" into a line of output rather than a bisection. Values are shown;
      * the API token is represented by its source alone.
      */
+    /**
+     * $path shown relative to the atoms.json directory when it lies under
+     * it, so output names `atoms-worker/...` rather than a machine path.
+     */
+    protected static function relativeToRoot(string $rootDir, string $path): string
+    {
+        $root = rtrim($rootDir, '/') . '/';
+
+        return str_starts_with($path, $root) ? substr($path, \strlen($root)) : $path;
+    }
+
     protected static function writeResolvedConfiguration(OutputInterface $output, CloudflareTarget $target): void
     {
         $rows = $target->report();

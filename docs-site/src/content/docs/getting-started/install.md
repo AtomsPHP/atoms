@@ -78,7 +78,7 @@ belong in `atoms-worker/wrangler.jsonc` instead.
 
 Values that belong to your machine rather than to the repository — a Cloudflare
 API token for local deploys, a callback URL pointing at your own tunnel — go in
-[`.env.atoms.<environment>`](/guides/configuration/#envatomsenvironment) beside
+[`.env.atoms.<environment>`](/guides/environments/#envatomsenvironment) beside
 `atoms.json`, which is the gitignored file `init` just made room for. It is
 optional; nothing needs one to start.
 

@@ -212,37 +212,32 @@ final class ConfigurationPrecedenceTest extends TestCase
     }
 
     /**
-     * Routes and custom domains are per environment, and reach Wrangler as
-     * flags rather than as config in the Worker project.
+     * Routes and custom domains are per environment, and reach Wrangler in
+     * the config the CLI generates for that environment rather than from the
+     * user's file in the Worker project.
      *
      * Measured against a real account: deploying one hostname under two Worker
      * names left a single attachment, pointing at the second — Cloudflare
      * moves a custom domain to whichever Worker claimed it last, and says
-     * nothing. The Worker project's wrangler config is one file for every
-     * environment, so a hostname declared there is exactly that situation:
-     * production's domain, taken by the next staging deploy.
+     * nothing. Keeping the hostnames on the environment is what stops a
+     * staging deploy from carrying production's domain along.
      */
-    public function testRoutesAndCustomDomainsAreResolvedPerEnvironment(): void
+    public function testCustomDomainsAreResolvedPerEnvironment(): void
     {
         $config = $this->project([], [
-            'production' => [
-                'routes' => ['acme.example.com/*'],
-                'custom_domains' => ['atoms.example.com'],
-            ],
+            'production' => ['custom_domains' => ['atoms.example.com', 'www.example.com']],
             'staging' => ['custom_domains' => ['atoms-staging.example.com']],
         ]);
 
         $production = CloudflareTarget::resolve($config, 'production');
-        self::assertSame(['acme.example.com/*'], $production->routes);
-        self::assertSame(['atoms.example.com'], $production->customDomains);
+        self::assertSame(['atoms.example.com', 'www.example.com'], $production->customDomains);
 
         $staging = CloudflareTarget::resolve($config, 'staging');
-        self::assertSame([], $staging->routes);
         self::assertSame(['atoms-staging.example.com'], $staging->customDomains);
 
         // And they are visible before the deploy that would claim them.
         self::assertContains(
-            ['Serving', 'acme.example.com/*, atoms.example.com', 'atoms.json "routes"/"custom_domains"'],
+            ['Serving', 'atoms.example.com, www.example.com', 'atoms.json "custom_domains"'],
             $production->report(),
         );
     }
@@ -251,9 +246,30 @@ final class ConfigurationPrecedenceTest extends TestCase
     {
         $target = CloudflareTarget::resolve($this->project([]), 'production');
 
-        self::assertSame([], $target->routes);
         self::assertSame([], $target->customDomains);
         self::assertContains(['Serving', '(workers.dev only)', 'unset'], $target->report());
+    }
+
+    /**
+     * There is no `routes` key. The Worker serves only its own paths, so a
+     * Cloudflare route pattern is a way to send traffic somewhere it can
+     * answer nothing; refused rather than ignored, because an ignored
+     * hostname silently goes unserved.
+     */
+    #[\PHPUnit\Framework\Attributes\TestWith(['routes', ['acme.example.com/*']])]
+    #[\PHPUnit\Framework\Attributes\TestWith(['route', 'acme.example.com/*'])]
+    public function testARoutesKeyIsE070(string $key, mixed $value): void
+    {
+        $root = $this->freshDir();
+        file_put_contents($root . '/atoms.json', json_encode([
+            'project' => 'acme',
+            'paths' => ['atoms' => 'app/Atoms'],
+            'environments' => ['production' => ['worker_name' => 'acme', $key => $value]],
+        ], JSON_THROW_ON_ERROR));
+
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*environments\.production\.routes is not a setting/s');
+        $this->expectExceptionMessageMatches('/custom_domains/');
+        AtomsJson::load($root . '/atoms.json');
     }
 
     /**
@@ -268,20 +284,20 @@ final class ConfigurationPrecedenceTest extends TestCase
     }
 
     /**
-     * Refused rather than coerced: a route quietly dropped for being the wrong
-     * shape is a hostname that silently does not get served.
+     * Refused rather than coerced: a hostname quietly dropped for being the
+     * wrong shape is a hostname that silently does not get served.
      */
     #[\PHPUnit\Framework\Attributes\DataProvider('badRoutingProvider')]
-    public function testAMalformedRoutesValueIsE070(mixed $value, string $expected): void
+    public function testAMalformedCustomDomainsValueIsE070(mixed $value, string $expected): void
     {
         $root = $this->freshDir();
         file_put_contents($root . '/atoms.json', json_encode([
             'project' => 'acme',
             'paths' => ['atoms' => 'app/Atoms'],
-            'environments' => ['production' => ['worker_name' => 'acme', 'routes' => $value]],
+            'environments' => ['production' => ['worker_name' => 'acme', 'custom_domains' => $value]],
         ], JSON_THROW_ON_ERROR));
 
-        $this->expectExceptionMessageMatches('/ATOMS-E070.*environments\.production\.routes/s');
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*environments\.production\.custom_domains/s');
         $this->expectExceptionMessageMatches('/' . preg_quote($expected, '/') . '/');
         AtomsJson::load($root . '/atoms.json');
     }

@@ -89,7 +89,7 @@ Run `npm ci` in the Worker directory to install its pinned Wrangler version.
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` pass directly into Wrangler's
 environment and are never written to a file or a log. Both resolve in the one
 order — the environment the command was started with, then
-[`.env.atoms.<env>`](/guides/configuration/#envatomsenvironment) beside
+[`.env.atoms.<env>`](/guides/environments/#envatomsenvironment) beside
 `atoms.json`, then, for the account id only, `environments.<env>.account_id`.
 There is no `--account-id` flag and no `--api-token`: a credential in argv is
 visible to every process on the machine. See

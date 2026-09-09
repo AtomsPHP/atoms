@@ -60,9 +60,9 @@ final class CloudflareTarget
      * The Worker var gating the `/debug` routes. Off by default in the Worker
      * (`worker/src/config.js`) and absent from the scaffolded wrangler.jsonc.
      * atoms.json's per-environment `debug_endpoints` is the supported switch,
-     * forwarded as a `--var`: wrangler.jsonc is one file for every
-     * environment, and this flag is the one setting that must be able to
-     * differ between staging and production.
+     * merged into the generated config's `vars`: wrangler.jsonc feeds every
+     * environment alike, and this flag is the one setting that must be able
+     * to differ between staging and production.
      */
     public const DEBUG_ENDPOINTS_VAR = 'ATOMS_DEBUG_ENDPOINTS';
 
@@ -89,8 +89,7 @@ final class CloudflareTarget
      * @param string      $workerDir  Absolute path to the Worker project (holds wrangler + src/).
      * @param bool        $debugEndpoints Whether atoms.json enables the Worker's /debug routes for this environment.
      * @param string|null $callbackUrl The monolith's callback endpoint; null when nothing configures one.
-     * @param list<string> $routes Route patterns for this environment, `wrangler deploy --route`.
-     * @param list<string> $customDomains Hostnames for this environment, `wrangler deploy --domain`.
+     * @param list<string> $customDomains Hostnames for this environment, written to the generated config as custom domains.
      * @param array<string, string> $sources Where each resolved setting came from, keyed by
      *                                       `worker_name`, `account_id`, `api_token`, `callback_url`;
      *                                       a setting nothing supplied is absent. Labels only —
@@ -104,7 +103,6 @@ final class CloudflareTarget
         public readonly string $workerDir,
         public readonly bool $debugEndpoints = false,
         public readonly ?string $callbackUrl = null,
-        public readonly array $routes = [],
         public readonly array $customDomains = [],
         public readonly array $sources = [],
     ) {
@@ -211,7 +209,6 @@ final class CloudflareTarget
             workerDir: self::absolute($config->rootDir, $dir),
             debugEndpoints: $env['debug_endpoints'],
             callbackUrl: $callback?->value,
-            routes: $env['routes'],
             customDomains: $env['custom_domains'],
             sources: $sources,
         );
@@ -239,23 +236,22 @@ final class CloudflareTarget
         $rows[] = ['Debug routes', $this->debugEndpoints ? 'enabled' : 'disabled', 'atoms.json "debug_endpoints"'];
 
         // Where this Worker answers. Worth a row of its own: a custom domain
-        // moves to whichever Worker claimed it last without complaint, and a
-        // route collision fails the deploy only after the script has
-        // uploaded — so "which hostnames is this deploy about to claim" is a
-        // question the log should answer before the deploy, not after.
-        $where = [...$this->routes, ...$this->customDomains];
+        // moves to whichever Worker claimed it last without complaint, so
+        // "which hostnames is this deploy about to claim" is a question the
+        // log should answer before the deploy, not after.
+        $where = $this->customDomains;
         $rows[] = ['Serving', $where === [] ? '(workers.dev only)' : implode(', ', $where),
-            $where === [] ? 'unset' : 'atoms.json "routes"/"custom_domains"'];
+            $where === [] ? 'unset' : 'atoms.json "custom_domains"'];
 
         return $rows;
     }
 
     /**
-     * Worker vars for this environment, in Wrangler's `--var` format:
-     * the debug-endpoints switch and the resolved callback URL. Both `atoms dev`
-     * and `atoms deploy` pass these through. The committed wrangler.jsonc is
-     * shared by every environment; atoms.json holds per-environment settings.
-     * Neither var is a secret, so both can be passed in argv.
+     * Worker vars for this environment: the debug-endpoints switch and the
+     * resolved callback URL. Both `atoms dev` and `atoms deploy` merge these
+     * into the `vars` of the Wrangler config they generate for the
+     * environment, over whatever the committed wrangler.jsonc sets. Neither
+     * is a secret, so a file on disk is a fine place for them.
      *
      * @return array<string, string>
      */
@@ -288,13 +284,21 @@ final class CloudflareTarget
             throw $this->workerDirError("{$this->workerDir} is not a directory");
         }
 
-        foreach (['wrangler.jsonc', 'wrangler.json', 'wrangler.toml'] as $candidate) {
+        foreach (['wrangler.jsonc', 'wrangler.json'] as $candidate) {
             if (is_file($this->workerDir . '/' . $candidate)) {
                 return;
             }
         }
 
-        throw $this->workerDirError("{$this->workerDir} has no wrangler.jsonc, wrangler.json or wrangler.toml");
+        // JSON only. deploy and dev derive a per-environment config from this
+        // file (GeneratedWranglerConfig), and the CLI carries no TOML parser;
+        // the scaffold ships JSONC, so a TOML file is a conversion someone
+        // made by hand and can make back.
+        if (is_file($this->workerDir . '/wrangler.toml')) {
+            throw $this->workerDirError("{$this->workerDir}/wrangler.toml is not supported; convert it to wrangler.jsonc");
+        }
+
+        throw $this->workerDirError("{$this->workerDir} has no wrangler.jsonc or wrangler.json");
     }
 
     /**
@@ -396,7 +400,7 @@ final class CloudflareTarget
 
         if (preg_match('/^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/D', $declared, $match) !== 1) {
             throw self::invalid('environments.' . $environment . '.callback_url'
-                . ' must use a whole-value environment reference such as ${ATOMS_CALLBACK_URL}');
+                . ' must be a URL or an environment variable placeholder such as ${ATOMS_CALLBACK_URL}, not a mix of the two');
         }
         // The reference resolves against the same two environment layers as
         // everything else, and against nothing else: naming a variable in

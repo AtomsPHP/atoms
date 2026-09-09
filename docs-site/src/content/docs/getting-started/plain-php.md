@@ -9,6 +9,6 @@ Deployment is unchanged by the absence of an adapter: `vendor/bin/atoms` is the
 same binary the framework wrappers shell out to, and it resolves configuration
 the same way. With no framework loading a dotenv file for you, the only inlets
 for a local token or callback URL are the environment you run the command in
-and [`.env.atoms.<environment>`](/guides/configuration/#envatomsenvironment)
-beside `atoms.json`. See [Configuration](/guides/configuration/) and
+and [`.env.atoms.<environment>`](/guides/environments/#envatomsenvironment)
+beside `atoms.json`. See [Environments](/guides/environments/) and
 [Deploy](/guides/deploy/).
