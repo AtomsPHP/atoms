@@ -14,10 +14,11 @@ use Atoms\Errors\ErrorCode;
  * Wrangler reports Cloudflare's API rejections in its own output, and it does
  * so better than a re-wrapping layer could — so a failure carries the exit
  * status and the raw streams, and the command that ran it prints them
- * unedited before raising ATOMS-E074 — or one of the two setup failures this
- * class reads the output to recognise, because only Wrangler can know them:
- * having no credential at all (E072) and being unable to choose an account
- * (E075). See {@see self::setupFailure()}.
+ * unedited before raising ATOMS-E074 — or one of the three failures this class
+ * reads the output to recognise, because only Wrangler can know them: having
+ * no credential at all (E072), being unable to choose an account (E075), and
+ * a deploy that uploaded the script but could not attach its routing (E110).
+ * See {@see self::setupFailure()} and {@see self::routingFailure()}.
  */
 final class WranglerResult
 {
@@ -194,8 +195,69 @@ final class WranglerResult
     }
 
     /**
+     * Whether this failure is a deploy that uploaded the script and then could
+     * not attach the routing — **ATOMS-E110**.
+     *
+     * Worth its own code because the resulting state is not the one a failed
+     * command usually leaves. Measured against a real account: `Uploaded …`
+     * prints, and only then does the route step fail. The new bundle is live;
+     * the routing it was supposed to arrive on is not. A reader told only
+     * "wrangler deploy exited 1" would reasonably assume nothing shipped.
+     *
+     * Two causes were measured, and both land here because both leave that
+     * same half-applied state:
+     *
+     *   - the pattern belongs to another Worker. Cloudflare refuses it (API
+     *     10020) rather than moving it — a deploy cannot take a route from
+     *     another Worker, whatever an explicit API call could do.
+     *   - the credential can upload but not route: Workers Scripts:Edit
+     *     without Zone → Workers Routes:Edit, which fails on
+     *     `/workers/routes` alone.
+     *
+     * Narrow twice over. The phrases are Wrangler's and Cloudflare's own, and
+     * the upload marker must be present too — without it there is no evidence
+     * the script shipped, and claiming it did would be worse than the generic
+     * ATOMS-E074 this then falls back to. A custom domain is deliberately not
+     * recognised here: a clashing one is handed over silently and reports
+     * success, so it never reaches this method at all.
+     */
+    public function routingFailure(): bool
+    {
+        $output = strtolower($this->stdout . "\n" . $this->stderr);
+
+        // Wrangler's own pre-flight wording, Cloudflare's API message behind
+        // it, and the endpoint that can only be a routing call.
+        $routing = [
+            "can't deploy routes that are assigned to another worker",
+            'a route with the same pattern already exists',
+            'code: 10020',
+            // The API path, as Wrangler prints it in a failed-request line.
+            // Leading slash included: a bare "workers/routes" could appear in
+            // ordinary deploy output, and this must only match the endpoint.
+            '/workers/routes',
+        ];
+
+        $matched = false;
+        foreach ($routing as $phrase) {
+            if (str_contains($output, $phrase)) {
+                $matched = true;
+                break;
+            }
+        }
+
+        if (!$matched) {
+            return false;
+        }
+
+        // Only claim the script shipped when Wrangler said so: `Uploaded <name>
+        // (7.15 sec)` on a deploy, `Total Upload: …` on the size line.
+        return str_contains($output, 'uploaded ') || str_contains($output, 'total upload');
+    }
+
+    /**
      * @throws AtomsError E072 when Wrangler had no credentials at all,
      *                    E075 when it could not choose an account,
+     *                    E110 when a deploy uploaded but its routing did not attach,
      *                    E074 for any other non-zero exit
      */
     public function assertOk(): self
@@ -209,6 +271,13 @@ final class WranglerResult
             throw new AtomsError(
                 $setup,
                 ErrorCatalog::format($setup, ['command' => $this->subcommand()]),
+            );
+        }
+
+        if ($this->routingFailure()) {
+            throw new AtomsError(
+                ErrorCode::RoutingNotAttached,
+                ErrorCatalog::format(ErrorCode::RoutingNotAttached, ['command' => $this->subcommand()]),
             );
         }
 

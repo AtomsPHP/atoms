@@ -6,6 +6,7 @@ namespace Atoms\Cli\Tests\Command;
 
 use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
+use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Command\DeployCommand;
 use Atoms\Cli\Process\ProcessResult;
@@ -81,12 +82,15 @@ final class DeployCommandTest extends TestCase
 
     public function testSuccessfulDeployStagesThenRunsWrangler(): void
     {
+        $root = $this->tempCopy('sample-app');
+
         $runner = new FakeProcessRunner();
         $wrangler = new FakeWrangler();
+        $wrangler->deployResult = FakeWrangler::ok(['deploy'], "Published https://live.example.workers.dev\n");
         $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
 
         $exit = $tester->execute([
-            '--root' => $this->fixtureDir('sample-app'),
+            '--root' => $root,
             '--env' => 'production',
             '--worker-dir' => $this->workerDir(),
             '--bundle' => $this->bundleFile(),
@@ -94,6 +98,8 @@ final class DeployCommandTest extends TestCase
 
         self::assertSame(0, $exit, $tester->getDisplay());
         self::assertStringContainsString('Deployed acme-games to production', $tester->getDisplay());
+        // The one URL reported is Wrangler's own; the CLI never composes one.
+        self::assertStringContainsString('https://live.example.workers.dev', $tester->getDisplay());
 
         // Staged before deployed, and staged by the Worker tree's own script.
         self::assertCount(1, $runner->runs);
@@ -104,31 +110,38 @@ final class DeployCommandTest extends TestCase
         $deploy = $wrangler->lastCall('deploy');
         self::assertNotNull($deploy);
         self::assertSame('acme-games', $deploy['target']->workerName);
-        // The fixture does not enable debug endpoints, so the only --var that
-        // rides along is the callback URL atoms.json declares for production.
-        // Before this was forwarded, `callback_url.production` was inert: a
-        // value the user believed configured, and ATOMS-E080 at runtime.
+        // The fixture does not enable debug endpoints, so the only var the
+        // generated config adds is the callback URL atoms.json declares for
+        // production. Before this was forwarded, `callback_url.production`
+        // was inert: a value the user believed configured, and ATOMS-E080 at
+        // runtime.
         self::assertSame(
             [CloudflareTarget::CALLBACK_VAR => 'https://acme.example.com'],
             $deploy['args']['vars'],
         );
+        // Wrangler reads the environment's config through its redirect file,
+        // both present while it runs and gone once it has.
+        self::assertSame(['configPath' => GeneratedWranglerConfig::FILE], $deploy['args']['redirect']);
+        self::assertSame('acme-games', $deploy['args']['config']['name']);
+        self::assertFileDoesNotExist($deploy['target']->workerDir . '/' . GeneratedWranglerConfig::relativePath());
+        self::assertStringContainsString('Generated config: ', $tester->getDisplay());
         self::assertStringContainsString(
-            CloudflareTarget::CALLBACK_VAR . '=https://acme.example.com',
+            'Callback:     https://acme.example.com',
             $tester->getDisplay(),
             'the deploy log must show which callback URL shipped',
         );
+        self::assertStringContainsString(
+            '(atoms.json "environments.production.callback_url")',
+            $tester->getDisplay(),
+            'and which source supplied it',
+        );
     }
 
-    /**
-     * The callback URL resolves for `atoms deploy` exactly as for `atoms dev`:
-     * `--callback-url`, then `ATOMS_CALLBACK_URL` in the environment, then
-     * atoms.json. One chain, so the two commands never disagree.
-     */
-    public function testCallbackUrlFromTheEnvironmentOrFlagBeatsAtomsJsonOnDeploy(): void
+    public function testDeployTakesTheEnvironmentCallbackOverTheFile(): void
     {
         putenv(CloudflareTarget::CALLBACK_VAR . '=https://app.example.test/atoms/callback');
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager(new FakeProcessRunner())));
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
@@ -137,29 +150,69 @@ final class DeployCommandTest extends TestCase
         ]);
 
         self::assertSame(0, $exit, $tester->getDisplay());
-        $deploy = $wrangler->lastCall('deploy');
-        self::assertNotNull($deploy);
         self::assertSame(
-            [CloudflareTarget::CALLBACK_VAR => 'https://app.example.test/atoms/callback'],
-            $deploy['args']['vars'],
+            'https://app.example.test/atoms/callback',
+            $wrangler->lastCall('deploy')['args']['vars'][CloudflareTarget::CALLBACK_VAR],
         );
+    }
+
+    public function testDeployShipsTheCallbackVariableDeclaredByAFileReference(): void
+    {
+        // Two routes lead to the same value here, and both are correct: the
+        // process environment outranks the file, and the file's reference
+        // names that very variable.
+
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $config['environments']['production']['callback_url'] = '${ATOMS_CALLBACK_URL}';
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+        putenv(CloudflareTarget::CALLBACK_VAR . '=https://ci.example.test/atoms/callback');
 
         $wrangler = new FakeWrangler();
         $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
-        $tester->execute([
-            '--root' => $this->fixtureDir('sample-app'),
+        $exit = $tester->execute([
+            '--root' => $root,
             '--env' => 'production',
             '--worker-dir' => $this->workerDir(),
             '--bundle' => $this->bundleFile(),
-            '--callback-url' => 'https://flag.example.test/atoms/callback',
         ]);
 
-        $deploy = $wrangler->lastCall('deploy');
-        self::assertNotNull($deploy);
+        self::assertSame(0, $exit, $tester->getDisplay());
         self::assertSame(
-            [CloudflareTarget::CALLBACK_VAR => 'https://flag.example.test/atoms/callback'],
-            $deploy['args']['vars'],
+            [CloudflareTarget::CALLBACK_VAR => 'https://ci.example.test/atoms/callback'],
+            $wrangler->lastCall('deploy')['args']['vars'],
         );
+    }
+
+    public function testUnsetCallbackEnvironmentReferenceFailsBeforeStaging(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $config['environments']['production']['callback_url'] = '${UNSET_DEPLOY_CALLBACK}';
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+        putenv('UNSET_DEPLOY_CALLBACK');
+
+        $runner = new FakeProcessRunner();
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E070', $tester->getDisplay());
+        self::assertSame([], $runner->runs);
+        self::assertSame([], $wrangler->calls);
+    }
+
+    public function testDeployAcceptsCallbackUrlAsTheOperatorsFinalSay(): void
+    {
+        $command = new DeployCommand(new FakeWrangler(), $this->stager());
+
+        self::assertTrue($command->getDefinition()->hasOption('callback-url'));
     }
 
     /**
@@ -171,7 +224,9 @@ final class DeployCommandTest extends TestCase
     {
         $root = $this->tempCopy('sample-app');
         $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
-        unset($config['callback_url']);
+        foreach (array_keys($config['environments']) as $name) {
+            $config['environments'][$name]['callback_url'] = '';
+        }
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
 
         $wrangler = new FakeWrangler();
@@ -188,7 +243,12 @@ final class DeployCommandTest extends TestCase
         self::assertNotNull($deploy);
         self::assertSame([], $deploy['args']['vars']);
         self::assertStringContainsString('ATOMS-E080', $tester->getDisplay());
+        // The advice names all four sources, nearest first — the file entry
+        // is the committed default, not the only way to supply a callback.
         self::assertStringContainsString('--callback-url', $tester->getDisplay());
+        self::assertStringContainsString('ATOMS_CALLBACK_URL', $tester->getDisplay());
+        self::assertStringContainsString('.env.atoms.production', $tester->getDisplay());
+        self::assertStringContainsString('"environments"."production"."callback_url"', $tester->getDisplay());
     }
 
     /**
@@ -221,8 +281,10 @@ final class DeployCommandTest extends TestCase
             ['ATOMS_DEBUG_ENDPOINTS' => '1', CloudflareTarget::CALLBACK_VAR => 'https://acme.example.com'],
             $deploy['args']['vars'],
         );
-        // Enabling a debug surface must be visible in the deploy log.
-        self::assertStringContainsString('ATOMS_DEBUG_ENDPOINTS=1', $tester->getDisplay());
+        // Enabling a debug surface must be visible in the deploy log, and the
+        // resolved-configuration table is where it is now stated.
+        self::assertStringContainsString('Debug routes: enabled', $tester->getDisplay());
+        self::assertStringContainsString('/debug is reachable on this Worker', $tester->getDisplay());
     }
 
     /**
@@ -522,5 +584,118 @@ final class DeployCommandTest extends TestCase
         self::assertSame(1, $exit);
         self::assertStringContainsString('ATOMS-E076', $tester->getDisplay());
         self::assertSame([], $wrangler->calls);
+    }
+    /**
+     * The per-environment hostnames land in the generated config's `routes`,
+     * each flagged as a custom domain, so the user's own file never has to
+     * decide them for every environment at once.
+     */
+    public function testCustomDomainsAreWrittenIntoTheGeneratedConfig(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true);
+        $config['environments']['production']['custom_domains'] = ['atoms.example.com'];
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        $deploy = $wrangler->lastCall('deploy');
+        self::assertNotNull($deploy);
+        self::assertSame(['atoms.example.com'], $deploy['target']->customDomains);
+        self::assertSame(
+            [['pattern' => 'atoms.example.com', 'custom_domain' => true]],
+            $deploy['args']['config']['routes'],
+        );
+        self::assertStringContainsString('Serving:', $tester->getDisplay());
+        self::assertStringContainsString('atoms.example.com', $tester->getDisplay());
+    }
+
+    /**
+     * Noticed, not refused, and not shipped.
+     *
+     * Routing in the user's file is dropped from the generated config, and
+     * the environment's own routing takes its place. A hostname someone wrote
+     * there would otherwise go quietly unserved, so the deploy says what it
+     * ignored; a project that put its hostname there is not wrong, and this
+     * command must not start failing for it.
+     */
+    public function testTopLevelRoutingInTheWorkerConfigIsNoticedAndReplaced(): void
+    {
+        $dir = $this->workerDir();
+        file_put_contents($dir . '/wrangler.jsonc', json_encode([
+            'name' => 'atoms-worker',
+            'main' => 'src/index.js',
+            'compatibility_date' => '2026-08-01',
+            'routes' => [['pattern' => 'atoms.example.com', 'custom_domain' => true]],
+        ], JSON_THROW_ON_ERROR));
+
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $dir,
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        $deploy = $wrangler->lastCall('deploy');
+        self::assertNotNull($deploy, 'the deploy still happens');
+        $display = $tester->getDisplay();
+        self::assertStringContainsString('declares routes or a custom domain at the top level', $display);
+        self::assertStringContainsString('ignored', $display);
+        self::assertStringContainsString('"custom_domains"', $display);
+        // The fixture environment declares no routing, so none ships — the
+        // file's custom domain in particular does not.
+        self::assertArrayNotHasKey('routes', $deploy['args']['config']);
+        // And the rest of the file travels through, with the entry point
+        // re-anchored to the Worker directory from where the generated file lives.
+        self::assertSame('../../src/index.js', $deploy['args']['config']['main']);
+        self::assertSame('2026-08-01', $deploy['args']['config']['compatibility_date']);
+    }
+
+    public function testAWranglerTomlIsRefusedBeforeAnythingIsBuilt(): void
+    {
+        $dir = $this->workerDir();
+        unlink($dir . '/wrangler.jsonc');
+        file_put_contents($dir . '/wrangler.toml', "name = \"atoms-worker\"\n");
+
+        $wrangler = new FakeWrangler();
+        $runner = new FakeProcessRunner();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $dir,
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E076', $tester->getDisplay());
+        self::assertStringContainsString('convert it to wrangler.jsonc', $tester->getDisplay());
+        self::assertSame([], $runner->runs, 'nothing is staged');
+        self::assertSame([], $wrangler->calls);
+    }
+
+    public function testAWorkerConfigWithoutRoutingSaysNothing(): void
+    {
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+        ]);
+
+        self::assertStringNotContainsString('top level', $tester->getDisplay());
     }
 }

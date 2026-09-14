@@ -84,7 +84,6 @@ final class AtomsBundleExtensionTest extends TestCase
     public function testConfigValuesLandInAtomsConfig(): void
     {
         $container = $this->buildContainer([
-            'environment' => 'staging',
             'timeout' => 5.5,
             'max_attempts' => 7,
             'http_client' => 'test.psr18_client',
@@ -98,7 +97,6 @@ final class AtomsBundleExtensionTest extends TestCase
         self::assertSame(self::SECRET, $config->sharedSecret);
         self::assertSame(self::BEARER, $config->bearerToken());
         self::assertNull($config->sharedSecretPrevious);
-        self::assertSame('staging', $config->environment);
         self::assertSame(5.5, $config->timeout);
         self::assertSame(7, $config->maxAttempts);
         self::assertSame(60000, $config->wsTicketTtlMs);

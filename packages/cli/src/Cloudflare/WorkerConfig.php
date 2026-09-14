@@ -29,9 +29,10 @@ namespace Atoms\Cli\Cloudflare;
  * deployed from another branch, another machine, or `wrangler deploy -e`.
  *
  * Only top-level `vars` are read. Wrangler's per-environment `env.<name>.vars`
- * sections are deliberately ignored, because `atoms deploy` selects the Worker
- * with `--name` and never passes `-e`, so those sections do not apply to what
- * it deploys.
+ * sections are deliberately ignored: the config `atoms deploy` hands to
+ * Wrangler is generated from this file for one environment
+ * (GeneratedWranglerConfig), and `env` blocks are dropped in the process, so
+ * those sections never reach a deployed Worker.
  */
 final class WorkerConfig
 {
@@ -242,6 +243,7 @@ final class WorkerConfig
             source: $source,
         );
     }
+
 
     /**
      * `vars` from a wrangler.jsonc.

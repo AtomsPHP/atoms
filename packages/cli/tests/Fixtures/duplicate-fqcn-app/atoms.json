@@ -4,10 +4,9 @@
         "atoms": "app/Atoms",
         "shared": "app/Atoms/Shared"
     },
-    "php": "8.3",
     "environments": {
         "production": {
-            "endpoint": "https://duplicate-fqcn-app.example.workers.dev",
+            "worker_name": "duplicate-fqcn-app",
             "account_id": "cf-account-1234"
         }
     }
