@@ -17,7 +17,7 @@ Atom-side code is bundled into a WebAssembly module and runs inside a Durable Ob
 
 An Atom's `support/` holds helpers that ship with the Atom: an Eloquent model bound to the Atom's database, a value object, a service. They follow the same import rules as the Atom class, and your application never loads them.
 
-An Atom can use its own database, configuration, timers, WebSockets, and the `app()`/`dispatch()` callback seam. It cannot use your Laravel container, Doctrine entity manager, filesystem, sessions, or arbitrary framework services.
+An Atom can use its own database, configuration, timers, and WebSockets, and it can [call back into your application](/guides/callbacks/) with `app()` and `dispatch()`. It cannot use your Laravel container, Doctrine entity manager, filesystem, sessions, or any other service from your framework.
 
 ## App-side: inside your application
 
@@ -31,6 +31,6 @@ Application queue (App-side)  ◀─ dispatch() ──  Atom (Atom-side)
 
 ## The boundary
 
-Values crossing the boundary are JSON-compatible scalars, lists, maps, enums, and shared DTOs. Native PHP serialization is never used. Build validation and `atoms/phpstan-rules` catch unsupported types before deployment.
+Values crossing the boundary are JSON-compatible scalars, lists, maps, enums, and shared DTOs. Objects such as Eloquent models or closures can't cross it; convert them to one of those types first. Build validation and `atoms/phpstan-rules` catch unsupported types before deployment.
 
 For more detail, read [`docs/two-worlds.md`](https://github.com/AtomsPHP/atoms/blob/main/docs/two-worlds.md) and [`docs/conventions.md`](https://github.com/AtomsPHP/atoms/blob/main/docs/conventions.md).
