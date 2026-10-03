@@ -53,8 +53,8 @@ application rebuilds the job and pushes it onto its queue.
 
 ## Delivery guarantees
 
-Each job is delivered to your application once, with no retry, and jobs
-dispatched together can arrive in any order. Outside a transaction, delivery
+Atoms tries to deliver each job once and never retries, and jobs can arrive
+in any order. Outside a transaction, delivery
 starts immediately. Inside `$this->db()->transaction()`, jobs are sent only
 after the commit and dropped on rollback.
 

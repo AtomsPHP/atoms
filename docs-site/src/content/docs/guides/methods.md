@@ -74,4 +74,4 @@ and database writes the turn made before the call are kept; a failed turn
 doesn't undo them.
 
 `app()` can't be called inside `$this->db()->transaction()` at all
-(`ATOMS-E082`). Read what you need before opening the transaction.
+([ATOMS-E082](/reference/errors/#atoms-e082)). Read what you need before opening the transaction.
