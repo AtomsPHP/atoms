@@ -1,13 +1,12 @@
 ---
 title: Methods
-description: Write the App-side Methods class an Atom reaches through app().
+description: Write the Methods class an Atom calls through app() to run code in your application.
 ---
 
-A Methods class is the App-side half of an Atom: a class extending
-`Atoms\AtomMethods` whose public methods run inside your application, with
-full framework access, when the Atom calls `$this->app()->method(...)`. The
-Atom holds the state; the Methods class is its window into everything the
-monolith can do — the ORM, mail, other services.
+A Methods class extends `Atoms\AtomMethods`. Its public methods run inside
+your application, with full framework access, when the Atom calls
+`$this->app()->method(...)`. Use it when the Atom needs something only your
+application has, such as your models, mail, or other services.
 
 :::caution
 Using `app()` should be rare. Each call blocks the Atom — turns are serialized,
@@ -61,14 +60,18 @@ arrays, `mixed`, `void`, nullables of those, classes implementing
 `Atoms\Serialization\Payload`, `\DateTimeImmutable`, and backed enums.
 `atoms/phpstan-rules` enforces this.
 
-One asymmetry to know: on the Atom side, `app()` does not rehydrate objects.
+Return values are not turned back into objects inside the Atom.
 A `\DateTimeImmutable` return value arrives in the Atom as its RFC 3339 string,
 and a backed enum as its backing value. Scalars, arrays, and string-keyed maps
 come back exactly as declared.
 
 ## Failures
 
-A failed `app()` call throws in your Atom code — when the application
-responds with an error, or when the callback time limit is exceeded. Catch
-the exception or let the turn fail; either way the Atom stays healthy and
-earlier writes stay durable.
+A failed `app()` call throws in your Atom code, either because your
+application returned an error or because the call ran past the time limit.
+Catch the exception or let the turn fail. Either way the Atom stays healthy,
+and database writes the turn made before the call are kept; a failed turn
+doesn't undo them.
+
+`app()` can't be called inside `$this->db()->transaction()` at all
+(`ATOMS-E082`). Read what you need before opening the transaction.

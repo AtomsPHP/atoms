@@ -3,14 +3,15 @@ title: Jobs
 description: Dispatch work from an Atom onto your application's queue.
 ---
 
-A job is App-side code an Atom hands to your application's queue: a class
-extending `Atoms\AtomJob` whose `handle()` method runs in the monolith, on
-your queue infrastructure, with full framework access.
+A job is work an Atom hands to your application's queue. It is a class
+extending `Atoms\AtomJob` whose `handle()` method runs in your application,
+on your queue workers, with full framework access.
 
 ## Write one
 
-The constructor parameters are the dispatch contract. They must be of the same
-[allowed types as Methods signatures](/guides/methods/#allowed-parameter-and-return-types):
+The constructor parameters are the arguments the Atom passes when it
+dispatches the job. They are limited to the same
+[types as Methods signatures](/guides/methods/#allowed-parameter-and-return-types):
 
 ```php
 namespace App\Atoms\GameRoom;
@@ -32,7 +33,7 @@ class RecordGameResult extends AtomJob
 }
 ```
 
-Only promoted constructor properties can be used; other state does not make it across the wire.
+Only promoted constructor properties reach the job; any other state is lost.
 `handle()` is resolved through your framework's container, so it can take
 injected dependencies.
 
@@ -45,18 +46,18 @@ parameter name:
 $this->dispatch(RecordGameResult::class, ['ref' => $ref, 'seat' => 1]);
 ```
 
-By class name, never an instance: the job's code lives in your app, not on
-the runtime, so it cannot be instantiated inside an Atom. The runtime sends the class
-name and arguments over the [callback channel](/guides/callbacks/); your
-adapter reconstructs the job and hands it to the framework's queue.
+You pass the class name, not an instance, because the job's code lives in
+your application and isn't available inside the Atom. The class name and
+arguments travel over the [callback channel](/guides/callbacks/), and your
+application rebuilds the job and pushes it onto its queue.
 
 ## Delivery guarantees
 
-Delivery is tried once and is unordered. Outside a transaction it starts
-immediately; inside `$this->db()->transaction()`, jobs are released only
-after commit and dropped on rollback.
+Each job is delivered to your application once, with no retry, and jobs
+dispatched together can arrive in any order. Outside a transaction, delivery
+starts immediately. Inside `$this->db()->transaction()`, jobs are sent only
+after the commit and dropped on rollback.
 
-`dispatch()` returns `void`, so a delivery that later fails has no way to
-reach your Atom code: the failure is logged on the Worker and the job is
-dropped. Write jobs so that a lost delivery is acceptable and a repeated one
-is harmless.
+`dispatch()` returns nothing, so your Atom never learns about a failed
+delivery: the Worker logs it and drops the job. Write jobs so that a lost
+delivery is acceptable and a repeated one is harmless.
