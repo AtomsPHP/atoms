@@ -82,7 +82,7 @@ $count = Atoms::get(GameRoom::class, 'room-42')->join('ada');
 Use `atoms/testing` for fast local tests of Atom behavior, migrations, callbacks, broadcasts, and timers:
 
 ```bash
-composer require --dev atoms/testing:^0.6
+composer require --dev atoms/testing:^0.7
 ```
 
 ```php

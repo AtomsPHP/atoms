@@ -1,18 +1,18 @@
 ---
 title: Compatibility
-description: The versions that make up Atoms 0.6 and the toolchain it supports.
+description: The versions that make up Atoms 0.7 and the toolchain it supports.
 ---
 
 Atoms releases its PHP packages, Worker runtime, and deploy Action together,
 under one version number.
 
-| Component | 0.6 support |
+| Component | 0.7 support |
 |---|---|
-| `atoms/core` | `^0.6`; a stable API that grows by addition |
-| `atoms/client`, adapters, testing, rules, CLI | `^0.6` |
-| `atoms/database-illuminate` | `^0.6`, installed inside the Atom through `atoms-composer.json` |
-| `@atomsphp/runtime-cloudflare` | `0.6.0` |
-| Deploy Action | `AtomsPHP/atoms/action@v0.6.0` (the tag never moves) |
+| `atoms/core` | `^0.7`; a stable API that grows by addition |
+| `atoms/client`, adapters, testing, rules, CLI | `^0.7` |
+| `atoms/database-illuminate` | `^0.7`, installed inside the Atom through `atoms-composer.json` |
+| `@atomsphp/runtime-cloudflare` | `0.7.0` |
+| Deploy Action | `AtomsPHP/atoms/action@v0.7.0` (the tag never moves) |
 | Host PHP | `^8.3`; tested on PHP 8.3 and PHP 8.4 |
 | Guest PHP | PHP 8.3 WebAssembly |
 | Node.js | 22 |

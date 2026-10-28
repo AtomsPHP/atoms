@@ -14,7 +14,7 @@ The bridge runs inside the Atom, which means it belongs in `atoms-composer.json`
 ```json
 {
     "require": {
-        "atoms/database-illuminate": "^0.6",
+        "atoms/database-illuminate": "^0.7",
         "illuminate/database": "^13.0"
     }
 }
