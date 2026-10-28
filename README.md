@@ -85,10 +85,10 @@ Laravel applications install the adapter and its CLI, then scaffold the
 release-matched Worker directory and commit it:
 
 ```sh
-composer require atoms/laravel:^0.6
-composer require --dev atoms/cli:^0.6 atoms/phpstan-rules:^0.6 atoms/testing:^0.6
+composer require atoms/laravel:^0.7
+composer require --dev atoms/cli:^0.7 atoms/phpstan-rules:^0.7 atoms/testing:^0.7
 php artisan atoms:install
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.6.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.7.0 -- \
   atoms-runtime-cloudflare init atoms-worker
 cd atoms-worker && npm ci && cd ..
 git add atoms-worker

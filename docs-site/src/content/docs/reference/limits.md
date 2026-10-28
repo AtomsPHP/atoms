@@ -5,7 +5,7 @@ description: Runtime limits and their defaults, Cloudflare platform limits, and 
 
 ## Cloudflare plan and platform limits
 
-Atoms 0.6 requires the Workers Paid plan. See
+Atoms 0.7 requires the Workers Paid plan. See
 [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/)
 for billing.
 
@@ -50,7 +50,7 @@ Cloudflare resets the Atom for exceeding its CPU limit.
 Install the PHPStan rules:
 
 ```bash
-composer require --dev atoms/phpstan-rules:^0.6
+composer require --dev atoms/phpstan-rules:^0.7
 ```
 
 ```text

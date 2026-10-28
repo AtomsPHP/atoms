@@ -77,10 +77,10 @@ version, see [Rollback](/guides/rollback/).
 ## Upgrade the runtime
 
 When you update the Atoms PHP packages, upgrade `atoms-worker/` to the same
-release. For 0.6.0:
+release. For 0.7.0:
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.6.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.7.0 -- \
   atoms-runtime-cloudflare upgrade atoms-worker
 cd atoms-worker
 npm ci
@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms/action@v0.6.0
+      - uses: AtomsPHP/atoms/action@v0.7.0
         with:
           environment: production
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -116,7 +116,7 @@ jobs:
 
 Use the tag or commit SHA that matches your runtime, and set `worker-directory`
 if your Worker lives somewhere other than `atoms-worker/`. The [Action's
-README](https://github.com/AtomsPHP/atoms/blob/v0.6.0/action/README.md)
+README](https://github.com/AtomsPHP/atoms/blob/v0.7.0/action/README.md)
 documents every input and how to scope the API token.
 
 The `shared-secret` input sets the Worker's shared secret after the deploy

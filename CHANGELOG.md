@@ -5,12 +5,15 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-28
+
 - **Added:** Laravel 13 support in `atoms/laravel` and Illuminate Database 13
   support in `atoms/database-illuminate`. Existing Laravel 11/12 adapter
   support and Illuminate Database 12 bridge support remain available.
 
 - **Changed:** one precedence rule now resolves every deploy-target value, on
-  every command: **flag, then environment, then file.** The file is the
+  every command: **flag, then caller environment, then `.env.atoms.<env>`,
+  then `atoms.json`.** The file is the
   committed default, an environment variable overrides it, and a flag
   overrides both — the order the AWS CLI and npm document for their own
   configuration. The nearer source wins silently: nothing is compared between
@@ -34,6 +37,17 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
   `CLOUDFLARE_ACCOUNT_ID` as well as the `atoms.json` entries, which alone
   trimmed before. A blank nearer source falls through to the next instead of
   winning with nothing, and no blank `--var` reaches Wrangler.
+- **Added:** optional `.env.atoms.<env>` files for deployment configuration.
+  Commands read only the selected target's file. Framework wrappers preserve
+  the caller environment before Laravel or Symfony loads application dotenv
+  values. Unreadable or malformed files fail with `ATOMS-E109`.
+- **Changed:** commands generate a Wrangler configuration for the selected
+  environment, taking the Worker name, custom domains, callback URL, and debug
+  setting from the resolved Atoms configuration. Top-level Wrangler routes and
+  environment blocks no longer select deployment targets. `ATOMS_SHARED_SECRET`
+  must be configured as a secret, not a Wrangler var (`ATOMS-E110`).
+- **Removed:** the unused `environment` client and adapter setting, and the
+  unused `region` entry from deployment configuration.
 - **Changed:** every configured environment must declare a non-empty
   `worker_name`; it no longer falls back to `project`.
 - **Removed:** `environments.<env>.endpoint` as CLI configuration. Legacy keys
@@ -542,7 +556,7 @@ Initial open-source release of the Atoms programming model, Laravel and
 Symfony adapters, testing and PHPStan tooling, deterministic CLI build and
 deploy workflow, and the Cloudflare Durable Object PHP runtime.
 
-[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.6.0...main
+[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.7.0...main
 
 [0.1.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.0
 
@@ -559,3 +573,5 @@ deploy workflow, and the Cloudflare Durable Object PHP runtime.
 [0.5.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.5.0
 
 [0.6.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.6.0
+
+[0.7.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.7.0
