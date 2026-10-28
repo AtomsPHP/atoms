@@ -1,7 +1,8 @@
 # atoms/database-illuminate
 
 The Laravel query builder and Eloquent models against an Atom's own SQLite
-database. This package runs **inside the Atom** — add it to
+database. Supports Illuminate Database 12 and 13 on PHP 8.3 or later.
+This package runs **inside the Atom** — add it to
 `atoms-composer.json` (together with `illuminate/database`), not to your
 application's `composer.json`:
 
@@ -9,7 +10,7 @@ application's `composer.json`:
 {
     "require": {
         "atoms/database-illuminate": "^0.6",
-        "illuminate/database": "^12.0"
+        "illuminate/database": "^13.0"
     }
 }
 ```

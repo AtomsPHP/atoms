@@ -2,7 +2,8 @@
 
 The supported Laravel adapter for Atoms. It registers the Atoms client,
 facade, callback route and queue bridge, testing fake, Artisan installers, and
-thin wrappers around the `atoms` command-line tool.
+thin wrappers around the `atoms` command-line tool. Supports Laravel 11, 12,
+and 13 on PHP 8.3 or later.
 
 ```sh
 composer require atoms/laravel:^0.6
