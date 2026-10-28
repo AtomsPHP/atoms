@@ -36,29 +36,40 @@ at its root, which `init` and `upgrade` write:
 | `src/`, `php/`, `scripts/`, `release/`, `package.json`, `package-lock.json`, `.gitignore`, `README.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `atoms-runtime.json` | **The runtime.** | Rewritten to the release's copy. Files the release no longer ships are removed. A local edit is overwritten; `git diff` shows it, and it stays in your history. |
 | Anything else you add | You. | Left alone. |
 
-Put project settings in `wrangler.jsonc`: routes, custom domains,
-observability, placement, limits, `vars`. Two `vars` are exceptions:
+`atoms deploy` and `atoms dev` do not hand `wrangler.jsonc` to Wrangler as it
+is. They write a copy for the selected `atoms.json` environment to
+`.wrangler/deploy/wrangler.json`, with a `config.json` beside it that points
+Wrangler there (Wrangler's generated-configuration redirect), and remove both
+once Wrangler exits. The copy takes `name` from the environment's
+`worker_name`, builds `routes` from its `custom_domains`, merges
+the callback URL and debug-endpoints switch into `vars`, and drops any `env`
+blocks. Everything else in your file travels through unchanged, so put
+observability, placement, limits and project-wide `vars` here, and put the
+per-environment values in `atoms.json`. Routes or custom domains declared
+here at the top level are ignored, and `atoms deploy` says so.
+
+Two `vars` are exceptions:
 
 - **`ATOMS_SHARED_SECRET`** is a secret, never a var. Set it with
   `atoms shared-secret:set` or `wrangler secret put`; `atoms dev` provisions
   a per-machine dev secret into the gitignored `.dev.vars`.
-- **`ATOMS_DEBUG_ENDPOINTS`** stays out of this file. `wrangler.jsonc` is
-  shared by every environment you deploy (the CLI selects the Worker with
-  `--name`, never Wrangler's `-e`), so a var here would turn the Worker's
-  `/debug` routes on for staging and production alike. Set
+- **`ATOMS_DEBUG_ENDPOINTS`** stays out of this file. Vars here reach every
+  environment's generated config alike, so a value here would turn the
+  Worker's `/debug` routes on for staging and production together. Set
   `"debug_endpoints": true` on one environment in `atoms.json` instead; the
-  CLI forwards it to Wrangler as a `--var` on `atoms dev` and `atoms deploy`,
-  and prints a line when it is in force. The routes are **off by default**.
-  Under the default `ATOMS_BEARER_AUTH=required` posture they also sit behind
-  the Worker's bearer check, so the flag is a second gate; under
-  `ATOMS_BEARER_AUTH=disabled` (an authenticating proxy in front of the
+  CLI merges it into that environment's vars on `atoms dev` and
+  `atoms deploy`, and prints a line when it is in force. The routes are **off
+  by default**. Under the default `ATOMS_BEARER_AUTH=required` posture they
+  also sit behind the Worker's bearer check, so the flag is a second gate;
+  under `ATOMS_BEARER_AUTH=disabled` (an authenticating proxy in front of the
   Worker) the flag is the **only** gate, which is why it defaults off and why
   enabling it is a per-environment declaration.
 
 Generated files are gitignored, so a deploy never dirties the directory:
 `src/bundle.generated.js` (your app, staged by `atoms deploy`/`atoms dev`),
-`node_modules/`, `.php-wasm/`, `.dev.vars`, `.wrangler/`. Add project ignores
-to your repository's root `.gitignore` as `atoms-worker/<path>`; the
+`node_modules/`, `.php-wasm/`, `.dev.vars`, `.wrangler/` (Wrangler's own
+state, and the generated deploy config while Wrangler runs). Add project
+ignores to your repository's root `.gitignore` as `atoms-worker/<path>`; the
 directory's own `.gitignore` is runtime-owned.
 
 ## Upgrading

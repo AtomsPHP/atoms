@@ -11,10 +11,13 @@ namespace Atoms\Symfony\Command;
  */
 final class ProcOpenProcessRunner implements ProcessRunner
 {
-    public function run(array $command): array
+    public function run(array $command, ?array $env = null): array
     {
         $descriptors = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-        $process = proc_open($command, $descriptors, $pipes);
+        // A non-null $env *replaces* the child's environment rather than
+        // adding to it — which is what the caller wants here, and why it
+        // passes a whole snapshot rather than a handful of names.
+        $process = proc_open($command, $descriptors, $pipes, null, $env);
 
         if (!is_resource($process)) {
             return [

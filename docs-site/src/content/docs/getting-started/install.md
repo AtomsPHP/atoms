@@ -58,7 +58,7 @@ includes:
 vendor/bin/atoms init
 ```
 
-The `init` command creates `atoms.json` and `atoms-composer.json`. It also prints a command that scaffolds the matching version of the Cloudflare Worker runtime:
+The `init` command creates `atoms.json` and `atoms-composer.json`, and appends `/.atoms/` and `/.env.atoms.*` to your `.gitignore`. It also prints a command that scaffolds the matching version of the Cloudflare Worker runtime:
 
 ```bash
 npm exec --yes --package=@atomsphp/runtime-cloudflare@0.6.0 -- \
@@ -68,10 +68,19 @@ npm ci
 cd ..
 ```
 
-Then fill in the generated `atoms.json` — at minimum an `endpoint` and a
-`worker_name` for each environment you deploy to. See
+Then fill in the generated `atoms.json` — at minimum a non-empty
+`worker_name` for each environment you deploy to. Declare a
+`callback_url` on that environment when its Worker must call `app()` or `dispatch()`;
+the deployed Worker URL belongs in the monolith's independent
+`ATOMS_ENDPOINT`. See
 [Configuration](/guides/configuration/) for every key, and for which settings
 belong in `atoms-worker/wrangler.jsonc` instead.
+
+Values that belong to your machine rather than to the repository — a Cloudflare
+API token for local deploys, a callback URL pointing at your own tunnel — go in
+[`.env.atoms.<environment>`](/guides/configuration/#envatomsenvironment) beside
+`atoms.json`, which is the gitignored file `init` just made room for. It is
+optional; nothing needs one to start.
 
 ## Next
 

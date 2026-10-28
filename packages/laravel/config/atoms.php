@@ -6,19 +6,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Environment
-    |--------------------------------------------------------------------------
-    |
-    | Environment name (e.g. production, staging) selecting which Worker
-    | endpoint/credentials apply. Purely descriptive here; endpoint and
-    | shared_secret below are the values actually used for this app instance.
-    |
-    */
-
-    'environment' => env('ATOMS_ENVIRONMENT', 'production'),
-
-    /*
-    |--------------------------------------------------------------------------
     | Endpoint
     |--------------------------------------------------------------------------
     |

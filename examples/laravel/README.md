@@ -24,9 +24,11 @@ git add atoms-worker
 The Worker directory is part of your repository from here on; this example
 does not ship one, because it is a copy of the runtime this monorepo already
 holds under `cloudflare/worker`, so run the scaffold command above before
-deploying. Fill in the Cloudflare account id, Worker endpoint and callback
-URL in `atoms.json`. Authenticate with Cloudflare — export `CLOUDFLARE_API_TOKEN`, or
-use the `wrangler login` session you already have — then deploy:
+deploying. Fill in the Cloudflare account id and callback URL in `atoms.json`.
+Set the deployed Worker URL separately as the application's `ATOMS_ENDPOINT`.
+Authenticate with Cloudflare — set `CLOUDFLARE_API_TOKEN` in
+`.env.atoms.production` beside `atoms.json`, or use the `wrangler login`
+session you already have — then deploy:
 
 ```sh
 vendor/bin/atoms deploy --env production

@@ -45,7 +45,6 @@ final class ConsoleCommandsTest extends TestCase
             '--bundle' => '/tmp/bundle.tar.gz',
             '--manifest' => '/tmp/manifest.json',
             '--worker-dir' => '/srv/worker',
-            '--callback-url' => 'https://app.example.test/atoms/callback',
         ])->assertExitCode(0);
 
         self::assertSame([[
@@ -54,8 +53,30 @@ final class ConsoleCommandsTest extends TestCase
             '--bundle', '/tmp/bundle.tar.gz',
             '--manifest', '/tmp/manifest.json',
             '--worker-dir', '/srv/worker',
-            '--callback-url', 'https://app.example.test/atoms/callback',
         ]], $this->runner->calls);
+    }
+
+    /**
+     * `atoms deploy` accepts `--callback-url`, so the wrapper must too:
+     * an option the CLI has and Artisan does not is a dead end for anyone
+     * driving Atoms through `php artisan`.
+     */
+    public function testDeployForwardsACallbackUrlOverride(): void
+    {
+        $commands = $this->app->make(\Illuminate\Contracts\Console\Kernel::class)->all();
+
+        self::assertArrayHasKey('atoms:deploy', $commands);
+        self::assertTrue($commands['atoms:deploy']->getDefinition()->hasOption('callback-url'));
+
+        $this->artisan('atoms:deploy', [
+            '--env' => 'production',
+            '--callback-url' => 'https://app.example.test/atoms/callback',
+        ])->assertExitCode(0);
+
+        self::assertSame(
+            [['deploy', '--env', 'production', '--callback-url', 'https://app.example.test/atoms/callback']],
+            $this->runner->calls,
+        );
     }
 
     public function testRollbackBuildsArgvWithEnvAndVersion(): void

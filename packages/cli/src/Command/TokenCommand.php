@@ -32,8 +32,8 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * The secret is read, in order: from the `ATOMS_SHARED_SECRET` process
  * environment variable; else from the `ATOMS_SHARED_SECRET` line of the
- * Worker project's `.dev.vars` (`--worker-dir`, or the directory `atoms.json`
- * resolves for `--env`).
+ * Worker project's `.dev.vars` (`--worker-dir`, or `atoms-worker/` beside
+ * `atoms.json`).
  */
 #[AsCommand(name: 'token', description: 'Print the bearer derived from ATOMS_SHARED_SECRET')]
 final class TokenCommand extends AbstractCommand
@@ -44,8 +44,7 @@ final class TokenCommand extends AbstractCommand
     protected function configure(): void
     {
         parent::configure();
-        $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Environment to resolve the Worker directory for (fallback secret source)', 'staging');
-        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory holding .dev.vars (else atoms.json)');
+        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory holding .dev.vars (default: atoms-worker/ beside atoms.json)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -86,10 +85,19 @@ final class TokenCommand extends AbstractCommand
     }
 
     /**
-     * An explicit --worker-dir, or the directory atoms.json resolves for
-     * --env. Any failure resolving the latter (no atoms.json, no such
-     * environment) yields null rather than propagating — the caller's fallback
-     * is a plain "no secret configured" error, not an unrelated atoms.json one.
+     * An explicit --worker-dir, or `atoms-worker/` beside atoms.json.
+     *
+     * No environment is involved, and this command has no `--env`: the Worker
+     * directory is a committed convention shared by every environment, and the
+     * bearer is derived from `ATOMS_SHARED_SECRET` alone. It used to route
+     * through {@see CloudflareTarget::resolve()} with a hardcoded `staging`
+     * default, which meant a project whose environments happened to be named
+     * anything else lost the `.dev.vars` fallback entirely and reported
+     * ATOMS-E105 with a usable secret sitting on disk.
+     *
+     * A missing atoms.json still yields null rather than propagating — the
+     * caller's fallback is a plain "no secret configured" error, not an
+     * unrelated atoms.json one.
      */
     private function resolveWorkerDir(InputInterface $input): ?string
     {
@@ -99,17 +107,12 @@ final class TokenCommand extends AbstractCommand
         }
 
         try {
-            $target = CloudflareTarget::resolve(
-                $this->atomsJson($input),
-                self::stringOption($input, 'env') ?? 'staging',
-                null,
-                null,
-            );
-
-            return $target->workerDir;
+            $root = $this->atomsJson($input)->rootDir;
         } catch (AtomsError) {
             return null;
         }
+
+        return $root . '/' . CloudflareTarget::DEFAULT_WORKER_DIR;
     }
 
     /**

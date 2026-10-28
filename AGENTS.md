@@ -134,6 +134,12 @@ convenient it looks.
 
 ## Cross-cutting rules
 
+- **PR descriptions are for reviewer context, not CI/CD output.** Do not add
+  test commands, pass/fail counts, CI status, deployment or preview status,
+  generated-artifact freshness, or contract/layering results that GitHub
+  checks already surface. Mention validation only when it is not visible in
+  checks and materially affects review, such as a manual or external
+  measurement that informed the implementation.
 - **One CI workflow tests everything, from one clone.** `.github/workflows/ci.yml`
   runs the PHP suites (`composer test` on 8.3 and 8.4), `composer stan`,
   manifest lint, *and* the Worker's conformance suite under a local

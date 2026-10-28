@@ -10,39 +10,34 @@ An Atom can cross from Atom-side back into the host application in two ways:
 
 ## Configure the channel
 
-For these callbacks to work, you must configure a shared secret and a callback URL. Each lives in a specific place:
+Callbacks need a callback URL and the shared secret.
 
-- `ATOMS_CALLBACK_URL` is an environment variable **on the Worker**. It tells
-  the Worker where to POST. See
-  [Callback URL](#callback-url).
-- `ATOMS_SHARED_SECRET` is configured **on both sides**: as a secret on the
-  Worker, and in your application's `.env` (or equivalent). See
-  [Secrets and authentication](/guides/secrets/) for setting it.
+Set the callback URL on each environment in `atoms.json`. This is where the
+Worker sends callbacks to your application:
 
-Every callback POST is signed with a key derived from that secret, and your
-adapter verifies the signature before your Methods class or job runs. See the
-[adapter contract](/concepts/adapters/) for what a host must provide.
-
-## Callback URL
-
-Set the application's callback URL for each environment under
-[`callback_url` in `atoms.json`](/guides/configuration/#atomsjson-keys).
-
-`atoms dev` and `atoms deploy` choose the URL in this order:
-
-1. `--callback-url`;
-2. `ATOMS_CALLBACK_URL` in the process environment;
-3. `callback_url.<env>` in `atoms.json`.
-
-For example, override the production URL for a deployment:
-
-```bash
-vendor/bin/atoms deploy --env production --callback-url https://example.com/atoms/callback
+```json
+{
+    "environments": {
+        "production": {
+            "worker_name": "my-app",
+            "callback_url": "https://example.com/atoms/callback"
+        }
+    }
+}
 ```
 
-The selected URL is passed to Wrangler as `ATOMS_CALLBACK_URL`, overriding
-the Worker's configured value. If all three sources are empty, Wrangler uses
-the Worker's configuration.
+The URL must use HTTPS, except for local development on `localhost`. To use a
+different URL on your own machine, such as a tunnel, set `ATOMS_CALLBACK_URL`
+in `.env.atoms.<environment>`. [Environments](/guides/environments/#where-values-come-from)
+lists every place the URL can come from. Your application's `ATOMS_ENDPOINT`
+is a separate setting that points the other way, from your application to the
+Worker.
+
+Configure the shared secret on both your application and the Worker, as
+[Secrets and authentication](/guides/secrets/) describes. Every callback is
+signed with a key derived from it, and your adapter verifies the signature
+before your Methods class or job runs. See the [adapter
+contract](/concepts/adapters/) for what a host must provide.
 
 ## Synchronous `app()`
 

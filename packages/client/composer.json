@@ -29,7 +29,10 @@
     "autoload": {
         "psr-4": {
             "Atoms\\Client\\": "src/"
-        }
+        },
+        "files": [
+            "src/Deployment/bootstrap.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {

@@ -24,7 +24,6 @@ return [
 
 ```yaml
 atoms:
-    environment: '%env(APP_ENV)%'
     endpoint: https://atoms.your-subdomain.workers.dev   # your own deployed Worker
     shared_secret: '%env(ATOMS_SHARED_SECRET)%'          # base64 of 32 random bytes, identical on the Worker
     # shared_secret_previous: '%env(ATOMS_SHARED_SECRET_PREVIOUS)%'   # add during a rotation overlap

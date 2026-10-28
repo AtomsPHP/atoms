@@ -245,7 +245,10 @@ function validateCurrentReleaseReferences(string $root, string $version, string 
         // A pinned link into the repository at a release tag drifts exactly like
         // the Action reference above, and is not covered by it: the docs link to
         // `blob/v<version>/action/README.md`, not `action@v<version>`.
-        preg_match_all('/AtomsPHP\/atoms\/blob\/v(\d+\.\d+\.\d+)/', $contents, $blobMatches);
+        // The whole tag up to the next path separator, not a version-shaped
+        // prefix of it: `blob/v0.6.0-rc.1/` and `blob/v0.5.0notes/` would both
+        // otherwise report the release they merely start with, and pass.
+        preg_match_all('/AtomsPHP\/atoms\/blob\/v([^\/\s)"\']+)\//', $contents, $blobMatches);
         foreach ($blobMatches[1] as $referencedVersion) {
             if ($referencedVersion !== $version) {
                 $errors[] = "{$relativePath} references tag {$referencedVersion}; expected {$version}";
@@ -587,32 +590,38 @@ function renderCompatibility(array $manifest): string
     return <<<MARKDOWN
 ---
 title: Compatibility
-description: The coordinated versions and supported host toolchain for Atoms {$releaseLine}.
+description: The versions that make up Atoms {$releaseLine} and the toolchain it supports.
 ---
 
-Atoms releases its PHP packages, Worker runtime, and deployment Action as one compatible line.
+Atoms releases its PHP packages, Worker runtime, and deploy Action together,
+under one version number.
 
 | Component | {$releaseLine} support |
 |---|---|
-| `atoms/core` | `{$core['supported']}` frozen, additive API |
+| `atoms/core` | `{$core['supported']}`; a stable API that grows by addition |
 | `atoms/client`, adapters, testing, rules, CLI | `{$core['supported']}` |
-| `atoms/database-illuminate` | `{$core['supported']}`, installed Atom-side through `atoms-composer.json` |
-| `{$runtime['package']}` | `{$runtime['version']}`, co-versioned with the release |
-| Deploy Action | immutable `AtomsPHP/atoms/action@v{$version}` |
+| `atoms/database-illuminate` | `{$core['supported']}`, installed inside the Atom through `atoms-composer.json` |
+| `{$runtime['package']}` | `{$runtime['version']}` |
+| Deploy Action | `AtomsPHP/atoms/action@v{$version}` (the tag never moves) |
 | Host PHP | `{$php['constraint']}`; tested on {$testedPhp} |
 | Guest PHP | PHP {$runtime['guest_php']} WebAssembly |
 | Node.js | {$runtime['node']} |
-| Wrangler | {$runtime['wrangler']} (exact runtime-template pin) |
+| Wrangler | {$runtime['wrangler']}, pinned exactly in the Worker's `package.json` |
 
-Use matching {$releaseLine} release artifacts. The CLI stamps the core API version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043).
+Keep every component on the same release. If your `atoms/core` version is
+outside the range the runtime supports, the Worker rejects the bundle with
+[ATOMS-E043](/reference/errors/#atoms-e043).
 
-`atoms-worker/atoms-runtime.json` must name the exact same
-release as the CLI. `atoms dev` and `atoms deploy` check it before building
-and report [ATOMS-E108](/reference/errors/#atoms-e108) for a missing stamp or
-version mismatch. Follow [Upgrade the runtime](/guides/deploy/#upgrade-the-runtime)
-after updating the PHP packages.
+`atoms-worker/atoms-runtime.json` records the runtime release your Worker
+directory came from, and it must match the CLI's release. `atoms dev` and
+`atoms deploy` check it before building and report
+[ATOMS-E108](/reference/errors/#atoms-e108) if it is missing or different.
+After updating the PHP packages, follow
+[Upgrade the runtime](/guides/deploy/#upgrade-the-runtime).
 
-Pre-1.0 APIs outside `atoms/core` may change between minor versions. Package patch releases remain within the declared Composer constraints; use lockfiles for repeatable application and Worker installs.
+Before 1.0, APIs outside `atoms/core` may change between minor versions. Patch
+releases stay within the declared Composer constraints. Commit your lockfiles
+so application and Worker installs are repeatable.
 
 MARKDOWN;
 }

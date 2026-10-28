@@ -28,7 +28,9 @@
 # known master key.
 /.dev.vars
 
-# Wrangler's own local state (`wrangler dev` storage, logs, caches).
+# Wrangler's own local state (`wrangler dev` storage, logs, caches), and the
+# per-environment config `atoms deploy` and `atoms dev` generate under
+# .wrangler/deploy/ for the duration of the Wrangler run.
 /.wrangler/
 
 # `npm pack` output, if you ever pack this directory.

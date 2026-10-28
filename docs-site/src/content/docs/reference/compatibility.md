@@ -1,28 +1,34 @@
 ---
 title: Compatibility
-description: The coordinated versions and supported host toolchain for Atoms 0.6.
+description: The versions that make up Atoms 0.6 and the toolchain it supports.
 ---
 
-Atoms releases its PHP packages, Worker runtime, and deployment Action as one compatible line.
+Atoms releases its PHP packages, Worker runtime, and deploy Action together,
+under one version number.
 
 | Component | 0.6 support |
 |---|---|
-| `atoms/core` | `^0.6` frozen, additive API |
+| `atoms/core` | `^0.6`; a stable API that grows by addition |
 | `atoms/client`, adapters, testing, rules, CLI | `^0.6` |
-| `atoms/database-illuminate` | `^0.6`, installed Atom-side through `atoms-composer.json` |
-| `@atomsphp/runtime-cloudflare` | `0.6.0`, co-versioned with the release |
-| Deploy Action | immutable `AtomsPHP/atoms/action@v0.6.0` |
+| `atoms/database-illuminate` | `^0.6`, installed inside the Atom through `atoms-composer.json` |
+| `@atomsphp/runtime-cloudflare` | `0.6.0` |
+| Deploy Action | `AtomsPHP/atoms/action@v0.6.0` (the tag never moves) |
 | Host PHP | `^8.3`; tested on PHP 8.3 and PHP 8.4 |
 | Guest PHP | PHP 8.3 WebAssembly |
 | Node.js | 22 |
-| Wrangler | 4.118.0 (exact runtime-template pin) |
+| Wrangler | 4.118.0, pinned exactly in the Worker's `package.json` |
 
-Use matching 0.6 release artifacts. The CLI stamps the core API version into the bundle manifest, and the Worker rejects an unsupported core/runtime pairing with [ATOMS-E043](/reference/errors/#atoms-e043).
+Keep every component on the same release. If your `atoms/core` version is
+outside the range the runtime supports, the Worker rejects the bundle with
+[ATOMS-E043](/reference/errors/#atoms-e043).
 
-`atoms-worker/atoms-runtime.json` must name the exact same
-release as the CLI. `atoms dev` and `atoms deploy` check it before building
-and report [ATOMS-E108](/reference/errors/#atoms-e108) for a missing stamp or
-version mismatch. Follow [Upgrade the runtime](/guides/deploy/#upgrade-the-runtime)
-after updating the PHP packages.
+`atoms-worker/atoms-runtime.json` records the runtime release your Worker
+directory came from, and it must match the CLI's release. `atoms dev` and
+`atoms deploy` check it before building and report
+[ATOMS-E108](/reference/errors/#atoms-e108) if it is missing or different.
+After updating the PHP packages, follow
+[Upgrade the runtime](/guides/deploy/#upgrade-the-runtime).
 
-Pre-1.0 APIs outside `atoms/core` may change between minor versions. Package patch releases remain within the declared Composer constraints; use lockfiles for repeatable application and Worker installs.
+Before 1.0, APIs outside `atoms/core` may change between minor versions. Patch
+releases stay within the declared Composer constraints. Commit your lockfiles
+so application and Worker installs are repeatable.

@@ -3,75 +3,74 @@ title: Secrets and authentication
 description: Set the shared secret that authenticates the app and Worker to each other, and the application secrets an Atom reads.
 ---
 
-Two different kinds of secret reach a Worker, and they are managed by different
-commands:
+A Worker holds two kinds of secret:
 
 - **`ATOMS_SHARED_SECRET`** authenticates your application and the Worker to
-  each other. There is exactly one, both sides hold the same value, and Atom
-  code can never read it.
-- **Application secrets** — an API key your Atom needs — are set with
-  `secrets:set` and read back through `$this->config()`.
+  each other. Both sides hold the same value.
+- **Application secrets**, such as an API key, are values your Atom code reads
+  with `$this->config()`.
 
 ## The shared secret
 
-`ATOMS_SHARED_SECRET` is a base64 value that decodes to 32 random bytes.
-Generate one, save it in your secret manager, and configure that same value as
-`ATOMS_SHARED_SECRET` in your application and CI environment. Then supply it to
-the Worker:
+The shared secret is a base64 value that decodes to 32 random bytes. Generate
+one, save it in your secret manager, and configure it as `ATOMS_SHARED_SECRET`
+in your application and CI:
 
 ```bash
 openssl rand -base64 32
 ```
+
+After the first deploy, set the same value on the Worker:
 
 ```bash
 printf '%s' "$ATOMS_SHARED_SECRET" | \
   vendor/bin/atoms shared-secret:set --env production
 ```
 
-Run this **after the first deployment**, because the Worker must exist before a
-secret can be set on it. Until then, every route but `/healthz` returns a
-configuration error — a Worker with no valid secret fails closed rather than
-serving unauthenticated traffic.
+Until the Worker has a secret, every route except `/healthz` returns a
+configuration error.
 
 :::caution
-`shared-secret:set` leaves an existing secret unchanged unless you pass
-`--force`. A pipeline that re-runs it with a *changed* value silently does
-nothing. See [Rotate the shared secret](#rotate-the-shared-secret).
+`shared-secret:set` keeps an existing secret unless you pass `--force`. To
+change the value, follow [Rotate the shared secret](#rotate-the-shared-secret).
 :::
 
-The value is never transmitted. Both sides derive purpose-specific keys from it:
-the bearer token your application sends, the signature on callbacks the Worker
-POSTs back, and the short-lived tickets browsers use to open WebSockets. For the
-derivations and test vectors, see
-[`docs/shared-secret.md`](https://github.com/AtomsPHP/atoms/blob/main/docs/shared-secret.md),
-which is the normative record.
+Both sides derive their keys from the shared secret: the bearer token your
+application sends, the signature on callbacks from the Worker, and the
+short-lived tickets browsers use to open WebSockets.
+[`docs/shared-secret.md`](https://github.com/AtomsPHP/atoms/blob/main/docs/shared-secret.md)
+has the derivations and test vectors.
 
-### Bearer auth postures
+### Bearer authentication
 
-The Worker variable `ATOMS_BEARER_AUTH` controls whether the Worker checks the
-`Authorization` bearer your application sends automatically. Leave it at the
-default, `required`; set it to `disabled` only when an authenticating proxy such
-as Cloudflare Access already sits in front of the Worker.
-
-`ATOMS_SHARED_SECRET` stays mandatory in either posture, and browser connections
-are unaffected — they authenticate with a short-lived
-[ticket](/guides/websockets-timers/) either way.
+The Worker checks the bearer token your application sends with every call. If
+an authenticating proxy such as Cloudflare Access sits in front of the Worker,
+you can turn that check off by setting `ATOMS_BEARER_AUTH` to `disabled` in the
+`vars` of `atoms-worker/wrangler.jsonc`. The shared secret is still required,
+and browsers still open WebSockets with a
+[ticket](/guides/websockets-timers/).
 
 ### Calling a protected route by hand
 
-`atoms token` prints the bearer derived from the shared secret, so you never
-have to paste the secret itself into a header. This example calls the `join`
-method from the [overview](/):
+`atoms token` prints the bearer token for a shared secret. This example calls
+the `join` method from the [overview](/):
 
 ```bash
-curl -H "Authorization: Bearer $(vendor/bin/atoms token --env production)" \
+curl -H "Authorization: Bearer $(vendor/bin/atoms token)" \
   -H 'Content-Type: application/json' \
   --data '{"args":["ada"]}' \
   https://your-worker.example.workers.dev/invoke/GameRoom/room-42/join
 ```
 
-Set `ATOMS_SHARED_SECRET` in your shell to the production value before running
-this.
+`atoms token` reads `ATOMS_SHARED_SECRET` from your shell, or from
+`atoms-worker/.dev.vars` for a local Worker. It takes no `--env`: to get a
+token for an environment, give it that environment's secret. You can read the
+secret from your password manager for a single command:
+
+```bash
+BEARER=$(ATOMS_SHARED_SECRET=$(op read op://vault/atoms/shared-secret) \
+  vendor/bin/atoms token)
+```
 
 ## Application secrets
 
@@ -82,22 +81,17 @@ printf '%s' "$PAYMENTS_API_KEY" | \
   vendor/bin/atoms secrets:set PAYMENTS_API_KEY --env production
 ```
 
-This stores the Worker secret `ATOMS_CONFIG_PAYMENTS_API_KEY` — the name is
-uppercased and prefixed — readable through `$this->config('PAYMENTS_API_KEY')`.
-The prefix is what makes a Worker secret visible to Atom code at all, so
-`ATOMS_SHARED_SECRET` and its rotation partner are not readable and cannot be
-made readable: `secrets:set` refuses those names outright.
+This stores the Worker secret `ATOMS_CONFIG_PAYMENTS_API_KEY`, and your Atom
+reads it with `$this->config('PAYMENTS_API_KEY')`. `secrets:list` shows which
+of the Worker's secrets your Atoms can read.
 
-`secrets:list` shows which secrets an Atom can read and which it cannot.
-
-A changed value is not retroactive: an Atom already resident in memory keeps the
-value its isolate started with.
+An Atom that is already running keeps the old value until it next starts.
 
 ## Rotate the shared secret
 
-Senders use `ATOMS_SHARED_SECRET`; verifiers accept that value and
-`ATOMS_SHARED_SECRET_PREVIOUS`. Prepare the overlap before replacing the current
-value. Starting with the same old secret on the application and Worker:
+During a rotation, each side sends with `ATOMS_SHARED_SECRET` and also accepts
+`ATOMS_SHARED_SECRET_PREVIOUS`. Starting with the old secret as current on
+both sides:
 
 1. Configure every application instance with the old value as current and
    the new value as `ATOMS_SHARED_SECRET_PREVIOUS`. Reload the instances so
@@ -112,12 +106,11 @@ value. Starting with the same old secret on the application and Worker:
    `shared-secret:unset` on the Worker and remove the previous value from the
    application. Reload the application again.
 
-Pass `--env production` to these commands. `shared-secret:set` reads the value
-from stdin. Store both values in your secret manager during the rotation. Secret
-changes propagate over time; verify application calls, callbacks, and browser
-connections between stages.
-
-Steps 1 and 3 are entirely yours — nothing in Atoms can reach your
-application's secret store, so put them in your own deployment runbook. To drive
-a rotation from CI, see
-[Deploy from GitHub Actions](/guides/deploy/#deploy-from-github-actions).
+Pass `--env` to each Worker command; `shared-secret:set` reads the value from
+stdin. The commands authenticate with Cloudflare [the same way as
+`deploy`](/guides/deploy/#authenticate-with-cloudflare).
+Secret changes take a little while to propagate, so check that application
+calls, callbacks and browser connections work before moving to the next step.
+Keep both values in your secret manager until the rotation is finished. To
+rotate from CI, see [Deploy from GitHub
+Actions](/guides/deploy/#deploy-from-github-actions).

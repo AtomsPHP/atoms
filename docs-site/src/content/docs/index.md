@@ -39,4 +39,4 @@ Start with [Install](/getting-started/install/) for requirements, packages, and 
 
 Atoms has some core concepts you should know about. [The two worlds](/concepts/two-worlds/) explains which code runs inside an Atom and which runs in your application, and [lifecycle and persistence](/concepts/lifecycle/) covers turns, storage, and eviction.
 
-When you are ready to ship, start with [Configuration](/guides/configuration/) for the files and environments a project has, then [Deploy](/guides/deploy/) for the deploy itself, [Secrets and authentication](/guides/secrets/) for the shared secret both sides need, and [Rollback](/guides/rollback/) for moving a Worker back.
+When you are ready to ship, start with [Configuration](/guides/configuration/) for the files a project has and [Environments](/guides/environments/) for how one deploy target is selected and configured, then [Deploy](/guides/deploy/) for the deploy itself, [Secrets and authentication](/guides/secrets/) for the shared secret both sides need, and [Rollback](/guides/rollback/) for moving a Worker back.

@@ -12,7 +12,9 @@ interface ProcessRunner
 {
     /**
      * @param list<string> $command argv, binary first — never passed through a shell.
+     * @param array<string, string>|null $env the child's complete environment, replacing
+     *                                        this process's; null inherits.
      * @return array{exitCode: int, stdout: string, stderr: string}
      */
-    public function run(array $command): array;
+    public function run(array $command, ?array $env = null): array;
 }

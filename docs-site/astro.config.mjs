@@ -48,6 +48,7 @@ export default defineConfig({
         ]},
         { label: 'Deploying', items: [
           { label: 'Configuration', slug: 'guides/configuration' },
+          { label: 'Environments', slug: 'guides/environments' },
           { label: 'Deploy', slug: 'guides/deploy' },
           { label: 'Secrets and authentication', slug: 'guides/secrets' },
           { label: 'Rollback', slug: 'guides/rollback' },

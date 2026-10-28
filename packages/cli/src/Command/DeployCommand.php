@@ -7,7 +7,9 @@ namespace Atoms\Cli\Command;
 use Atoms\Cli\Build\Builder;
 use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
+use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\Wrangler;
+use Atoms\Cli\Config\AtomsDotenv;
 use Atoms\Errors\AtomsError;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
@@ -23,12 +25,18 @@ use Symfony\Component\Console\Output\OutputInterface;
  * else — Atoms never proxies or retains them.
  *
  * The Worker vars atoms.json declares for the environment — `debug_endpoints`
- * and `callback_url.<env>` — ride along as `wrangler deploy --var`, the same
- * way `atoms dev` forwards them, so both commands use the same settings. The callback URL resolves exactly as it does for `atoms dev`:
- * `--callback-url`, then `ATOMS_CALLBACK_URL` in this process's environment,
- * then atoms.json ({@see CloudflareTarget::resolve()}). It is not a secret,
- * so argv is a fine road for it; `ATOMS_SHARED_SECRET` is not forwarded here
- * and never will be — that is `atoms shared-secret:set`.
+ * and `callback_url` — go into the generated Wrangler config this command
+ * writes for the environment ({@see GeneratedWranglerConfig}), the same way
+ * `atoms dev` passes them. The callback resolves in the order every
+ * command and every setting uses: `--callback-url`, then `ATOMS_CALLBACK_URL`
+ * in the environment this command was started with, then in
+ * `.env.atoms.<env>` beside atoms.json, then the file entry, which may be an
+ * explicit ${VARIABLE} reference resolved against those same two environment
+ * layers. The nearer source simply wins; nothing is compared or refused —
+ * instead the whole resolution is printed, with its sources, before anything
+ * is built or shipped. The callback URL is not a secret, so a config file on
+ * disk is a fine road for it; `ATOMS_SHARED_SECRET` is not forwarded here and
+ * never will be — that is `atoms shared-secret:set`.
  */
 #[AsCommand(name: 'deploy', description: 'Deploy an Atoms bundle to your Cloudflare account')]
 final class DeployCommand extends AbstractCommand
@@ -47,8 +55,8 @@ final class DeployCommand extends AbstractCommand
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment');
         $this->addOption('bundle', null, InputOption::VALUE_REQUIRED, 'Deploy a prebuilt bundle instead of building');
         $this->addOption('manifest', null, InputOption::VALUE_REQUIRED, 'Manifest for --bundle (default: manifest.json beside it)');
-        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (else atoms.json)');
-        $this->addOption('callback-url', null, InputOption::VALUE_REQUIRED, 'Monolith callback URL (else ATOMS_CALLBACK_URL in the environment, else atoms.json callback_url)');
+        $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (default: atoms-worker/ beside atoms.json)');
+        $this->addOption('callback-url', null, InputOption::VALUE_REQUIRED, 'Callback URL for this deployment (beats ATOMS_CALLBACK_URL and atoms.json callback_url)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -77,6 +85,30 @@ final class DeployCommand extends AbstractCommand
             $target->assertWorkerDir();
             $target->assertRuntimeVersion();
 
+            // Before any side effect — before the build writes .atoms/build,
+            // before a byte is staged or uploaded — say what this deployment
+            // resolved to and which source supplied each value. Precedence is
+            // silent by design; this is what keeps it explicable.
+            self::writeResolvedConfiguration($output, $target);
+            $output->writeln('');
+
+            // Derived now, before the build, so a Worker config that cannot
+            // be read fails in seconds rather than after a build that was
+            // never going to ship. Written just before wrangler runs.
+            $generated = GeneratedWranglerConfig::generate($target, $target->runtimeVars());
+            if ($generated->declaresRouting) {
+                // Top-level routing in the user's file is dropped from the
+                // generated config: the environment's own `custom_domains`
+                // replace it. Said out loud, because a hostname someone wrote
+                // there is otherwise silently unserved.
+                $output->writeln('<comment>! ' . $generated->source
+                    . ' declares routes or a custom domain at the top level.</comment>');
+                $output->writeln('<comment>  Those are ignored: each environment is served from its own '
+                    . '"custom_domains"</comment>');
+                $output->writeln('<comment>  in atoms.json, and this deploy uses the ones on "' . $env . '".</comment>');
+                $output->writeln('');
+            }
+
             $bundleOpt = self::stringOption($input, 'bundle');
             if ($bundleOpt !== null) {
                 $bundlePath = $bundleOpt;
@@ -103,29 +135,32 @@ final class DeployCommand extends AbstractCommand
                 // check — but under ATOMS_BEARER_AUTH=disabled (an
                 // authenticating proxy in front of the Worker), the flag is
                 // the only thing in front of /debug, so enabling it deserves
-                // a visible line in the deploy log. atoms.json is where it
-                // is declared, per environment; the committed wrangler.jsonc
-                // is shared by every environment and must not carry it.
-                $output->writeln(
-                    '  ' . $target::DEBUG_ENDPOINTS_VAR . '=1 (debug endpoints enabled by atoms.json '
-                    . '"debug_endpoints" for ' . $env . ')'
-                );
+                // more than its row in the table above.
+                $output->writeln('  <comment>/debug is reachable on this Worker; under '
+                    . 'ATOMS_BEARER_AUTH=disabled this flag is the only gate in front of it.</comment>');
             }
             if ($target->callbackUrl !== null) {
-                // Visible for the same reason `atoms dev` prints it: a wrong
-                // callback URL only surfaces later, as ATOMS-E083 from inside
-                // an Atom, and this line is where to look first.
-                $output->writeln('  ' . $target::CALLBACK_VAR . '=' . $target->callbackUrl);
-                $output->writeln('  The Worker will call back to this URL for $this->app() and $this->dispatch().');
+                $output->writeln('  The Worker will call back to the URL above for $this->app() and $this->dispatch().');
             } else {
                 $output->writeln(
                     '  No callback URL configured: $this->app() and $this->dispatch() will fail with '
                     . 'ATOMS-E080 unless ' . $target::CALLBACK_VAR . ' is set on the Worker some other way. '
-                    . 'Set atoms.json "callback_url"."' . $env . '", ' . $target::CALLBACK_VAR
-                    . ' in the environment, or pass --callback-url.'
+                    . 'Supply one from any of the four sources, nearest first: --callback-url, '
+                    . $target::CALLBACK_VAR . ' in the environment this command was started with, '
+                    . $target::CALLBACK_VAR . ' in ' . AtomsDotenv::fileName($env) . ' beside atoms.json, '
+                    . 'or atoms.json "environments"."' . $env . '"."callback_url" set to a URL '
+                    . 'or "${ATOMS_CALLBACK_URL}".'
                 );
             }
-            $wrangler = $this->wrangler->deploy($target, $target->runtimeVars());
+            // The environment's Wrangler config, written where wrangler
+            // deploy looks for a generated one, and removed again once it
+            // has run so the directory is left as it was found.
+            $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
+            try {
+                $wrangler = $this->wrangler->deploy($target);
+            } finally {
+                $generated->remove();
+            }
 
             // Wrangler's own output is the deploy log — including the URL it
             // published to and any Cloudflare API rejection. Reprinting it is
@@ -142,7 +177,6 @@ final class DeployCommand extends AbstractCommand
 
         $output->writeln('<info>✓ Deployed ' . $config->project . ' to ' . $env . '.</info>');
         $output->writeln('  worker:   ' . $target->workerName);
-        $output->writeln('  endpoint: ' . $target->endpoint);
         // Uploading is not the same as serving. Measured on a real account:
         // /healthz reached the new Worker while the first invocation still
         // 404'd, and a conformance run went 1/12 -> 7/12 -> 12/12 as

@@ -52,4 +52,24 @@ final class BuildCommandTest extends TestCase
         self::assertStringContainsString('data-looking files were pruned', $display);
         self::assertStringContainsString('vendor/acme/lib/data/tlds.txt', $display);
     }
+
+    public function testBuildDoesNotResolveCallbackReferencesInAnyEnvironment(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $config['environments']['production']['callback_url'] = '${UNSET_BUILD_CALLBACK}';
+        $config['environments']['staging']['callback_url'] = '${ALSO_UNSET_BUILD_CALLBACK}';
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+        putenv('UNSET_BUILD_CALLBACK');
+        putenv('ALSO_UNSET_BUILD_CALLBACK');
+
+        $tester = new CommandTester(new BuildCommand(new Builder(runner: CannedComposer::runner())));
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--out' => $this->freshDir(),
+        ]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        self::assertStringContainsString('content hash', $tester->getDisplay());
+    }
 }

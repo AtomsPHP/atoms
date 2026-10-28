@@ -10,8 +10,23 @@
 	// The keys marked RUNTIME-REQUIRED below are what the runtime needs from
 	// this file to load at all. A release that changes one says so in its
 	// changelog rather than changing it behind your back. Everything else —
-	// name, vars, observability, routes, custom domains, placement, limits —
-	// is yours to set.
+	// name, vars, observability, placement, limits — is yours to set.
+	//
+	// HOW THIS FILE IS USED. `atoms deploy` and `atoms dev` do not hand this
+	// file to Wrangler as it is. They derive a copy for the selected
+	// atoms.json environment, written to `.wrangler/deploy/wrangler.json`
+	// beside a `config.json` that points Wrangler at it (Wrangler's
+	// "generated configuration" redirect), and remove both once Wrangler has
+	// exited. In that copy `name` is the environment's `worker_name`, `routes`
+	// is built from its `custom_domains`, the callback URL and
+	// debug-endpoints switch are merged into `vars`, and any `env` blocks are
+	// dropped. Everything else here travels through unchanged. Wrangler says
+	// "Using redirected Wrangler configuration" when it reads the copy.
+	//
+	// So: per-environment settings — the Worker name, custom domains,
+	// callback URL, debug endpoints — belong in atoms.json. Routes or custom
+	// domains declared here at the top level are ignored, and `atoms deploy`
+	// says so.
 	//
 	// (Monorepo note: this is `wrangler.scaffold.jsonc`, which
 	// `scripts/pack-runtime.mjs` ships as the template's `wrangler.jsonc`. The
@@ -19,8 +34,8 @@
 	// and is NOT what customers receive — keep the two in sync structurally,
 	// and keep the differences (worker name, debug endpoints) deliberate.)
 
-	// Cosmetic for `atoms deploy`, which selects the real Worker with `--name`
-	// from atoms.json (`worker_name`, defaulting to the project).
+	// Cosmetic: the generated config replaces it with the environment's
+	// `worker_name` from atoms.json (required for every environment).
 	"name": "atoms-worker",
 
 	// RUNTIME-REQUIRED: the Worker entrypoint the runtime ships.
@@ -71,12 +86,12 @@
 	// and callbacks stay signed.
 	//
 	// ATOMS_DEBUG_ENDPOINTS is deliberately NOT set here, and should stay out:
-	// this file is shared by every environment you deploy (the CLI selects the
-	// Worker with `--name`, never `-e`), so a var here would turn the /debug
-	// routes on for staging and production alike. Set
-	// `"debug_endpoints": true` on one environment in atoms.json instead; the
-	// CLI forwards it as a `--var` on `atoms dev` and `atoms deploy`. Under
-	// ATOMS_BEARER_AUTH=disabled that flag is the only gate in front of /debug.
+	// these vars go into the generated config for every environment alike, so
+	// a value here would turn the /debug routes on for staging and production
+	// together. Set `"debug_endpoints": true` on one environment in atoms.json
+	// instead; `atoms dev` and `atoms deploy` merge it into that environment's
+	// vars. Under ATOMS_BEARER_AUTH=disabled that flag is the only gate in
+	// front of /debug.
 	"vars": {
 		"ATOMS_LOG_LEVEL": "info"
 	},

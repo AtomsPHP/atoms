@@ -18,7 +18,7 @@ The bridge runs inside the Atom, which means it belongs in `atoms-composer.json`
 }
 ```
 
-`atoms build` resolves that file, ships the resolved tree in the bundle, and records it in the manifest. See [`atoms-composer.json`](/guides/configuration/#atoms-composerjson) for what the file accepts, and [deploy](/guides/deploy/) for how the vendor stage resolves, caches, and ships those packages.
+`atoms build` and `atoms deploy` include these packages with your Atom code. See [`atoms-composer.json`](/guides/configuration/#atoms-composerjson) for what the file accepts and how its lock file pins versions.
 
 ## Boot the bridge inside a method
 
@@ -58,7 +58,11 @@ The bridge runs against the Atom's own database, inside the runtime, so a few be
 
 ### Transactions don't nest
 
-An inner `transaction()` joins the transaction already open, the same way `$this->db()->transaction()` does. To roll back, throw from inside the closure. Don't call `rollBack()` by hand inside a nested `transaction()` — it discards every write since the outermost transaction began, and the enclosing wrappers then fail because the transaction is already closed. `afterCommit()` and `afterRollBack()` hooks throw, because the bridge installs no transactions manager.
+An inner `transaction()` joins the transaction already open, the same way `$this->db()->transaction()` does. To roll back, throw from inside the closure.
+
+Don't call `rollBack()` by hand inside a nested `transaction()`. It discards every write since the outermost transaction began, and the enclosing `transaction()` calls then fail because the transaction is already closed.
+
+`afterCommit()` and `afterRollBack()` aren't supported; calling them throws.
 
 ### Schema changes go through Atoms migrations
 
@@ -70,8 +74,8 @@ The bridge installs no event dispatcher, so `creating`, `saved`, and the other m
 
 ### `getServerVersion()` doesn't reach the database
 
-The runtime can't ask SQLite for its version, so the bridge reports a recent one by default. If you need it to specify a specific version, pass `['server_version' => '...']` as the second argument to the bridge's`boot()` method.
+The runtime can't ask SQLite for its version, so the bridge reports a recent one by default. To report a specific version, pass `['server_version' => '...']` as the second argument to `EloquentBridge::boot()`.
 
 ### Very large integers lose precision
 
-Reading an integer column holds the same caveat as any other Atom read: values above 2^53-1 come back imprecise unless you read them as text. [Limits](/reference/limits/) covers the workaround.
+As with any read inside an Atom, integer values above 2^53-1 come back imprecise unless you read them as text. [Read large integers as text](/reference/limits/#read-large-integers-as-text) covers the workaround.
