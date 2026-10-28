@@ -5,6 +5,10 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+- **Added:** Laravel 13 support in `atoms/laravel` and Illuminate Database 13
+  support in `atoms/database-illuminate`. Existing Laravel 11/12 adapter
+  support and Illuminate Database 12 bridge support remain available.
+
 - **Changed:** one precedence rule now resolves every deploy-target value, on
   every command: **flag, then environment, then file.** The file is the
   committed default, an environment variable overrides it, and a flag

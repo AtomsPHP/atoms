@@ -7,13 +7,15 @@ description: Run the Laravel query builder and Eloquent models against an Atom's
 
 ## Install it as an Atom-side dependency
 
+The bridge supports Illuminate Database 12 and 13 on PHP 8.3 or later.
+
 The bridge runs inside the Atom, which means it belongs in `atoms-composer.json` alongside `illuminate/database`, not in your application's `composer.json`:
 
 ```json
 {
     "require": {
         "atoms/database-illuminate": "^0.6",
-        "illuminate/database": "^12.0"
+        "illuminate/database": "^13.0"
     }
 }
 ```

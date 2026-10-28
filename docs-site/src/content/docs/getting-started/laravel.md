@@ -5,6 +5,8 @@ description: Create, call, migrate, test, and run an Atom locally from a Laravel
 
 The maintained example lives at [`examples/laravel/`](https://github.com/AtomsPHP/atoms/tree/main/examples/laravel). It is the executable companion to this guide.
 
+The adapter supports Laravel 11, 12, and 13 on PHP 8.3 or later.
+
 ## Configure the adapter
 
 Initialize the Atoms project and publish the Laravel adapter configuration:
