@@ -6,10 +6,9 @@ description: Durable connections, broadcasts, and named one-shot timers.
 ## WebSockets
 
 An Atom receives WebSocket events through three lifecycle handlers:
-`onConnect()`, `onMessage()`, and `onDisconnect()`. The base Atoms class
-defines no behavior for these methods. Override them when your Atom needs to
-react to an event. If you only need to broadcast to all connected clients - for
-example, a real-time read-only dashboard - you don't need any of these.
+`onConnect()`, `onMessage()`, and `onDisconnect()`. They do nothing in the
+base `Atom` class; override the ones your Atom needs. An Atom that only
+broadcasts, such as a read-only live dashboard, needs none of them.
 
 Client connections are grouped into channels. A client names its channels in the
 `?channels=` query parameter when it connects, comma-separated when there is
@@ -43,7 +42,7 @@ A browser authenticates with a short-lived connection ticket carried in the URL.
 and builds the connection URL from it:
 
 ```php
-# Laravel - Symfony and plain PHP examples are at the bottom of this page.
+# Laravel. Symfony and plain-PHP versions are at the end of this page.
 use App\Atoms\GameRoom;
 use Atoms\Laravel\Facades\Atoms;
 
@@ -54,39 +53,56 @@ $url = Atoms::wsUrl(GameRoom::class, $roomId, [
 ]);
 ```
 
-A ticket is a string signed with a key derived from the shared secret, scoped to one Atom instance and valid for 60 seconds by default.
+A ticket is a signed string, scoped to one Atom instance and valid for 60
+seconds by default. The Worker checks its signature and expiry before it
+accepts the connection.
 
-Ticket claims — `client_id` above — are merged over the browser's own query parameters on connect, so a browser cannot replace them in the `$params` given to an Atom's `onConnect()` method. A ticket holds at most 16 claims totaling 2048 bytes.
-
-The Worker verifies a ticket's signature and expiry at the edge, before accepting the connection.
+Ticket claims, such as `client_id` above, are merged over the browser's own
+query parameters, so a browser cannot replace them in the `$params` passed to
+`onConnect()`. A ticket holds at most 16 claims totaling 2048 bytes.
 
 ### Sending and receiving messages
 
 `Connection` exposes `id()`, `send(string $payload)`, `sendJson(array $payload)`, and `close()`.
 
-There are multiple ways to send messages, and each one delivers a different shape to the client:
-  - `send()` sends a raw string to a single connection
-  - `sendJson()` encodes an array as a bare JSON object, and sends it to a single connection
-  - `broadcast()` messages all connections on a given channel
-    - these message frames are wrapped in an envelope — `{"kind":"broadcast","channel":"lobby","payload":{...}}` — so a client listening on several channels can tell which one a frame came from.
+| Call | Sends to | The client receives |
+|---|---|---|
+| `$connection->send($string)` | one connection | the string as is |
+| `$connection->sendJson($array)` | one connection | the array as a bare JSON object |
+| `$this->broadcast($channel, $array)` | every connection on the channel | `{"kind":"broadcast","channel":"lobby","payload":{...}}` |
 
-To reach every connection at once, choose a global channel name and have all connections join it (e.g. `channels=all`).
+The broadcast envelope names the channel so a client on several channels can
+tell where a frame came from. To reach every connection at once, have all
+clients join one shared channel, such as `channels=all`.
 
-A client message arrives in `onMessage()` as a `Message`. `payload()` returns its content as a string, and `json()` decodes a JSON payload to an array — the inbound half of `sendJson()`. Clients may also send binary frames: `payload()` carries the raw bytes, and `isBinary()` says which kind arrived. In the other direction, `send()` produces a text frame for a valid UTF-8 payload and a binary frame for anything else.
+`send()` sends a text frame when the payload is valid UTF-8 and a binary frame
+otherwise.
+
+A client message arrives in `onMessage()` as a `Message`. `payload()` returns
+its content as a string, and `json()` decodes a JSON payload to an array.
+
+Clients may also send binary frames. `payload()` then returns the raw bytes,
+and `isBinary()` tells you which kind arrived.
 
 ### Behavior
 
-Connections use Cloudflare's Hibernation API, so an open socket survives an eviction and a frame or close event wakes the Atom back up.
+An open socket stays connected when the Atom is evicted from memory. The next
+message or close event wakes the Atom back up.
 
-A WebSocket message sent inside a database transaction will send even if the transaction later rolls back. A send accepted during `onDisconnect()` can still be dropped by the closing socket.
+A message sent inside a database transaction goes out even if the transaction
+later rolls back. A message sent during `onDisconnect()` can be dropped by the
+closing socket.
 
-An inbound message over the size cap (128 KiB by default) closes the socket with code `1009` instead of reaching `onMessage()`.
+An inbound message over the size limit (128 KiB by default) closes the socket
+with code `1009` and never reaches `onMessage()`.
 
-`onDisconnect()` normally fires exactly once per connection, but an eviction can land between the platform's duplicate close events and deliver it a second time. Make cleanup safe to run twice.
+`onDisconnect()` can occasionally run twice for the same connection, so make
+its cleanup safe to repeat.
 
 ## Timers
 
-A timer is a named, durable, one-shot alarm. Schedule one with a name and a `\DateTimeImmutable` due time, and handle it in `onTimer()`:
+A timer is a named, one-shot alarm that survives eviction. Schedule one with
+a name and a `\DateTimeImmutable` due time, and handle it in `onTimer()`:
 
 ```php
 $this->timers()->schedule('expire-lobby', new \DateTimeImmutable('+10 minutes'));
@@ -99,11 +115,18 @@ protected function onTimer(string $name): void
 }
 ```
 
-Scheduling a name that already exists replaces its due time. Canceling a name that doesn't exist is a no-op. Scheduling joins the surrounding database transaction: if the transaction rolls back, the timer is never created. Atoms tracks timers in the Atom's database. The default limit is 10,000 scheduled timers per Atom; see [Limits](/reference/limits/#configurable-runtime-limits) to configure it.
+Scheduling a name that already exists replaces its due time, and
+`$this->timers()->cancel($name)` on a name that doesn't exist does nothing. Inside
+`$this->db()->transaction()`, scheduling and canceling roll back with the
+transaction. An Atom can have up to 10,000 scheduled timers by default; see
+[Limits](/reference/limits/#configurable-runtime-limits) to change it.
 
-A timer fires at most once. If the handler throws, the failure is logged and the timer is finished. Write handlers that are safe to run once, and schedule a new timer when you need another attempt.
+A timer is removed just before `onTimer()` runs, so it is never retried. If
+the handler throws or the turn fails, the failure is logged and the timer is
+gone. If you need another attempt, schedule a new timer yourself.
 
-Use a timer wherever you would reach for `sleep()` or a polling loop. On the deployed runtime the clock does not advance during a turn, and the bundled PHPStan rules flag both patterns.
+Use a timer instead of `sleep()` or a polling loop; see
+[the clock does not advance inside a turn](/reference/limits/#the-clock-does-not-advance-inside-a-turn).
 
 ## Minting tickets in Symfony
 
