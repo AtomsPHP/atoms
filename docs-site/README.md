@@ -16,6 +16,11 @@ matches `../packages/core/resources/errors.json`, checks release-owned compatibi
 content (using PHP), builds the static site, and
 validates internal links plus every stable error-code anchor.
 
+The Methods guide's scaffold command is also exercised in the PHP integration
+suite. From the repository root, run `composer test -- --filter MethodsGuideTest`
+to check the documented command against a fresh initialized project and confirm
+that omitting `--with-methods` leaves out the optional Methods class.
+
 Do not edit `src/content/docs/reference/errors.md` by hand. After changing the
 core error catalog, regenerate it with:
 
