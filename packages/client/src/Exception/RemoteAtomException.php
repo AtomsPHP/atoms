@@ -9,9 +9,9 @@ use Atoms\Errors\ErrorCode;
 
 /**
  * Your own Atom code threw inside the Worker runtime (ATOMS-E063).
- * The original PHP exception class and a sanitized remote stack trace are carried
- * through so the monolith can surface a meaningful error. Not retryable — the
- * same input will throw again.
+ * Carries the original PHP exception class and message. The Worker logs traces
+ * server-side; remoteTrace is null for exceptions created by AtomsClient.
+ * Not retryable — the same input will throw again.
  */
 final class RemoteAtomException extends AtomsException
 {

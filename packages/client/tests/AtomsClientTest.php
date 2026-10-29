@@ -205,33 +205,77 @@ final class AtomsClientTest extends TestCase
         }
     }
 
-    public function testRemoteAtomExceptionFromErrorFrame(): void
+    public function testRemoteAtomExceptionFromWorkerErrorFrame(): void
+    {
+        $client = $this->client();
+        $this->http->queueJson(500, ['error' => [
+            'code' => 'atom_exception',
+            'message' => 'fixture explosion',
+            'retryable' => false,
+            'class' => 'RuntimeException',
+        ]]);
+
+        try {
+            $client->call('Counter', 'exc-1', 'boom');
+            self::fail('expected RemoteAtomException');
+        } catch (RemoteAtomException $e) {
+            self::assertSame('RuntimeException', $e->originalClass);
+            self::assertSame(ErrorCode::RemoteAtomException, $e->errorCode);
+            self::assertSame(500, $e->httpStatus);
+            self::assertStringContainsString('fixture explosion', $e->getMessage());
+            self::assertStringContainsString('Counter/exc-1::boom', $e->getMessage());
+            self::assertNull($e->remoteTrace);
+            self::assertFalse($e->retryable);
+        }
+
+        self::assertCount(1, $this->http->requests, 'the customer exception is not retried');
+        self::assertSame([], $this->sleeps);
+    }
+
+    public function testWorkerExceptionIgnoresInventedRemoteFields(): void
+    {
+        $client = $this->client();
+        $this->http->queueJson(500, ['error' => [
+            'code' => 'atom_exception',
+            'message' => 'boom',
+            'retryable' => false,
+            'class' => 'RuntimeException',
+            'remote_class' => 'LegacyException',
+            'remote_trace' => '#0 /app/Game.php(10)',
+        ]]);
+
+        try {
+            $client->call('Counter', 'exc-1', 'boom');
+            self::fail('expected RemoteAtomException');
+        } catch (RemoteAtomException $e) {
+            self::assertSame('RuntimeException', $e->originalClass);
+            self::assertNull($e->remoteTrace);
+        }
+    }
+
+    public function testInventedRemoteClassDoesNotIdentifyACustomerException(): void
     {
         $client = $this->client(['maxAttempts' => 1]);
         $this->http->queueJson(500, ['error' => [
-            'code' => 'internal',
+            'code' => 'atom_exception',
             'message' => 'boom',
+            'retryable' => false,
             'remote_class' => 'App\\Domain\\GameOverException',
             'remote_trace' => "#0 /app/Game.php(10)\0trailing",
         ]]);
 
         try {
             $client->call('GameRoom', 'g-1', 'endGame');
-            self::fail('expected RemoteAtomException');
-        } catch (RemoteAtomException $e) {
-            self::assertSame('App\\Domain\\GameOverException', $e->originalClass);
-            self::assertSame(ErrorCode::RemoteAtomException, $e->errorCode);
-            self::assertStringContainsString('GameOverException', $e->getMessage());
-            self::assertStringContainsString('GameRoom/g-1::endGame', $e->getMessage());
-            self::assertNotNull($e->remoteTrace);
-            self::assertStringNotContainsString("\0", $e->remoteTrace);
+            self::fail('expected AtomsRequestFailed');
+        } catch (AtomsRequestFailed $e) {
+            self::assertSame('atom_exception', $e->platformCode);
+            self::assertFalse($e->retryable);
         }
     }
 
     /**
-     * A 2xx body carrying an `error` object is a failure, not a result — the
-     * Worker answers that way for a remote Atom exception. Retryability never
-     * enters into it: the frame is mapped and thrown on the spot.
+     * A 2xx body carrying an `error` object is still a failure. The frame is
+     * mapped and thrown on the spot, without reaching the retry decision.
      */
     public function testATwoHundredCarryingAnErrorFrameIsMappedAndThrown(): void
     {
@@ -239,7 +283,7 @@ final class AtomsClientTest extends TestCase
         $this->http->queueJson(200, ['error' => [
             'code' => 'atom_exception',
             'message' => 'boom',
-            'remote_class' => 'App\\Domain\\GameOverException',
+            'class' => 'App\\Domain\\GameOverException',
         ]]);
 
         try {
@@ -254,16 +298,7 @@ final class AtomsClientTest extends TestCase
         self::assertCount(1, $this->http->requests, 'not retried');
     }
 
-    /**
-     * The behaviour change from the single-parse refactor, pinned deliberately.
-     *
-     * A frame carrying BOTH `remote_class` and `turn_deadline_exceeded` maps to
-     * a {@see RemoteAtomException}, so it is not retried. Retryability comes
-     * from the mapped exception; it used to come from a second string match on
-     * the raw envelope's `code`, which saw the deadline code and re-ran code
-     * that had already thrown.
-     */
-    public function testARemoteExceptionCarryingATurnDeadlineCodeIsNotRetried(): void
+    public function testWorkerDeadlineClassRetainsTypedNonRetryableException(): void
     {
         $client = $this->client();
         $this->http
@@ -272,20 +307,38 @@ final class AtomsClientTest extends TestCase
                     'code' => 'turn_deadline_exceeded',
                     'message' => 'slow',
                     'retryable' => true,
-                    'remote_class' => 'App\\Domain\\GameOverException',
+                    'class' => 'Atoms\\Cf\\TurnDeadlineExceeded',
                 ],
             ])
             ->queueJson(200, ['result' => 'ok']);
 
         try {
             $client->call('GameRoom', 'g-1', 'endGame');
-            self::fail('expected RemoteAtomException');
-        } catch (RemoteAtomException $e) {
-            self::assertSame('App\\Domain\\GameOverException', $e->originalClass);
+            self::fail('expected TurnDeadlineExceeded');
+        } catch (TurnDeadlineExceeded $e) {
+            self::assertSame(504, $e->httpStatus);
+            self::assertFalse($e->retryable);
         }
 
-        self::assertCount(1, $this->http->requests, 'the customer exception is not retried');
+        self::assertCount(1, $this->http->requests, 'the deadline is not retried');
         self::assertSame([], $this->sleeps);
+    }
+
+    public function testWorkerInternalErrorClassRetainsRetryBehavior(): void
+    {
+        $client = $this->client();
+        $this->http
+            ->queueJson(500, ['error' => [
+                'code' => 'internal',
+                'message' => 'internal error',
+                'retryable' => true,
+                'class' => 'RuntimeException',
+            ]])
+            ->queueJson(200, ['result' => 'ok']);
+
+        self::assertSame('ok', $client->call('Counter', 'exc-1', 'ping'));
+        self::assertCount(2, $this->http->requests);
+        self::assertCount(1, $this->sleeps);
     }
 
     /**
@@ -362,7 +415,7 @@ final class AtomsClientTest extends TestCase
 
     /**
      * The other half of the 2xx path: an error frame on a 2xx with no
-     * `remote_class` is still mapped and thrown on the spot — a 2xx frame
+     * customer exception detail is still mapped and thrown on the spot — a 2xx frame
      * never reaches the retry predicate at all.
      */
     public function testATwoHundredErrorFrameIsNotRetried(): void

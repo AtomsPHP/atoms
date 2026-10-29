@@ -310,9 +310,8 @@ final class AtomsClient
             $exception = $this->mapError($status, $frame, $retryAfter, $ctx);
 
             // Retryability is whatever the mapped exception says. Asking the
-            // exception rather than the frame is what makes a frame carrying both
-            // `remote_class` and `turn_deadline_exceeded` non-retryable — it maps
-            // to a RemoteAtomException, and re-running code that threw cannot help.
+            // exception rather than the frame keeps a RemoteAtomException
+            // non-retryable even if a response flags it otherwise.
             // The platform flags `turn_deadline_exceeded` retryable, but
             // {@see TurnDeadlineExceeded} is constructed non-retryable: a turn that
             // ran out of time may already have committed, and only the caller
@@ -357,8 +356,7 @@ final class AtomsClient
                 $method,
                 $frame->remoteClass,
                 $message,
-                $frame->remoteTrace === null ? null : $this->sanitizeTrace($frame->remoteTrace),
-                $status,
+                httpStatus: $status,
             );
         }
 
@@ -486,13 +484,6 @@ final class AtomsClient
         }
 
         return is_array($decoded) ? $decoded : [];
-    }
-
-    private function sanitizeTrace(string $trace): string
-    {
-        $trace = str_replace(["\0"], '', $trace);
-
-        return mb_strlen($trace) > 16384 ? mb_substr($trace, 0, 16384) : $trace;
     }
 
     private function generateTraceparent(): string
