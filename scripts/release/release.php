@@ -17,24 +17,25 @@ const PACKAGE_NAMES = [
 $root = dirname(__DIR__, 2);
 $command = $argv[1] ?? 'help';
 
-try {
-    match ($command) {
-        'check' => checkRelease($root),
-        'get' => getManifestValue($root, $argv[2] ?? ''),
-        'generate' => generateReleaseArtifacts($root),
-        'set' => setReleaseVersion($root, $argv[2] ?? '', $argv[3] ?? 'candidate'),
-        'status' => setReleaseStatus($root, $argv[2] ?? ''),
-        'split' => splitPackage($root, $argv[2] ?? '', $argv[3] ?? ''),
-        'split-all' => splitAll($root, $argv[2] ?? ''),
-        'validate-splits' => validateSplits($root),
-        'help', '--help', '-h' => usage(),
-        default => throw new InvalidArgumentException("Unknown command: {$command}"),
-    };
-} catch (Throwable $error) {
-    fwrite(STDERR, "release: {$error->getMessage()}\n");
-    exit(1);
+if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
+    try {
+        match ($command) {
+            'check' => checkRelease($root),
+            'get' => getManifestValue($root, $argv[2] ?? ''),
+            'generate' => generateReleaseArtifacts($root),
+            'set' => setReleaseVersion($root, $argv[2] ?? '', $argv[3] ?? 'candidate'),
+            'status' => setReleaseStatus($root, $argv[2] ?? ''),
+            'split' => splitPackage($root, $argv[2] ?? '', $argv[3] ?? ''),
+            'split-all' => splitAll($root, $argv[2] ?? ''),
+            'validate-splits' => validateSplits($root),
+            'help', '--help', '-h' => usage(),
+            default => throw new InvalidArgumentException("Unknown command: {$command}"),
+        };
+    } catch (Throwable $error) {
+        fwrite(STDERR, "release: {$error->getMessage()}\n");
+        exit(1);
+    }
 }
-
 /** @return never */
 function usage(): never
 {
@@ -186,8 +187,15 @@ function checkRelease(string $root): void
 
     $compatibilityPath = "{$root}/docs-site/src/content/docs/reference/compatibility.md";
     if (!is_file($compatibilityPath)
-        || (string) file_get_contents($compatibilityPath) !== renderCompatibility($manifest)) {
+        || (string) file_get_contents($compatibilityPath) !== renderCompatibility($root, $manifest)) {
         $errors[] = 'the generated compatibility page is missing or stale; run the release generator';
+    }
+
+    foreach (compatibilityBlocks($root, $manifest) as $path => [$start, $end, $body]) {
+        $contents = (string) file_get_contents("{$root}/{$path}");
+        if ($contents !== replaceTaggedBlock($contents, $start, $end, $body)) {
+            $errors[] = "{$path} has a stale generated compatibility block; run the release generator";
+        }
     }
 
     $errors = array_merge(
@@ -320,7 +328,9 @@ function generateReleaseArtifacts(string $root): void
     }
 
     $compatibilityPath = "{$root}/docs-site/src/content/docs/reference/compatibility.md";
-    writeTextAtomically($compatibilityPath, renderCompatibility($manifest));
+    writeTextAtomically($compatibilityPath, renderCompatibility($root, $manifest));
+
+    generateCompatibilityBlocks($root, $manifest);
 
     fwrite(STDOUT, "Generated release-owned compatibility artifacts.\n");
 }
@@ -435,7 +445,9 @@ function setReleaseVersion(string $root, string $version, string $status): void
     }
 
     $compatibilityPath = "{$root}/docs-site/src/content/docs/reference/compatibility.md";
-    writeTextAtomically($compatibilityPath, renderCompatibility($manifest));
+    writeTextAtomically($compatibilityPath, renderCompatibility($root, $manifest));
+
+    generateCompatibilityBlocks($root, $manifest);
 
     fwrite(STDOUT, "Coordinated version set to {$version} ({$status}). Run the release check before committing.\n");
 }
@@ -574,7 +586,7 @@ function validateComposerManifest(string $directory, string $packageName): void
 }
 
 /** @param array<string, mixed> $manifest */
-function renderCompatibility(array $manifest): string
+function renderCompatibility(string $root, array $manifest): string
 {
     $version = stringValue($manifest, 'version');
     $runtime = arrayValue($manifest, 'runtime');
@@ -584,6 +596,15 @@ function renderCompatibility(array $manifest): string
         static fn (mixed $value): string => 'PHP ' . (string) $value,
         is_array($php['tested'] ?? null) ? $php['tested'] : [],
     ));
+    $compatibility = laravelCompatibility($root, $manifest);
+    $adapterMajors = formatMajors($compatibility['adapter']);
+    $bridgeMajors = formatMajors($compatibility['bridge']);
+    $ciRows = implode("\n", array_map(
+        static fn (array $entry): string => "| Laravel {$entry['version']} | `{$entry['testbench']}` | {$testedPhp} |",
+        $compatibility['ci'],
+    ));
+    $untested = array_values(array_diff($compatibility['adapter'], array_column($compatibility['ci'], 'version')));
+    $untestedNote = $untested === [] ? '' : 'Laravel ' . formatMajors($untested) . " is allowed by the adapter's dependencies but has no current CI coverage.\n";
     [$major, $minor] = explode('.', $version, 3);
     $releaseLine = "{$major}.{$minor}";
 
@@ -623,7 +644,146 @@ Before 1.0, APIs outside `atoms/core` may change between minor versions. Patch
 releases stay within the declared Composer constraints. Commit your lockfiles
 so application and Worker installs are repeatable.
 
+## Laravel and Illuminate
+
+### Application-side dependency compatibility
+
+`atoms/laravel` allows Laravel {$adapterMajors} through its Illuminate dependencies. These are dependency constraints;
+they do not imply that every version is covered by CI.
+
+### CI combinations
+
+The test suite runs each Laravel version below with each listed host PHP version.
+
+| Laravel | Orchestra Testbench constraint | Host PHP |
+|---|---|---|
+{$ciRows}
+
+{$untestedNote}
+### Atom-side dependencies
+
+The optional `atoms/database-illuminate` bridge runs inside an Atom and allows
+Illuminate Database {$bridgeMajors}. Its dependencies are separate from the
+application-side Laravel adapter.
+
 MARKDOWN;
+}
+
+/** @return list<string> */
+function illuminateMajors(string $constraint, string $name): array
+{
+    if (!preg_match('/^\^[1-9][0-9]*\.0(?:\s*\|\|\s*\^[1-9][0-9]*\.0)*$/', $constraint)) {
+        throw new RuntimeException("Unsupported Illuminate constraint for {$name}: {$constraint}");
+    }
+    preg_match_all('/\^([1-9][0-9]*)\.0/', $constraint, $matches);
+    $majors = $matches[1];
+    if (count($majors) !== count(array_unique($majors))) {
+        throw new RuntimeException("Duplicate Illuminate major for {$name}");
+    }
+    sort($majors, SORT_NUMERIC);
+    return $majors;
+}
+
+/** @param array<string, mixed> $manifest @return array{adapter: list<string>, bridge: list<string>, ci: list<array{version: string, testbench: string}>} */
+function laravelCompatibility(string $root, array $manifest): array
+{
+    $adapter = readJson("{$root}/packages/laravel/composer.json");
+    $majors = null;
+    foreach (arrayValue($adapter, 'require') as $name => $constraint) {
+        if (!str_starts_with($name, 'illuminate/')) {
+            continue;
+        }
+        if (!is_string($constraint)) {
+            throw new RuntimeException("Invalid Illuminate constraint for {$name}");
+        }
+        $current = illuminateMajors($constraint, $name);
+        if ($majors !== null && $majors !== $current) {
+            throw new RuntimeException('Laravel adapter Illuminate constraints disagree');
+        }
+        $majors = $current;
+    }
+    if ($majors === null) {
+        throw new RuntimeException('Laravel adapter has no Illuminate requirements');
+    }
+    $bridge = readJson("{$root}/packages/database-illuminate/composer.json");
+    $bridgeMajors = illuminateMajors(stringValue(arrayValue($bridge, 'require'), 'illuminate/database'), 'illuminate/database');
+    $ci = arrayValue($manifest, 'laravel')['ci'] ?? null;
+    if (!is_array($ci) || !array_is_list($ci) || $ci === []) {
+        throw new RuntimeException('laravel.ci must be a non-empty list');
+    }
+    $seen = [];
+    foreach ($ci as $entry) {
+        if (!is_array($entry) || array_diff(array_keys($entry), ['version', 'testbench']) !== []
+            || !is_string($entry['version'] ?? null) || !preg_match('/^[1-9][0-9]*$/', $entry['version'])
+            || !is_string($entry['testbench'] ?? null) || !preg_match('/^\^[1-9][0-9]*\.0$/', $entry['testbench'])
+            || in_array($entry['version'], $seen, true) || !in_array($entry['version'], $majors, true)) {
+            throw new RuntimeException('Invalid or unsupported laravel.ci entry');
+        }
+        $seen[] = $entry['version'];
+    }
+    return ['adapter' => $majors, 'bridge' => $bridgeMajors, 'ci' => $ci];
+}
+
+/** @param list<string> $majors */
+function formatMajors(array $majors): string
+{
+    if (count($majors) < 2) {
+        return implode('', $majors);
+    }
+    $last = array_pop($majors);
+    return implode(', ', $majors) . ' and ' . $last;
+}
+
+/** @param array<string, mixed> $manifest @return array<string, array{string, string, string}> */
+function compatibilityBlocks(string $root, array $manifest): array
+{
+    $compatibility = laravelCompatibility($root, $manifest);
+    $adapter = formatMajors($compatibility['adapter']);
+    $ciVersions = formatMajors(array_column($compatibility['ci'], 'version'));
+    $untested = array_values(array_diff($compatibility['adapter'], array_column($compatibility['ci'], 'version')));
+    $note = "The Laravel adapter allows Laravel {$adapter} through its Illuminate dependencies. CI tests Laravel {$ciVersions}.";
+    if ($untested !== []) {
+        $note .= ' Laravel ' . formatMajors($untested) . ' is allowed but is not currently tested in CI.';
+    }
+    $note .= ' See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).';
+    $php = arrayValue($manifest, 'php')['tested'] ?? null;
+    if (!is_array($php) || !array_is_list($php) || $php === [] || array_filter($php, static fn ($v): bool => !is_string($v) || !preg_match('/^[0-9]+\.[0-9]+$/', $v))) {
+        throw new RuntimeException('php.tested must be a non-empty list of PHP versions');
+    }
+    $versions = implode(', ', array_map(static fn (string $v): string => "'{$v}'", $php));
+    $matrix = "      matrix:\n        php-version: [{$versions}]\n        laravel:";
+    foreach ($compatibility['ci'] as $entry) {
+        $matrix .= "\n          - {version: '{$entry['version']}', testbench: '{$entry['testbench']}'}";
+    }
+    $start = '<!-- BEGIN generated Laravel compatibility -->';
+    $end = '<!-- END generated Laravel compatibility -->';
+    return [
+        'docs-site/src/content/docs/getting-started/install.md' => [$start, $end, $note],
+        'docs-site/src/content/docs/getting-started/laravel.md' => [$start, $end, $note],
+        '.github/workflows/ci.yml' => ['      # BEGIN generated Laravel matrix', '      # END generated Laravel matrix', $matrix],
+    ];
+}
+
+function replaceTaggedBlock(string $contents, string $start, string $end, string $body): string
+{
+    if (substr_count($contents, $start) !== 1 || substr_count($contents, $end) !== 1) {
+        throw new RuntimeException("Expected one pair of generated block markers: {$start}");
+    }
+    $from = strpos($contents, $start) + strlen($start);
+    $to = strpos($contents, $end);
+    if ($to < $from) {
+        throw new RuntimeException("Generated block markers are out of order: {$start}");
+    }
+    return substr($contents, 0, $from) . "\n{$body}\n" . substr($contents, $to);
+}
+
+/** @param array<string, mixed> $manifest */
+function generateCompatibilityBlocks(string $root, array $manifest): void
+{
+    foreach (compatibilityBlocks($root, $manifest) as $path => [$start, $end, $body]) {
+        $absolute = "{$root}/{$path}";
+        writeTextAtomically($absolute, replaceTaggedBlock((string) file_get_contents($absolute), $start, $end, $body));
+    }
 }
 
 /** @param array<string, mixed> $manifest */

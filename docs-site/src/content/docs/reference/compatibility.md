@@ -32,3 +32,27 @@ After updating the PHP packages, follow
 Before 1.0, APIs outside `atoms/core` may change between minor versions. Patch
 releases stay within the declared Composer constraints. Commit your lockfiles
 so application and Worker installs are repeatable.
+
+## Laravel and Illuminate
+
+### Application-side dependency compatibility
+
+`atoms/laravel` allows Laravel 11, 12 and 13 through its Illuminate dependencies. These are dependency constraints;
+they do not imply that every version is covered by CI.
+
+### CI combinations
+
+The test suite runs each Laravel version below with each listed host PHP version.
+
+| Laravel | Orchestra Testbench constraint | Host PHP |
+|---|---|---|
+| Laravel 12 | `^10.0` | PHP 8.3 and PHP 8.4 |
+| Laravel 13 | `^11.0` | PHP 8.3 and PHP 8.4 |
+
+Laravel 11 is allowed by the adapter's dependencies but has no current CI coverage.
+
+### Atom-side dependencies
+
+The optional `atoms/database-illuminate` bridge runs inside an Atom and allows
+Illuminate Database 12 and 13. Its dependencies are separate from the
+application-side Laravel adapter.

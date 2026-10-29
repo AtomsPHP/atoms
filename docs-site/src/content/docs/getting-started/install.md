@@ -16,6 +16,10 @@ Atoms is currently experimental and in early stages. The goal is to keep the cur
 
 ## PHP
 
+<!-- BEGIN generated Laravel compatibility -->
+The Laravel adapter allows Laravel 11, 12 and 13 through its Illuminate dependencies. CI tests Laravel 12 and 13. Laravel 11 is allowed but is not currently tested in CI. See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).
+<!-- END generated Laravel compatibility -->
+
 Choose the adapter for the application you already have:
 
 ```bash
