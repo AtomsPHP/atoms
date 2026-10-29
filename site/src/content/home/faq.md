@@ -5,8 +5,7 @@ title: FAQ
 ### Where do my Atoms run?
 
 In your own Cloudflare account. Atoms is an open-source library
-that you deploy yourself. A Workers Paid plan is required due to the PHP
-runtime size exceeding free tier limits.
+that you deploy yourself.
 
 ### Which PHP versions are supported?
 

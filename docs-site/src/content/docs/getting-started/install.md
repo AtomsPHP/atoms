@@ -12,7 +12,7 @@ Atoms is currently experimental and in early stages. The goal is to keep the cur
 - PHP 8.3 or 8.4 on the application host
 - Composer 2
 - Node.js 22 for the Cloudflare Worker toolchain
-- A [Cloudflare Workers Paid account](/reference/limits/#cloudflare-plan-and-platform-limits) for deployment
+- A Cloudflare account for deployment
 
 See [Compatibility](/reference/compatibility/#host-and-toolchain-support) for
 dependency constraints and tested versions.

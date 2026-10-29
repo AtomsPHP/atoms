@@ -5,10 +5,6 @@ description: Runtime limits and their defaults, Cloudflare platform limits, and 
 
 ## Cloudflare plan and platform limits
 
-Atoms 0.7 supports Workers Paid deployments. Cloudflare offers
-[SQLite-backed Durable Objects on Free too](https://developers.cloudflare.com/durable-objects/platform/pricing/),
-but Atoms has not tested the full runtime on that plan.
-
 For platform limits and billing, see
 [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
 [Durable Objects limits](https://developers.cloudflare.com/durable-objects/platform/limits/),
