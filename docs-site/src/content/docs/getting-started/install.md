@@ -12,7 +12,12 @@ Atoms is currently experimental and in early stages. The goal is to keep the cur
 - PHP 8.3 or 8.4 on the application host
 - Composer 2
 - Node.js 22 for the Cloudflare Worker toolchain
-- A Cloudflare Workers Paid account
+- A Cloudflare Workers Paid account for deployment
+
+Atoms 0.7 supports deployments on Workers Paid. This is an Atoms support policy;
+Free-plan operation has not been qualified. Cloudflare offers SQLite-backed
+Durable Objects on Free too, but that availability does not establish compatibility
+with the full Atoms runtime. See [Cloudflare plan and platform limits](/reference/limits/#cloudflare-plan-and-platform-limits).
 
 Host PHP runs your application and the Atoms CLI. The Worker uses a guest PHP
 interpreter supplied by the runtime release, independently of the host PHP version.
