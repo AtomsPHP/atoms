@@ -12,6 +12,7 @@ import { REQUIRED_CAPABILITIES, isRequired } from './required-capabilities.mjs';
 const directory = mkdtempSync(join(tmpdir(), 'atoms-capabilities-'));
 mkdirSync(join(directory, 'test'));
 mkdirSync(join(directory, 'scripts'));
+mkdirSync(join(directory, 'empty-bin'));
 for (const name of ['conformance.mjs', 'required-capabilities.mjs']) {
     copyFileSync(fileURLToPath(new URL(`./${name}`, import.meta.url)), join(directory, 'test', name));
 }
@@ -35,7 +36,7 @@ async function run(check, env = {}) {
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     try {
         const child = spawn(process.execPath, [runner], { env: {
-            PATH: '', ATOMS_BASE_URL: `http://127.0.0.1:${server.address().port}`,
+            PATH: join(directory, 'empty-bin'), ATOMS_BASE_URL: `http://127.0.0.1:${server.address().port}`,
             ATOMS_ONLY: String(check), ATOMS_BEARER_AUTH: 'disabled', ...env,
         } });
         let output = '';
