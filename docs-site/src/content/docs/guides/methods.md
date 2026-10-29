@@ -16,8 +16,25 @@ benefit of offloading compute to Atoms.
 
 ## Write one
 
-`atoms make:atom GameRoom` scaffolds an empty Methods class next to the Atom.
-Fill it with ordinary methods:
+Include `--with-methods` when scaffolding the Atom:
+
+```sh
+vendor/bin/atoms make:atom GameRoom --with-methods
+```
+
+In Laravel, the equivalent Artisan command is:
+
+```sh
+php artisan make:atom GameRoom --with-methods
+```
+
+With the default `app/Atoms` path and the `App\` → `app/` Composer mapping,
+either command creates `app/Atoms/GameRoom.php` and
+`app/Atoms/GameRoom/Methods.php`. The Methods class uses the
+`App\Atoms\GameRoom` namespace. Without `--with-methods`, the generator creates
+only the Atom class.
+
+Fill `app/Atoms/GameRoom/Methods.php` with ordinary methods:
 
 ```php
 namespace App\Atoms\GameRoom;
