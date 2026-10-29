@@ -31,7 +31,7 @@ $count = Atoms::get(GameRoom::class, 'room-42')->join('ada');
 
 ## What the framework gives you
 
-Durable Objects are normally written in TypeScript, but Atoms lets you write them in ordinary PHP alongside your monolith code. At deploy time, your code gets bundled into a WebAssembly module which runs inside of a Durable Object.
+Durable Objects are normally written in TypeScript, but Atoms lets you write them in ordinary PHP alongside your monolith code. At deploy time, Atoms bundles your application PHP source. A PHP interpreter compiled to WebAssembly executes that source inside a Durable Object.
 
 ## Where to go next
 
