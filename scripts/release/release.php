@@ -624,13 +624,6 @@ under one version number.
 | `atoms/database-illuminate` | `{$core['supported']}`, installed inside the Atom through `atoms-composer.json` |
 | `{$runtime['package']}` | `{$runtime['version']}` |
 | Deploy Action | `AtomsPHP/atoms/action@v{$version}` (the tag never moves) |
-| Host PHP | `{$php['constraint']}`; tested on {$testedPhp} |
-| Guest PHP | PHP {$runtime['guest_php']} interpreter compiled to WebAssembly |
-| Node.js | {$runtime['node']} |
-| Wrangler | {$runtime['wrangler']}, pinned exactly in the Worker's `package.json` |
-
-The guest PHP version comes from the Worker runtime release; the host PHP
-version does not select or recompile it.
 
 Keep every component on the same release. If your `atoms/core` version is
 outside the range the runtime supports, the Worker rejects the bundle with
@@ -646,6 +639,27 @@ After updating the PHP packages, follow
 Before 1.0, APIs outside `atoms/core` may change between minor versions. Patch
 releases stay within the declared Composer constraints. Commit your lockfiles
 so application and Worker installs are repeatable.
+
+## Host and toolchain support
+
+| Component | Dependency constraint | Current qualified toolchain | CI coverage |
+|---|---|---|---|
+| Host PHP | `{$php['constraint']}` | {$testedPhp} | {$testedPhp} |
+| Node.js | `>={$runtime['node']}` | Node.js {$runtime['node']} | Node.js {$runtime['node']} |
+| Wrangler | `{$runtime['wrangler']}` (exact pin) | Wrangler {$runtime['wrangler']} | Wrangler {$runtime['wrangler']} |
+
+The listed versions are the current qualified host and toolchain baseline for
+the documented path. A successful install on a version allowed by a broader
+dependency constraint does not qualify that version: its compatibility is not
+established by current CI and support is not automatic. Use the listed baseline.
+CI coverage identifies version lines, not every patch release or dependency
+combination. A smoke test on a later version does not establish complete framework
+support; the framework-major matrix below is separate.
+
+Host PHP runs the application, Composer, Artisan, the Atoms CLI, and tests. The
+Worker uses a PHP {$runtime['guest_php']} interpreter compiled to WebAssembly,
+supplied by the runtime release. Selecting host PHP does not select or recompile
+that guest interpreter.
 
 ## Laravel and Illuminate
 
