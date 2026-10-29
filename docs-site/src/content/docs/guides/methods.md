@@ -52,8 +52,7 @@ class Methods extends AtomMethods
 }
 ```
 
-Every public method is callable from the Atom, and its signature is the
-contract between the two sides. Call it from the Atom:
+Call a public Methods method from the Atom with `$this->app()`:
 
 ```php title="app/Atoms/GameRoom.php"
 <?php

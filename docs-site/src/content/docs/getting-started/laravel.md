@@ -125,7 +125,7 @@ Laravel needs at least two workers when an HTTP request invokes an Atom that cal
 
 `atoms dev` creates a shared secret in `.env` if needed and copies it to the Worker's `.dev.vars`. Start Laravel afterward so it reads that value. No Cloudflare account is needed.
 
-`--env` selects an environment from `atoms.json`; `--callback-url` overrides its callback address. See the [CLI reference](/reference/cli/) for the remaining options and configuration precedence.
+`--env` selects an environment from `atoms.json`; `--callback-url` overrides its callback address. See the [CLI reference](/reference/cli/) for other options and how settings are resolved.
 
 ## Build and deploy
 
