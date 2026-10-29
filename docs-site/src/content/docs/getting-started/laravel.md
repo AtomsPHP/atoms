@@ -30,52 +30,70 @@ ATOMS_SHARED_SECRET=base64-of-32-random-bytes
 
 ## Configure callback replay protection
 
-If your Atoms use `app()` or `dispatch()`, configure a shared nonce store before
-accepting callbacks. PHP-FPM and multiple local web workers need it too. Add the
-[database table and `DatabaseNonceStore` class](/guides/callbacks/#database-example),
-then create this application configuration file:
+Choose a shared nonce store before accepting `app()` or `dispatch()` callbacks.
+Atoms ships both database and Redis implementations. No custom storage class
+or container binding is required.
 
-```php title="config/atoms_callbacks.php"
-<?php
+### Database
 
-return [
-    'dsn' => env('ATOMS_NONCE_DSN'),
-    'username' => env('ATOMS_NONCE_DB_USER'),
-    'password' => env('ATOMS_NONCE_DB_PASSWORD'),
-    'retention_seconds' => (int) env('ATOMS_NONCE_RETENTION_SECONDS', 900),
-];
+Set these application environment variables:
+
+```dotenv
+ATOMS_CALLBACK_NONCE_DRIVER=database
+ATOMS_CALLBACK_NONCE_NAMESPACE=my-app:production
 ```
 
-Set `ATOMS_NONCE_DSN` to a PDO DSN such as
-`pgsql:host=database;dbname=app`, with the corresponding user and password.
-For one host, you can use `sqlite:/absolute/path/to/callback-nonces.sqlite`
-and leave the credentials unset. Create the table in that database first.
-These are application settings for this example.
+Atoms uses the application's default Laravel database connection. To choose
+another connection from `config/database.php`, set
+`ATOMS_CALLBACK_NONCE_DB_CONNECTION` to its name. All callback workers must
+reach the same database. SQLite needs a shared persistent file on one host.
 
-Add this binding to your `AppServiceProvider::register()` after the Atoms
-package provider registers its defaults, and before any code resolves the
-callback kernel:
+The package registers its migration when the database driver is selected. Run
+your normal migration command before accepting callbacks:
 
-```php title="app/Providers/AppServiceProvider.php"
-$this->app->singleton(
-    \Atoms\Client\Callback\NonceStore::class,
-    static function (\Illuminate\Contracts\Foundation\Application $app): \Atoms\Client\Callback\NonceStore {
-        $config = $app['config']->get('atoms_callbacks');
-
-        return new \App\Callbacks\DatabaseNonceStore(
-            new \PDO($config['dsn'], $config['username'], $config['password']),
-            $config['retention_seconds'],
-        );
-    },
-);
+```bash
+php artisan migrate
 ```
 
-Laravel normally discovers the Atoms package provider before application
-providers. If you register providers manually, preserve that order. The
-database keeps nonces across requests; the singleton binding only reuses the
-store object within a container. Keep retention long enough for your configured
-`atoms.callback_timestamp_window`, as [Callbacks](/guides/callbacks/#store-callback-nonces)
-explains.
+This creates `atoms_callback_nonces` on the selected connection. Atoms opens a
+separate connection for nonce writes so application transactions cannot undo
+them. Schedule `php artisan atoms:nonces:prune` through Laravel's scheduler to
+remove expired records.
+
+### Redis
+
+Configure a named Redis connection in Laravel's `config/database.php`, then
+select it:
+
+```dotenv
+ATOMS_CALLBACK_NONCE_DRIVER=redis
+ATOMS_CALLBACK_NONCE_NAMESPACE=my-app:production
+ATOMS_CALLBACK_NONCE_REDIS_CONNECTION=atoms_nonces
+```
+
+The name `atoms_nonces` refers to your Laravel Redis connection. Configure its
+URL, credentials, and database through Laravel's normal Redis settings. Both
+PhpRedis and Predis are supported. Use a dedicated Redis database or instance
+that application cache clears do not flush. Redis handles expiry; no database
+migration or pruning command is needed for this backend.
+
+### Retention and upgrades
+
+The package's `config/atoms.php` exposes `callback_nonce` settings for the
+driver, namespace, connection, retention, and clock allowance. If you published
+an older configuration, merge the new `callback_nonce` section into it when customizing these settings.
+Rebuild Laravel's configuration cache after changing environment values.
+
+Leave `ATOMS_CALLBACK_NONCE_RETENTION_SECONDS` unset to derive retention from
+`atoms.callback_timestamp_window` and
+`ATOMS_CALLBACK_NONCE_CLOCK_ALLOWANCE_SECONDS`, which defaults to 60. The
+[callback guide](/guides/callbacks/#retention) explains the calculation and
+rollout requirements.
+
+An unconfigured store rejects callbacks with `503`. Application boot and
+outbound-only calls still work. `ATOMS_CALLBACK_NONCE_DRIVER=memory` explicitly
+selects the development/test store; it does not protect callbacks across PHP
+requests. Existing custom `NonceStore` bindings remain supported.
 
 ## Create an Atom
 

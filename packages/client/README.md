@@ -13,6 +13,19 @@ when integrating another framework or a plain PHP application; the normative
 adapter contract and examples are in the
 [Atoms documentation](https://docs.atomsphp.dev).
 
+## Callback nonce storage
+
+Pass a shared `NonceStore` to `CallbackKernelFactory::create()` before accepting
+callbacks. The factory rejects authenticated callbacks with `ATOMS-E111` until
+a store is configured. `RedisNonceStore::fromClient()` accepts PhpRedis,
+RedisCluster, or Predis clients. Laravel and Symfony applications can configure
+shared storage through their adapters.
+
+`InMemoryNonceStore` is available for explicit local development and tests.
+It loses records when its instance ends and can evict nonces before their
+signed timestamps expire. See [Callbacks](https://docs.atomsphp.dev/guides/callbacks/)
+for backend setup and retention requirements.
+
 ## Development and support
 
 This package is developed in the

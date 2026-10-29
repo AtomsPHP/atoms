@@ -45,10 +45,9 @@ use Psr\Log\LoggerInterface;
  *
  * `$nonceStore` and `$timestampWindow` are the same replay-store and
  * timestamp-window override points {@see CallbackKernelFactory::create()}
- * exposes, forwarded straight through: leave `$nonceStore` null for the
- * default in-process {@see \Atoms\Client\Callback\InMemoryNonceStore}, or
- * supply your own {@see NonceStore} (e.g. a shared cache) so replay checks
- * survive across requests/processes.
+ * exposes. Callbacks reject unconfigured storage. Pass a shared NonceStore
+ * for production, or an explicit InMemoryNonceStore for a local test that
+ * keeps the same instance alive.
  */
 class AtomsBootstrap
 {

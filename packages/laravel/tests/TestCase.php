@@ -35,6 +35,8 @@ abstract class TestCase extends BaseTestCase
     /** Set false to boot an app with no shared secret configured at all. */
     protected bool $withSharedSecret = true;
 
+    protected bool $withMemoryNonceStore = true;
+
     /**
      * Stand in for the operator's `ATOMS_SHARED_SECRET`, the way a configured
      * deployment holds one — unless a test drove the value itself (an env
@@ -42,6 +44,10 @@ abstract class TestCase extends BaseTestCase
      */
     protected function defineEnvironment($app): void
     {
+        if ($this->withMemoryNonceStore) {
+            $app['config']->set('atoms.callback_nonce.driver', 'memory');
+        }
+
         if ($this->withSharedSecret && $app['config']->get('atoms.shared_secret') === null) {
             $app['config']->set('atoms.shared_secret', self::SHARED_SECRET);
         }

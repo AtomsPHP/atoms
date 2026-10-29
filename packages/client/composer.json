@@ -26,6 +26,10 @@
         "psr/http-server-middleware": "^1.0",
         "psr/log": "^2.0 || ^3.0"
     },
+    "suggest": {
+        "ext-redis": "Connect RedisNonceStore through PhpRedis or RedisCluster",
+        "predis/predis": "Connect RedisNonceStore without the Redis PHP extension"
+    },
     "autoload": {
         "psr-4": {
             "Atoms\\Client\\": "src/"

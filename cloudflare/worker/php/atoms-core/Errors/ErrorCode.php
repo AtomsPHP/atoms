@@ -79,4 +79,6 @@ enum ErrorCode: string
     case WorkerRuntimeVersionMismatch = 'ATOMS-E108';
     case AtomsEnvFileInvalid = 'ATOMS-E109';
     case RoutingNotAttached = 'ATOMS-E110';
+    case CallbackNonceStoreConfiguration = 'ATOMS-E111';
+    case CallbackNonceStoreUnavailable = 'ATOMS-E112';
 }

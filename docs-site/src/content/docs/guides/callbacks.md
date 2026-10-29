@@ -41,124 +41,111 @@ contract](/concepts/adapters/) for what a host must provide.
 
 ## Store callback nonces
 
-The default `InMemoryNonceStore` forgets a callback's nonce when the store
-instance ends. A replay sent to a new instance can pass verification while its
-signed timestamp is still valid. This affects PHP-FPM, multiple workers on one
-host, and applications that rebuild the callback kernel or container for each
-request. A Laravel singleton or Symfony shared service lasts only as long as
-its container.
+Laravel and Symfony ship Redis and database nonce stores. Select one through
+`callback_nonce` configuration. The [Laravel setup](/getting-started/laravel/#configure-callback-replay-protection)
+and [Symfony setup](/getting-started/symfony/#configure-callback-replay-protection)
+show the settings and migration commands.
 
-Use a persistent shared `Atoms\Client\Callback\NonceStore` for these deployments.
-All callback workers must use the same store for the application and environment.
-The store's `seen()` method must check and record a nonce in one atomic operation.
-It returns `false` for the request that first records the nonce and `true` for
-later requests. Separate read and write operations let concurrent replays pass.
-If the store is unavailable, fail the request before running a Methods class or
-queuing a job. Do not fall back to an empty in-memory store.
+### Upgrading an existing callback application
 
-Keep each nonce for the entire interval in which its signed timestamp can pass
-verification. With a timestamp window of `W` seconds, the kernel accepts a
-timestamp up to `W` seconds ahead of its clock and up to `W` seconds behind it.
-A store that measures retention from first receipt therefore needs at least
-`2 * W + 1` seconds with aligned clocks. Use the largest window across your
-workers and add time for clock differences between workers and the cleanup
-process. The default window is 300 seconds. The configuration examples below
-use 900 seconds of retention; increase it if your window or clock allowance
-requires more. Do not evict or clear unexpired nonces during cache flushes,
-deployments, or shared-secret rotation.
+Callbacks now require a configured nonce store. The adapters and
+`CallbackKernelFactory` no longer select in-memory storage by default. Before
+upgrading an application that uses `app()` or `dispatch()`, configure Redis or
+database storage. For the database backend, run your framework's migrations
+before accepting callbacks. No nonce table is created during a request.
 
-### Database example
+A valid signed callback returns `503` with [ATOMS-E111](/reference/errors/#atoms-e111)
+when storage is unconfigured or its settings are invalid. Storage failures,
+including a missing table, return `503` with [ATOMS-E112](/reference/errors/#atoms-e112).
+Neither response invokes a Methods class or queues a job. Application boot and
+outbound-only Atom calls do not require callback storage.
 
-This application-owned example uses PDO with PostgreSQL or SQLite. It runs in
-your host application. Create the table through your application's migrations:
+`InMemoryNonceStore` remains available through the explicit `memory` driver for
+development and tests. It loses its history when a request reconstructs the
+store, does not share records with other workers, and can evict nonces when
+full. Even a single PHP-FPM worker rebuilds application state between requests.
+Use a shared store when testing callbacks through a web server too.
 
-```sql title="callback_nonces.sql"
-CREATE TABLE atoms_callback_nonces (
-    nonce_hash VARCHAR(64) PRIMARY KEY,
-    expires_at BIGINT NOT NULL
-);
-CREATE INDEX atoms_callback_nonces_expiry ON atoms_callback_nonces (expires_at);
+### Shared storage requirements
+
+All callback workers for an application and environment must use the same
+backend and namespace. Keep the namespace stable across deployments and
+shared-secret rotation. For example, use `orders:production` for every
+production callback worker, and a separate namespace for staging.
+
+Each store records a nonce atomically. Redis uses one command with expiry;
+the database stores use a unique constraint. The first request records the
+nonce and proceeds. Later requests with that nonce return `401` with
+[ATOMS-E065](/reference/errors/#atoms-e065).
+
+Database storage supports MySQL/MariaDB, PostgreSQL, and SQLite through
+Laravel's database layer or Doctrine DBAL. On one host, SQLite requires a
+persistent file that every PHP worker can access. An in-memory SQLite database
+does not share state across connections. For multiple hosts, use the same
+MySQL/MariaDB or PostgreSQL database, or Redis.
+
+The adapters open a separate, nonpersistent database connection to the same
+database used by their migration. An application transaction cannot roll back
+a nonce record. Callback storage failures reject the request; there is no
+fallback to an empty store.
+
+### Retention
+
+The kernel accepts a callback timestamp up to `W` seconds ahead of its clock
+and up to `W` seconds behind it. A nonce first received at the start of that
+interval must remain recorded until the interval ends.
+
+The default retention is `2 * W + 1 + clock_allowance_seconds`. With the default
+300-second timestamp window and 60-second clock allowance, that is 661 seconds.
+Leave `retention_seconds` unset to calculate it from these settings. An explicit
+retention below the calculated minimum is rejected.
+
+Use the largest timestamp window across your callback workers when setting
+retention. Increase the clock allowance if differences between workers and the
+pruning process can exceed it. Keep their clocks synchronized. If you increase
+the timestamp window during a rollout, increase retention on every worker first
+and wait out the new retention interval before widening the window.
+
+### Cleanup and Redis isolation
+
+Redis expires nonce records automatically. Use a dedicated Redis connection
+and database or instance that ordinary application cache clears do not flush.
+Configure Redis to retain unexpired nonce keys. A key prefix prevents collisions
+but does not protect against `FLUSHDB`, `FLUSHALL`, eviction, or data loss.
+
+For database storage, schedule the shipped pruning command:
+
+```bash
+# Laravel
+php artisan atoms:nonces:prune
+
+# Symfony
+php bin/console atoms:nonces:prune
 ```
 
-Save the class as `app/Callbacks/DatabaseNonceStore.php` in Laravel or
-`src/Callbacks/DatabaseNonceStore.php` in Symfony:
+Pruning removes only expired records. Late pruning uses extra database space;
+it does not admit replays. Both commands use the configured nonce database.
+Do not clear unexpired records during deployments, cache maintenance, or
+secret rotation.
 
-```php title="DatabaseNonceStore.php"
-<?php
+Switching to Redis leaves the database table and its migration history in
+place. To roll back that migration intentionally, select the database driver
+again so your framework discovers it, then use the framework's rollback
+procedure. Stop accepting callbacks before removing their storage.
 
-namespace App\Callbacks;
+### Custom stores and plain PHP
 
-use Atoms\Client\Callback\NonceStore;
-use PDO;
+Both framework adapters preserve an explicit binding for
+`Atoms\Client\Callback\NonceStore`. Its `seen()` method must check and record a
+nonce atomically, return `false` for the first claim, and return `true` for a
+replay. Throw on storage failure. Keep records for the full retention interval.
 
-final class DatabaseNonceStore implements NonceStore
-{
-    public function __construct(
-        private readonly PDO $database,
-        private readonly int $retentionSeconds,
-    ) {
-        if ($retentionSeconds < 1) {
-            throw new \InvalidArgumentException('Nonce retention must be positive.');
-        }
-
-        $database->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    }
-
-    public function seen(string $nonce): bool
-    {
-        if ($this->database->inTransaction()) {
-            throw new \LogicException('Nonce records need a separate autocommit connection.');
-        }
-
-        $statement = $this->database->prepare(
-            'INSERT INTO atoms_callback_nonces (nonce_hash, expires_at) VALUES (?, ?) '
-            . 'ON CONFLICT (nonce_hash) DO NOTHING',
-        );
-        $statement->execute([
-            hash('sha256', $nonce),
-            time() + $this->retentionSeconds,
-        ]);
-
-        return $statement->rowCount() === 0;
-    }
-}
-```
-
-The primary key and `ON CONFLICT` make the insert atomic. An existing nonce
-leaves the table unchanged and returns `true`. See the
-[PostgreSQL](https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT)
-and [SQLite](https://www.sqlite.org/lang_upsert.html) syntax references.
-This SQL is not a MySQL example.
-
-Use a dedicated connection in autocommit mode so application transactions
-cannot roll back nonce records. For several application hosts, point every
-connection at the same PostgreSQL database and table. On one host, SQLite can
-use a persistent file writable by all PHP workers. `sqlite::memory:` or a
-separate file per worker does not share state. Use a separate table or database
-for each application and environment.
-
-Run cleanup from a scheduled application command. Prepare
-`DELETE FROM atoms_callback_nonces WHERE expires_at < ?` on the same database
-and bind the cleanup process's current Unix time. Keep its clock synchronized
-with the callback workers. Late cleanup retains extra rows and continues to
-reject their nonces; early cleanup can admit a replay.
-
-The [Laravel](/getting-started/laravel/#configure-callback-replay-protection) and
-[Symfony](/getting-started/symfony/#configure-callback-replay-protection) guides
-show how to bind this class. Plain-PHP hosts can pass it as `nonceStore:` to
-`CallbackKernelFactory::create()`.
-
-### Check the shared store
-
-In a local test, construct two callback kernels with separate store objects and
-connections to the same database. Send the same valid signed callback to both
-within its timestamp window. The first response must be `200`, the second
-`401` with `ATOMS-E065`, and the Methods call or job must run once. Rebuilding a
-kernel must not make that callback valid again.
-
-The repository's
-[`CallbackNonceGuideTest`](https://github.com/AtomsPHP/atoms/blob/main/tests/Integration/CallbackNonceGuideTest.php)
-loads the example above and checks this sequence using a temporary SQLite file.
+Plain-PHP applications can pass a shared store as `nonceStore:` to
+`CallbackKernelFactory::create()`. The shipped `RedisNonceStore::fromClient()`
+accepts a PhpRedis or Predis client and `NonceStoreOptions::fromArray()` accepts
+the namespace and retention settings described above. Omitting the store now
+rejects callbacks. Pass an `InMemoryNonceStore` explicitly only for tests that
+keep the same instance alive.
 
 ## Synchronous `app()`
 

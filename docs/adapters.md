@@ -26,7 +26,7 @@ checked against.
 | Logging | PSR-3 `Psr\Log\LoggerInterface` into both `AtomsClient` and `CallbackKernel` | The app's bound `LoggerInterface`, if any, else `null` | The app's `logger` service, if any (`IGNORE_ON_INVALID_REFERENCE` resolves a missing one to `null`) | `logger:` parameter, forwarded to both | `logger:` parameter to `CallbackKernelFactory::create()` |
 | Methods instantiation | PSR-11 `Psr\Container\ContainerInterface` (optional; see S6 in `AdapterConformanceTestCase`) | The app's own container, passed straight through as `$container` | A `ServiceLocator` built from `methods_classes`, passed as `$container` | `container:` parameter to `AtomsBootstrap::create()`; `new $class()` when a Methods class isn't in it (default: nothing is) | `container:` parameter to `CallbackKernelFactory::create()`; `new $class()` when a Methods class isn't in it (default: nothing is) |
 | Ticket minting | `Atoms\Client\Tickets\TicketIssuer` (concrete class; built from `AtomsConfig`, no other collaborator) | Singleton in `AtomsServiceProvider::register()`; `Atoms::ticket(GameRoom::class, $id, $claims)` is the facade sugar over it | `TicketIssuer::class` private, public alias `atoms.ticket_issuer` | Built by `AtomsBootstrap::create()`, reachable as `PlainPhpApp::tickets()` | N/A — no client |
-| Replay store | `Atoms\Client\Callback\NonceStore` (overridable) | `Atoms\Client\Callback\InMemoryNonceStore` singleton; bind `NonceStore` to a shared implementation when requests can use different processes or store instances | Same default; alias `NonceStore` to your own | `nonceStore:` parameter; default `InMemoryNonceStore` | `nonceStore:` parameter to `CallbackKernelFactory::create()`; default `InMemoryNonceStore` |
+| Replay store | `Atoms\Client\Callback\NonceStore` | `callback_nonce` selects database, Redis, or explicit test memory; custom bindings override it | Same choices through bundle config; custom aliases override it | `nonceStore:` parameter; unconfigured callbacks rejected | `nonceStore:` parameter to `CallbackKernelFactory::create()`; unconfigured callbacks rejected |
 
 The "bare kernel" column is `tests/Integration/Adapters/Host/BareKernelHost.php`
 — not a shipped product, but the floor every other host is checked against:
@@ -39,21 +39,26 @@ blur a failure's cause.
 
 ## Callback replay storage
 
-The default `InMemoryNonceStore` retains nonces in one store instance. PHP-FPM,
-multiple web workers on one host, and recreated request containers require a
-persistent shared `NonceStore`. A singleton binding does not preserve data
-across PHP requests. All callback workers for an application and environment
-must use the same store.
+Laravel and Symfony ship Redis and database stores configured through
+`callback_nonce`. Both adapters and `CallbackKernelFactory` reject callbacks
+until a store is configured. The explicit memory option is for tests that
+retain one instance; PHP-FPM and multiple workers need shared storage.
 
 `NonceStore::seen()` must atomically record the nonce and report whether it was
-already present. Keep the record for the full accepted timestamp interval.
-With aligned clocks and a timestamp window of `W` seconds, retention measured
-from first receipt must be at least `2 * W + 1` seconds. Use the largest worker
-window and add an allowance for clock differences. Do not evict unexpired
-records or accept callbacks when the store is unavailable.
+already present. Shared stores use a stable application/environment namespace.
+The default retention is twice the callback timestamp window, plus one second
+and a configurable clock allowance of 60 seconds. An explicit shorter retention
+is invalid. Use the largest window across workers when choosing retention.
+
+Database stores use framework query APIs and package migrations. Nonce writes
+use a separate autocommit connection and survive application rollback. Redis
+uses an atomic claim with expiry. Neither backend falls back to memory.
+Configuration failures return 503 / ATOMS-E111; storage failures return
+503 / ATOMS-E112. Signature and timestamp validation run before any storage
+connection is opened. Replays remain 401 / ATOMS-E065.
 
 The [callback guide](https://docs.atomsphp.dev/guides/callbacks/#store-callback-nonces)
-provides a database example and links to Laravel and Symfony bindings.
+covers configuration, migrations, retention, cleanup, and upgrades.
 
 ## Why configuration is not a PHP interface
 

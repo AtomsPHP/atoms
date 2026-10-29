@@ -1194,3 +1194,39 @@ Bring the committed Worker directory up to the CLI's release with the `atoms-run
 **Fix**
 
 Wrangler's output above names which routing failed. A pattern already assigned to another Worker is refused, not taken over (API code 10020) — remove it there, or give this environment its own hostname under atoms.json "environments"."<environment>"."custom_domains". An authentication error on /workers/routes means the credential can upload but not route: add Zone → Workers Routes:Edit and Zone → Zone:Read on the pattern's zone (custom_domains needs neither). Fixing either and re-running the deploy is safe.
+
+
+<a id="atoms-e111"></a>
+
+## ATOMS-E111: Callback nonce store is not configured
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `runtime` |
+
+**Message**
+
+The callback nonce store is missing or its configuration is invalid.
+
+**Fix**
+
+Configure a supported shared nonce store, a stable application/environment namespace, and retention covering the callback timestamp window. Use the memory driver only for local development or tests.
+
+
+<a id="atoms-e112"></a>
+
+## ATOMS-E112: Callback nonce store is unavailable
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `runtime` |
+
+**Message**
+
+The callback was rejected because its nonce could not be recorded.
+
+**Fix**
+
+Check the nonce backend connection, permissions, schema, and capacity. Keep existing nonce records and restore the shared store before retrying; do not fall back to memory.

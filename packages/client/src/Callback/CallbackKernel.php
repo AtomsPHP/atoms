@@ -72,8 +72,24 @@ final class CallbackKernel implements RequestHandlerInterface
             return $this->error(401, ErrorCode::CallbackReplayDetected);
         }
 
-        if ($nonce === '' || $this->nonceStore->seen($nonce)) {
+        if ($nonce === '') {
             return $this->error(401, ErrorCode::CallbackReplayDetected);
+        }
+
+        try {
+            if ($this->nonceStore->seen($nonce)) {
+                return $this->error(401, ErrorCode::CallbackReplayDetected);
+            }
+        } catch (\Throwable $error) {
+            $code = $error instanceof NonceStoreConfigurationException
+                ? ErrorCode::CallbackNonceStoreConfiguration
+                : ErrorCode::CallbackNonceStoreUnavailable;
+            $this->logger?->error('Callback nonce recording failed', [
+                'code' => $code->value,
+                'exception' => $error::class,
+            ]);
+
+            return $this->error(503, $code);
         }
 
         $kind = $request->getHeaderLine('X-Atoms-Kind');

@@ -53,42 +53,92 @@ The callback endpoint accepts POST only and is intentionally outside session and
 
 ## Configure callback replay protection
 
-If your Atoms use `app()` or `dispatch()`, configure a shared nonce store before
-accepting callbacks. PHP-FPM needs it even on one host. Add the
-[database table and `DatabaseNonceStore` class](/guides/callbacks/#database-example),
-then merge these definitions into `config/services.yaml`, after the `App\`
-service resource:
+Choose a shared nonce store before accepting `app()` or `dispatch()` callbacks.
+Atoms ships both database and Redis implementations. No custom storage class
+or alias is required.
 
-```yaml title="config/services.yaml"
-services:
-    app.atoms_nonce_database:
-        class: PDO
-        arguments:
-            - '%env(ATOMS_NONCE_DSN)%'
-            - '%env(ATOMS_NONCE_DB_USER)%'
-            - '%env(ATOMS_NONCE_DB_PASSWORD)%'
+### Database
 
-    App\Callbacks\DatabaseNonceStore:
-        arguments:
-            $database: '@app.atoms_nonce_database'
-            $retentionSeconds: '%env(int:ATOMS_NONCE_RETENTION_SECONDS)%'
+Use Doctrine DBAL and Doctrine Migrations. If these bundles are not already
+installed, add them and register them through Symfony Flex or `config/bundles.php`:
 
-    Atoms\Client\Callback\NonceStore:
-        alias: App\Callbacks\DatabaseNonceStore
+```bash
+composer require doctrine/doctrine-bundle doctrine/doctrine-migrations-bundle
 ```
 
-Set `ATOMS_NONCE_DSN` to a PDO DSN such as
-`pgsql:host=database;dbname=app`, with the corresponding user and password.
-For one host, you can use `sqlite:/absolute/path/to/callback-nonces.sqlite`
-and set both credentials to empty strings. Create the table in that database
-first. Set `ATOMS_NONCE_RETENTION_SECONDS=900` for the default
-`callback_timestamp_window: 300`; adjust retention for larger windows or clock
-differences as [Callbacks](/guides/callbacks/#store-callback-nonces) explains.
-These environment variables configure the example service.
+Select database storage in `config/packages/atoms.yaml`:
 
-The alias replaces the bundle's in-memory default. Symfony's shared service
-setting only reuses an object within one container; the database keeps the
-nonce records when PHP creates the next request's container.
+```yaml title="nonce-database.yaml"
+atoms:
+    callback_nonce:
+        driver: database
+        namespace: 'my-app:production'
+```
+
+Atoms uses the database selected by Doctrine Migrations, including its configured
+connection or entity manager. It opens a separate connection for nonce writes
+so application transactions cannot undo them. SQLite needs a persistent file
+on one host; every callback worker must access the same database.
+
+The bundle registers its migration when the database driver is selected. Run
+your normal migration command before accepting callbacks:
+
+```bash
+php bin/console doctrine:migrations:migrate
+```
+
+This creates `atoms_callback_nonces`. On MySQL/MariaDB, keep Doctrine Migrations'
+`all_or_nothing` setting false because DDL commits implicitly. The bundle
+excludes the table from ORM schema diffs without replacing your existing filters. Schedule
+`php bin/console atoms:nonces:prune` to remove expired records.
+
+### Redis
+
+Select a service that provides your PhpRedis or Predis connection:
+
+```yaml title="nonce-redis.yaml"
+atoms:
+    callback_nonce:
+        driver: redis
+        namespace: 'my-app:production'
+        redis_service: app.atoms_nonce_redis
+```
+
+Reuse an existing connection service or define one through Symfony's Redis
+connection factory:
+
+```yaml title="nonce-redis-services.yaml"
+services:
+    app.atoms_nonce_redis:
+        class: Redis
+        factory: ['Symfony\Component\Cache\Adapter\RedisAdapter', createConnection]
+        arguments: ['%env(ATOMS_NONCE_REDIS_URL)%']
+```
+
+The factory requires `symfony/cache` and PhpRedis or Predis. Configure
+`ATOMS_NONCE_REDIS_URL` with the Redis server's connection URL. This environment
+variable belongs to the service definition above. Atoms selects the service
+through `redis_service`; it does not read a Redis URL itself.
+
+Use a dedicated Redis database or instance that application cache clears do
+not flush. Redis handles expiry; this backend does not require Doctrine or a
+nonce database migration.
+
+### Retention and upgrades
+
+Leave `callback_nonce.retention_seconds` unset to derive retention from
+`callback_timestamp_window` and `callback_nonce.clock_allowance_seconds`, which
+defaults to 60. The [callback guide](/guides/callbacks/#retention) explains the
+calculation and rollout requirements.
+
+Rebuild Symfony's cache after changing `driver` or `redis_service`, including
+when their values come from environment variables. These settings determine
+which services and migrations enter the compiled container.
+
+An unconfigured store rejects callbacks with `503`. Application boot and
+outbound-only calls still work. `callback_nonce.driver: memory` explicitly
+selects the development/test store; it does not protect callbacks across PHP
+requests. Existing custom `NonceStore` aliases remain supported.
 
 ## Create an Atom
 

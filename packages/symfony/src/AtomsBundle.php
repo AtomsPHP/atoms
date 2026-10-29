@@ -8,7 +8,6 @@ use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
 use Atoms\Client\Callback\CallbackKernel;
 use Atoms\Client\Callback\HmacVerifier;
-use Atoms\Client\Callback\InMemoryNonceStore;
 use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Client\Callback\NonceStore;
 use Atoms\Client\Callback\NullQueueBridge;
@@ -23,6 +22,7 @@ use Atoms\Symfony\DependencyInjection\CallbackVerifierFactory;
 use Atoms\Symfony\DependencyInjection\GuzzleFactory;
 use Atoms\Symfony\DependencyInjection\HttpClientPass;
 use Atoms\Symfony\DependencyInjection\MessengerBridgePass;
+use Atoms\Symfony\DependencyInjection\NonceStorePass;
 use Atoms\Symfony\DependencyInjection\Psr17FactoryPass;
 use Atoms\Symfony\Routing\AtomsRouteLoader;
 use GuzzleHttp\Psr7\HttpFactory;
@@ -30,6 +30,7 @@ use Psr\Http\Client\ClientInterface;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\Console\Command\Command as ConsoleCommand;
 use Symfony\Component\DependencyInjection\Compiler\ServiceLocatorTagPass;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -56,6 +57,7 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
  *     ws_ticket_ttl_ms: int,
  *     callback_path: string,
  *     callback_timestamp_window: int,
+ *     callback_nonce: array<string, mixed>,
  *     http_client: string|null,
  *     psr17_factory: string|null,
  *     methods_classes: list<class-string>,
@@ -81,6 +83,7 @@ final class AtomsBundle extends AbstractBundle
         $container->addCompilerPass(new HttpClientPass());
         $container->addCompilerPass(new Psr17FactoryPass());
         $container->addCompilerPass(new MessengerBridgePass());
+        $container->addCompilerPass(new NonceStorePass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
     }
 
     public function configure(DefinitionConfigurator $definition): void
@@ -111,6 +114,16 @@ final class AtomsBundle extends AbstractBundle
                 ->integerNode('callback_timestamp_window')
                     ->defaultValue(300)
                     ->info('Seconds of clock skew a callback\'s X-Atoms-Timestamp header may deviate before it is rejected as a replay.')
+                ->end()
+                ->arrayNode('callback_nonce')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->scalarNode('driver')->defaultNull()->end()
+                        ->scalarNode('namespace')->defaultNull()->end()
+                        ->scalarNode('redis_service')->defaultNull()->end()
+                        ->variableNode('retention_seconds')->defaultNull()->end()
+                        ->integerNode('clock_allowance_seconds')->defaultValue(60)->end()
+                    ->end()
                 ->end()
                 ->scalarNode('http_client')
                     ->defaultNull()
@@ -256,8 +269,8 @@ final class AtomsBundle extends AbstractBundle
             $methodsLocatorMap[$methodsClass] = new Reference($methodsClass);
         }
 
-        $container->register(InMemoryNonceStore::class, InMemoryNonceStore::class)->setPublic(false);
-        $container->setAlias(NonceStore::class, InMemoryNonceStore::class)->setPublic(false);
+        $container->setParameter(NonceStorePass::CONFIG_PARAMETER, $config['callback_nonce']);
+        $container->setParameter(NonceStorePass::WINDOW_PARAMETER, $config['callback_timestamp_window']);
 
         $container->register(HmacVerifier::class, HmacVerifier::class)
             ->setFactory([CallbackVerifierFactory::class, 'create'])

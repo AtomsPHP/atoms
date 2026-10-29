@@ -20,20 +20,20 @@ Every supported host supplies:
 | **Logging** | Receives logs from the client and callback kernel | Optional PSR-3 logger passed to both |
 | **Methods construction** | Instantiates your Methods classes | Optional PSR-11 container, otherwise direct construction |
 | **Ticket minting** | Issues the signed tickets browsers use to connect to an Atom | `Atoms\Client\Tickets\TicketIssuer`, built from the same `AtomsConfig` as the client |
-| **Replay defense** | Rejects a callback delivered more than once | Replaceable `NonceStore`; instance-local default |
+| **Replay defense** | Rejects a callback delivered more than once | Configurable Redis or database `NonceStore`; no implicit memory fallback |
 
 A [conformance suite](https://github.com/AtomsPHP/atoms/tree/main/tests/Integration/Adapters) checks this contract against the Laravel, Symfony, and plain-PHP adapters.
 
 ## Before you deploy
 
-Callbacks require a persistent shared `NonceStore` when requests can reach
-different processes or newly constructed stores. This includes PHP-FPM,
-multiple web workers on one host, and recreated request containers.
+Configure Redis or database nonce storage before accepting callbacks. The
+adapters supply both implementations. PHP-FPM, multiple web workers on one
+host, and recreated request containers need shared replay history.
 
-The default `InMemoryNonceStore` remembers nonces only within that store
-instance. A singleton container binding does not preserve its state across PHP
-requests. See [callback replay protection](/guides/callbacks/#store-callback-nonces)
-for atomicity, retention, and a shared-store example.
+Unconfigured callbacks return `503`; the adapters do not fall back to memory.
+The explicit `memory` driver is for development and tests that retain the same
+store instance. See [callback replay protection](/guides/callbacks/#store-callback-nonces)
+for setup, atomicity, retention, and upgrade instructions.
 
 Configure a queue bridge so an Atom can dispatch jobs.
 

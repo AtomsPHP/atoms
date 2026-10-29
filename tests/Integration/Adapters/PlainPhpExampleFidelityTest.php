@@ -80,6 +80,7 @@ final class PlainPhpExampleFidelityTest extends TestCase
             queueBridge: $this->queue,
             // The example's OWN Methods class — not Fixtures\GameRoom\Methods.
             resolver: $resolver,
+            nonceStore: new \Atoms\Client\Callback\InMemoryNonceStore(),
         );
     }
 

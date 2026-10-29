@@ -31,7 +31,12 @@
         "symfony/messenger": "Routes AtomJob callbacks through Messenger (MessengerQueueBridge); without it, NullQueueBridge throws on first use",
         "symfony/console": "Registers the atoms:deploy / atoms:rollback / atoms:list console wrappers",
         "guzzlehttp/psr7": "Default PSR-17 factory used when psr17_factory is not configured",
-        "guzzlehttp/guzzle": "Default PSR-18 client used when no atoms.http_client / ClientInterface service is configured"
+        "guzzlehttp/guzzle": "Default PSR-18 client used when no atoms.http_client / ClientInterface service is configured",
+        "doctrine/dbal": "Database callback nonce storage (^3.10 || ^4.4).",
+        "doctrine/doctrine-bundle": "Configure the database connection used by callback nonce storage (^2.13 || ^3.0).",
+        "doctrine/migrations": "Run the package callback nonce migration (^3.9).",
+        "doctrine/doctrine-migrations-bundle": "Register the callback nonce migration with the application migration runner (^3.4.3).",
+        "predis/predis": "Redis callback nonce storage when ext-redis is unavailable (^2.2 || ^3.0)."
     },
     "autoload": {
         "psr-4": {
@@ -45,5 +50,11 @@
     },
     "config": {
         "sort-packages": true
+    },
+    "conflict": {
+        "doctrine/dbal": "<3.10 || >=4.0 <4.4 || >=5.0",
+        "doctrine/doctrine-bundle": "<2.13 || >=4.0",
+        "doctrine/migrations": "<3.9 || >=4.0",
+        "doctrine/doctrine-migrations-bundle": "<3.4.3 || >=4.0"
     }
 }

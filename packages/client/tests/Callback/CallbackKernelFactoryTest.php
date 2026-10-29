@@ -59,10 +59,10 @@ final class CallbackKernelFactoryTest extends TestCase
         return $decoded;
     }
 
-    public function testDefaultsVerifyASignedMethodsRequestEndToEnd(): void
+    public function testExplicitMemoryStoreVerifiesASignedMethodsRequestEndToEnd(): void
     {
         $factory = new HttpFactory();
-        $kernel = CallbackKernelFactory::create(self::SECRET, $factory, $factory);
+        $kernel = CallbackKernelFactory::create(self::SECRET, $factory, $factory, nonceStore: new InMemoryNonceStore());
 
         $request = $this->signedRequest('methods', [
             'atom' => ['type' => GameRoom::class, 'id' => 'g-1'],
@@ -76,10 +76,23 @@ final class CallbackKernelFactoryTest extends TestCase
         self::assertSame(['result' => 5], $this->decode($response));
     }
 
-    public function testASignatureFromAnotherSecretIsRejected(): void
+    public function testDefaultNonceStoreRejectsAuthenticatedCallbacksWithE111(): void
     {
         $factory = new HttpFactory();
         $kernel = CallbackKernelFactory::create(self::SECRET, $factory, $factory);
+        $response = $kernel->handle($this->signedRequest('job', [
+            'job' => SendWelcomeJob::class,
+            'args' => ['playerId' => 'p-1', 'roomSize' => 2],
+        ]));
+
+        self::assertSame(503, $response->getStatusCode());
+        self::assertSame('ATOMS-E111', $this->decode($response)['error']['code']);
+    }
+
+    public function testASignatureFromAnotherSecretIsRejected(): void
+    {
+        $factory = new HttpFactory();
+        $kernel = CallbackKernelFactory::create(self::SECRET, $factory, $factory, nonceStore: new InMemoryNonceStore());
 
         $request = $this->signedRequest('methods', [
             'atom' => ['type' => GameRoom::class, 'id' => 'g-1'],
@@ -101,6 +114,7 @@ final class CallbackKernelFactoryTest extends TestCase
             $factory,
             $factory,
             sharedSecretPrevious: self::PREVIOUS_SECRET,
+            nonceStore: new InMemoryNonceStore(),
         );
 
         $payload = [
@@ -129,7 +143,7 @@ final class CallbackKernelFactoryTest extends TestCase
     public function testDefaultQueueBridgeRejectsJobsWithE103(): void
     {
         $factory = new HttpFactory();
-        $kernel = CallbackKernelFactory::create(self::SECRET, $factory, $factory);
+        $kernel = CallbackKernelFactory::create(self::SECRET, $factory, $factory, nonceStore: new InMemoryNonceStore());
 
         $request = $this->signedRequest('job', [
             'job' => SendWelcomeJob::class,
@@ -151,6 +165,7 @@ final class CallbackKernelFactoryTest extends TestCase
             $factory,
             $factory,
             queueBridge: $bridge,
+            nonceStore: new InMemoryNonceStore(),
         );
 
         $request = $this->signedRequest('job', [
@@ -174,6 +189,7 @@ final class CallbackKernelFactoryTest extends TestCase
             $factory,
             $factory,
             resolver: $resolver,
+            nonceStore: new InMemoryNonceStore(),
         );
 
         $request = $this->signedRequest('methods', [

@@ -62,12 +62,63 @@ type itself. It always mounts at the bundle's current `atoms.callback_path`,
 so reconfiguring that value moves the route with it; nothing else needs to
 change.
 
+## Configure callback nonce storage
+
+PHP-FPM and multiple application workers need a shared store. Choose one before
+accepting callbacks. Store initialization runs after signature and timestamp
+verification, so outbound-only applications do not need a nonce backend.
+The bundle resolves `driver` and `redis_service` when compiling the container.
+Rebuild the Symfony cache after changing either value, including changes supplied
+through environment variables.
+
+For Redis, use an existing native phpredis or Predis connection service:
+
+```yaml
+atoms:
+    callback_nonce:
+        driver: redis
+        redis_service: app.redis
+        namespace: my-app.production
+```
+
+For the database backend, install and enable DoctrineBundle and
+DoctrineMigrationsBundle, then configure:
+
+```yaml
+atoms:
+    callback_nonce:
+        driver: database
+        namespace: my-app.production
+```
+
+Atoms registers its table migration with the application runner. Run
+`bin/console doctrine:migrations:migrate` before accepting callbacks. The store
+uses the database selected by Doctrine Migrations through a separate autocommit
+connection. Application rollbacks cannot remove its nonce records. SQLite needs
+a persistent file shared by all workers on the host.
+On MySQL and MariaDB, the table migration runs without a transaction because DDL
+commits implicitly. Leave Doctrine Migrations `all_or_nothing` disabled for this
+migration.
+
+Schedule `bin/console atoms:nonces:prune` to delete expired database records.
+Atoms excludes its table from ORM schema diffs and preserves existing schema
+filters. Package migrations are registered while the database driver is selected;
+switch back to it before rolling back the nonce-table migration after a move to
+Redis.
+
+`callback_nonce.retention_seconds` defaults to twice
+`callback_timestamp_window`, plus one second and `callback_nonce.clock_allowance_seconds`.
+The clock allowance defaults to 60 seconds. An explicit retention must cover
+that interval. Keep clocks synchronized and prevent Redis from evicting or
+clearing unexpired nonce keys. See the [callback guide](https://docs.atomsphp.dev/guides/callbacks/#store-callback-nonces)
+for replay guarantees and failure responses.
+
 ## What's wired
 
 - `Atoms\Client\AtomsClient` — the RPC stub-proxy client, service id
   `atoms.client` (public; the `AtomsClient::class` service itself is private).
-- The callback stack — `HmacVerifier`, `InMemoryNonceStore`,
-  `MethodsResolver`, `CallbackKernel` — plus
+- The callback stack includes `HmacVerifier`, the configured `NonceStore`,
+  `MethodsResolver`, `CallbackKernel`, and
   `Atoms\Symfony\Controller\CallbackController`, which converts Symfony
   `Request`/`Response` to/from PSR-7 by hand against the plain
   `ServerRequestFactoryInterface`/`StreamFactoryInterface` (no
@@ -123,13 +174,11 @@ Every auto-detected collaborator has an explicit override point:
 - **Queue bridge** — install `symfony/messenger` and register a message bus,
   or bind your own `Atoms\Client\Callback\QueueBridge` implementation to that
   service id directly.
-- **Nonce store.** The bundle defaults to `InMemoryNonceStore`. PHP-FPM,
-  multiple workers on one host, and recreated request containers need a
-  persistent shared implementation. Alias `Atoms\Client\Callback\NonceStore`
-  to it as shown in the [Symfony setup guide](https://docs.atomsphp.dev/getting-started/symfony/#configure-callback-replay-protection).
-  The [callback guide](https://docs.atomsphp.dev/guides/callbacks/#store-callback-nonces)
-  covers atomic recording and retention. A shared service definition alone
-  does not preserve nonce records across requests.
+- **Nonce store.** Set `callback_nonce.driver` to `redis` or `database` and
+  choose a namespace for this application and environment. Without a store,
+  signed callbacks return `503` with `ATOMS-E111`. Bind your own
+  `Atoms\Client\Callback\NonceStore` to override the configured backend.
+  Use `memory` only when the same store instance survives across callbacks.
 - **Methods classes** — list them under `methods_classes` to get container
   resolution (and `#[MethodsFor]` support); anything else resolves by naming
   convention with `new $class()`.
