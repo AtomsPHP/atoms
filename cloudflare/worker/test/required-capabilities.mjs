@@ -1,6 +1,4 @@
-// A required capability turns a missing prerequisite into a failure. Keep the
-// environment-variable names here so all whole checks and partial legs use
-// the same interpretation of the six flags.
+// Required capabilities fail instead of skipping when prerequisites are missing.
 export const REQUIRED_CAPABILITIES = Object.freeze({
     callback: 'ATOMS_REQUIRE_CALLBACK_CHECKS',
     sqlCaps: 'ATOMS_REQUIRE_SQL_CAP_CHECKS',

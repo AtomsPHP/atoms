@@ -7,7 +7,6 @@ namespace Atoms\Tests\Integration\Adapters;
 use Atoms\Tests\Integration\Adapters\Host\AdapterHost;
 use PHPUnit\Framework\Assert;
 
-/** The capability inventory and the independent expectations for each host. */
 final class CapabilityMatrix
 {
     /** @var array<string, list<string>> capability => hosts expected to support it */
@@ -17,14 +16,12 @@ final class CapabilityMatrix
         'client' => ['plain-php', 'laravel', 'symfony'],
         'queue' => ['bare-kernel', 'plain-php', 'laravel', 'symfony'],
         'logging' => ['bare-kernel', 'plain-php', 'laravel', 'symfony'],
-        // Ability to exercise the unavailable-queue contract, not queue delivery.
+        // Can boot without a queue to test dispatch failure.
         'no-queue' => ['bare-kernel', 'plain-php', 'symfony'],
     ];
 
     /**
-     * Enumerate the whole inventory, not just capabilities used by test cases.
-     * The optional matrix lets mutation tests add a future capability before
-     * any behavioral case exists for it.
+     * Check capabilities even when no behavioral test exercises them yet.
      *
      * @param array<string, list<string>> $matrix
      */

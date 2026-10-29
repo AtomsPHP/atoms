@@ -6,10 +6,7 @@ namespace App\Atoms\GameRoom\Support;
 
 use Ramsey\Uuid\Uuid;
 
-/**
- * Atom-side. A support class: ships with GameRoom, runs in the Atoms
- * runtime or AtomHarness, and may use approved vendor packages like Atom code.
- */
+/** Atom helper with an approved vendor dependency. */
 final class ScoreBoard
 {
     public function entryRef(): string

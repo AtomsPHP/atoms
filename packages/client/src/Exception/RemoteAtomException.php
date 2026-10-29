@@ -8,10 +8,8 @@ use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 
 /**
- * Your own Atom code threw inside the Worker runtime (ATOMS-E063).
- * Carries the original PHP exception class and message. The Worker logs traces
- * server-side; remoteTrace is null for exceptions created by AtomsClient.
- * Not retryable — the same input will throw again.
+ * An Atom exception with its original class and message. Not retried.
+ * Traces stay in Worker logs, so AtomsClient leaves remoteTrace null.
  */
 final class RemoteAtomException extends AtomsException
 {

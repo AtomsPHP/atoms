@@ -604,7 +604,7 @@ function renderCompatibility(string $root, array $manifest): string
         $compatibility['ci'],
     ));
     $untested = array_values(array_diff($compatibility['adapter'], array_column($compatibility['ci'], 'version')));
-    $untestedNote = $untested === [] ? '' : 'Laravel ' . formatMajors($untested) . " is allowed by the adapter's dependencies but has no current CI coverage.\n";
+    $untestedNote = $untested === [] ? '' : 'Laravel ' . formatMajors($untested) . " has no current CI coverage.\n";
     [$major, $minor] = explode('.', $version, 3);
     $releaseLine = "{$major}.{$minor}";
 
@@ -642,46 +642,29 @@ so application and Worker installs are repeatable.
 
 ## Host and toolchain support
 
-| Component | Dependency constraint | Current qualified toolchain | CI coverage |
-|---|---|---|---|
-| Host PHP | `{$php['constraint']}` | {$testedPhp} | {$testedPhp} |
-| Node.js | `>={$runtime['node']}` | Node.js {$runtime['node']} | Node.js {$runtime['node']} |
-| Wrangler | `{$runtime['wrangler']}` (exact pin) | Wrangler {$runtime['wrangler']} | Wrangler {$runtime['wrangler']} |
+| Component | Dependency constraint | Supported versions, tested in CI |
+|---|---|---|
+| Host PHP | `{$php['constraint']}` | {$testedPhp} |
+| Node.js | `>={$runtime['node']}` | Node.js {$runtime['node']} |
+| Wrangler | `{$runtime['wrangler']}` | Wrangler {$runtime['wrangler']} |
 
-The listed versions are the current qualified host and toolchain baseline for
-the documented path. A successful install on a version allowed by a broader
-dependency constraint does not qualify that version: its compatibility is not
-established by current CI and support is not automatic. Use the listed baseline.
-CI coverage identifies version lines, not every patch release or dependency
-combination. A smoke test on a later version does not establish complete framework
-support; the framework-major matrix below is separate.
+Use the supported versions above. Dependency constraints may allow newer
+versions that Atoms has not tested.
 
-Host PHP runs the application, Composer, Artisan, the Atoms CLI, and tests. The
-Worker uses a PHP {$runtime['guest_php']} interpreter compiled to WebAssembly,
-supplied by the runtime release. Selecting host PHP does not select or recompile
-that guest interpreter.
+Host PHP runs your application and CLI. The Worker release supplies its own
+PHP {$runtime['guest_php']} interpreter compiled to WebAssembly.
 
 ## Laravel and Illuminate
 
-### Application-side dependency compatibility
-
-`atoms/laravel` allows Laravel {$adapterMajors} through its Illuminate dependencies. These are dependency constraints;
-they do not imply that every version is covered by CI.
-
-### CI combinations
-
-The test suite runs each Laravel version below with each listed host PHP version.
+`atoms/laravel` accepts Laravel {$adapterMajors}. CI tests these combinations:
 
 | Laravel | Orchestra Testbench constraint | Host PHP |
 |---|---|---|
 {$ciRows}
 
 {$untestedNote}
-### Atom-side dependencies
-
 The optional `atoms/database-illuminate` bridge runs inside an Atom and allows
-Illuminate Database {$bridgeMajors}. Its dependencies are separate from the
-application-side Laravel adapter.
+Illuminate Database {$bridgeMajors}, independently of your application's Laravel version.
 
 MARKDOWN;
 }
@@ -757,11 +740,7 @@ function compatibilityBlocks(string $root, array $manifest): array
     $compatibility = laravelCompatibility($root, $manifest);
     $adapter = formatMajors($compatibility['adapter']);
     $ciVersions = formatMajors(array_column($compatibility['ci'], 'version'));
-    $untested = array_values(array_diff($compatibility['adapter'], array_column($compatibility['ci'], 'version')));
-    $note = "The Laravel adapter allows Laravel {$adapter} through its Illuminate dependencies. CI tests Laravel {$ciVersions}.";
-    if ($untested !== []) {
-        $note .= ' Laravel ' . formatMajors($untested) . ' is allowed but is not currently tested in CI.';
-    }
+    $note = "The adapter accepts Laravel {$adapter}. CI tests Laravel {$ciVersions}.";
     $note .= ' See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).';
     $php = arrayValue($manifest, 'php')['tested'] ?? null;
     if (!is_array($php) || !array_is_list($php) || $php === [] || array_filter($php, static fn ($v): bool => !is_string($v) || !preg_match('/^[0-9]+\.[0-9]+$/', $v))) {

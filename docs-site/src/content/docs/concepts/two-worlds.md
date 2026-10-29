@@ -7,7 +7,7 @@ Atoms spans two runtimes with different capabilities.
 
 ## Atom-side: inside the Atom
 
-Atom-side code is bundled into a WebAssembly module and runs inside a Durable Object. It includes:
+Atoms bundles your PHP source for a WebAssembly PHP interpreter running inside a Durable Object. It includes:
 
 - classes extending `Atoms\Atom`;
 - helper classes in an Atom's `Support/` directory;
@@ -15,9 +15,9 @@ Atom-side code is bundled into a WebAssembly module and runs inside a Durable Ob
 - append-only SQL or PHP migrations;
 - dependencies explicitly approved in `atoms-composer.json`.
 
-An Atom's `Support/` holds helpers that ship with the Atom: an Eloquent model bound to the Atom's database, a value object, a service. They follow the same import rules as the Atom class, and run in the Atoms runtime in production. `AtomHarness` loads them in the application process during tests.
+`Support/` holds helpers that follow the Atom's import rules. They run in the Worker in production and in `AtomHarness` during tests.
 
-The directory name is case-sensitive: `app/Atoms/GameRoom/Support/ScoreBoard.php` declares `namespace App\Atoms\GameRoom\Support;`. Matching the directory and namespace lets Composer's normal `"App\\": "app/"` mapping load the helper in harness tests. Rename existing lowercase `support/` directories to `Support/` (use an intermediate name when recording a case-only rename in Git). Lowercase paths are no longer classified as support code.
+Match the directory's case to its namespace, such as `GameRoom/Support/ScoreBoard.php` and `App\Atoms\GameRoom\Support`. Rename lowercase `support/` directories to `Support/` so the build and Composer can find them. Use an intermediate name for a case-only Git rename.
 
 An Atom can use its own database, configuration, timers, and WebSockets, and it can [call back into your application](/guides/callbacks/) with `app()` and `dispatch()`. It cannot use your Laravel container, Doctrine entity manager, filesystem, sessions, or any other service from your framework.
 

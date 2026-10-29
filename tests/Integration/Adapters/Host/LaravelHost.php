@@ -59,7 +59,6 @@ final class LaravelHost implements AdapterHost
     {
         if ($options->queueAvailable === false) {
             // Laravel's provider always binds its bus-backed queue bridge.
-            // The suite gates this setup on the declared no-queue capability.
             throw new \LogicException('LaravelHost cannot boot without a queue.');
         }
 

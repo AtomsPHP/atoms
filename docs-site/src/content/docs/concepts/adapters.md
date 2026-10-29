@@ -31,15 +31,15 @@ A [conformance suite](https://github.com/AtomsPHP/atoms/tree/main/tests/Integrat
 
 ### Shared secret validation
 
-Constructing `AtomsConfig` validates the [shared secret](/guides/secrets/#the-shared-secret); a missing or malformed value raises [ATOMS-E105](/reference/errors/#atoms-e105). When that happens depends on the host:
+`AtomsConfig` validates the [shared secret](/guides/secrets/#the-shared-secret) when constructed. A missing or malformed value raises [ATOMS-E105](/reference/errors/#atoms-e105).
 
 | Host | Validation timing |
 |---|---|
-| Laravel | `AtomsConfig` is a lazy singleton. Resolving it, `AtomsClient`, `CallbackKernel`, or `TicketIssuer` validates the secret. Framework boot, callback route registration, and `artisan list` can work until an Atoms service is needed. |
-| Symfony | Resolving the service that creates `AtomsConfig` validates the secret's format. The configuration schema rejects an absent or empty literal `shared_secret` earlier; an unset `%env(...)%` can instead raise a Symfony environment error. |
-| Plain PHP | The example validates during the explicit `AtomsBootstrap::create()` call. The bare `CallbackKernelFactory::create()` validates immediately. |
+| Laravel | On first resolution of `AtomsConfig` or a service that needs it, such as `AtomsClient`. Boot and `artisan list` may succeed without checking the secret. |
+| Symfony | When the container constructs `AtomsConfig`. Missing configuration or an unset `%env(...)%` may fail earlier. |
+| Plain PHP | During `AtomsBootstrap::create()` or `CallbackKernelFactory::create()`. |
 
-To check Laravel configuration before deployment, run this script from the Laravel project root using the deployment's actual environment and cached configuration:
+To check Laravel before deployment, save this script in the project root and run it with the deployment's environment and cached configuration:
 
 ```php title="check-atoms-config.php"
 <?php
@@ -51,9 +51,7 @@ $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 $app->make(\Atoms\Client\AtomsConfig::class);
 ```
 
-Save it in the project root and run `php check-atoms-config.php`. An uncaught validation error makes the command fail. This local check validates the configured secret's format, sends no request, and cannot prove that the Worker has a matching secret.
-
-After deployment, make an application-to-Worker authenticated call with bearer authentication required. If bearer authentication is disabled, a successful call does not prove secret agreement; use a signed callback or ticket integration check instead. During rotation, acceptance of a previous key proves the credentials are compatible, not that the current values are identical. To ensure an exact current match, configure both sides from the same secret-manager value.
+Run `php check-atoms-config.php`. This checks the local secret's format. Configure the application and Worker from the same secret value, then test authentication with a bearer-protected call or signed callback.
 
 ## Writing another adapter
 

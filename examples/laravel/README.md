@@ -64,11 +64,9 @@ still runs only locally. Once both processes are ready, request:
 curl --fail http://127.0.0.1:8000/api/callback-check
 ```
 
-The response's `application` field contains `config('app.name')`, obtained by
-`GameRoom::appLabel()` calling the application-side `GameRoom\Methods`.
-This exercises application HTTP → Atom → application callback. The original
-request occupies one PHP worker while the callback needs another. Tinker and
-the in-process harness do not reproduce that dependency.
+The response contains `config('app.name')`, fetched through the Atom's callback
+to Laravel. This needs two PHP workers, one for the waiting HTTP request and
+one for the callback.
 
 `--no-reload` prevents Laravel from falling back to a single worker; restart
 Laravel after changing `.env`. Native Windows cannot fork PHP CLI server

@@ -118,8 +118,7 @@ final class MakeAtomCommandTest extends TestCase
         ));
 
         $root = dirname(__DIR__, 4);
-        // Load the generated application's PSR-4 map as Composer would, without
-        // a network install or executing application code during analysis.
+        // Register the fixture's PSR-4 map without installing its dependencies.
         file_put_contents($dir . '/autoload.php', '<?php $loader = require '
             . var_export($root . '/vendor/autoload.php', true) . '; $loader->addPsr4('
             . var_export($prefix, true) . ', ' . var_export($dir . '/' . $sourceDir, true) . ');');

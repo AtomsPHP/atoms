@@ -15,9 +15,7 @@ use PHPUnit\Framework\TestCase;
 
 final class SupportAutoloadTest extends TestCase
 {
-    // The sample app and Laravel example both use App\Atoms\GameRoom. A fresh
-    // process ensures neither a previously loaded class nor a classmap masks
-    // the sample app's ordinary PSR-4 lookup (case-sensitive in Linux CI).
+    // Isolate PSR-4 lookup from the Laravel example's same-named GameRoom class.
     #[RunInSeparateProcess]
     #[PreserveGlobalState(false)]
     public function testSampleAppSupportLoadsThroughComposerDuringAHarnessTurn(): void

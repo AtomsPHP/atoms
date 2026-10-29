@@ -32,15 +32,12 @@ each status.
 
 ## Duplicate column names
 
-Cloudflare's host returns each row as a map keyed by column name. When names
-are duplicated, the last value wins before the row reaches PHP; the original
-positions and overwritten values cannot be recovered. `PDO::FETCH_ASSOC`
-returns the collapsed array and `PDO::FETCH_OBJ` returns an object with the
-collapsed properties. Neither mode throws for duplicate names, matching
-native PDO's name-based collapse.
+Cloudflare returns rows keyed by column name, so duplicate names keep only the
+last value. `PDO::FETCH_ASSOC` and `PDO::FETCH_OBJ` return that value, as native
+PDO does. Use unique aliases to keep every column.
 
-When reading a row with duplicate names, the following operations throw a
-`PDOException` whose message begins `SQLSTATE[HY000]`:
+These modes need values or positions that Cloudflare has discarded. Fetching
+a row with duplicate names throws `PDOException` with `SQLSTATE[HY000]`:
 
 | Operation | Fetch modes or arguments |
 | --- | --- |
@@ -51,33 +48,9 @@ When reading a row with duplicate names, the following operations throw a
 | `fetchAll()` | `PDO::FETCH_FUNC` with a callback, or `PDO::FETCH_KEY_PAIR` with exactly two same-name columns |
 | `fetchAll()` | `PDO::FETCH_GROUP` or `PDO::FETCH_UNIQUE` combined with a supported `PDO::FETCH_ASSOC`, `PDO::FETCH_NUM`, `PDO::FETCH_BOTH`, or `PDO::FETCH_COLUMN` mode |
 
-These checks detect any duplicate name in the row, including a duplicate
-unrelated to the bound or class column. They also apply to modes configured
-through `setFetchMode()`, a `query()` mode argument, or the connection's
-`PDO::ATTR_DEFAULT_FETCH_MODE` where supported. The check occurs when fetching
-or iterating over rows, not when configuring the mode. PDO's default mode is
-`PDO::FETCH_BOTH`, so a plain `fetch()` can throw.
-
-```php
-$pdo = $this->db()->pdo();
-$sql = 'SELECT 11 AS id, 22 AS id';
-
-$statement = $pdo->query($sql);
-$row = $statement->fetch(PDO::FETCH_ASSOC); // ['id' => 22]
-
-$statement = $pdo->query($sql);
-$row = $statement->fetch(PDO::FETCH_OBJ); // $row->id is 22
-
-$statement = $pdo->query($sql);
-try {
-    $row = $statement->fetch(PDO::FETCH_NUM);
-} catch (PDOException $e) {
-    // The message begins with SQLSTATE[HY000].
-}
-
-$statement = $pdo->query('SELECT 11 AS first_id, 22 AS second_id');
-$row = $statement->fetch(PDO::FETCH_NUM); // [11, 22]
-```
+Any duplicate in the row triggers this check, regardless of how the fetch mode
+was set or which column was requested. It runs when fetching or iterating.
+The default mode is `PDO::FETCH_BOTH`, so a plain `fetch()` can throw too.
 
 For example, alias both `id` columns in a join:
 

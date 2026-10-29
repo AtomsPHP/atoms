@@ -273,10 +273,6 @@ final class AtomsClientTest extends TestCase
         }
     }
 
-    /**
-     * A 2xx body carrying an `error` object is still a failure. The frame is
-     * mapped and thrown on the spot, without reaching the retry decision.
-     */
     public function testATwoHundredCarryingAnErrorFrameIsMappedAndThrown(): void
     {
         $client = $this->client();
@@ -413,11 +409,6 @@ final class AtomsClientTest extends TestCase
         self::assertCount(2, $this->http->requests);
     }
 
-    /**
-     * The other half of the 2xx path: an error frame on a 2xx with no
-     * customer exception detail is still mapped and thrown on the spot — a 2xx frame
-     * never reaches the retry predicate at all.
-     */
     public function testATwoHundredErrorFrameIsNotRetried(): void
     {
         $client = $this->client();

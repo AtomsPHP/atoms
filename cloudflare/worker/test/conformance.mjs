@@ -256,23 +256,7 @@ function fail(checkNum, name, msg = '') {
     console.log(`✗ CHECK ${checkNum}: ${name}${msg ? ` — ${msg}` : ''}`);
 }
 
-/**
- * A check that could not run for a reason that is not the Worker's fault (no
- * callback listener, no configured turn deadline, no configured result-set
- * caps). Not a failure: it must not fail a run against a Worker that
- * legitimately has no callback channel or no cap vars set.
- *
- * `require_` (default `'callback'`) is the "this environment
- * asserted the prerequisite exists" flag: when it is set, a skip means the
- * harness is broken rather than the check inapplicable — so it fails instead.
- * Check 29 passes `'sqlCaps'` for its own, independent gate.
- *
- * `envVar` names the specific environment variable
- * whose absence caused the skip, so a reader of the failure/skip line (or of
- * `results`) is told exactly what to set, rather than a generic "unavailable"
- * that leaves them re-reading this file's setup docs to find it. Optional:
- * some skips have no single variable to name and pass none.
- */
+/** Skip a missing prerequisite, or fail when its capability is required. */
 function skip(checkNum, name, msg = '', require_ = 'callback', envVar = null) {
     const full = envVar ? `${msg} (env var: ${envVar})` : msg;
     if (require_ && isRequired(require_)) {
@@ -891,7 +875,6 @@ function runPhp(code, env) {
 
 const checks = [];
 
-/** Register each check's identity once; selection and reporting share this record. */
 function check(num, name, fn) {
     checks.push({ num, name, fn });
 }

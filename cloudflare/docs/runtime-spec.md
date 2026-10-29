@@ -1483,20 +1483,10 @@ claims nothing beyond it. See `docs/cloudflare-toolchain.md` §3.
 
 ## Conformance suite
 
-Each check registers its number, name and function once as a `{ num, name, fn }`
-record. Before starting the callback listener or running any checks, the runner
-asserts that the registered numbers are exactly `1..N` in order. Selection by
-`ATOMS_ONLY`/`ATOMS_SKIP` and unexpected-error reporting use those records, so
-inserting, deleting or reordering a check without maintaining its number fails
-at startup rather than silently selecting a different check. The 45 existing
-check numbers and runtime assertions are unchanged.
-
-The runner's optional prerequisites are declared in
-`worker/test/required-capabilities.mjs`. One parser handles every
-`ATOMS_REQUIRE_*` flag for whole and partial checks. Removing a prerequisite
-must fail when its flag requires it; runner regression tests exercise all six
-flags against a local HTTP stub. This changes skip bookkeeping only: the
-runtime conformance assertions remain intact.
+Check numbers must be consecutive and ordered from 1. The runner validates
+them at startup and uses them for selection and reporting. Missing prerequisites
+fail when required by an `ATOMS_REQUIRE_*` flag, including within partial checks.
+See [the runner README](../worker/test/README.md) for setup and flags.
 
 `test/conformance.mjs` runs against any base URL (`ATOMS_BASE_URL`), so the
 same suite runs against `wrangler dev` and the deployed Worker. It is 45

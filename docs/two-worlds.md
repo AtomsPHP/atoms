@@ -55,14 +55,10 @@ This is the entire mental model:
   `atoms-composer.json`, `Shared/`. In production they execute in the Atoms
   runtime; `AtomHarness` also loads them in the application process during tests.
 
-`Support/` is case-sensitive and matches the `Support` namespace segment. For
-example, `app/Atoms/GameRoom/Support/ScoreBoard.php` declares
-`namespace App\Atoms\GameRoom\Support;`, so the normal Composer mapping
-`"App\\": "app/"` loads it in harness tests without a per-Atom mapping. Nested
-directories and namespace segments must match too. Rename existing lowercase
-`support/` directories to `Support/`; lowercase paths are no longer classified
-as support code. On case-insensitive filesystems, use an intermediate directory
-name when recording the rename in Git.
+Directory and namespace casing must match for Composer autoloading. For example,
+`GameRoom/Support/ScoreBoard.php` declares `namespace App\Atoms\GameRoom\Support;`.
+Rename lowercase `support/` directories to `Support/`, using an intermediate
+name for a case-only Git rename. The build no longer recognizes lowercase paths.
 
 Jobs staying home has one consequence worth stating outright, because the
 compiler will not remind you: **an Atom cannot `new` a job.** The class is not

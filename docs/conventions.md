@@ -282,13 +282,10 @@ client is injected.
   `capacity_refused`/`rate_limited` → `CapacityRefused` (carries retry-after);
   `machine_unavailable`/`directory_unavailable` → `PlatformUnavailable`;
   a remote PHP exception inside a 200-with-error-frame or 5xx w/ atom error
-  detail → `RemoteAtomException` (original class name + message);
-  anything else → `AtomsRequestFailed`. Only `atom_exception` with a `class`
-  field maps to `RemoteAtomException`; runtime errors can carry `class` too
-  and retain their code-based mapping. Worker traces stay in server-side logs,
-  so `remoteTrace` is null for Worker responses. The client no longer reads
-  the invented `remote_class` and `remote_trace` fields, which were never part
-  of the Worker protocol.
+  detail → `RemoteAtomException`, only when the code is `atom_exception` and
+  `class` is present; anything else → `AtomsRequestFailed`.
+  The Worker sends the exception class and message. Traces stay in Worker logs,
+  so `remoteTrace` is null.
 
 `atoms/cli` has no HTTP client at all. `deploy`, `status`, `rollback` and
 `secrets` drive a pinned, locally installed Wrangler as a subprocess

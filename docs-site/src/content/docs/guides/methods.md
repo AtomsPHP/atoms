@@ -28,11 +28,9 @@ In Laravel, the equivalent Artisan command is:
 php artisan make:atom GameRoom --with-methods
 ```
 
-With the default `app/Atoms` path and the `App\` → `app/` Composer mapping,
-either command creates `app/Atoms/GameRoom.php` and
-`app/Atoms/GameRoom/Methods.php`. The Methods class uses the
-`App\Atoms\GameRoom` namespace. Without `--with-methods`, the generator creates
-only the Atom class.
+With the default paths, either command creates `app/Atoms/GameRoom.php` and
+`app/Atoms/GameRoom/Methods.php`. Methods uses the `App\Atoms\GameRoom` namespace.
+Without `--with-methods`, it creates only the Atom class.
 
 Fill `app/Atoms/GameRoom/Methods.php` with ordinary methods:
 
@@ -76,11 +74,9 @@ class GameRoom extends Atom
 }
 ```
 
-The `@extends` annotation gives PHPStan and your editor the concrete Methods
-type returned by `$this->app()`. `make:atom --with-methods` generates it using
-your project's namespace. Add it to existing Atoms when adding callbacks, and
-name the actual Methods class if you use a custom mapping. The annotation
-neither ships the Methods class to the Worker nor changes callback discovery.
+`make:atom --with-methods` adds the `@extends` annotation so PHPStan and your
+editor can check `$this->app()` calls. For an existing Atom, add it yourself
+with the Methods class you use.
 
 Include the Atoms rules in your application's PHPStan configuration:
 
@@ -94,10 +90,7 @@ parameters:
         - app/Atoms
 ```
 
-Run `vendor/bin/phpstan analyse` with the application's Composer autoloader
-available. This example passes analysis; misspelling the callback as
-`$this->app()->appLabl()` reports an undefined method on
-`App\Atoms\GameRoom\Methods`.
+Run `vendor/bin/phpstan analyse` from the application root to check callback calls.
 
 ## How it's found
 
