@@ -5,10 +5,15 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+## [0.8.0] - Unreleased
+
 - **Changed:** Atom helpers must use `Support/` to match their PSR-4 namespace.
   Rename `<Atom>/support/` through an intermediate name to `<Atom>/Support/`
   and remove Composer mappings added for the old casing. The build no longer
   recognizes lowercase paths.
+
+- **Fixed:** Worker Atom exceptions now map to `RemoteAtomException` with the original class and message.
+- **Changed:** `make:atom --with-methods` adds a PHPStan type for callback methods.
 
 ## [0.7.0] - 2026-10-28
 
@@ -580,3 +585,5 @@ deploy workflow, and the Cloudflare Durable Object PHP runtime.
 [0.6.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.6.0
 
 [0.7.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.7.0
+
+[0.8.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.8.0
