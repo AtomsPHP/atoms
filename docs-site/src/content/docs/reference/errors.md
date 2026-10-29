@@ -23,7 +23,7 @@ File {file} under the Atoms path is neither an Atom, Methods, AtomJob, Shared DT
 
 **Fix**
 
-Move non-Atoms code out of the Atoms path, make the class extend the appropriate atoms/core base class, or move an Atom-side helper into the Atom's support/ directory (e.g. app/Atoms/GameRoom/support/).
+Move non-Atoms code out of the Atoms path, make the class extend the appropriate atoms/core base class, or move an Atom-side helper into the Atom's Support/ directory (e.g. app/Atoms/GameRoom/Support/).
 
 
 <a id="atoms-e002"></a>
@@ -95,7 +95,7 @@ Reference to monolith class {symbol} inside Atom code. Atom code ships to the pl
 
 **Fix**
 
-Pass data across the boundary as a Shared DTO (implement Atoms\Serialization\Payload), call it via $this->app(), or move an Atom-side helper into the Atom's support/ directory.
+Pass data across the boundary as a Shared DTO (implement Atoms\Serialization\Payload), call it via $this->app(), or move an Atom-side helper into the Atom's Support/ directory.
 
 
 <a id="atoms-e013"></a>

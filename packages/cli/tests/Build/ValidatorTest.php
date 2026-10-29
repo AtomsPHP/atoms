@@ -6,6 +6,7 @@ namespace Atoms\Cli\Tests\Build;
 
 use Atoms\Cli\Build\Validator;
 use Atoms\Cli\Build\Violation;
+use Atoms\Cli\Config\AtomsJson;
 use Atoms\Cli\Tests\TestCase;
 
 final class ValidatorTest extends TestCase
@@ -57,7 +58,35 @@ final class ValidatorTest extends TestCase
         $result = (new Validator())->validate($this->sampleApp());
 
         $paths = array_column($result->bundleFiles->files, 'relative');
-        self::assertContains('app/Atoms/GameRoom/support/ScoreBoard.php', $paths);
+        self::assertContains('app/Atoms/GameRoom/Support/ScoreBoard.php', $paths);
+    }
+
+    public function testLowercaseSupportDirectoryIsNotClassifiedOrShipped(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $atomDir = $root . '/app/Atoms/GameRoom';
+        // An intermediate name also records the case change on macOS.
+        rename($atomDir . '/Support', $atomDir . '/support-renaming');
+        rename($atomDir . '/support-renaming', $atomDir . '/support');
+
+        $result = (new Validator())->validate(AtomsJson::load($root . '/atoms.json'));
+
+        self::assertFalse($result->ok());
+        $matches = array_values(array_filter(
+            $result->errors,
+            static fn (Violation $v): bool => $v->code->value === 'ATOMS-E012'
+                && $v->symbol === 'App\\Atoms\\GameRoom\\Support\\ScoreBoard',
+        ));
+        self::assertCount(1, $matches);
+        self::assertStringContainsString('Support/', $matches[0]->message());
+        self::assertSame(['ATOMS-E001'], array_map(
+            static fn (Violation $v): string => $v->code->value,
+            $result->warnings,
+        ));
+        self::assertNotContains(
+            'app/Atoms/GameRoom/support/ScoreBoard.php',
+            array_column($result->bundleFiles->files, 'relative'),
+        );
     }
 
     /**

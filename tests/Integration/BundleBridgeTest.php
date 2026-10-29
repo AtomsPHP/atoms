@@ -79,6 +79,7 @@ final class BundleBridgeTest extends TestCase
         // Guest paths: the customer's tree under /app, the guest runtime and
         // the verbatim atoms/core under /atoms.
         self::assertStringContainsString('"file": "/app/app/Atoms/GameRoom.php"', $module);
+        self::assertStringContainsString('"/app/app/Atoms/GameRoom/Support/ScoreBoard.php"', $module);
         self::assertStringContainsString('/app/app/Atoms/GameRoom/migrations/001_create_events.sql', $module);
         self::assertStringContainsString('/app/app/Atoms/GameRoom/migrations/002_add_round_index.sql', $module);
         self::assertStringContainsString('"/atoms/runtime/bootstrap.php"', $module);

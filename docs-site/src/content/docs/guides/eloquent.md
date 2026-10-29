@@ -50,7 +50,7 @@ class GameRoom extends Atom
 }
 ```
 
-Models are Atom-side classes: keep them in the Atom's `support/` directory, where they ship with the Atom and follow the same import rules as the Atom class itself.
+Models are Atom-side classes: keep them in the Atom's `Support/` directory, where they ship with the Atom and follow the same import rules as the Atom class itself.
 
 Return array shapes from Atom methods. An Eloquent model carries a connection and behavior, so it is not a value that crosses the boundary — call `->toArray()`, or map to a [shared DTO](/concepts/two-worlds/), before returning.
 
