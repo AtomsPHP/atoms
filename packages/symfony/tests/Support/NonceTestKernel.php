@@ -20,7 +20,8 @@ final class NonceTestKernel extends Kernel
         private readonly string $cachePath,
         private readonly array $nonceConfig = ['driver' => 'database', 'namespace' => 'test'],
     ) {
-        parent::__construct('test', true);
+        // PHP keeps loaded container classes after a kernel and its cache are removed.
+        parent::__construct('test_' . bin2hex(random_bytes(8)), true);
     }
 
     public function registerBundles(): iterable
