@@ -2,7 +2,7 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 
 	// The conformance-harness config, used to run this repository's own worker
-	// under `wrangler dev` for the 38-check suite. It is NOT what customers
+	// under `wrangler dev` for the conformance suite. It is NOT what customers
 	// receive: `scripts/pack-runtime.mjs` ships the sibling
 	// `wrangler.scaffold.jsonc` as the template's `wrangler.jsonc` instead.
 	// Keep the two in sync structurally; the deliberate differences are the
