@@ -101,19 +101,31 @@ Before deploying, run PHPStan with `vendor/atoms/phpstan-rules/rules.neon` inclu
 
 ## Run it locally
 
-`atoms dev` builds your Atoms and serves them through the real Worker runtime you scaffolded on your machine in the "Install" step. No Cloudflare account is needed:
-
-```bash
-vendor/bin/atoms dev --env staging --callback-url http://127.0.0.1:8000/atoms/callback
-```
-
-Point the application at the local Worker while it runs:
+Set the application endpoint in `.env` before starting either process:
 
 ```dotenv
 ATOMS_ENDPOINT=http://127.0.0.1:8787
 ```
 
-The shared secret takes care of itself locally: `atoms dev` generates one into `.env` when it is absent and projects it into the Worker's `.dev.vars` whenever the two differ, so the local Worker and the application always agree without you handling the value.
+In one terminal, start the local Worker. `atoms dev` builds your Atoms and serves them through the real Worker runtime you scaffolded in the "Install" step. No Cloudflare account is needed:
+
+```bash
+vendor/bin/atoms dev --env staging --callback-url http://127.0.0.1:8000/atoms/callback
+```
+
+Wait for the Worker to be ready, then start Laravel in another terminal with concurrent request handling:
+
+```bash
+PHP_CLI_SERVER_WORKERS=4 php artisan serve --host=127.0.0.1 --port=8000 --no-reload
+```
+
+Keep `--no-reload`: Laravel can otherwise warn and fall back to a single worker despite `PHP_CLI_SERVER_WORKERS`. Restart this server after changing `.env`, since automatic environment reloading is disabled.
+
+A request from a browser or HTTP client can enter Laravel, invoke an Atom, and wait while `$this->app()` calls back into Laravel. That callback needs another available application worker. With a single worker, the original request waits for the callback and the callback waits for the original request to finish. Increasing callback timeouts does not remove this circular wait. A call from Tinker does not occupy an application HTTP worker, and `AtomHarness` runs callbacks in process, so success there does not verify this HTTP path.
+
+[PHP CLI server workers](https://www.php.net/manual/en/features.commandline.webserver.php) require a platform with process forking and are unavailable on native Windows. This is a development-only server. On Windows, run both processes inside WSL2 with a supported Linux PHP installation, or use [Nginx with PHP-FPM](https://laravel.com/docs/12.x/deployment#nginx) in a Linux environment. Configure the FPM pool to allow at least two simultaneous requests and serve Laravel's `public/` directory. Point `--callback-url` at the application's reachable address; if the Worker and application run in different containers or hosts, `127.0.0.1` refers to each process's own environment.
+
+The shared secret takes care of itself locally: `atoms dev` generates one into `.env` when it is absent and projects it into the Worker's `.dev.vars` whenever the two differ. Starting Laravel after the Worker ensures it reads that value.
 
 `--callback-url` tells the local Worker where your application's callback endpoint lives, so `app()` and `dispatch()` work against the `php artisan serve` process. `--callback-url` wins over everything; without it `atoms dev` uses `ATOMS_CALLBACK_URL` from the environment it was started with, then from `.env.atoms.<env>` beside `atoms.json`, then the selected environment's `callback_url`. Any of them may differ from a committed production callback. `--env` is required and names one of *your* environments — `dev` reads that entry's `debug_endpoints`, and falls back to its `callback_url` only when nothing nearer supplies one, which is why the flag above matters. `--port` moves the Worker off 8787, and `--no-build` reuses the bundle from the last build. See the [CLI reference](/reference/cli/) for the full option surface.
 
