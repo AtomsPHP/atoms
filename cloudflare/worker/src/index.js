@@ -253,10 +253,7 @@ async function invoke(request, env, config, type, id, method) {
 		return errorResponse('payload_too_large', `body exceeds ATOMS_MAX_REQUEST_BYTES (${config.maxRequestBytes})`);
 	}
 
-	const raw = await request.text();
-	if (raw.length > config.maxRequestBytes) {
-		return errorResponse('payload_too_large', `body exceeds ATOMS_MAX_REQUEST_BYTES (${config.maxRequestBytes})`);
-	}
+	const raw = await readRequestText(request, config.maxRequestBytes);
 
 	/** @type {unknown[]} */
 	let args = [];
@@ -313,6 +310,37 @@ async function invoke(request, env, config, type, id, method) {
 	const extra = {};
 	if (typeof error.class === 'string') extra.class = error.class;
 	return errorResponse(code, code === 'internal' ? 'internal error' : message, extra);
+}
+
+/**
+ * Count incoming bytes before decoding, including when Content-Length is
+ * absent or understated. Stop buffering as soon as the limit is exceeded.
+ *
+ * @param {Request} request
+ * @param {number} maxBytes
+ * @returns {Promise<string>}
+ */
+async function readRequestText(request, maxBytes) {
+	if (request.body === null) return '';
+	const reader = request.body.getReader();
+	const decoder = new TextDecoder();
+	let bytes = 0;
+	let text = '';
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) return text + decoder.decode();
+			bytes += value.byteLength;
+			if (bytes > maxBytes) {
+				// A cancellation failure must not replace the size error.
+				await reader.cancel().catch(() => {});
+				throw new AtomsError('payload_too_large', `body exceeds ATOMS_MAX_REQUEST_BYTES (${maxBytes})`);
+			}
+			text += decoder.decode(value, { stream: true });
+		}
+	} finally {
+		reader.releaseLock();
+	}
 }
 
 /**

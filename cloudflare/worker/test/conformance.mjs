@@ -34,6 +34,8 @@
  *   ATOMS_TURN_DEADLINE_MS (required for checks 15a/15b; must match the value
  *     the Worker was started with — never defaulted here, so no capacity
  *     number is written into the suite)
+ *   ATOMS_MAX_REQUEST_BYTES (check 46; must match the Worker if overridden,
+ *     otherwise uses the default from src/config.js)
  *   ATOMS_REQUIRE_CALLBACK_CHECKS=1 (turn the callback-channel skips into
  *     failures — CI sets it, so 13-17 can never go quietly missing)
  *   ATOMS_TEST_JOB_DELAY_MS (default 400; how long this suite's listener holds
@@ -4403,6 +4405,64 @@ check(45, 'vendor.autoload: classmap classes resolve, function files are preload
     } else {
         fail(checkNum, name, problems.join('; '));
     }
+});
+
+// CHECK 46: request limits count wire bytes, with and without Content-Length.
+check(46, 'invoke request byte limit', async ({ num: checkNum, name }) => {
+    // Use the configuration layer's default; an override must match the Worker.
+    const { loadConfig } = await import('../src/config.js');
+    const limit = loadConfig(process.env).maxRequestBytes;
+    const id = atomId('request-bytes');
+    const url = new URL(`/invoke/Counter/${id}/increment`, baseUrl);
+    const overhead = Buffer.byteLength(JSON.stringify({ args: [1], padding: '' }));
+    assert.ok(limit > overhead + 4, 'request cap must fit the test JSON envelope');
+    let accepted = 0;
+
+    for (const char of ['a', '€', '😀']) {
+        for (const size of [limit - 1, limit, limit + 1]) {
+            const width = Buffer.byteLength(char);
+            const available = size - overhead;
+            const padding = char.repeat(Math.floor(available / width)) + 'x'.repeat(available % width);
+            const body = Buffer.from(JSON.stringify({ args: [1], padding }));
+            assert.equal(body.byteLength, size);
+            for (const declared of [false, true]) {
+                const label = `${JSON.stringify(char)}, ${size} bytes, ${declared ? 'Content-Length' : 'chunked'}`;
+                const headers = { 'Content-Type': 'application/json' };
+                if (AUTH_HEADER_VALUE) headers.Authorization = `Bearer ${AUTH_HEADER_VALUE}`;
+                if (declared) headers['Content-Length'] = String(size);
+                else headers['Transfer-Encoding'] = 'chunked';
+                const { status, data } = await new Promise((resolve, reject) => {
+                    const send = url.protocol === 'https:' ? httpsRequest : httpRequest;
+                    const req = send(url, { method: 'POST', headers }, res => {
+                        const chunks = [];
+                        res.on('data', chunk => chunks.push(chunk));
+                        res.on('error', reject);
+                        res.on('end', () => {
+                            try {
+                                resolve({ status: res.statusCode, data: JSON.parse(Buffer.concat(chunks).toString()) });
+                            } catch (error) { reject(error); }
+                        });
+                    });
+                    req.on('error', reject);
+                    // Separate writes force a streaming upload in the no-length case.
+                    req.write(body.subarray(0, Math.floor(size / 2)));
+                    req.end(body.subarray(Math.floor(size / 2)));
+                });
+                assert.equal(status, size > limit ? 413 : 200, label);
+                if (size > limit) {
+                    assert.equal(data.error?.code, 'payload_too_large', label);
+                    assert.equal(data.error?.retryable, false, label);
+                } else {
+                    accepted++;
+                    assert.equal(data.result, accepted, label);
+                }
+            }
+        }
+    }
+    const final = await invoke('Counter', id, 'getValue');
+    assert.equal(final.status, 200);
+    assert.equal(final.data.result, accepted, 'oversized requests must not invoke the Atom');
+    pass(checkNum, name, `ASCII and multibyte bodies at ${limit - 1}/${limit}/${limit + 1} bytes, explicit length and chunked`);
 });
 
 // ---------------------------------------------------------------- run
