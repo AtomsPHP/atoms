@@ -14,9 +14,12 @@ under one version number.
 | `@atomsphp/runtime-cloudflare` | `0.7.0` |
 | Deploy Action | `AtomsPHP/atoms/action@v0.7.0` (the tag never moves) |
 | Host PHP | `^8.3`; tested on PHP 8.3 and PHP 8.4 |
-| Guest PHP | PHP 8.3 WebAssembly |
+| Guest PHP | PHP 8.3 interpreter compiled to WebAssembly |
 | Node.js | 22 |
 | Wrangler | 4.118.0, pinned exactly in the Worker's `package.json` |
+
+The guest PHP version comes from the Worker runtime release; the host PHP
+version does not select or recompile it.
 
 Keep every component on the same release. If your `atoms/core` version is
 outside the range the runtime supports, the Worker rejects the bundle with

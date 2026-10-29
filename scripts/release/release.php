@@ -625,9 +625,12 @@ under one version number.
 | `{$runtime['package']}` | `{$runtime['version']}` |
 | Deploy Action | `AtomsPHP/atoms/action@v{$version}` (the tag never moves) |
 | Host PHP | `{$php['constraint']}`; tested on {$testedPhp} |
-| Guest PHP | PHP {$runtime['guest_php']} WebAssembly |
+| Guest PHP | PHP {$runtime['guest_php']} interpreter compiled to WebAssembly |
 | Node.js | {$runtime['node']} |
 | Wrangler | {$runtime['wrangler']}, pinned exactly in the Worker's `package.json` |
+
+The guest PHP version comes from the Worker runtime release; the host PHP
+version does not select or recompile it.
 
 Keep every component on the same release. If your `atoms/core` version is
 outside the range the runtime supports, the Worker rejects the bundle with

@@ -45,10 +45,12 @@ Then deploy an environment:
 vendor/bin/atoms deploy --env production
 ```
 
-`deploy` validates and bundles your Atom code along with the packages in
+`deploy` validates and bundles your Atom PHP source along with the packages in
 [`atoms-composer.json`](/guides/configuration/#atoms-composerjson), then
-deploys the Worker through Wrangler. Before it starts, it prints the settings
-it will use and [where each one came
+deploys the Worker through Wrangler. The Worker executes the source using its
+PHP interpreter.
+
+Before deployment starts, the CLI prints the settings it will use and [where each one came
 from](/guides/environments/#where-values-come-from).
 
 To check your Atom code without deploying, run `atoms validate` (add `--json`

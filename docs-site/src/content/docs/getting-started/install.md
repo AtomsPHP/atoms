@@ -14,6 +14,9 @@ Atoms is currently experimental and in early stages. The goal is to keep the cur
 - Node.js 22 for the Cloudflare Worker toolchain
 - A Cloudflare Workers Paid account
 
+Host PHP runs your application and the Atoms CLI. The Worker uses a guest PHP
+interpreter supplied by the runtime release, independently of the host PHP version.
+
 ## PHP
 
 <!-- BEGIN generated Laravel compatibility -->
