@@ -27,8 +27,33 @@ A [conformance suite](https://github.com/AtomsPHP/atoms/tree/main/tests/Integrat
 ## Before you deploy
 
 - The default nonce store is in-memory. For distributed apps, use a shared `NonceStore` implementation.
-- The adapter checks the [shared secret](/guides/secrets/#the-shared-secret) at boot and refuses to start if it is missing or malformed ([ATOMS-E105](/reference/errors/#atoms-e105)).
 - Configure a queue bridge so an Atom can dispatch jobs.
+
+### Shared secret validation
+
+Constructing `AtomsConfig` validates the [shared secret](/guides/secrets/#the-shared-secret); a missing or malformed value raises [ATOMS-E105](/reference/errors/#atoms-e105). When that happens depends on the host:
+
+| Host | Validation timing |
+|---|---|
+| Laravel | `AtomsConfig` is a lazy singleton. Resolving it, `AtomsClient`, `CallbackKernel`, or `TicketIssuer` validates the secret. Framework boot, callback route registration, and `artisan list` can work until an Atoms service is needed. |
+| Symfony | Resolving the service that creates `AtomsConfig` validates the secret's format. The configuration schema rejects an absent or empty literal `shared_secret` earlier; an unset `%env(...)%` can instead raise a Symfony environment error. |
+| Plain PHP | The example validates during the explicit `AtomsBootstrap::create()` call. The bare `CallbackKernelFactory::create()` validates immediately. |
+
+To check Laravel configuration before deployment, run this script from the Laravel project root using the deployment's actual environment and cached configuration:
+
+```php title="check-atoms-config.php"
+<?php
+
+require __DIR__ . '/vendor/autoload.php';
+
+$app = require __DIR__ . '/bootstrap/app.php';
+$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$app->make(\Atoms\Client\AtomsConfig::class);
+```
+
+Save it in the project root and run `php check-atoms-config.php`. An uncaught validation error makes the command fail. This local check validates the configured secret's format, sends no request, and cannot prove that the Worker has a matching secret.
+
+After deployment, make an application-to-Worker authenticated call with bearer authentication required. If bearer authentication is disabled, a successful call does not prove secret agreement; use a signed callback or ticket integration check instead. During rotation, acceptance of a previous key proves the credentials are compatible, not that the current values are identical. To ensure an exact current match, configure both sides from the same secret-manager value.
 
 ## Writing another adapter
 
