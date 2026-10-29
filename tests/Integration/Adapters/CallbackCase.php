@@ -31,7 +31,7 @@ final readonly class CallbackCase
      * @param \Closure(CallbackSigner, HostOptions): HostRequest $build           Builds the request against a given host's options; called once per test run of this case.
      * @param int                                                $expectedStatus  The HTTP status every host must answer with.
      * @param string                                              $expectedBody    The exact response body, compared byte for byte.
-     * @param list<string>                                       $appliesTo       Capabilities (see AdapterHost::supports()) a host must have for this case to run against it; empty means "every host".
+     * @param list<string>                                       $appliesTo       Capabilities (see CapabilityMatrix::SUPPORTED_BY) a host must have for this case to run against it; empty means "every host".
      * @param bool                                                $primeFirst      When true, the SAME built HostRequest is sent through handle() once and discarded before the real (asserted) send — used for nonce-replay (case 5), where the two sends must share one nonce.
      * @param bool                                                $expectQueuedJob When true, assert host->queuedJobs() is non-empty after this case runs.
      * @param bool                                                $expectLogError  When true, assert host->logRecords() contains at least one 'error'-level entry after this case runs.

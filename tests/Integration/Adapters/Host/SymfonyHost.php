@@ -166,9 +166,9 @@ final class SymfonyHost implements AdapterHost
         return $this->http;
     }
 
-    public function supports(string $capability): bool
+    public function capabilities(): array
     {
-        return in_array($capability, ['routing', 'container', 'client', 'queue', 'logging'], true);
+        return ['routing', 'container', 'client', 'queue', 'logging', 'no-queue'];
     }
 
     private function setEnv(string $key, ?string $value): void

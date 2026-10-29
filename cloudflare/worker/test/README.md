@@ -78,6 +78,14 @@ set one up. Each gate therefore has a matching flag that turns its skip into a
 failure, so a broken harness cannot quietly delete checks; CI sets every flag
 the posture can satisfy.
 
+`required-capabilities.mjs` declares the capability-to-flag mapping once. Whole
+checks and partial checks use the same flag parser; missing required partial
+checks remain failures. `required-capabilities.test.mjs` runs the actual runner
+against a local HTTP stub with each prerequisite removed, verifying both the
+optional skip and required failure for every flag. It also covers the ticket
+and rotation callback partial checks. Run it with
+`node --test test/required-capabilities.test.mjs`; CI runs it before conformance.
+
 | checks | skip when | flag |
 |---|---|---|
 | 13–17 | no callback listener (needs `ATOMS_SHARED_SECRET` and a port); 15 additionally needs `ATOMS_TURN_DEADLINE_MS` | `ATOMS_REQUIRE_CALLBACK_CHECKS=1` |

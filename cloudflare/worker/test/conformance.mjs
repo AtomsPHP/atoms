@@ -74,14 +74,11 @@ import { dirname, join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { renderMatrixDoc } from '../scripts/gen-pdo-matrix.mjs';
+import { isRequired, recordMissingLeg } from './required-capabilities.mjs';
 
 const BASE_URL = process.env.ATOMS_BASE_URL;
 const EVICTION_WAIT_MS = parseInt(process.env.ATOMS_EVICTION_WAIT_MS || '12500');
 const TURN_DEADLINE_MS = process.env.ATOMS_TURN_DEADLINE_MS ? parseInt(process.env.ATOMS_TURN_DEADLINE_MS, 10) : null;
-// A skip is the right answer for a Worker that legitimately has no callback
-// channel, and the wrong answer in CI — where a missing key file would silently
-// delete five checks from the run. Set it there; unset everywhere it is honest.
-const REQUIRE_CALLBACK_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_CALLBACK_CHECKS || '');
 // Must match the values the Worker was started with (never defaulted here,
 // same rule as ATOMS_TURN_DEADLINE_MS above) — check 29's result-set size
 // guard. Both absent => check 29 skips.
@@ -89,10 +86,6 @@ const SQL_MAX_ROWS = process.env.ATOMS_SQL_MAX_ROWS ? parseInt(process.env.ATOMS
 const SQL_MAX_RESULT_BYTES = process.env.ATOMS_SQL_MAX_RESULT_BYTES
     ? parseInt(process.env.ATOMS_SQL_MAX_RESULT_BYTES, 10)
     : null;
-// Same anti-silent-deletion device as ATOMS_REQUIRE_CALLBACK_CHECKS: a run
-// that started the Worker with both cap vars set must not let check 29
-// quietly skip.
-const REQUIRE_SQL_CAP_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_SQL_CAP_CHECKS || '');
 // Harness-side, not Worker-side: how long the in-suite listener holds a job
 // response open (see the header). Long enough that "the invoke response came
 // back first" is unambiguous, short enough not to lengthen the run.
@@ -105,18 +98,6 @@ const ONLY = (process.env.ATOMS_ONLY || '')
     .split(',')
     .map(s => parseInt(s.trim()))
     .filter(n => !isNaN(n));
-// Same anti-silent-deletion device as ATOMS_REQUIRE_CALLBACK_CHECKS, for the
-// connection-ticket checks: set on the auth-enabled run, where 35-38 must
-// run rather than skip.
-const REQUIRE_TICKET_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_TICKET_CHECKS || '');
-// Check 39's cross-language leg shells out to `php`; check 40 needs the
-// rotation overlap secret; check 42 needs a Worker whose ATOMS_CONFIG_ENV_KEYS
-// names the secrets. Each skips when its prerequisite is absent, and each has
-// its own REQUIRE_ flag — the same anti-silent-deletion device as
-// ATOMS_REQUIRE_CALLBACK_CHECKS, one flag per prerequisite.
-const REQUIRE_BEARER_VECTOR = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_BEARER_VECTOR || '');
-const REQUIRE_ROTATION_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_ROTATION_CHECKS || '');
-const REQUIRE_DENY_CHECKS = /^(1|true|yes|on)$/i.test(process.env.ATOMS_REQUIRE_DENY_CHECKS || '');
 // The Worker under test was booted with no shared secret, so every route
 // except /healthz answers `misconfigured`. Check 41 is the whole run in that
 // posture (ATOMS_ONLY=41); everything else expects a configured Worker.
@@ -280,10 +261,10 @@ function fail(checkNum, name, msg = '') {
  * caps). Not a failure: it must not fail a run against a Worker that
  * legitimately has no callback channel or no cap vars set.
  *
- * `require_` (default `REQUIRE_CALLBACK_CHECKS`) is the "this environment
+ * `require_` (default `'callback'`) is the "this environment
  * asserted the prerequisite exists" flag: when it is set, a skip means the
  * harness is broken rather than the check inapplicable — so it fails instead.
- * Check 29 passes `REQUIRE_SQL_CAP_CHECKS` for its own, independent gate.
+ * Check 29 passes `'sqlCaps'` for its own, independent gate.
  *
  * `envVar` names the specific environment variable
  * whose absence caused the skip, so a reader of the failure/skip line (or of
@@ -291,9 +272,9 @@ function fail(checkNum, name, msg = '') {
  * that leaves them re-reading this file's setup docs to find it. Optional:
  * some skips have no single variable to name and pass none.
  */
-function skip(checkNum, name, msg = '', require_ = REQUIRE_CALLBACK_CHECKS, envVar = null) {
+function skip(checkNum, name, msg = '', require_ = 'callback', envVar = null) {
     const full = envVar ? `${msg} (env var: ${envVar})` : msg;
-    if (require_) {
+    if (require_ && isRequired(require_)) {
         fail(checkNum, name, `${full || 'unavailable'} — but the run asserted this must be available, so this must run`);
         return;
     }
@@ -1597,7 +1578,7 @@ checks.push(async () => {
             checkNum,
             name,
             'no callback listener — it needs ATOMS_SHARED_SECRET and a callback port; run via `npm run dev:callback`',
-            REQUIRE_CALLBACK_CHECKS,
+            'callback',
             'ATOMS_CALLBACK_PORT'
         );
         return;
@@ -1661,7 +1642,7 @@ checks.push(async () => {
     const checkNum = 14;
     const name = 'app() rejected inside a transaction';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener', REQUIRE_CALLBACK_CHECKS, 'ATOMS_CALLBACK_PORT');
+        skip(checkNum, name, 'no callback listener', 'callback', 'ATOMS_CALLBACK_PORT');
         return;
     }
 
@@ -1704,7 +1685,7 @@ checks.push(async () => {
     const checkNum = 15;
     const name = 'deadline overrun (uncaught 504, caught + budget latched)';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener', REQUIRE_CALLBACK_CHECKS, 'ATOMS_CALLBACK_PORT');
+        skip(checkNum, name, 'no callback listener', 'callback', 'ATOMS_CALLBACK_PORT');
         return;
     }
     if (!TURN_DEADLINE_MS) {
@@ -1819,7 +1800,7 @@ checks.push(async () => {
     const checkNum = 16;
     const name = 'dispatch() awaited before the response, signed, kind=job — from a turn and from onActivation()';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener', REQUIRE_CALLBACK_CHECKS, 'ATOMS_CALLBACK_PORT');
+        skip(checkNum, name, 'no callback listener', 'callback', 'ATOMS_CALLBACK_PORT');
         return;
     }
 
@@ -1973,7 +1954,7 @@ checks.push(async () => {
     const checkNum = 17;
     const name = 'dispatch() transaction semantics (buffer/drop/deliver)';
     if (!listener) {
-        skip(checkNum, name, 'no callback listener', REQUIRE_CALLBACK_CHECKS, 'ATOMS_CALLBACK_PORT');
+        skip(checkNum, name, 'no callback listener', 'callback', 'ATOMS_CALLBACK_PORT');
         return;
     }
 
@@ -3316,7 +3297,7 @@ checks.push(async () => {
             checkNum,
             name,
             'ATOMS_SQL_MAX_ROWS/ATOMS_SQL_MAX_RESULT_BYTES not set in the runner env — must match the values the Worker was started with',
-            REQUIRE_SQL_CAP_CHECKS
+            'sqlCaps'
         );
         return;
     }
@@ -3506,7 +3487,7 @@ checks.push(async () => {
     const id = atomId('tkt-happy');
 
     if (!SHARED_SECRET) {
-        skip(checkNum, name, 'issuing a ticket needs the root', REQUIRE_TICKET_CHECKS, 'ATOMS_SHARED_SECRET');
+        skip(checkNum, name, 'issuing a ticket needs the root', 'tickets', 'ATOMS_SHARED_SECRET');
         return;
     }
 
@@ -3593,7 +3574,7 @@ checks.push(async () => {
     const id = atomId('tkt-eligibility');
 
     if (!SHARED_SECRET) {
-        skip(checkNum, name, 'issuing a ticket needs the root', REQUIRE_TICKET_CHECKS, 'ATOMS_SHARED_SECRET');
+        skip(checkNum, name, 'issuing a ticket needs the root', 'tickets', 'ATOMS_SHARED_SECRET');
         return;
     }
 
@@ -3706,13 +3687,11 @@ checks.push(async () => {
                 `a v1u.-form string gave ${refused.status}/${refused.data?.error?.code} (expected 401/ticket_invalid)`
             );
         }
-    } else if (REQUIRE_TICKET_CHECKS) {
-        problems.push(
-            'the scope, expiry and unsigned-form legs need ATOMS_SHARED_SECRET to sign with, and this run ' +
-                'asserted the ticket checks must be available'
-        );
     } else {
-        notes.push('scope, expiry and unsigned-form legs skipped (env var: ATOMS_SHARED_SECRET)');
+        recordMissingLeg('tickets', problems, notes,
+            'the scope, expiry and unsigned-form legs need ATOMS_SHARED_SECRET to sign with, and this run ' +
+                'asserted the ticket checks must be available',
+            'scope, expiry and unsigned-form legs skipped (env var: ATOMS_SHARED_SECRET)');
     }
 
     if (problems.length === 0) {
@@ -3734,7 +3713,7 @@ checks.push(async () => {
     const id = atomId('tkt-reuse');
 
     if (!SHARED_SECRET) {
-        skip(checkNum, name, 'issuing a ticket needs the root', REQUIRE_TICKET_CHECKS, 'ATOMS_SHARED_SECRET');
+        skip(checkNum, name, 'issuing a ticket needs the root', 'tickets', 'ATOMS_SHARED_SECRET');
         return;
     }
 
@@ -3806,13 +3785,13 @@ checks.push(async () => {
             checkNum,
             name,
             'needs the Worker under test running ATOMS_BEARER_AUTH=required',
-            REQUIRE_TICKET_CHECKS,
+            'tickets',
             'ATOMS_BEARER_AUTH'
         );
         return;
     }
     if (!SHARED_SECRET) {
-        skip(checkNum, name, 'issuing a ticket needs the root', REQUIRE_TICKET_CHECKS, 'ATOMS_SHARED_SECRET');
+        skip(checkNum, name, 'issuing a ticket needs the root', 'tickets', 'ATOMS_SHARED_SECRET');
         return;
     }
     const problems = [];
@@ -3870,13 +3849,13 @@ checks.push(async () => {
             checkNum,
             name,
             'needs the Worker under test running ATOMS_BEARER_AUTH=required',
-            REQUIRE_TICKET_CHECKS,
+            'tickets',
             'ATOMS_BEARER_AUTH'
         );
         return;
     }
     if (!SHARED_SECRET) {
-        skip(checkNum, name, 'issuing a ticket needs the root', REQUIRE_TICKET_CHECKS, 'ATOMS_SHARED_SECRET');
+        skip(checkNum, name, 'issuing a ticket needs the root', 'tickets', 'ATOMS_SHARED_SECRET');
         return;
     }
     const problems = [];
@@ -3952,13 +3931,13 @@ checks.push(async () => {
             checkNum,
             name,
             'needs the Worker under test running ATOMS_BEARER_AUTH=required',
-            REQUIRE_TICKET_CHECKS,
+            'tickets',
             'ATOMS_BEARER_AUTH'
         );
         return;
     }
     if (!SHARED_SECRET) {
-        skip(checkNum, name, 'issuing a ticket needs the root', REQUIRE_TICKET_CHECKS, 'ATOMS_SHARED_SECRET');
+        skip(checkNum, name, 'issuing a ticket needs the root', 'tickets', 'ATOMS_SHARED_SECRET');
         return;
     }
     const id = atomId('tkt-precedence');
@@ -4012,7 +3991,7 @@ checks.push(async () => {
             checkNum,
             name,
             'needs the Worker under test running ATOMS_BEARER_AUTH=required',
-            REQUIRE_TICKET_CHECKS,
+            'tickets',
             'ATOMS_BEARER_AUTH'
         );
         return;
@@ -4077,11 +4056,9 @@ checks.push(async () => {
         { ATOMS_VECTOR_SECRET: vectorSecret }
     );
     if (php.missing) {
-        if (REQUIRE_BEARER_VECTOR) {
-            problems.push('no `php` on PATH for the cross-language leg, and this run asserted it must be available');
-        } else {
-            notes.push('cross-language leg skipped (no `php` on PATH)');
-        }
+        recordMissingLeg('bearerVector', problems, notes,
+            'no `php` on PATH for the cross-language leg, and this run asserted it must be available',
+            'cross-language leg skipped (no `php` on PATH)');
     } else if (!php.ok) {
         problems.push(`php could not derive the bearer: ${php.error}`);
     } else if (php.stdout !== deriveBearer(vectorSecret)) {
@@ -4174,7 +4151,7 @@ checks.push(async () => {
             checkNum,
             name,
             'needs the Worker started with a rotation overlap secret, and the same value in the runner env',
-            REQUIRE_ROTATION_CHECKS,
+            'rotation',
             'ATOMS_SHARED_SECRET_PREVIOUS'
         );
         return;
@@ -4184,7 +4161,7 @@ checks.push(async () => {
             checkNum,
             name,
             'needs the current root to derive the current bearer and ticket key',
-            REQUIRE_ROTATION_CHECKS,
+            'rotation',
             'ATOMS_SHARED_SECRET'
         );
         return;
@@ -4264,10 +4241,10 @@ checks.push(async () => {
                 problems.push('the callback verified under the previous callback key — emission must be current-only');
             }
         }
-    } else if (REQUIRE_CALLBACK_CHECKS) {
-        problems.push('the callback leg needs a listener, and this run asserted the callback channel must be available');
     } else {
-        notes.push('callback leg skipped (env var: ATOMS_CALLBACK_PORT)');
+        recordMissingLeg('callback', problems, notes,
+            'the callback leg needs a listener, and this run asserted the callback channel must be available',
+            'callback leg skipped (env var: ATOMS_CALLBACK_PORT)');
     }
 
     if (problems.length === 0) {
@@ -4373,7 +4350,7 @@ checks.push(async () => {
             name,
             `the control key ${CONTROL} did not resolve, so a null for the secrets would prove nothing — ` +
                 `start the Worker with ATOMS_CONFIG_ENV_KEYS naming ${CONTROL} and both secret variables`,
-            REQUIRE_DENY_CHECKS,
+            'deny',
             'ATOMS_CONFIG_ENV_KEYS'
         );
         return;

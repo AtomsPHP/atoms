@@ -19,7 +19,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Facade;
 use Orchestra\Testbench\Foundation\Application as TestbenchApplication;
-use PHPUnit\Framework\Assert;
 use Psr\Http\Client\ClientInterface;
 use Psr\Log\LoggerInterface;
 
@@ -59,18 +58,9 @@ final class LaravelHost implements AdapterHost
     public function boot(HostOptions $options): void
     {
         if ($options->queueAvailable === false) {
-            // Laravel always has a bus: AtomsServiceProvider::registerCallbackStack()
-            // binds QueueBridge::class to LaravelQueueBridge unconditionally
-            // (it wraps Illuminate\Contracts\Bus\Dispatcher, which every
-            // Laravel app has regardless of queue configuration). There is no
-            // config-driven way to make this host boot queueless, so S4's
-            // premise ("no queue wired") cannot be represented here — skip
-            // via the same mechanism AdapterConformanceTestCase's own
-            // capability gates use.
-            Assert::markTestSkipped(
-                "Host 'laravel' cannot boot queueless: LaravelQueueBridge wraps "
-                . 'Illuminate\\Contracts\\Bus\\Dispatcher unconditionally, so Laravel always has a bus.',
-            );
+            // Laravel's provider always binds its bus-backed queue bridge.
+            // The suite gates this setup on the declared no-queue capability.
+            throw new \LogicException('LaravelHost cannot boot without a queue.');
         }
 
         $this->logger = new RecordingLogger();
@@ -232,9 +222,9 @@ final class LaravelHost implements AdapterHost
         return $this->http;
     }
 
-    public function supports(string $capability): bool
+    public function capabilities(): array
     {
-        return in_array($capability, ['routing', 'container', 'client', 'queue', 'logging'], true);
+        return ['routing', 'container', 'client', 'queue', 'logging'];
     }
 
     private function app(): Application

@@ -1481,6 +1481,13 @@ claims nothing beyond it. See `docs/cloudflare-toolchain.md` §3.
 
 ## Conformance suite
 
+The runner's optional prerequisites are declared in
+`worker/test/required-capabilities.mjs`. One parser handles every
+`ATOMS_REQUIRE_*` flag for whole and partial checks. Removing a prerequisite
+must fail when its flag requires it; runner regression tests exercise all six
+flags against a local HTTP stub. This changes skip bookkeeping only: the
+runtime conformance assertions remain intact.
+
 `test/conformance.mjs` runs against any base URL (`ATOMS_BASE_URL`), so the
 same suite runs against `wrangler dev` and the deployed Worker. It is 45
 checks: 1–12 cover activation, turns, warm residency, int64, transactions,
