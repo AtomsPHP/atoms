@@ -69,10 +69,34 @@ List the Worker's versions with:
 vendor/bin/atoms status --env production
 ```
 
-A new version takes a little while to reach every Atom. An Atom that is
-already running keeps its current code until it next wakes up. Deploy new Atom
-methods before the application code that calls them. To go back to an earlier
-version, see [Rollback](/guides/rollback/).
+Status lists versions, but neither a successful command nor `/healthz` proves
+that every Atom runs the new code. Cloudflare [propagates Worker and Durable
+Object code eventually](https://developers.cloudflare.com/durable-objects/platform/known-issues/#code-updates):
+adjacent versions can coexist, and a newer Worker can call an object running
+the prior version.
+
+[Code updates](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/#code-updates)
+can restart active objects, discarding in-memory state while preserving durable
+SQLite data. In-flight calls may fail and WebSockets may disconnect during
+[shutdown](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/#shutdown-behavior).
+Do not blindly retry mutating calls; use application-specific idempotency or
+reconciliation, and reconnect sockets.
+
+### Stage application and Atom releases
+
+Deploy new Atom capabilities before application code that calls them, but do
+not treat deployment order as a readiness barrier:
+
+1. Add compatible methods, message shapes, and additive schema changes while
+   retaining prior behavior.
+2. Verify the capability through the application-to-Atom path with a read-only
+   or deliberately idempotent check. Keep new calls gated or provide a fallback
+   until it is available. A probe proves only the checked path and instance;
+   there is no global readiness signal.
+3. Release the application, then remove old behavior only when old callers and
+   versions no longer need it and you have considered rollback needs.
+
+To restore an earlier version, see [Rollback](/guides/rollback/).
 
 ## Upgrade the runtime
 
