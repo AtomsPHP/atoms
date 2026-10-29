@@ -3733,11 +3733,10 @@ check(35, 'tickets (bearer required): mint route removed, issued ticket admits h
     const problems = [];
     const id = atomId('tkt-authed');
 
-    const bare = await fetch(new URL(`/tickets/Room/${id}`, baseUrl), { method: 'POST' });
-    const bareData = await bare.json().catch(() => ({}));
-    if (bare.status !== 401 || bareData?.error?.code !== 'unauthenticated') {
+    const bare = await request('POST', `/tickets/Room/${id}`, null, { bearer: null });
+    if (bare.status !== 401 || bare.data?.error?.code !== 'unauthenticated') {
         problems.push(
-            `a headerless POST /tickets gave ${bare.status}/${bareData?.error?.code} (expected 401/unauthenticated — ` +
+            `a headerless POST /tickets gave ${bare.status}/${bare.data?.error?.code} (expected 401/unauthenticated — ` +
                 'the credential gate precedes routing)'
         );
     }
@@ -3929,20 +3928,14 @@ check(38, 'tickets (bearer required): /invoke and /debug still require the beare
     const problems = [];
     const id = atomId('tkt-noleak');
 
-    const inv = await fetch(new URL(`/invoke/Counter/${id}/increment`, baseUrl), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: '{"args":[1]}',
-    });
-    const invData = await inv.json().catch(() => ({}));
-    if (inv.status !== 401 || invData?.error?.code !== 'unauthenticated') {
-        problems.push(`headerless /invoke gave ${inv.status}/${invData?.error?.code} (expected 401/unauthenticated)`);
+    const inv = await request('POST', `/invoke/Counter/${id}/increment`, { args: [1] }, { bearer: null });
+    if (inv.status !== 401 || inv.data?.error?.code !== 'unauthenticated') {
+        problems.push(`headerless /invoke gave ${inv.status}/${inv.data?.error?.code} (expected 401/unauthenticated)`);
     }
 
-    const dbg = await fetch(new URL(`/debug/Counter/${id}/info`, baseUrl));
-    const dbgData = await dbg.json().catch(() => ({}));
-    if (dbg.status !== 401 || dbgData?.error?.code !== 'unauthenticated') {
-        problems.push(`headerless /debug gave ${dbg.status}/${dbgData?.error?.code} (expected 401/unauthenticated)`);
+    const dbg = await request('GET', `/debug/Counter/${id}/info`, null, { bearer: null });
+    if (dbg.status !== 401 || dbg.data?.error?.code !== 'unauthenticated') {
+        problems.push(`headerless /debug gave ${dbg.status}/${dbg.data?.error?.code} (expected 401/unauthenticated)`);
     }
 
     if (problems.length === 0) {
