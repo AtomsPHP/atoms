@@ -38,7 +38,7 @@ This catalog is the single source of truth: `packages/core/resources/errors.json
 | ATOMS-E060 | Atom type not deployed | error | runtime | Deploy the Atom (`atoms deploy`) or check the class basename — types are matched by basename. |
 | ATOMS-E061 | Turn deadline exceeded | error | runtime | Turns must stay short. Move slow work to an AtomJob via $this->dispatch(), and check for accidental blocking I/O. |
 | ATOMS-E062 | Capacity refused / rate limited | error | runtime | The SDK retries automatically where safe. Persistent refusals mean the fleet is at capacity — check the dashboard. |
-| ATOMS-E063 | Remote Atom exception | error | runtime | This is your Atom code throwing. The sanitized remote trace is attached to the exception. |
+| ATOMS-E063 | Remote Atom exception | error | runtime | Inspect the reported exception class and message, then check the Worker logs for the server-side trace. |
 | ATOMS-E064 | Callback signature verification failed | error | runtime | Check that ATOMS_SHARED_SECRET is identical on the app and the Worker. During rotation the verifier also accepts a callback signed under ATOMS_SHARED_SECRET_PREVIOUS; configure the overlap pair on both sides before flipping either. |
 | ATOMS-E065 | Callback replay detected | error | runtime | Usually clock skew (>300s) on the app host, or a genuine replay. Sync clocks; investigate repeated nonces. |
 | ATOMS-E066 | No Methods class for callback target | error | runtime | Create {expectedClass} (or mark a class with #[MethodsFor({atomType}::class)]). |

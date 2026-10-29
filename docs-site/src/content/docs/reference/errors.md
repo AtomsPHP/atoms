@@ -599,7 +599,7 @@ The SDK retries automatically where safe. If requests keep failing, inspect the 
 
 **Fix**
 
-This is your Atom code throwing. The sanitized remote trace is attached to the exception.
+Inspect the reported exception class and message, then check the Worker logs for the server-side trace.
 
 
 <a id="atoms-e064"></a>

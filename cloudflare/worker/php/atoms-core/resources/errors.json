@@ -261,7 +261,7 @@
             "code": "ATOMS-E063",
             "title": "Remote Atom exception",
             "message": "{class} thrown inside {type}/{id}::{method}: {message}",
-            "fix": "This is your Atom code throwing. The sanitized remote trace is attached to the exception.",
+            "fix": "Inspect the reported exception class and message, then check the Worker logs for the server-side trace.",
             "severity": "error",
             "phase": "runtime"
         },

@@ -13,13 +13,9 @@ namespace Atoms\Client\Internal;
  * check, the exception mapping, and the retry decision — works from an instance
  * of this class.
  *
- * `remote_class`/`remote_trace` are the keys this client has always read to
- * recognise an exception thrown by the customer's own Atom. Note that the
- * current Cloudflare Worker does not send them: it reports the throwing class
- * as `class` (`worker/src/index.js`, `worker/src/atom-do.js`), and sends no
- * trace at all. The keys are preserved here verbatim rather than remapped,
- * because reconciling the two is a contract question this class must not decide
- * on its own.
+ * The Worker reports the throwing class as `class` and sends no trace.
+ * Only `atom_exception` identifies a customer exception: runtime failures
+ * can also carry `class` and must retain their code-based mapping.
  *
  * @internal Not part of `atoms/client`'s public surface. Its shape may change
  *           with the wire protocol; nothing outside this package may depend on it.
@@ -33,7 +29,6 @@ final class ErrorFrame
         public readonly string $message,
         /** Set only when the failure was an exception thrown by a customer Atom. */
         public readonly ?string $remoteClass,
-        public readonly ?string $remoteTrace,
         /** The platform's own `retryable` flag, true only when literally `true`. */
         public readonly bool $platformRetryable,
     ) {
@@ -47,15 +42,15 @@ final class ErrorFrame
         $error = $decoded['error'] ?? null;
 
         if (!is_array($error)) {
-            return new self(false, '', '', null, null, false);
+            return new self(false, '', '', null, false);
         }
 
         return new self(
             true,
             (string) ($error['code'] ?? ''),
             (string) ($error['message'] ?? ''),
-            isset($error['remote_class']) ? (string) $error['remote_class'] : null,
-            isset($error['remote_trace']) ? (string) $error['remote_trace'] : null,
+            ($error['code'] ?? null) === 'atom_exception' && isset($error['class'])
+                ? (string) $error['class'] : null,
             ($error['retryable'] ?? false) === true,
         );
     }
