@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Atoms\Symfony\Tests\Support;
 
+use Atoms\Client\Callback\InMemoryNonceStore;
+use Atoms\Client\Callback\NonceStore;
 use Atoms\Symfony\AtomsBundle;
 use Doctrine\Bundle\DoctrineBundle\DoctrineBundle;
 use Doctrine\Bundle\MigrationsBundle\DoctrineMigrationsBundle;
@@ -19,6 +21,7 @@ final class NonceTestKernel extends Kernel
         private readonly string $databasePath,
         private readonly string $cachePath,
         private readonly array $nonceConfig = ['driver' => 'database', 'namespace' => 'test'],
+        private readonly bool $customNonceStore = false,
     ) {
         // PHP keeps loaded container classes after a kernel and its cache are removed.
         parent::__construct('test_' . bin2hex(random_bytes(8)), true);
@@ -57,6 +60,10 @@ final class NonceTestKernel extends Kernel
                 'shared_secret' => base64_encode(str_repeat('a', 32)),
                 'callback_nonce' => $this->nonceConfig,
             ]);
+            if ($this->customNonceStore) {
+                $container->register('custom.nonce_store', InMemoryNonceStore::class);
+                $container->setAlias(NonceStore::class, 'custom.nonce_store');
+            }
         });
     }
 }

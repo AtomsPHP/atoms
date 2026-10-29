@@ -22,6 +22,17 @@ final class NonceStorePass implements CompilerPassInterface
 
     public function process(ContainerBuilder $container): void
     {
+        // A table created by an earlier database configuration must remain outside
+        // application schema diffs after switching backends or binding a custom store.
+        if ($container->hasParameter('doctrine.connections')) {
+            /** @var array<string, string> $connections */
+            $connections = $container->getParameter('doctrine.connections');
+            $filter = $container->register('atoms.nonce_schema_filter', NonceSchemaFilter::class);
+            foreach (array_keys($connections) as $name) {
+                $filter->addTag('doctrine.dbal.schema_filter', ['connection' => $name]);
+            }
+        }
+
         if ($container->hasDefinition(NonceStore::class) || $container->hasAlias(NonceStore::class)) {
             return;
         }
@@ -57,14 +68,6 @@ final class NonceStorePass implements CompilerPassInterface
         if ($container->hasDefinition('doctrine.migrations.configuration')) {
             $container->getDefinition('doctrine.migrations.configuration')
                 ->addMethodCall('addMigrationClass', [Version20261029000000::class]);
-        }
-        if ($container->hasParameter('doctrine.connections')) {
-            /** @var array<string, string> $connections */
-            $connections = $container->getParameter('doctrine.connections');
-            $filter = $container->register('atoms.nonce_schema_filter', NonceSchemaFilter::class);
-            foreach (array_keys($connections) as $name) {
-                $filter->addTag('doctrine.dbal.schema_filter', ['connection' => $name]);
-            }
         }
         if (class_exists(Command::class)) {
             $container->register('atoms.command.nonces_prune', PruneNoncesCommand::class)

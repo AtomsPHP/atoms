@@ -20,6 +20,7 @@ use Doctrine\DBAL\Exception\DriverException;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\Platforms\MySQLPlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
+use Doctrine\DBAL\Schema\AbstractSchemaManager;
 use Doctrine\DBAL\Schema\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -146,6 +147,9 @@ final class DoctrinePortabilityTest extends TestCase
         $driver->method('connect')->willReturn($native);
         $driver->method('getDatabasePlatform')->willReturn($platform === 'mysql' ? new MySQLPlatform() : new PostgreSQLPlatform());
         $driver->method('getExceptionConverter')->willReturn($platform === 'mysql' ? new MySQLConverter() : new PostgreSQLConverter());
+        if (method_exists(Driver::class, 'getSchemaManager')) {
+            $driver->method('getSchemaManager')->willReturn($this->createMock(AbstractSchemaManager::class));
+        }
         return new Connection(['driver' => 'pdo_' . $platform], $driver);
     }
 }

@@ -9,6 +9,7 @@ use Atoms\Client\Callback\NonceStoreConfigurationException;
 use Atoms\Client\Callback\NonceStoreOptions;
 use Atoms\Client\Callback\NonceStoreUnavailableException;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Connections\PrimaryReadReplicaConnection;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 
 final class DoctrineNonceStore implements NonceStore
@@ -66,6 +67,10 @@ final class DoctrineNonceStore implements NonceStore
             throw new NonceStoreConfigurationException('The nonce database connection must use autocommit without an active transaction.');
         }
 
+        // The next write targets the primary, even when a replica was selected.
+        if ($this->connection instanceof PrimaryReadReplicaConnection) {
+            $this->connection->ensureConnectedToPrimary();
+        }
         $native = $this->connection->getNativeConnection();
         if ($native instanceof \PDO) {
             if ($native->inTransaction()) {

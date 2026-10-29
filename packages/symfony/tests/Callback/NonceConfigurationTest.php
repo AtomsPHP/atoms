@@ -15,6 +15,7 @@ use Atoms\Symfony\Tests\Fixtures\GameRoom;
 use Atoms\Symfony\Tests\Support\NonceTestKernel;
 use Doctrine\Migrations\DependencyFactory;
 use GuzzleHttp\Psr7\ServerRequest;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -96,6 +97,61 @@ final class NonceConfigurationTest extends TestCase
         self::assertTrue($filter('application_visible'));
     }
 
+    /** @param array<string, mixed> $nonceConfig */
+    #[DataProvider('inactiveDatabaseConfigurations')]
+    public function testSchemaDiffRetainsNonceTableAcrossBackendChanges(array $nonceConfig, bool $customNonceStore): void
+    {
+        $first = $this->kernel();
+        $migrate = new CommandTester((new Application($first))->find('doctrine:migrations:migrate'));
+        self::assertSame(0, $migrate->execute([], ['interactive' => false]), $migrate->getDisplay());
+        $request = $this->request();
+        self::assertSame(200, $first->getContainer()->get(CallbackKernel::class)->handle($request)->getStatusCode());
+        $connection = $first->getContainer()->get('test.service_container')
+            ->get('doctrine.migrations.dependency_factory')->getConnection();
+        $connection->executeStatement('CREATE TABLE application_hidden (id INTEGER PRIMARY KEY)');
+        $connection->executeStatement('CREATE TABLE application_removed (id INTEGER PRIMARY KEY)');
+        $first->shutdown();
+
+        $second = $this->kernel($nonceConfig, $customNonceStore);
+        $migrations = $second->getContainer()->get('test.service_container')->get('doctrine.migrations.dependency_factory');
+        // Schema protection must not enroll the inactive database backend's migration.
+        self::assertFalse($migrations->getMigrationRepository()->getMigrations()
+            ->hasMigration(new \Doctrine\Migrations\Version\Version(Version20261029000000::class)));
+        $connection = $migrations->getConnection();
+        $manager = $connection->createSchemaManager();
+        $schema = $manager->introspectSchema();
+        self::assertFalse($schema->hasTable(DoctrineNonceStore::TABLE));
+        self::assertFalse($schema->hasTable('application_hidden'));
+        self::assertTrue($schema->hasTable('application_removed'));
+        $target = clone $schema;
+        $target->dropTable('application_removed');
+        $statements = $connection->getDatabasePlatform()->getAlterSchemaSQL($manager->createComparator()->compareSchemas($schema, $target));
+        self::assertNotEmpty($statements);
+        foreach ($statements as $statement) {
+            $connection->executeStatement($statement);
+        }
+        self::assertSame(0, (int) $connection->fetchOne('SELECT COUNT(*) FROM sqlite_master WHERE name = ?', ['application_removed']));
+        self::assertSame(1, (int) $connection->fetchOne('SELECT COUNT(*) FROM sqlite_master WHERE name = ?', ['application_hidden']));
+        self::assertSame(1, (int) $connection->fetchOne('SELECT COUNT(*) FROM ' . DoctrineNonceStore::TABLE));
+        $second->shutdown();
+
+        $third = $this->kernel();
+        $migrate = new CommandTester((new Application($third))->find('doctrine:migrations:migrate'));
+        self::assertSame(0, $migrate->execute([], ['interactive' => false]), $migrate->getDisplay());
+        $callback = $third->getContainer()->get(CallbackKernel::class);
+        self::assertSame(401, $callback->handle($request)->getStatusCode());
+        self::assertSame(200, $callback->handle($this->request('new-nonce'))->getStatusCode());
+    }
+
+    /** @return iterable<string, array{array<string, mixed>, bool}> */
+    public static function inactiveDatabaseConfigurations(): iterable
+    {
+        yield 'redis' => [['driver' => 'redis', 'namespace' => 'test', 'redis_service' => 'app.redis'], false];
+        yield 'memory' => [['driver' => 'memory'], false];
+        yield 'unconfigured' => [[], false];
+        yield 'custom binding' => [['driver' => 'database', 'namespace' => 'test'], true];
+    }
+
     public function testEnvironmentDriverRegistersMigrationAndStaysConsistentWithCompiledServices(): void
     {
         $_ENV['ATOMS_TEST_NONCE_DRIVER'] = 'database';
@@ -174,9 +230,9 @@ final class NonceConfigurationTest extends TestCase
     }
 
     /** @param array<string, mixed> $nonceConfig */
-    private function kernel(array $nonceConfig = ['driver' => 'database', 'namespace' => 'test']): NonceTestKernel
+    private function kernel(array $nonceConfig = ['driver' => 'database', 'namespace' => 'test'], bool $customNonceStore = false): NonceTestKernel
     {
-        $kernel = new NonceTestKernel($this->directory . '/nonces.sqlite', $this->directory . '/cache-' . count($this->kernels), $nonceConfig);
+        $kernel = new NonceTestKernel($this->directory . '/nonces.sqlite', $this->directory . '/cache-' . count($this->kernels), $nonceConfig, $customNonceStore);
         $this->kernels[] = $kernel;
         $kernel->boot();
         return $kernel;
@@ -200,11 +256,10 @@ final class NonceConfigurationTest extends TestCase
         return $container;
     }
 
-    private function request(): ServerRequest
+    private function request(string $nonce = 'same-nonce'): ServerRequest
     {
         $body = json_encode(['atom' => ['type' => GameRoom::class, 'id' => 'room'], 'method' => 'add', 'args' => [2, 3]], JSON_THROW_ON_ERROR);
         $timestamp = (string) time();
-        $nonce = 'same-nonce';
         $key = KeyDerivation::callbackKey(base64_encode(str_repeat('a', 32)));
         return new ServerRequest('POST', 'https://example.test/atoms/callback', [
             'X-Atoms-Kind' => 'methods',

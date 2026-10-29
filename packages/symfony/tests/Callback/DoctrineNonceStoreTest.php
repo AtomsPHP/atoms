@@ -11,6 +11,7 @@ use Atoms\Symfony\Callback\DedicatedNonceConnectionFactory;
 use Atoms\Symfony\Callback\DoctrineNonceStore;
 use Atoms\Symfony\Migrations\Version20261029000000;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Connections\PrimaryReadReplicaConnection;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Schema\Schema;
 use Doctrine\Migrations\Configuration\Connection\ExistingConnection;
@@ -157,6 +158,108 @@ final class DoctrineNonceStoreTest extends TestCase
         self::assertFalse($dedicated->getParams()['driverOptions'][\PDO::ATTR_PERSISTENT]);
         self::assertTrue($dedicated->getParams()['driverOptions'][\PDO::ATTR_AUTOCOMMIT]);
         self::assertFalse($source->getParams()['driverOptions'][\PDO::ATTR_AUTOCOMMIT]);
+    }
+
+    public function testFactoryIsolatesPrimaryReplicaWriterFromApplicationRollback(): void
+    {
+        $source = $this->primaryReplicaConnection();
+        $source->beginTransaction();
+        $factory = DependencyFactory::fromConnection(new ConfigurationArray([]), new ExistingConnection($source));
+        $dedicated = DedicatedNonceConnectionFactory::create($factory);
+        try {
+            $parameters = $dedicated->getParams();
+            self::assertFalse($parameters['primary']['persistent']);
+            self::assertFalse($parameters['primary']['driverOptions'][\PDO::ATTR_PERSISTENT]);
+            self::assertTrue($parameters['primary']['driverOptions'][\PDO::ATTR_AUTOCOMMIT]);
+            self::assertFalse($parameters['replica'][0]['driverOptions'][\PDO::ATTR_PERSISTENT]);
+            self::assertTrue($parameters['replica'][0]['driverOptions'][\PDO::ATTR_AUTOCOMMIT]);
+            self::assertTrue($source->getParams()['primary']['driverOptions'][\PDO::ATTR_PERSISTENT]);
+            self::assertFalse((new DoctrineNonceStore($dedicated, $this->options()))->seen('persisted'));
+            self::assertNotSame($source->getNativeConnection(), $dedicated->getNativeConnection());
+        } finally {
+            $source->rollBack();
+            $source->close();
+            $dedicated->close();
+        }
+        self::assertTrue($this->store()->seen('persisted'));
+    }
+
+    public function testDirectPrimaryReplicaStoreChecksWriterNativeTransaction(): void
+    {
+        $connection = $this->primaryReplicaConnection(false);
+        $connection->ensureConnectedToPrimary();
+        $primary = $connection->getNativeConnection();
+        self::assertInstanceOf(\PDO::class, $primary);
+        $primary->beginTransaction();
+        $connection->ensureConnectedToReplica();
+        self::assertNotSame($primary, $connection->getNativeConnection());
+        try {
+            $this->expectException(NonceStoreConfigurationException::class);
+            (new DoctrineNonceStore($connection, $this->options()))->seen('nonce');
+        } finally {
+            $primary->rollBack();
+            $connection->close();
+        }
+    }
+
+    public function testPrimaryReplicaRejectsInMemoryWriter(): void
+    {
+        $connection = DriverManager::getConnection([
+            'driver' => 'pdo_sqlite',
+            'wrapperClass' => PrimaryReadReplicaConnection::class,
+            'primary' => ['memory' => true],
+            'replica' => [['path' => $this->path]],
+        ]);
+        $this->expectException(NonceStoreConfigurationException::class);
+        new DoctrineNonceStore($connection, $this->options());
+    }
+
+    public function testWriterDoesNotConnectToUnavailableReplica(): void
+    {
+        $connection = DriverManager::getConnection([
+            'driver' => 'pdo_sqlite',
+            'wrapperClass' => PrimaryReadReplicaConnection::class,
+            'primary' => ['path' => $this->path],
+            'replica' => [['path' => $this->path . '/unavailable/database.sqlite']],
+        ]);
+        $store = new DoctrineNonceStore($connection, $this->options());
+        self::assertFalse($store->seen('primary-only'));
+        self::assertTrue($store->seen('primary-only'));
+    }
+
+    public function testFactoryDoesNotReapplyDbal3UrlPersistence(): void
+    {
+        if (!method_exists(Connection::class, 'getEventManager')) {
+            self::markTestSkipped('DBAL 4 does not parse connection URLs.');
+        }
+
+        $source = DriverManager::getConnection([
+            'driver' => 'pdo_sqlite',
+            'wrapperClass' => PrimaryReadReplicaConnection::class,
+            'primary' => ['url' => 'sqlite:///' . $this->path . '?persistent=1'],
+            'replica' => [['url' => 'sqlite:///' . $this->path . '?persistent=1']],
+        ]);
+        $factory = DependencyFactory::fromConnection(new ConfigurationArray([]), new ExistingConnection($source));
+        $dedicated = DedicatedNonceConnectionFactory::create($factory);
+        $parameters = $dedicated->getParams();
+        self::assertSame($this->path, $parameters['primary']['path']);
+        self::assertFalse($parameters['primary']['persistent']);
+        self::assertFalse($parameters['replica'][0]['persistent']);
+        self::assertFalse((new DoctrineNonceStore($dedicated, $this->options()))->seen('url-persistent'));
+        self::assertTrue($this->store()->seen('url-persistent'));
+    }
+
+    private function primaryReplicaConnection(bool $persistentReplica = true): PrimaryReadReplicaConnection
+    {
+        $connection = DriverManager::getConnection([
+            'driver' => 'pdo_sqlite',
+            'wrapperClass' => PrimaryReadReplicaConnection::class,
+            'keepReplica' => true,
+            'primary' => ['path' => $this->path, 'persistent' => true, 'driverOptions' => [\PDO::ATTR_PERSISTENT => true, \PDO::ATTR_AUTOCOMMIT => false]],
+            'replica' => [['path' => $this->path, 'persistent' => $persistentReplica, 'driverOptions' => [\PDO::ATTR_PERSISTENT => $persistentReplica, \PDO::ATTR_AUTOCOMMIT => false]]],
+        ]);
+        self::assertInstanceOf(PrimaryReadReplicaConnection::class, $connection);
+        return $connection;
     }
 
     private function connection(): Connection
