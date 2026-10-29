@@ -22,18 +22,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The adapter conformance suite itself. One case table
- * ({@see CallbackCases::all()}), one set of dedicated mounting/supply-chain
- * tests, run unmodified against every {@see AdapterHost} a concrete subclass
- * supplies via {@see self::createHost()}.
- *
- * Two concrete subclasses cover bare kernel and plain-PHP; Laravel and
- * Symfony subclasses of this SAME class, plus a cross-host equivalence test,
- * cover the other two — nothing here needs to change for that.
- *
- * CapabilityMatrix validates every host declaration independently of which
- * behavioral cases currently exercise a capability. Unsupported cases can
- * then skip without maintaining a second list of permitted gaps.
+ * Runs the shared callback cases and adapter checks against each host.
+ * CapabilityMatrix verifies that hosts support the expected capabilities.
  */
 abstract class AdapterConformanceTestCase extends TestCase
 {

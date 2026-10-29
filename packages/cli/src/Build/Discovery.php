@@ -155,12 +155,7 @@ final class Discovery
     }
 
     /**
-     * The `Support/` directories of every discovered Atom — the sanctioned home
-     * for Atom-side helper classes (an Eloquent model, a value object, a pure
-     * service) that ship with the Atom but are not Atoms themselves. Sibling to
-     * the Atom's migrations directory: `app/Atoms/GameRoom/Support/` for
-     * `app/Atoms/GameRoom.php`. Computed before the classification pass because
-     * an Atom is recognizable from its parent chain alone.
+     * Find each Atom's Support/ directory before classifying helper files.
      *
      * @param list<array{file: PhpFile, classes: list<DiscoveredClass>}> $parsed
      * @param array<string, DiscoveredClass>                             $all

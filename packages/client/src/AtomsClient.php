@@ -309,14 +309,8 @@ final class AtomsClient
             $retryAfter = $this->retryAfterSeconds($response);
             $exception = $this->mapError($status, $frame, $retryAfter, $ctx);
 
-            // Retryability is whatever the mapped exception says. Asking the
-            // exception rather than the frame keeps a RemoteAtomException
-            // non-retryable even if a response flags it otherwise.
-            // The platform flags `turn_deadline_exceeded` retryable, but
-            // {@see TurnDeadlineExceeded} is constructed non-retryable: a turn that
-            // ran out of time may already have committed, and only the caller
-            // knows whether the method is safe to run twice. A caller that does
-            // catches the exception and calls again.
+            // The exception overrides the wire retry flag. A timed-out turn
+            // may have committed writes, so only the caller can safely retry it.
             if ($exception->retryable && $attempt < $this->config->maxAttempts) {
                 $this->logger?->info('Retrying Atoms invocation', [
                     'attempt' => $attempt,

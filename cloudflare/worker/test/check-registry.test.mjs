@@ -7,8 +7,7 @@ import { join } from 'node:path';
 
 const source = readFileSync(new URL('./conformance.mjs', import.meta.url), 'utf8');
 
-// Exercise the actual runner in isolation from a developer's credentials.
-// An invalid base URL makes any selected request throw before network I/O.
+// The invalid URL makes requests fail without network access.
 function run({ mutation = '', only = '1', skip = '' } = {}) {
     const directory = mkdtempSync(join(tmpdir(), 'atoms-check-registry-'));
     try {

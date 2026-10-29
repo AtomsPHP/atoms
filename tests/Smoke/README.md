@@ -7,18 +7,12 @@ From the monorepo root, after `composer install` and `npm ci` in
 node tests/Smoke/laravel-callback.mjs
 ```
 
-Requires PHP on `PATH`, Node 22 or later, and PHP CLI server worker support
-(Linux, macOS, or WSL2). CI runs it for each tested PHP/Laravel combination.
-It fails on native Windows instead of silently skipping the callback check.
+Requires PHP on `PATH`, Node 22 or later, and Linux, macOS, or WSL2 for PHP
+CLI server workers. CI runs it for each tested PHP/Laravel combination.
 
-The runner copies the maintained Laravel example into a temporary directory,
-reuses the installed monorepo dependencies, scaffolds the runtime from local
-source, and starts `atoms dev` plus the documented concurrent Artisan server.
-It requests `/api/callback-check` over HTTP and verifies the real Atom returns
-a per-run application name through the signed callback endpoint. There is no
-fake HTTP transport or harness callback; no Cloudflare account or deployed
-service is involved. Runtime callback and turn timeouts retain their defaults.
-Temporary files and both process groups are removed on completion or failure.
+The test starts a temporary copy of the Laravel example and a local Worker.
+It calls `/api/callback-check` and checks that the Atom retrieves the application
+name through a signed callback. No Cloudflare account is needed.
 
 The runner uses free loopback ports. Slow machines can adjust the test runner's
 startup, request, and readiness polling budgets with

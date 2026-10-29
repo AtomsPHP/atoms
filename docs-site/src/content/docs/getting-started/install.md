@@ -12,24 +12,15 @@ Atoms is currently experimental and in early stages. The goal is to keep the cur
 - PHP 8.3 or 8.4 on the application host
 - Composer 2
 - Node.js 22 for the Cloudflare Worker toolchain
-- A Cloudflare Workers Paid account for deployment
+- A Cloudflare account for deployment
 
-These versions are the current qualified host and toolchain baseline. See
-[Host and toolchain support](/reference/compatibility/#host-and-toolchain-support)
-for dependency constraints and CI coverage.
-
-Atoms 0.7 supports deployments on Workers Paid. This is an Atoms support policy;
-Free-plan operation has not been qualified. Cloudflare offers SQLite-backed
-Durable Objects on Free too, but that availability does not establish compatibility
-with the full Atoms runtime. See [Cloudflare plan and platform limits](/reference/limits/#cloudflare-plan-and-platform-limits).
-
-Host PHP runs your application and the Atoms CLI. The Worker uses a guest PHP
-interpreter supplied by the runtime release, independently of the host PHP version.
+See [Compatibility](/reference/compatibility/#host-and-toolchain-support) for
+dependency constraints and tested versions.
 
 ## PHP
 
 <!-- BEGIN generated Laravel compatibility -->
-The Laravel adapter allows Laravel 11, 12 and 13 through its Illuminate dependencies. CI tests Laravel 12 and 13. Laravel 11 is allowed but is not currently tested in CI. See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).
+The adapter accepts Laravel 11, 12 and 13. CI tests Laravel 12 and 13. See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).
 <!-- END generated Laravel compatibility -->
 
 Choose the adapter for the application you already have:

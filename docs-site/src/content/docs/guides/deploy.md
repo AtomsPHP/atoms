@@ -71,32 +71,22 @@ List the Worker's versions with:
 vendor/bin/atoms status --env production
 ```
 
-Status lists versions, but neither a successful command nor `/healthz` proves
-that every Atom runs the new code. Cloudflare [propagates Worker and Durable
-Object code eventually](https://developers.cloudflare.com/durable-objects/platform/known-issues/#code-updates):
-adjacent versions can coexist, and a newer Worker can call an object running
-the prior version.
+Cloudflare [propagates code updates over time](https://developers.cloudflare.com/durable-objects/platform/known-issues/#code-updates),
+so old and new versions can run at the same time. Neither `status` nor
+`/healthz` confirms that every Atom has updated.
 
 [Code updates](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/#code-updates)
-can restart active objects, discarding in-memory state while preserving durable
-SQLite data. In-flight calls may fail and WebSockets may disconnect during
+can restart active Atoms. Committed SQLite data survives, but in-memory state
+is lost. Calls may fail and WebSockets may disconnect during
 [shutdown](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/#shutdown-behavior).
-Do not blindly retry mutating calls; use application-specific idempotency or
-reconciliation, and reconnect sockets.
+Reconnect sockets and make mutating calls safe to repeat before retrying them.
 
 ### Stage application and Atom releases
 
-Deploy new Atom capabilities before application code that calls them, but do
-not treat deployment order as a readiness barrier:
-
-1. Add compatible methods, message shapes, and additive schema changes while
-   retaining prior behavior.
-2. Verify the capability through the application-to-Atom path with a read-only
-   or deliberately idempotent check. Keep new calls gated or provide a fallback
-   until it is available. A probe proves only the checked path and instance;
-   there is no global readiness signal.
-3. Release the application, then remove old behavior only when old callers and
-   versions no longer need it and you have considered rollback needs.
+1. Deploy compatible Atom changes before application code that uses them.
+2. Check new behavior through the application with a read-only or idempotent
+   call. This checks one Atom, so keep a fallback for instances still updating.
+3. Remove old behavior once callers have migrated and rollback no longer needs it.
 
 To restore an earlier version, see [Rollback](/guides/rollback/).
 

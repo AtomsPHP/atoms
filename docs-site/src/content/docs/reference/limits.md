@@ -5,22 +5,10 @@ description: Runtime limits and their defaults, Cloudflare platform limits, and 
 
 ## Cloudflare plan and platform limits
 
-Atoms 0.7 requires Workers Paid for supported deployments. This is an Atoms
-support policy: Free-plan operation has not been qualified. Cloudflare offers
-[SQLite-backed Durable Objects on both Free and Paid](https://developers.cloudflare.com/durable-objects/platform/pricing/),
-but that availability does not establish compatibility with the full Atoms runtime.
-
-Cloudflare's current [Worker-size limit](https://developers.cloudflare.com/workers/platform/limits/#worker-size)
-is 64 MiB uncompressed on both plans; there is no compressed-size limit. A
-successful local Wrangler bundle dry-run does not qualify Free-plan operation.
-Free support would require a defined runtime and workload test against the
-applicable CPU, startup, memory, request, and storage limits.
-
-Cloudflare's limits also apply to supported Paid deployments. See
+For platform limits and billing, see
 [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
 [Durable Objects limits](https://developers.cloudflare.com/durable-objects/platform/limits/),
-and [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/)
-for current limits, allowances, and billing.
+and [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/).
 
 ## Configurable runtime limits
 
@@ -79,9 +67,11 @@ or `dispatch()` to hand work to your application.
 ## Read large integers as text
 
 Cloudflare's SQLite API returns numbers to the runtime as JavaScript numbers,
-so an INTEGER above `2^53-1` (or below `-(2^53-1)`) can be rounded before
-Atoms sees it. Rather than return a wrong value, the runtime fails the query
-with an `int64_precision` error.
+so an INTEGER outside `-(2^53-1)` through `2^53-1` can be rounded before
+Atoms sees it. By default, the runtime rejects integral numbers with magnitude
+above `2^53-1` and at most `2^63` with `int64_precision`. This also affects
+whole-number REAL values in that range, which the runtime cannot distinguish
+from rounded INTEGERs.
 
 Writing signed 64-bit integers is exact. When reading them, select them as
 text:

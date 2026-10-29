@@ -5,12 +5,10 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
-- **Changed:** Atom helpers now live in `Support/`, matching the `Support`
-  namespace segment and Composer PSR-4 autoloading during `AtomHarness` tests
-  on case-sensitive filesystems. Rename existing `<Atom>/support/` directories
-  to `<Atom>/Support/` (through an intermediate name for Git on case-insensitive
-  filesystems). Lowercase paths are no longer classified as support code;
-  remove per-Atom Composer mappings that only compensated for the old casing.
+- **Changed:** Atom helpers must use `Support/` to match their PSR-4 namespace.
+  Rename `<Atom>/support/` through an intermediate name to `<Atom>/Support/`
+  and remove Composer mappings added for the old casing. The build no longer
+  recognizes lowercase paths.
 
 ## [0.7.0] - 2026-10-28
 
