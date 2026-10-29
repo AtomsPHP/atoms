@@ -13,7 +13,7 @@ npm run deploy     # build, then deploy the Worker and its assets
 
 `npm run build` checks Astro types, verifies that the generated error reference
 matches `../packages/core/resources/errors.json`, checks release-owned compatibility
-content (using PHP), builds the static site, and
+content (using PHP), checks JSON examples, builds the static site, and
 validates internal links plus every stable error-code anchor.
 
 Do not edit `src/content/docs/reference/errors.md` by hand. After changing the
@@ -43,3 +43,12 @@ The same metadata generates the marked tests matrix in `.github/workflows/ci.yml
 After changing those inputs, run `php scripts/release/release.php generate` from
 the repository root and commit the results. `php scripts/release/release.php check`
 checks for drift; `php scripts/release/test-compatibility.php` tests the generator.
+
+## JSON examples
+
+Use `json` fences for complete JSON examples and add `title="filename.json"`
+for complete file examples. JSON fences must parse as strict JSON; comments and
+trailing commas are not allowed. Use `jsonc` for JSONC examples or fragments,
+and title complete JSONC files with their `.jsonc` filename. `npm run
+check:examples` runs the checker regression tests and checks Markdown and MDX
+pages recursively. It runs as part of `npm run check`.
