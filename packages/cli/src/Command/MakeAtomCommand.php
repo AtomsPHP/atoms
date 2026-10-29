@@ -50,6 +50,7 @@ final class MakeAtomCommand extends AbstractCommand
         $baseNamespace = $this->resolveNamespace($config);
         $atomsDir = $config->atomsDir();
         $websocket = $input->getOption('websocket') === true;
+        $withMethods = $input->getOption('with-methods') === true;
 
         $written = [];
 
@@ -59,10 +60,10 @@ final class MakeAtomCommand extends AbstractCommand
 
             return self::FAILURE;
         }
-        $this->put($atomPath, $this->atomSource($baseNamespace, $nameArg, $websocket));
+        $this->put($atomPath, $this->atomSource($baseNamespace, $nameArg, $websocket, $withMethods));
         $written[] = $atomPath;
 
-        if ($input->getOption('with-methods') === true) {
+        if ($withMethods) {
             $methodsPath = $atomsDir . '/' . $nameArg . '/Methods.php';
             $this->put($methodsPath, $this->methodsSource($baseNamespace . '\\' . $nameArg));
             $written[] = $methodsPath;
@@ -123,9 +124,10 @@ final class MakeAtomCommand extends AbstractCommand
         return $default;
     }
 
-    private function atomSource(string $namespace, string $name, bool $websocket): string
+    private function atomSource(string $namespace, string $name, bool $websocket, bool $withMethods): string
     {
         $uses = "use Atoms\\Atom;\n";
+        $methodsType = $withMethods ? " *\n * @extends Atom<\\{$namespace}\\{$name}\\Methods>\n" : '';
         $body = "    // Public methods here are invocable over the platform RPC boundary.\n";
 
         if ($websocket) {
@@ -162,7 +164,7 @@ PHP;
         /**
          * Atom-side: ships to the platform and runs on the Atoms runtime. Only
          * atoms/core, Shared DTOs, and approved packages are legal in here.
-         */
+        {$methodsType} */
         class {$name} extends Atom
         {
         {$body}}

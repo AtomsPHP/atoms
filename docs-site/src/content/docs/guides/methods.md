@@ -36,22 +36,68 @@ only the Atom class.
 
 Fill `app/Atoms/GameRoom/Methods.php` with ordinary methods:
 
-```php
+```php title="app/Atoms/GameRoom/Methods.php"
+<?php
+
+declare(strict_types=1);
+
 namespace App\Atoms\GameRoom;
 
 use Atoms\AtomMethods;
 
 class Methods extends AtomMethods
 {
-    public function displayName(int $playerId): string
+    public function appLabel(): string
     {
-        return User::findOrFail($playerId)->name;
+        return 'Laravel';
     }
 }
 ```
 
 Every public method is callable from the Atom, and its signature is the
-contract between the two sides.
+contract between the two sides. Call it from the Atom:
+
+```php title="app/Atoms/GameRoom.php"
+<?php
+
+declare(strict_types=1);
+
+namespace App\Atoms;
+
+use Atoms\Atom;
+
+/** @extends Atom<\App\Atoms\GameRoom\Methods> */
+class GameRoom extends Atom
+{
+    public function appLabel(): string
+    {
+        return $this->app()->appLabel();
+    }
+}
+```
+
+The `@extends` annotation gives PHPStan and your editor the concrete Methods
+type returned by `$this->app()`. `make:atom --with-methods` generates it using
+your project's namespace. Add it to existing Atoms when adding callbacks, and
+name the actual Methods class if you use a custom mapping. The annotation
+neither ships the Methods class to the Worker nor changes callback discovery.
+
+Include the Atoms rules in your application's PHPStan configuration:
+
+```yaml title="phpstan.neon"
+includes:
+    - vendor/atoms/phpstan-rules/rules.neon
+
+parameters:
+    level: 5
+    paths:
+        - app/Atoms
+```
+
+Run `vendor/bin/phpstan analyse` with the application's Composer autoloader
+available. This example passes analysis; misspelling the callback as
+`$this->app()->appLabl()` reports an undefined method on
+`App\Atoms\GameRoom\Methods`.
 
 ## How it's found
 
