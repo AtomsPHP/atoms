@@ -29,8 +29,11 @@ If a migration applied successfully but produced an unwanted schema, add a
 corrective migration. If a migration failed to apply, fix it first: the
 migrator stops at the failed migration.
 
-A rollback takes a little while to reach running Atoms. Check your
-application's behavior afterwards.
+Rollback code propagates eventually and can restart active Atoms, interrupt
+in-flight calls, and disconnect WebSockets. Your application must tolerate both
+code versions during rollback. See [Verify the deployment](/guides/deploy/#verify-the-deployment)
+for the same constraints and handling guidance, and verify application behavior
+afterward.
 
 ## Data recovery
 

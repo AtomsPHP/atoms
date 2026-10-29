@@ -38,7 +38,7 @@ return $this->db()->transaction(function (): int {
 
 ## Activation and hibernation
 
-When an Atom wakes up, the runtime starts PHP, applies pending migrations, and calls `onActivation()`. Cloudflare may later shut down an idle Atom while keeping its SQLite database and hibernatable WebSockets. The next invocation, WebSocket message or close, or timer wakes it up again from its stored state.
+When an Atom wakes up, the runtime starts PHP, applies pending migrations, and calls `onActivation()`. Cloudflare may hibernate an idle Atom while keeping its SQLite database and hibernatable WebSockets. The next invocation, WebSocket message or close, or timer wakes it up again from its stored state. A deployment can also [shut down](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/#shutdown-behavior) an active Atom, interrupting work and closing sockets. Shutdown discards in-memory state but preserves the database. See [Stage application and Atom releases](/guides/deploy/#stage-application-and-atom-releases).
 
 `onDeactivation()` is best-effort cleanup, not a durability hook. Do not depend on it for writes that must happen.
 

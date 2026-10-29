@@ -954,7 +954,9 @@ invoke's: everything ran on `ctx.storage.sql`, and — for `ws.connect`/
 `ws.message`/`ws.close` — the accept/wake path's outstanding DO event (`fetch`
 handler for accept, the hibernation callback for a wake) is what makes it
 impossible for a callback fetch or a `dispatch()` delivery to run outside an
-awaited event: the DO is never evicted mid-event, only between them.
+awaited event: normal idle eviction occurs between events, not mid-event.
+Deployment or runtime [shutdown](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/#shutdown-behavior)
+can interrupt in-flight events; it does not undo committed SQLite writes.
 
 ### SQL bridge details
 
