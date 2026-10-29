@@ -136,6 +136,33 @@ final class MigrationTest extends TestCase
         self::assertSame(0, $migrator->apply($db, MigrationSet::fromDirectory($this->dir)));
     }
 
+    public function testEditedAppliedMigrationIsSkippedAndHigherVersionStillRuns(): void
+    {
+        $this->write('001_create_events.sql', 'CREATE TABLE events (id INTEGER PRIMARY KEY, kind TEXT);');
+
+        $db = SqliteDatabase::open(':memory:');
+        $migrator = new Migrator();
+        $original = MigrationSet::fromDirectory($this->dir);
+        self::assertSame(1, $migrator->apply($db, $original));
+
+        $this->write('001_create_events.sql', 'CREATE TABLE edited_events (id INTEGER PRIMARY KEY);');
+        $edited = MigrationSet::fromDirectory($this->dir);
+
+        self::assertNotSame($original->all()[0]->sha256, $edited->all()[0]->sha256);
+        self::assertSame(0, $migrator->apply($db, $edited));
+        self::assertSame(1, (int) $db->pdo()->query('PRAGMA user_version')->fetchColumn());
+        self::assertSame(['events'], $db->pdo()->query("SELECT name FROM sqlite_master WHERE type = 'table'")->fetchAll(\PDO::FETCH_COLUMN));
+
+        $this->write('002_seed.sql', "INSERT INTO events (kind) VALUES ('created');");
+        self::assertSame(1, $migrator->apply($db, MigrationSet::fromDirectory($this->dir)));
+        self::assertSame(2, (int) $db->pdo()->query('PRAGMA user_version')->fetchColumn());
+        self::assertSame('created', $db->pdo()->query('SELECT kind FROM events')->fetchColumn());
+
+        $fresh = SqliteDatabase::open(':memory:');
+        self::assertSame(1, $migrator->apply($fresh, $edited));
+        self::assertSame(['edited_events'], $fresh->pdo()->query("SELECT name FROM sqlite_master WHERE type = 'table'")->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
     public function testPhpDataMigrationRuns(): void
     {
         $this->write('001_create_events.sql', 'CREATE TABLE events (id INTEGER PRIMARY KEY, kind TEXT);');

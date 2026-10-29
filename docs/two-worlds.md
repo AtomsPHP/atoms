@@ -110,7 +110,8 @@ Each Atom type may ship ordered migrations (`app/Atoms/GameRoom/migrations/001_*
 
 **Migrations are append-only once shipped:**
 
-- Editing a migration that's already deployed causes a build error (`ATOMS-E050`).
+- Versions at or below an Atom database's highest applied version are skipped, even if their contents have changed. Manifest hashes do not enforce immutability: edits are not rejected at build time or when applying migrations.
+- Editing an old migration can give new Atoms a different schema from existing Atoms. Keep deployed migrations unchanged and add a higher-numbered migration for schema changes.
 - To fix a broken migration, append a corrective one.
 - The manifest records the head version; rollback of a *code* deploy does not roll back schema.
 - Migrations must be backward-compatible one version (expand/contract pattern).
