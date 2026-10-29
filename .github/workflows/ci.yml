@@ -76,6 +76,16 @@ jobs:
           '
       - run: composer test
       - run: composer stan
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cloudflare/worker/package-lock.json
+      - name: Install local Worker dependencies for the Laravel HTTP callback smoke
+        working-directory: cloudflare/worker
+        run: npm ci
+      - name: Application HTTP can invoke an Atom that calls back into Laravel
+        run: node tests/Smoke/laravel-callback.mjs
 
   docs:
     runs-on: ubuntu-latest

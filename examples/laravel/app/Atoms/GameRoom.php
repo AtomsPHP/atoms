@@ -12,9 +12,16 @@ use Atoms\Websocket\Message;
 /**
  * One durable game room. Each room id gets its own serialized instance and
  * SQLite database in a Cloudflare Durable Object.
+ *
+ * @extends Atom<\App\Atoms\GameRoom\Methods>
  */
 class GameRoom extends Atom
 {
+    public function appLabel(): string
+    {
+        return $this->app()->appLabel();
+    }
+
     public function join(string $playerId): int
     {
         return $this->db()->transaction(function (Database $db) use ($playerId): int {

@@ -6,6 +6,11 @@ use App\Atoms\GameRoom;
 use Atoms\Laravel\Facades\Atoms;
 use Illuminate\Support\Facades\Route;
 
+// Exercise application HTTP → Atom → signed application callback.
+Route::get('/callback-check', static fn (): array => [
+    'application' => Atoms::get(GameRoom::class, 'callback-check')->appLabel(),
+]);
+
 Route::post('/rooms/{room}/players/{player}', static function (string $room, string $player): array {
     $visits = Atoms::get(GameRoom::class, $room)->join($player);
 

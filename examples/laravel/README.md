@@ -44,6 +44,38 @@ curl -X POST http://127.0.0.1:8000/api/rooms/room-7/players/player-4
 Calling the route again returns `visits: 2`, demonstrating that the Atom's
 SQLite state survived the request boundary.
 
+## Run callbacks locally
+
+Set `ATOMS_ENDPOINT=http://127.0.0.1:8787` in `.env`. Start the Worker first,
+then Laravel in another terminal:
+
+```sh
+vendor/bin/atoms dev --env production --callback-url http://127.0.0.1:8000/atoms/callback
+```
+
+```sh
+PHP_CLI_SERVER_WORKERS=4 php artisan serve --host=127.0.0.1 --port=8000 --no-reload
+```
+
+The `production` name selects this example's existing configuration; `dev`
+still runs only locally. Once both processes are ready, request:
+
+```sh
+curl --fail http://127.0.0.1:8000/api/callback-check
+```
+
+The response's `application` field contains `config('app.name')`, obtained by
+`GameRoom::appLabel()` calling the application-side `GameRoom\Methods`.
+This exercises application HTTP → Atom → application callback. The original
+request occupies one PHP worker while the callback needs another. Tinker and
+the in-process harness do not reproduce that dependency.
+
+`--no-reload` prevents Laravel from falling back to a single worker; restart
+Laravel after changing `.env`. Native Windows cannot fork PHP CLI server
+workers. Use WSL2 for both processes, or Nginx with a PHP-FPM pool allowing at
+least two simultaneous requests. See the [Laravel quickstart](https://docs.atomsphp.dev/getting-started/laravel/#run-it-locally)
+for platform and callback-address details.
+
 ## Test without Cloudflare
 
 ```sh
