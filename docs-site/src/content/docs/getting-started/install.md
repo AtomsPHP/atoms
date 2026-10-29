@@ -14,6 +14,10 @@ Atoms is currently experimental and in early stages. The goal is to keep the cur
 - Node.js 22 for the Cloudflare Worker toolchain
 - A Cloudflare Workers Paid account for deployment
 
+These versions are the current qualified host and toolchain baseline. See
+[Host and toolchain support](/reference/compatibility/#host-and-toolchain-support)
+for dependency constraints and CI coverage.
+
 Atoms 0.7 supports deployments on Workers Paid. This is an Atoms support policy;
 Free-plan operation has not been qualified. Cloudflare offers SQLite-backed
 Durable Objects on Free too, but that availability does not establish compatibility

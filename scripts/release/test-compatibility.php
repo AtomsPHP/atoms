@@ -24,6 +24,17 @@ function expect(bool $condition, string $message): void
 try {
     $originalPage = renderCompatibility($temp, $manifest);
     $originalBlocks = compatibilityBlocks($temp, $manifest);
+    $changedToolchain = $manifest;
+    $changedToolchain['php']['constraint'] = '^9.0';
+    $changedToolchain['php']['tested'] = ['9.1', '9.2'];
+    $changedToolchain['runtime']['node'] = '24';
+    $changedToolchain['runtime']['wrangler'] = '5.2.1';
+    $changedToolchain['runtime']['guest_php'] = '9.0';
+    $toolchainPage = renderCompatibility($temp, $changedToolchain);
+    expect(str_contains($toolchainPage, '| Host PHP | `^9.0` | PHP 9.1 and PHP 9.2 | PHP 9.1 and PHP 9.2 |'), 'Host PHP constraint and tested versions must come from the manifest');
+    expect(str_contains($toolchainPage, '| Node.js | `>=24` | Node.js 24 | Node.js 24 |'), 'Node constraint and version must come from the manifest');
+    expect(str_contains($toolchainPage, '| Wrangler | `5.2.1` (exact pin) | Wrangler 5.2.1 | Wrangler 5.2.1 |'), 'Wrangler pin must come from the manifest');
+    expect(str_contains($toolchainPage, 'PHP 9.0 interpreter compiled to WebAssembly'), 'Guest interpreter version must come from the manifest');
     $adapterPath = "{$temp}/packages/laravel/composer.json";
     $adapter = readJson($adapterPath);
     foreach ($adapter['require'] as $name => $constraint) {
