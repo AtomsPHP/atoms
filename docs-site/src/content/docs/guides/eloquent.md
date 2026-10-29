@@ -78,6 +78,27 @@ The bridge installs no event dispatcher, so `creating`, `saved`, and the other m
 
 The runtime can't ask SQLite for its version, so the bridge reports a recent one by default. To report a specific version, pass `['server_version' => '...']` as the second argument to `EloquentBridge::boot()`.
 
-### Very large integers lose precision
+### Read large integers as text
 
-As with any read inside an Atom, integer values above 2^53-1 come back imprecise unless you read them as text. [Read large integers as text](/reference/limits/#read-large-integers-as-text) covers the workaround.
+Cloudflare's SQL API returns numbers as JavaScript numbers. An SQLite INTEGER
+outside the safe integer range (`-(2^53-1)` through `2^53-1`) can be rounded
+at that boundary. By default, the runtime fails the query with
+`int64_precision` when it receives an integral number whose magnitude is
+above `2^53-1` and at most `2^63`. This also applies to REAL values in that
+range because the runtime cannot distinguish them from rounded INTEGERs.
+
+Cast a large integer to text in the query and keep the result as a string:
+
+```php
+$db = EloquentBridge::boot($this->db());
+
+$row = $db->table('counters')
+    ->selectRaw('CAST(large_integer AS TEXT) AS large_integer')
+    ->first();
+
+$largeInteger = $row?->large_integer; // string for a non-null value
+```
+
+This SQL read boundary is separate from the lossless tagged integer wire
+representation used for signed 64-bit values. Writes of signed 64-bit
+integers are exact. See [Read large integers as text](/reference/limits/#read-large-integers-as-text) for more details.
