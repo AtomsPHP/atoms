@@ -1481,6 +1481,14 @@ claims nothing beyond it. See `docs/cloudflare-toolchain.md` §3.
 
 ## Conformance suite
 
+Each check registers its number, name and function once as a `{ num, name, fn }`
+record. Before starting the callback listener or running any checks, the runner
+asserts that the registered numbers are exactly `1..N` in order. Selection by
+`ATOMS_ONLY`/`ATOMS_SKIP` and unexpected-error reporting use those records, so
+inserting, deleting or reordering a check without maintaining its number fails
+at startup rather than silently selecting a different check. The 45 existing
+check numbers and runtime assertions are unchanged.
+
 The runner's optional prerequisites are declared in
 `worker/test/required-capabilities.mjs`. One parser handles every
 `ATOMS_REQUIRE_*` flag for whole and partial checks. Removing a prerequisite

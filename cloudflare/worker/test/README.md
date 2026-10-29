@@ -52,6 +52,16 @@ This directory contains the conformance test suite for the Atoms runtime on Clou
 44. **malformed rotation overlap** — booted with a **valid** current secret but a malformed `ATOMS_SHARED_SECRET_PREVIOUS`, the Worker is exactly as loudly broken as check 41's: `/healthz` answers 200 `{ok:true}` and `/invoke`, `/tickets`, `/debug` and `/ws` all answer HTTP 500 `misconfigured` — and each refusal message names `ATOMS_SHARED_SECRET_PREVIOUS`, which is what proves the gate tripped on the overlap and not on the current secret. Pins the spec's "set but malformed → misconfigured" requirement that checks 40 (valid overlap) and 41 (no current secret) cannot see
 45. **vendor tree autoload** — the manifest's `vendor.autoload` classmap loads a vendor class the line-scanning bundle autoloader cannot index (`Acme\Greeter\Greeter` is declared indented inside a conditional, on purpose), and a Composer-style function file is already loaded before the class is first touched, proving "files" entries are required eagerly at activation
 
+Each check registers its number, name and function once as a `{ num, name, fn }`
+record. Before starting the callback listener or running any checks, the runner
+asserts that the registered numbers are exactly `1..N` in order. Selection by
+`ATOMS_ONLY`/`ATOMS_SKIP` and unexpected-error reporting use those records, so
+inserting, deleting or reordering a check without maintaining its number fails
+at startup rather than silently selecting a different check. The 45 existing
+check numbers and runtime assertions are unchanged. `check-registry.test.mjs`
+exercises startup rejection, selection and unexpected-error attribution without
+network I/O; CI runs it alongside the required-capability regressions.
+
 ### Configurations
 
 The suite runs against a Worker in one of the configurations below; the runner is

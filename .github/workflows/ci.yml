@@ -187,8 +187,8 @@ jobs:
       # and no network, because its subject is a php.run() that settles after
       # the instance it belonged to was discarded — an interleaving the
       # conformance suite cannot schedule from the far side of HTTP.
-      - name: Required conformance capabilities cannot silently skip
-        run: node --test test/required-capabilities.test.mjs
+      - name: Conformance registry and required capabilities remain valid
+        run: node --test test/check-registry.test.mjs test/required-capabilities.test.mjs
 
       - name: A discarded PHP instance cannot report onto a live one
         run: npm run test:instance

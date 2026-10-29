@@ -66,6 +66,7 @@
  *     run check 44, which asserts that setup — spec §"The shared secret")
  */
 
+import assert from 'node:assert/strict';
 import { createHmac, hkdfSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
@@ -890,11 +891,14 @@ function runPhp(code, env) {
 
 const checks = [];
 
+/** Register each check's identity once; selection and reporting share this record. */
+function check(num, name, fn) {
+    checks.push({ num, name, fn });
+}
+
 // CHECK 1: healthz
-checks.push(async () => {
+check(1, 'healthz', async ({ num: checkNum, name }) => {
     const { status, data } = await request('GET', '/healthz');
-    const checkNum = 1;
-    const name = 'healthz';
 
     if (status === 200 && data?.ok === true) {
         pass(checkNum, name);
@@ -904,9 +908,7 @@ checks.push(async () => {
 });
 
 // CHECK 2: invoke + result envelope
-checks.push(async () => {
-    const checkNum = 2;
-    const name = 'invoke + result envelope';
+check(2, 'invoke + result envelope', async ({ num: checkNum, name }) => {
     const id = atomId('envelope');
 
     const { status, data } = await invoke('Counter', id, 'increment', [1]);
@@ -954,9 +956,7 @@ checks.push(async () => {
 });
 
 // CHECK 3: warm-residency (in-memory counter)
-checks.push(async () => {
-    const checkNum = 3;
-    const name = 'warm-residency (in-memory counter)';
+check(3, 'warm-residency (in-memory counter)', async ({ num: checkNum, name }) => {
     const id = atomId('warm');
 
     const r1 = await invoke('Counter', id, 'increment', [5]);
@@ -993,9 +993,7 @@ checks.push(async () => {
 });
 
 // CHECK 4: isolation between two IDs
-checks.push(async () => {
-    const checkNum = 4;
-    const name = 'isolation between two IDs';
+check(4, 'isolation between two IDs', async ({ num: checkNum, name }) => {
     const a = atomId('iso-a');
     const b = atomId('iso-b');
 
@@ -1028,9 +1026,7 @@ checks.push(async () => {
 });
 
 // CHECK 5: migrations applied once, user_version correct, activation row present
-checks.push(async () => {
-    const checkNum = 5;
-    const name = 'migrations applied once, user_version correct, activation row';
+check(5, 'migrations applied once, user_version correct, activation row', async ({ num: checkNum, name }) => {
     const id = atomId('mig');
 
     const first = await invoke('Counter', id, 'getValue', []);
@@ -1077,9 +1073,7 @@ checks.push(async () => {
 });
 
 // CHECK 6: tx commit read-your-own-write
-checks.push(async () => {
-    const checkNum = 6;
-    const name = 'tx commit read-your-own-write';
+check(6, 'tx commit read-your-own-write', async ({ num: checkNum, name }) => {
     const id = atomId('tx-commit');
 
     // The write is read back from INSIDE the open transaction.
@@ -1121,9 +1115,7 @@ checks.push(async () => {
 });
 
 // CHECK 7: tx rollback discards observed write
-checks.push(async () => {
-    const checkNum = 7;
-    const name = 'tx rollback discards observed write';
+check(7, 'tx rollback discards observed write', async ({ num: checkNum, name }) => {
     const id = atomId('tx-rollback');
 
     // A write that was genuinely read back from inside the open transaction
@@ -1199,9 +1191,7 @@ checks.push(async () => {
 });
 
 // CHECK 8: uncaught exception → atom_exception envelope, next turn healthy
-checks.push(async () => {
-    const checkNum = 8;
-    const name = 'uncaught exception → atom_exception, next turn healthy';
+check(8, 'uncaught exception → atom_exception, next turn healthy', async ({ num: checkNum, name }) => {
     const id = atomId('exc');
 
     await invoke('Counter', id, 'increment', [4]);
@@ -1248,9 +1238,7 @@ checks.push(async () => {
 });
 
 // CHECK 9: int64 matrix (±2^31, ±2^53, ±(2^63−1))
-checks.push(async () => {
-    const checkNum = 9;
-    const name = 'int64 matrix';
+check(9, 'int64 matrix', async ({ num: checkNum, name }) => {
     const id = atomId('int64');
 
     const cases = [
@@ -1409,9 +1397,7 @@ checks.push(async () => {
 });
 
 // CHECK 10: reserved-table rejection
-checks.push(async () => {
-    const checkNum = 10;
-    const name = 'reserved-table rejection';
+check(10, 'reserved-table rejection', async ({ num: checkNum, name }) => {
     const id = atomId('reserved');
 
     const r = await invoke('Counter', id, 'readReserved', []);
@@ -1466,9 +1452,7 @@ checks.push(async () => {
 });
 
 // CHECK 11: turn serialization
-checks.push(async () => {
-    const checkNum = 11;
-    const name = 'turn serialization';
+check(11, 'turn serialization', async ({ num: checkNum, name }) => {
     const id = atomId('serial');
 
     // Two concurrent invokes of a deliberately slow method. Because a turn is
@@ -1504,9 +1488,7 @@ checks.push(async () => {
 });
 
 // CHECK 12: eviction/wake
-checks.push(async () => {
-    const checkNum = 12;
-    const name = 'eviction/wake';
+check(12, 'eviction/wake', async ({ num: checkNum, name }) => {
     const id = atomId('evict');
 
     const first = await invoke('Counter', id, 'increment', [7]);
@@ -1570,9 +1552,7 @@ checks.push(async () => {
 });
 
 // CHECK 13: app() round trip, int64-exact
-checks.push(async () => {
-    const checkNum = 13;
-    const name = 'app() round trip, int64-exact';
+check(13, 'app() round trip, int64-exact', async ({ num: checkNum, name }) => {
     if (!listener) {
         skip(
             checkNum,
@@ -1638,9 +1618,7 @@ checks.push(async () => {
 });
 
 // CHECK 14: app() rejected inside a transaction
-checks.push(async () => {
-    const checkNum = 14;
-    const name = 'app() rejected inside a transaction';
+check(14, 'app() rejected inside a transaction', async ({ num: checkNum, name }) => {
     if (!listener) {
         skip(checkNum, name, 'no callback listener', 'callback', 'ATOMS_CALLBACK_PORT');
         return;
@@ -1681,9 +1659,7 @@ checks.push(async () => {
 });
 
 // CHECK 15: deadline overrun (uncaught, and caught with the budget latched)
-checks.push(async () => {
-    const checkNum = 15;
-    const name = 'deadline overrun (uncaught 504, caught + budget latched)';
+check(15, 'deadline overrun (uncaught 504, caught + budget latched)', async ({ num: checkNum, name }) => {
     if (!listener) {
         skip(checkNum, name, 'no callback listener', 'callback', 'ATOMS_CALLBACK_PORT');
         return;
@@ -1796,9 +1772,7 @@ checks.push(async () => {
 
 // CHECK 16: dispatch() delivered, signed, kind=job — AWAITED, not merely
 // started; and the same from onActivation(), which runs before any turn exists.
-checks.push(async () => {
-    const checkNum = 16;
-    const name = 'dispatch() awaited before the response, signed, kind=job — from a turn and from onActivation()';
+check(16, 'dispatch() awaited before the response, signed, kind=job — from a turn and from onActivation()', async ({ num: checkNum, name }) => {
     if (!listener) {
         skip(checkNum, name, 'no callback listener', 'callback', 'ATOMS_CALLBACK_PORT');
         return;
@@ -1950,9 +1924,7 @@ checks.push(async () => {
 });
 
 // CHECK 17: dispatch() transaction semantics
-checks.push(async () => {
-    const checkNum = 17;
-    const name = 'dispatch() transaction semantics (buffer/drop/deliver)';
+check(17, 'dispatch() transaction semantics (buffer/drop/deliver)', async ({ num: checkNum, name }) => {
     if (!listener) {
         skip(checkNum, name, 'no callback listener', 'callback', 'ATOMS_CALLBACK_PORT');
         return;
@@ -2039,9 +2011,7 @@ checks.push(async () => {
 // CHECK 18: connect, onConnect observed, params delivered; bad upgrades
 // refused before any DO work; the invocable_method() denylist for socket
 // handlers.
-checks.push(async () => {
-    const checkNum = 18;
-    const name = 'ws connect: onConnect observed, params delivered, refusals, invocable_method denylist';
+check(18, 'ws connect: onConnect observed, params delivered, refusals, invocable_method denylist', async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('room-connect');
 
@@ -2164,9 +2134,7 @@ checks.push(async () => {
 });
 
 // CHECK 19: echo round trip through onMessage + Connection::send(), text and binary
-checks.push(async () => {
-    const checkNum = 19;
-    const name = 'ws echo round trip through onMessage + Connection::send() (text + binary)';
+check(19, 'ws echo round trip through onMessage + Connection::send() (text + binary)', async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('room-echo');
 
@@ -2215,9 +2183,7 @@ checks.push(async () => {
 });
 
 // CHECK 20: broadcast reaches the channel and only the channel
-checks.push(async () => {
-    const checkNum = 20;
-    const name = 'broadcast() reaches the channel and only the channel';
+check(20, 'broadcast() reaches the channel and only the channel', async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('room-bcast');
 
@@ -2325,9 +2291,7 @@ checks.push(async () => {
 });
 
 // CHECK 21: THE BIG ONE — survival across a real hibernation
-checks.push(async () => {
-    const checkNum = 21;
-    const name = 'ws survival across a real hibernation (THE BIG ONE)';
+check(21, 'ws survival across a real hibernation (THE BIG ONE)', async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('room-evict');
 
@@ -2422,9 +2386,7 @@ checks.push(async () => {
 });
 
 // CHECK 22: send() to a dead connection
-checks.push(async () => {
-    const checkNum = 22;
-    const name = "send() to a dead connection: ConnectionClosed, scoped to the call";
+check(22, "send() to a dead connection: ConnectionClosed, scoped to the call", async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('room-poke');
 
@@ -2495,9 +2457,7 @@ checks.push(async () => {
 
 // CHECK 23: timers fire, are consumed, are transactional, cancel works,
 // errors are contained (Durable Object alarms behind the Timers API).
-checks.push(async () => {
-    const checkNum = 23;
-    const name = 'timers: fire, consume, transactional, cancel, errors contained';
+check(23, 'timers: fire, consume, transactional, cancel, errors contained', async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('scheduler');
 
@@ -2647,9 +2607,7 @@ checks.push(async () => {
 });
 
 // CHECK 24: THE HONEST ONE — a Durable Object alarm wakes an evicted atom.
-checks.push(async () => {
-    const checkNum = 24;
-    const name = 'alarm wakes an evicted atom (THE HONEST ONE)';
+check(24, 'alarm wakes an evicted atom (THE HONEST ONE)', async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('scheduler-wake');
 
@@ -2748,9 +2706,7 @@ checks.push(async () => {
 // path a real client takes when it goes away quietly (a laptop lid, a mobile
 // network drop), and it is the one that would leave connections leaked forever
 // if the platform did not deliver it.
-checks.push(async () => {
-    const checkNum = 25;
-    const name = 'close wakes a hibernated Durable Object';
+check(25, 'close wakes a hibernated Durable Object', async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('room-closewake');
 
@@ -2901,9 +2857,7 @@ checks.push(async () => {
 // `violations` is empty: it also asserts the audit actually DID something
 // (R7's floors), so an audit that silently enumerated nothing cannot pass
 // vacuously — the same discipline check 24 applies to `fired_this_residency`.
-checks.push(async () => {
-    const checkNum = 26;
-    const name = 'pdo surface tripwire';
+check(26, 'pdo surface tripwire', async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('probe-surface');
 
@@ -3001,9 +2955,7 @@ checks.push(async () => {
 // the five gates (FETCH_NAMED grouping, getColumnMeta, PDORow) are things
 // Atoms\Cf\AtomsPDO cannot produce even in principle. NEVER skips: "we could
 // not verify our own compatibility claims" is not a neutral outcome.
-checks.push(async () => {
-    const checkNum = 27;
-    const name = 'pdo comparator integrity';
+check(27, 'pdo comparator integrity', async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('probe-sanity');
 
@@ -3050,9 +3002,7 @@ checks.push(async () => {
 // comparator, a fill that landed without deleting its pin, or a renamed
 // case), every pin's `why` must be >= 40 characters (rule 3), and every
 // pin's class must be one of the four pinnable ones (rule 4).
-checks.push(async () => {
-    const checkNum = 28;
-    const name = 'pdo differential matrix';
+check(28, 'pdo differential matrix', async ({ num: checkNum, name }) => {
     const problems = [];
 
     const pinPath = join(__dirname, 'pdo-expected.json');
@@ -3289,9 +3239,7 @@ checks.push(async () => {
 // below itself (29a), the row cap fires with the right code/detail (29b),
 // the byte cap fires independently of the row cap (29c, sized to stay well
 // under it), and the residency survives both failures (29d).
-checks.push(async () => {
-    const checkNum = 29;
-    const name = 'sql result caps';
+check(29, 'sql result caps', async ({ num: checkNum, name }) => {
     if (SQL_MAX_ROWS === null || SQL_MAX_RESULT_BYTES === null) {
         skip(
             checkNum,
@@ -3413,9 +3361,7 @@ checks.push(async () => {
 // not produce a report — skipped, or failed before reaching that point —
 // this FAILS rather than skipping: a stale doc is not excused by a missing
 // run.
-checks.push(async () => {
-    const checkNum = 30;
-    const name = 'pdo compatibility doc is current';
+check(30, 'pdo compatibility doc is current', async ({ num: checkNum, name }) => {
 
     if (!pdoMatrixReport) {
         fail(checkNum, name, 'no PDO differential report available (check 28 did not produce one) — cannot verify the doc is current');
@@ -3480,9 +3426,7 @@ checks.push(async () => {
 // which no longer exists. Every assertion about how `/ws` treats it is
 // unchanged; what the mint envelope used to prove about the bytes is
 // proved harder, against fixed vectors the PHP issuer asserts too.
-checks.push(async () => {
-    const checkNum = 31;
-    const name = 'tickets: locally issued ticket, headerless connect, claims win, ticket stripped';
+check(31, 'tickets: locally issued ticket, headerless connect, claims win, ticket stripped', async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('tkt-happy');
 
@@ -3567,9 +3511,7 @@ checks.push(async () => {
 // left here is what only a live Worker can answer — that the route no longer
 // exists, and that the eligibility refusals it used to share with /ws still
 // come from /ws itself, against a ticket that is otherwise perfectly valid.
-checks.push(async () => {
-    const checkNum = 32;
-    const name = 'tickets: the mint route is removed; /ws owns eligibility';
+check(32, 'tickets: the mint route is removed; /ws owns eligibility', async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('tkt-eligibility');
 
@@ -3614,9 +3556,7 @@ checks.push(async () => {
 // adds two more — a correctly signed ticket whose `exp` is already in the past
 // (expiry, provable with no TTL wait) and a `v1u.`-form string (two segments,
 // no signature: not a v1 connection ticket).
-checks.push(async () => {
-    const checkNum = 33;
-    const name = 'tickets: garbage, wrong-atom scope, expired, and unsigned-form refused at the edge';
+check(33, 'tickets: garbage, wrong-atom scope, expired, and unsigned-form refused at the edge', async ({ num: checkNum, name }) => {
     const problems = [];
     const notes = [];
     const id = atomId('tkt-refuse');
@@ -3707,9 +3647,7 @@ checks.push(async () => {
 // connection both while the first socket is still open and after it has
 // closed. This is a contract assertion, not a smoke test — a single-use burn
 // fails it. Runs in both postures, on a locally issued signed ticket.
-checks.push(async () => {
-    const checkNum = 34;
-    const name = 'tickets: reusable within TTL — no single-use burn';
+check(34, 'tickets: reusable within TTL — no single-use burn', async ({ num: checkNum, name }) => {
     const id = atomId('tkt-reuse');
 
     if (!SHARED_SECRET) {
@@ -3777,9 +3715,7 @@ checks.push(async () => {
 // before routing, so its absence is not observable without one), and WITH the
 // bearer it must be a plain 404. Together they say the route is absent rather
 // than merely unreachable.
-checks.push(async () => {
-    const checkNum = 35;
-    const name = 'tickets (bearer required): mint route removed, issued ticket admits headerless upgrade';
+check(35, 'tickets (bearer required): mint route removed, issued ticket admits headerless upgrade', async ({ num: checkNum, name }) => {
     if (!AUTH_REQUIRED) {
         skip(
             checkNum,
@@ -3841,9 +3777,7 @@ checks.push(async () => {
 // string (two segments, no signature: not a v1 connection ticket), no
 // credential at all, and — when the environment allows the short wait — a
 // genuinely expired ticket, waited out for real.
-checks.push(async () => {
-    const checkNum = 36;
-    const name = 'tickets (bearer required): tamper, unsigned form, no credential, real expiry';
+check(36, 'tickets (bearer required): tamper, unsigned form, no credential, real expiry', async ({ num: checkNum, name }) => {
     if (!AUTH_REQUIRED) {
         skip(
             checkNum,
@@ -3923,9 +3857,7 @@ checks.push(async () => {
 // TAMPERED ticket: headerless it must be 401 ticket_invalid (proving the
 // tamper is real, so the leg below cannot pass vacuously); with the bearer
 // the same upgrade must connect, proving the ticket path never ran.
-checks.push(async () => {
-    const checkNum = 37;
-    const name = 'tickets (bearer required): bearer wins; a ridden-along ticket is stripped unverified';
+check(37, 'tickets (bearer required): bearer wins; a ridden-along ticket is stripped unverified', async ({ num: checkNum, name }) => {
     if (!AUTH_REQUIRED) {
         skip(
             checkNum,
@@ -3983,9 +3915,7 @@ checks.push(async () => {
 // leak into no other route. With bearer auth required, a headerless /invoke
 // and a headerless /debug are still 401 (the /debug gate runs before the
 // debug-disabled check, so this holds whatever ATOMS_DEBUG_ENDPOINTS says).
-checks.push(async () => {
-    const checkNum = 38;
-    const name = 'tickets (bearer required): /invoke and /debug still require the bearer';
+check(38, 'tickets (bearer required): /invoke and /debug still require the bearer', async ({ num: checkNum, name }) => {
     if (!AUTH_REQUIRED) {
         skip(
             checkNum,
@@ -4029,9 +3959,7 @@ checks.push(async () => {
 // monolith derives in PHP and the Worker in WebCrypto; (c) with bearer auth
 // required, the derived bearer is accepted by the Worker and an unrelated
 // 44-character bearer is not.
-checks.push(async () => {
-    const checkNum = 39;
-    const name = 'bearer derivation: reference vector, cross-language, live acceptance';
+check(39, 'bearer derivation: reference vector, cross-language, live acceptance', async ({ num: checkNum, name }) => {
     const problems = [];
     const notes = [];
 
@@ -4143,9 +4071,7 @@ checks.push(async () => {
 // produces another ticket signed the same way. So tickets now overlap like
 // the bearer, and the leg that asserted refusal asserts acceptance instead —
 // with an unrelated-secret leg added, so the acceptance is not vacuous.
-checks.push(async () => {
-    const checkNum = 40;
-    const name = 'rotation: bearers and tickets accepted under either secret, callbacks signed with the current key';
+check(40, 'rotation: bearers and tickets accepted under either secret, callbacks signed with the current key', async ({ num: checkNum, name }) => {
     if (!SHARED_SECRET_PREVIOUS) {
         skip(
             checkNum,
@@ -4300,9 +4226,7 @@ async function assertAllRoutesMisconfigured(problems, atomIdSuffix, messageMustN
 // total — and every other route answers the wire code `misconfigured` with
 // HTTP 500. Its own short posture: the Worker under test has no secret, so
 // this is the whole run (ATOMS_ONLY=41, ATOMS_EXPECT_MISCONFIGURED=1).
-checks.push(async () => {
-    const checkNum = 41;
-    const name = 'misconfigured Worker: /healthz answers, every other route is `misconfigured`';
+check(41, 'misconfigured Worker: /healthz answers, every other route is `misconfigured`', async ({ num: checkNum, name }) => {
     if (!EXPECT_MISCONFIGURED) {
         skip(
             checkNum,
@@ -4330,9 +4254,7 @@ checks.push(async () => {
 // null for them. The control key — allowlisted the same way and NOT on the
 // deny list — is what makes that null meaningful: it proves the allowlist
 // itself is live in this Worker.
-checks.push(async () => {
-    const checkNum = 42;
-    const name = 'config deny list: the shared secret is unreadable from guest code';
+check(42, 'config deny list: the shared secret is unreadable from guest code', async ({ num: checkNum, name }) => {
     const DENIED = ['ATOMS_SHARED_SECRET', 'ATOMS_SHARED_SECRET_PREVIOUS'];
     const CONTROL = 'ATOMS_DEBUG_ENDPOINTS';
     const id = atomId('deny');
@@ -4371,9 +4293,7 @@ checks.push(async () => {
 });
 
 // CHECK 43: structured WebSocket frames — Connection::sendJson() / Message::json()
-checks.push(async () => {
-    const checkNum = 43;
-    const name = 'ws structured frames: sendJson() is bare and exact, json() refuses non-objects';
+check(43, 'ws structured frames: sendJson() is bare and exact, json() refuses non-objects', async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('room-json');
 
@@ -4449,9 +4369,7 @@ checks.push(async () => {
 // holding a perfectly good CURRENT secret and a garbage previous one, so the
 // refusal can only be about the overlap. It runs alone:
 // ATOMS_ONLY=44, ATOMS_EXPECT_MISCONFIGURED_PREVIOUS=1.
-checks.push(async () => {
-    const checkNum = 44;
-    const name = 'malformed rotation overlap: /healthz answers, every other route is `misconfigured`, naming PREVIOUS';
+check(44, 'malformed rotation overlap: /healthz answers, every other route is `misconfigured`, naming PREVIOUS', async ({ num: checkNum, name }) => {
     if (!EXPECT_MISCONFIGURED_PREVIOUS) {
         skip(
             checkNum,
@@ -4483,9 +4401,7 @@ checks.push(async () => {
 // /app/vendor/atoms-vendor-autoload.php served it, not the scanner. The
 // function probe runs before the class is touched, proving Composer-style
 // "files" entries were required eagerly at activation rather than lazily.
-checks.push(async () => {
-    const checkNum = 45;
-    const name = 'vendor.autoload: classmap classes resolve, function files are preloaded';
+check(45, 'vendor.autoload: classmap classes resolve, function files are preloaded', async ({ num: checkNum, name }) => {
     const id = atomId('vendor');
 
     const { status, data } = await invoke('Vendor', id, 'viaVendor');
@@ -4516,6 +4432,12 @@ checks.push(async () => {
 // ---------------------------------------------------------------- run
 
 async function run() {
+    assert.deepEqual(
+        checks.map(({ num }) => num),
+        Array.from({ length: checks.length }, (_, i) => i + 1),
+        'Conformance check numbers must be exactly 1..N in registration order'
+    );
+
     console.log(`\nAtoms-on-Cloudflare Conformance Suite`);
     console.log(`Base URL: ${baseUrl}`);
     console.log(
@@ -4541,8 +4463,8 @@ async function run() {
     console.log('');
 
     try {
-        for (let i = 0; i < checks.length; i++) {
-            const checkNum = i + 1;
+        for (const record of checks) {
+            const { num: checkNum, name, fn } = record;
             if (SKIP.includes(checkNum)) {
                 console.log(`⊘ CHECK ${checkNum}: skipped`);
                 continue;
@@ -4553,16 +4475,9 @@ async function run() {
             }
 
             try {
-                await checks[i]();
+                await fn(record);
             } catch (err) {
-                failCount++;
-                results.push({
-                    checkNum,
-                    name: '(unknown)',
-                    status: 'FAIL',
-                    msg: `${err.name}: ${err.message}`,
-                });
-                console.log(`✗ CHECK ${checkNum}: ${err.name}: ${err.message}`);
+                fail(checkNum, name, `${err.name}: ${err.message}`);
             }
         }
     } finally {
