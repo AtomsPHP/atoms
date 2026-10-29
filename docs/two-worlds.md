@@ -12,7 +12,7 @@ app/Atoms/
 │   ├── migrations/
 │   │   ├── 001_create_events.sql   ← ATOM-SIDE: ships, runs at activation
 │   │   └── 002_add_round_index.sql
-│   └── support/
+│   └── Support/
 │       └── ScoreBoard.php          ← ATOM-SIDE: helper class shipping with the Atom
 ├── Shared/
 │   └── PlayerSnapshot.php          ← BOTH: DTO crossing the RPC boundary
@@ -35,25 +35,34 @@ atoms-composer.json                 ← Atom-side dependencies only
 | **Methods class** (e.g., `GameRoom/Methods.php`) | App-side | Your Laravel/Symfony app | Full app access | `$this->app()->someMethod()` receives calls from Atoms |
 | **Shared DTOs** (e.g., `Shared/PlayerSnapshot.php`) | BOTH | Platform runtime + your app | `atoms/core` + stdlib only | Data crossing the RPC boundary |
 | **AtomJob** (e.g., `Jobs/RecordGameResult.php`) | App-side | Your app's queue/job system | Full app access | Dispatched **by name** via `$this->dispatch(RecordGameResult::class, [...])` from Atoms |
-| **Support classes** (e.g., `GameRoom/support/ScoreBoard.php`) | Atom-side | Platform Atoms runtime | Same as Atom code | Helpers shipping with their Atom — an Eloquent model, a value object, a pure service |
+| **Support classes** (e.g., `GameRoom/Support/ScoreBoard.php`) | Atom-side | Platform Atoms runtime | Same as Atom code | Helpers shipping with their Atom — an Eloquent model, a value object, a pure service |
 | **Migrations** (e.g., `GameRoom/migrations/001_*.sql`) | Atom-side | Platform Atoms runtime at activation | SQL + no app context | Append-only, schema changes for the Atom's SQLite database |
 
 ## The Rule of Thumb
 
-**If it extends `Atom`, it leaves. If it extends `AtomMethods` or `AtomJob`, it stays. If it's in `Shared/`, it does both — so it must be pure data. If it's in an Atom's `support/` directory, it leaves with that Atom.**
+**If it extends `Atom`, it leaves. If it extends `AtomMethods` or `AtomJob`, it stays. If it's in `Shared/`, it does both — so it must be pure data. If it's in an Atom's `Support/` directory, it leaves with that Atom.**
 
 This is the entire mental model:
 
 - Anything under an Atom class's namespace that extends `Atom` ships to the platform.
 - Methods classes and Jobs extend base classes that stay in your app (App-side).
 - `Shared/` classes cross the boundary, so they carry no framework dependencies.
-- An Atom's `support/` directory (sibling to its `migrations/`, e.g.
-  `app/Atoms/GameRoom/support/`) holds Atom-side helper classes that ship with
+- An Atom's `Support/` directory (sibling to its `migrations/`, e.g.
+  `app/Atoms/GameRoom/Support/`) holds Atom-side helper classes that ship with
   the Atom without being Atoms themselves: an Eloquent model bound to the
   Atom's database, a value object, a pure service. They follow the same import
   rules as Atom code — `atoms/core`, approved packages from
-  `atoms-composer.json`, `Shared/` — and exist only on the Atom side; your app
-  never loads them.
+  `atoms-composer.json`, `Shared/`. In production they execute in the Atoms
+  runtime; `AtomHarness` also loads them in the application process during tests.
+
+`Support/` is case-sensitive and matches the `Support` namespace segment. For
+example, `app/Atoms/GameRoom/Support/ScoreBoard.php` declares
+`namespace App\Atoms\GameRoom\Support;`, so the normal Composer mapping
+`"App\\": "app/"` loads it in harness tests without a per-Atom mapping. Nested
+directories and namespace segments must match too. Rename existing lowercase
+`support/` directories to `Support/`; lowercase paths are no longer classified
+as support code. On case-insensitive filesystems, use an intermediate directory
+name when recording the rename in Git.
 
 Jobs staying home has one consequence worth stating outright, because the
 compiler will not remind you: **an Atom cannot `new` a job.** The class is not

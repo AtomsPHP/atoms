@@ -40,6 +40,7 @@ reason the Cloudflare runtime can claim the real API runs inside the guest.
 | Re-verified | 2026-09-08, on the routing failure recognizer — `Errors/ErrorCode.php` and `resources/errors.json` re-vendored (ATOMS-E110 added: a `wrangler deploy` that uploaded the script and then could not attach the routing the environment declares, raised by the CLI from Wrangler's own output). Nothing in the guest raises E110; the copy carries it because the copy is verbatim. Still 24 files total, the other 22 digests are unchanged |
 | Re-verified | 2026-09-14, on the per-environment Wrangler config change — `resources/errors.json` re-vendored: E070's fix line was reworded in `packages/core` (a callback_url value must be a URL or a whole `${VAR}` placeholder, not a mix of the two) and the copy was left behind, which CI's byte comparison caught. Fix line reworded only; no code added, renumbered or repointed. Still 24 files total, the other 23 digests are unchanged |
 | Re-verified | 2026-10-28, on the remote exception fix guidance — `resources/errors.json` re-vendored after rewording ATOMS-E063. Still 24 files total, the other 23 digests are unchanged |
+| Re-verified | 2026-10-29, on the support-directory casing fix — `resources/errors.json` re-vendored after E001 and E012 fix lines were updated to name `Support/`, matching the PSR-4 namespace segment. Still 24 files total; the other 23 digests are unchanged |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -136,7 +137,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
 a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
 b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
-46651a3fe5b9557200cc3bce41240786217d58d96358331ec34568921daf21b1  resources/errors.json
+db709bdb97f95235c781ee1850cd7b49e0d0fdc1e622bf92745bd8cc9df1fe43  resources/errors.json
 ```
 
 Verify with, from this directory:

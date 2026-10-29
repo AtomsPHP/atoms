@@ -10,12 +10,14 @@ Atoms spans two runtimes with different capabilities.
 Atom-side code is bundled into a WebAssembly module and runs inside a Durable Object. It includes:
 
 - classes extending `Atoms\Atom`;
-- helper classes in an Atom's `support/` directory;
+- helper classes in an Atom's `Support/` directory;
 - shared, JSON-safe data transfer objects;
 - append-only SQL or PHP migrations;
 - dependencies explicitly approved in `atoms-composer.json`.
 
-An Atom's `support/` holds helpers that ship with the Atom: an Eloquent model bound to the Atom's database, a value object, a service. They follow the same import rules as the Atom class, and your application never loads them.
+An Atom's `Support/` holds helpers that ship with the Atom: an Eloquent model bound to the Atom's database, a value object, a service. They follow the same import rules as the Atom class, and run in the Atoms runtime in production. `AtomHarness` loads them in the application process during tests.
+
+The directory name is case-sensitive: `app/Atoms/GameRoom/Support/ScoreBoard.php` declares `namespace App\Atoms\GameRoom\Support;`. Matching the directory and namespace lets Composer's normal `"App\\": "app/"` mapping load the helper in harness tests. Rename existing lowercase `support/` directories to `Support/` (use an intermediate name when recording a case-only rename in Git). Lowercase paths are no longer classified as support code.
 
 An Atom can use its own database, configuration, timers, and WebSockets, and it can [call back into your application](/guides/callbacks/) with `app()` and `dispatch()`. It cannot use your Laravel container, Doctrine entity manager, filesystem, sessions, or any other service from your framework.
 
