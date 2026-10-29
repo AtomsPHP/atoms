@@ -42,6 +42,7 @@ final class CrossHostEquivalenceTest extends TestCase
             sharedSecret: $signer->sharedSecretBase64(),
             callbackPath: '/atoms/callback',
             methodsClasses: [GameRoomMethods::class],
+            nonceStore: new \Atoms\Client\Callback\InMemoryNonceStore(),
         );
 
         /** @var array<string, array<string, array{int, string}>> $resultsByHost case key => [status, body], per host */

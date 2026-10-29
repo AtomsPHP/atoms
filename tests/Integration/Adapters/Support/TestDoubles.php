@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Tests\Integration\Adapters\Support;
 
-use Atoms\Client\Callback\InMemoryNonceStore;
+use Atoms\Client\Callback\UnconfiguredNonceStore;
 use Atoms\Client\Callback\NonceStore;
 use Psr\Http\Client\ClientInterface;
 use Symfony\Component\Messenger\MessageBusInterface;
@@ -52,15 +52,9 @@ final class TestDoubles
         );
     }
 
-    /**
-     * Falls back to a fresh {@see InMemoryNonceStore} rather than throwing:
-     * most cases don't supply a NonceStore override (HostOptions::$nonceStore
-     * is null), and that null means "use the bundle's normal default," not
-     * "misconfigured."
-     */
     public static function nonceStore(): NonceStore
     {
-        return self::$nonceStore ?? new InMemoryNonceStore();
+        return self::$nonceStore ?? new UnconfiguredNonceStore();
     }
 
     public static function bus(): MessageBusInterface

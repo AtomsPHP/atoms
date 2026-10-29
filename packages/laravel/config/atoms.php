@@ -95,6 +95,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Callback nonce storage
+    |--------------------------------------------------------------------------
+    |
+    | Select database or redis and a stable namespace for this application
+    | and environment. Unconfigured callbacks are rejected. Use memory only
+    | in local tests that keep the same store instance.
+    | Database connections and Redis connections use config/database.php.
+    | Null retention derives from the timestamp window and clock allowance.
+    |
+    */
+
+    'callback_nonce' => [
+        'driver' => env('ATOMS_CALLBACK_NONCE_DRIVER'),
+        'namespace' => env('ATOMS_CALLBACK_NONCE_NAMESPACE'),
+        'database_connection' => env('ATOMS_CALLBACK_NONCE_DB_CONNECTION'),
+        'redis_connection' => env('ATOMS_CALLBACK_NONCE_REDIS_CONNECTION', 'default'),
+        'retention_seconds' => env('ATOMS_CALLBACK_NONCE_RETENTION_SECONDS'),
+        'clock_allowance_seconds' => env('ATOMS_CALLBACK_NONCE_CLOCK_ALLOWANCE_SECONDS', 60),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Manifest path
     |--------------------------------------------------------------------------
     |

@@ -9,6 +9,9 @@ use Atoms\Client\Callback\CallbackKernel;
 use Atoms\Client\Callback\HmacVerifier;
 use Atoms\Client\Callback\InMemoryNonceStore;
 use Atoms\Client\Callback\MethodsResolver;
+use Atoms\Client\Callback\LazyNonceStore;
+use Atoms\Client\Callback\NonceStore;
+use Atoms\Client\Callback\NonceStoreConfigurationException;
 use Atoms\Client\Callback\QueueBridge;
 use Atoms\Client\Crypto\KeyDerivation;
 use Atoms\Client\Tests\Fixtures\GameRoom;
@@ -399,4 +402,52 @@ final class CallbackKernelTest extends TestCase
         self::assertSame(\RuntimeException::class, $logger->records[0]['context']['exception']);
         self::assertSame(SendWelcomeJob::class, $logger->records[0]['context']['job']);
     }
+    public function testStoreFailuresRejectTheCallbackWithoutLeakingCredentials(): void
+    {
+        foreach ([
+            new \RuntimeException('redis://user:secret@host'),
+            new NonceStoreConfigurationException('secret configuration detail'),
+        ] as $failure) {
+            $logger = new RecordingLogger();
+            $factory = new HttpFactory();
+            $store = new LazyNonceStore(static fn (): NonceStore => throw $failure);
+            $kernel = new CallbackKernel(
+                new HmacVerifier([$this->callbackKey]), $store, new MethodsResolver(),
+                $this->bridge, $factory, $factory, logger: $logger,
+            );
+            $response = $kernel->handle($this->signedRequest('job', [
+                'job' => SendWelcomeJob::class,
+                'args' => ['playerId' => 'p-1', 'roomSize' => 2],
+            ]));
+            $code = $failure instanceof NonceStoreConfigurationException ? 'ATOMS-E111' : 'ATOMS-E112';
+            self::assertSame(503, $response->getStatusCode());
+            self::assertSame($code, $this->decode($response)['error']['code']);
+            self::assertStringNotContainsString('secret', (string) $response->getBody());
+            self::assertSame([], $this->bridge->jobs);
+            self::assertSame($code, $logger->records[0]['context']['code']);
+            self::assertStringNotContainsString('secret', json_encode($logger->records, JSON_THROW_ON_ERROR));
+        }
+    }
+
+    public function testAuthenticationFailuresNeverInitializeTheNonceBackend(): void
+    {
+        $calls = 0;
+        $store = new LazyNonceStore(static function () use (&$calls): NonceStore {
+            ++$calls;
+            throw new \RuntimeException('Backend should not be reached.');
+        });
+        $factory = new HttpFactory();
+        $kernel = new CallbackKernel(
+            new HmacVerifier([$this->callbackKey]), $store, new MethodsResolver(),
+            $this->bridge, $factory, $factory,
+        );
+        $invalid = $this->signedRequest('job', [], signatureOverride: base64_encode(str_repeat('x', 32)));
+        $expired = $this->signedRequest('job', [], timestamp: time() - 301);
+        $emptyNonce = $this->signedRequest('job', [], nonce: '');
+        foreach ([$invalid, $expired, $emptyNonce] as $request) {
+            self::assertSame(401, $kernel->handle($request)->getStatusCode());
+        }
+        self::assertSame(0, $calls);
+    }
+
 }

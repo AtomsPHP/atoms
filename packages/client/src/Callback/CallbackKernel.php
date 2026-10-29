@@ -72,7 +72,29 @@ final class CallbackKernel implements RequestHandlerInterface
             return $this->error(401, ErrorCode::CallbackReplayDetected);
         }
 
-        if ($nonce === '' || $this->nonceStore->seen($nonce)) {
+        if ($nonce === '') {
+            return $this->error(401, ErrorCode::CallbackReplayDetected);
+        }
+
+        try {
+            if ($this->nonceStore->seen($nonce)) {
+                return $this->error(401, ErrorCode::CallbackReplayDetected);
+            }
+        } catch (\Throwable $error) {
+            $code = $error instanceof NonceStoreConfigurationException
+                ? ErrorCode::CallbackNonceStoreConfiguration
+                : ErrorCode::CallbackNonceStoreUnavailable;
+            $this->logger?->error('Callback nonce recording failed', [
+                'code' => $code->value,
+                'exception' => $error::class,
+            ]);
+
+            return $this->error(503, $code);
+        }
+
+        // Backend initialization or an atomic claim can block until an earlier
+        // claim has expired. Recheck freshness before dispatching customer code.
+        if (!$this->timestampFresh($timestamp)) {
             return $this->error(401, ErrorCode::CallbackReplayDetected);
         }
 
@@ -217,6 +239,7 @@ final class CallbackKernel implements RequestHandlerInterface
         return new $class();
     }
 
+    /** @phpstan-impure Reads the wall clock on every check. */
     private function timestampFresh(string $timestamp): bool
     {
         if ($timestamp === '' || !ctype_digit(ltrim($timestamp, '-'))) {

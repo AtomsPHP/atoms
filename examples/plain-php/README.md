@@ -161,12 +161,15 @@ Leave `queueBridge` unset and `AtomsBootstrap` wires
 (`ATOMS-E103`) the first time an Atom dispatches a job — a clear error instead
 of a job silently vanishing.
 
-The replay-check `NonceStore` and its timestamp window are injectable the
-same way: pass `nonceStore:` a `Atoms\Client\Callback\NonceStore` of your own
-(e.g. one backed by a shared cache, so replay checks survive across processes)
-and/or `timestampWindow:` a different tolerance in seconds to
-`AtomsBootstrap::create()`; leave either unset and you get the in-process
-`InMemoryNonceStore` and a 300-second window.
+Pass a shared `Atoms\Client\Callback\NonceStore` as `nonceStore:` to
+`AtomsBootstrap::create()`. The shipped `RedisNonceStore::fromClient()` accepts
+a PhpRedis or Predis client and `NonceStoreOptions::fromArray()` settings.
+See the [callback guide](https://docs.atomsphp.dev/guides/callbacks/#custom-stores-and-plain-php).
+
+Omitting the nonce store rejects valid signed callbacks with 503 / ATOMS-E111.
+The default timestamp window remains 300 seconds. An explicit
+`InMemoryNonceStore` is suitable only for local tests that retain the same
+instance, not for PHP-FPM requests or multiple workers.
 
 ## This recipe cannot rot
 

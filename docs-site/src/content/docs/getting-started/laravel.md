@@ -28,6 +28,73 @@ ATOMS_SHARED_SECRET=base64-of-32-random-bytes
 
 `ATOMS_SHARED_SECRET` is required and must be identical on this application and the Worker. Set it on the Worker with `vendor/bin/atoms shared-secret:set`, not with `atoms:install` or `secrets:set`. See [Secrets and authentication](/guides/secrets/) for generating it, what it authenticates, and how to rotate it.
 
+## Configure callback replay protection
+
+Choose a shared nonce store before accepting `app()` or `dispatch()` callbacks.
+Atoms ships both database and Redis implementations. No custom storage class
+or container binding is required.
+
+### Database
+
+Set these application environment variables:
+
+```dotenv
+ATOMS_CALLBACK_NONCE_DRIVER=database
+ATOMS_CALLBACK_NONCE_NAMESPACE=my-app:production
+```
+
+Atoms uses the application's default Laravel database connection. To choose
+another connection from `config/database.php`, set
+`ATOMS_CALLBACK_NONCE_DB_CONNECTION` to its name. All callback workers must
+reach the same database. SQLite needs a shared persistent file on one host.
+
+The package registers its migration when the database driver is selected. Run
+your normal migration command before accepting callbacks:
+
+```bash
+php artisan migrate
+```
+
+This creates `atoms_callback_nonces` on the selected connection. Atoms opens a
+separate connection for nonce writes so application transactions cannot undo
+them. Schedule `php artisan atoms:nonces:prune` through Laravel's scheduler to
+remove expired records.
+
+### Redis
+
+Configure a named Redis connection in Laravel's `config/database.php`, then
+select it:
+
+```dotenv
+ATOMS_CALLBACK_NONCE_DRIVER=redis
+ATOMS_CALLBACK_NONCE_NAMESPACE=my-app:production
+ATOMS_CALLBACK_NONCE_REDIS_CONNECTION=atoms_nonces
+```
+
+The name `atoms_nonces` refers to your Laravel Redis connection. Configure its
+URL, credentials, and database through Laravel's normal Redis settings. Both
+PhpRedis and Predis are supported. Use a dedicated Redis database or instance
+that application cache clears do not flush. Redis handles expiry; no database
+migration or pruning command is needed for this backend.
+
+### Retention and upgrades
+
+The package's `config/atoms.php` exposes `callback_nonce` settings for the
+driver, namespace, connection, retention, and clock allowance. If you published
+an older configuration, merge the new `callback_nonce` section into it when customizing these settings.
+Rebuild Laravel's configuration cache after changing environment values.
+
+Leave `ATOMS_CALLBACK_NONCE_RETENTION_SECONDS` unset to derive retention from
+`atoms.callback_timestamp_window` and
+`ATOMS_CALLBACK_NONCE_CLOCK_ALLOWANCE_SECONDS`, which defaults to 60. The
+[callback guide](/guides/callbacks/#retention) explains the calculation and
+rollout requirements.
+
+An unconfigured store rejects callbacks with `503`. Application boot and
+outbound-only calls still work. `ATOMS_CALLBACK_NONCE_DRIVER=memory` explicitly
+selects the development/test store; it does not protect callbacks across PHP
+requests. Existing custom `NonceStore` bindings remain supported.
+
 ## Create an Atom
 
 ```bash

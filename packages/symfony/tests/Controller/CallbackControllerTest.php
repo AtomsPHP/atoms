@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Symfony\Tests\Controller;
 
 use Atoms\Client\Callback\CallbackKernelFactory;
+use Atoms\Client\Callback\InMemoryNonceStore;
 use Atoms\Client\Crypto\KeyDerivation;
 use Atoms\Symfony\AtomsBundle;
 use Atoms\Symfony\Controller\CallbackController;
@@ -45,6 +46,7 @@ final class CallbackControllerTest extends TestCase
         $container->loadFromExtension($extension->getAlias(), array_merge([
             'endpoint' => 'https://atoms.example.workers.dev',
             'shared_secret' => self::SECRET,
+            'callback_nonce' => ['driver' => 'memory'],
         ], $extraConfig));
         $container->compile();
 
@@ -145,7 +147,7 @@ final class CallbackControllerTest extends TestCase
     public function testControllerConstructsDirectlyFromAnyPsr17Implementation(): void
     {
         $factory = new HttpFactory();
-        $kernel = CallbackKernelFactory::create(self::SECRET, $factory, $factory);
+        $kernel = CallbackKernelFactory::create(self::SECRET, $factory, $factory, nonceStore: new InMemoryNonceStore());
         $controller = new CallbackController($kernel, $factory, $factory);
 
         $request = $this->signedRequest('methods', [

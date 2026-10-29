@@ -528,6 +528,22 @@
             "fix": "Wrangler's output above names which routing failed. A pattern already assigned to another Worker is refused, not taken over (API code 10020) \u2014 remove it there, or give this environment its own hostname under atoms.json \"environments\".\"<environment>\".\"custom_domains\". An authentication error on /workers/routes means the credential can upload but not route: add Zone \u2192 Workers Routes:Edit and Zone \u2192 Zone:Read on the pattern's zone (custom_domains needs neither). Fixing either and re-running the deploy is safe.",
             "severity": "error",
             "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E111",
+            "title": "Callback nonce store is not configured",
+            "message": "The callback nonce store is missing or its configuration is invalid.",
+            "fix": "Configure a supported shared nonce store, a stable application/environment namespace, and retention covering the callback timestamp window. Use the memory driver only for local development or tests.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E112",
+            "title": "Callback nonce store is unavailable",
+            "message": "The callback was rejected because its nonce could not be recorded.",
+            "fix": "Check the nonce backend connection, permissions, schema, and capacity. Keep existing nonce records and restore the shared store before retrying; do not fall back to memory.",
+            "severity": "error",
+            "phase": "runtime"
         }
     ]
 }

@@ -97,13 +97,8 @@ final class LaravelHost implements AdapterHost
                 $app->instance(ClientInterface::class, $this->http);
                 $app->instance(LoggerInterface::class, $this->logger);
 
-                // NonceStore/MethodsResolver are bound unconditionally by
-                // AtomsServiceProvider (no config-driven override point), so
-                // extend() — applied once the provider's own singleton is
-                // actually built — is how a host app would layer its own
-                // NonceStore or extra Methods classes on top.
                 if ($nonceStore !== null) {
-                    $app->extend(NonceStore::class, static fn (): NonceStore => $nonceStore);
+                    $app->instance(NonceStore::class, $nonceStore);
                 }
 
                 $app->extend(

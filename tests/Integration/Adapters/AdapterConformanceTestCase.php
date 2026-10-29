@@ -64,7 +64,7 @@ abstract class AdapterConformanceTestCase extends TestCase
             callbackPath: $overrides['callbackPath'] ?? '/atoms/callback',
             methodsClasses: $overrides['methodsClasses'] ?? [GameRoomMethods::class],
             sharedSecretPrevious: array_key_exists('sharedSecretPrevious', $overrides) ? $overrides['sharedSecretPrevious'] : null,
-            nonceStore: array_key_exists('nonceStore', $overrides) ? $overrides['nonceStore'] : null,
+            nonceStore: array_key_exists('nonceStore', $overrides) ? $overrides['nonceStore'] : new \Atoms\Client\Callback\InMemoryNonceStore(),
             queueAvailable: $overrides['queueAvailable'] ?? true,
             containerBindings: $overrides['containerBindings'] ?? [],
         );
@@ -452,6 +452,46 @@ abstract class AdapterConformanceTestCase extends TestCase
             self::assertSame(200, $response->status);
             self::assertNotEmpty($nonceStore->seen);
             self::assertSame($request->headers['X-Atoms-Nonce'], $nonceStore->seen[0]);
+        } finally {
+            $host->shutdown();
+        }
+    }
+
+    public function testUnconfiguredNonceStorageRejectsCallbacks(): void
+    {
+        $host = $this->createHost();
+        $options = $this->defaultOptions(['nonceStore' => null]);
+        $host->boot($options);
+        try {
+            $body = CallbackCases::jobBody(\Atoms\Tests\Integration\Adapters\Fixtures\RecordScoreJob::class, ['playerId' => 'ada', 'score' => 1]);
+            $response = $host->handle(CallbackCases::signedRequest($this->signer, $options, 'job', $body));
+            self::assertSame(503, $response->status);
+            self::assertSame('ATOMS-E111', json_decode($response->body, true)['error']['code']);
+            self::assertSame([], $host->queuedJobs());
+        } finally {
+            $host->shutdown();
+        }
+    }
+
+    public function testNonceStorageFailureRejectsCallbacksWithoutExposingCredentials(): void
+    {
+        $store = new class implements \Atoms\Client\Callback\NonceStore {
+            public function seen(string $nonce): bool
+            {
+                throw new \RuntimeException('database-password=private');
+            }
+        };
+        $host = $this->createHost();
+        $options = $this->defaultOptions(['nonceStore' => $store]);
+        $host->boot($options);
+        try {
+            $body = CallbackCases::jobBody(\Atoms\Tests\Integration\Adapters\Fixtures\RecordScoreJob::class, ['playerId' => 'ada', 'score' => 1]);
+            $response = $host->handle(CallbackCases::signedRequest($this->signer, $options, 'job', $body));
+            self::assertSame(503, $response->status);
+            self::assertSame('ATOMS-E112', json_decode($response->body, true)['error']['code']);
+            self::assertStringNotContainsString('private', $response->body);
+            self::assertStringNotContainsString('private', json_encode($host->logRecords()));
+            self::assertSame([], $host->queuedJobs());
         } finally {
             $host->shutdown();
         }

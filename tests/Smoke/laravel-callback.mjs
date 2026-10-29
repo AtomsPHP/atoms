@@ -28,7 +28,7 @@ const app = join(temporary, 'app');
 const processes = [];
 // Do not inherit a developer's deployment/configuration inputs into the fixture.
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
-    !/^(ATOMS_|CLOUDFLARE_|CF_|APP_|LARAVEL_|PHP_CLI_SERVER_WORKERS$)/.test(key)));
+    !/^(ATOMS_|CLOUDFLARE_|CF_|APP_|LARAVEL_|DB_|DATABASE_|PHP_CLI_SERVER_WORKERS$)/.test(key)));
 env.CI = 'true';
 env.WRANGLER_SEND_METRICS = 'false';
 
@@ -107,7 +107,9 @@ try {
     let workerPort = await freePort();
     while (workerPort === appPort) workerPort = await freePort();
     const label = `callback-${randomUUID()}`;
-    writeFileSync(join(app, '.env'), `APP_NAME=${label}\nAPP_ENV=local\nAPP_DEBUG=false\nATOMS_ENDPOINT=http://127.0.0.1:${workerPort}\n`);
+    writeFileSync(join(app, '.env'), `APP_NAME=${label}\nAPP_ENV=local\nAPP_DEBUG=false\nATOMS_ENDPOINT=http://127.0.0.1:${workerPort}\nDB_CONNECTION=sqlite\nDB_DATABASE=${join(app, 'database/nonces.sqlite')}\nATOMS_CALLBACK_NONCE_DRIVER=database\nATOMS_CALLBACK_NONCE_NAMESPACE=${label}\n`);
+    writeFileSync(join(app, 'database/nonces.sqlite'), '');
+    run('php', ['artisan', 'migrate', '--force', '--no-interaction'], app);
 
     const packageRoot = join(temporary, 'runtime');
     stageRuntimePackage(packageRoot);

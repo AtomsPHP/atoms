@@ -8,18 +8,20 @@ use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
 use Atoms\Client\Callback\CallbackKernel;
 use Atoms\Client\Callback\HmacVerifier;
-use Atoms\Client\Callback\InMemoryNonceStore;
+use Atoms\Client\Callback\LazyNonceStore;
 use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Client\Callback\NonceStore;
 use Atoms\Client\Callback\QueueBridge;
 use Atoms\Client\Manifest\ManifestLoader;
 use Atoms\Client\Tickets\TicketIssuer;
+use Atoms\Laravel\Callback\NonceStoreFactory;
 use Atoms\Laravel\Console\DeployCommand;
 use Atoms\Laravel\Console\DevCommand;
 use Atoms\Laravel\Console\InstallCommand;
 use Atoms\Laravel\Console\ListCommand;
 use Atoms\Laravel\Console\MakeAtomCommand;
 use Atoms\Laravel\Console\RollbackCommand;
+use Atoms\Laravel\Console\PruneNoncesCommand;
 use Atoms\Laravel\Http\CallbackController;
 use Atoms\Laravel\Queue\LaravelQueueBridge;
 use GuzzleHttp\Psr7\HttpFactory;
@@ -78,6 +80,10 @@ final class AtomsServiceProvider extends ServiceProvider
 
         $this->bootCallbackRoute();
 
+        if ($this->app['config']->get('atoms.callback_nonce.driver') === 'database') {
+            $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
+        }
+
         if ($this->app->runningInConsole()) {
             $this->commands([
                 InstallCommand::class,
@@ -86,6 +92,7 @@ final class AtomsServiceProvider extends ServiceProvider
                 ListCommand::class,
                 DevCommand::class,
                 MakeAtomCommand::class,
+                PruneNoncesCommand::class,
             ]);
         }
     }
@@ -160,7 +167,11 @@ final class AtomsServiceProvider extends ServiceProvider
 
     private function registerCallbackStack(): void
     {
-        $this->app->singleton(NonceStore::class, static fn (): NonceStore => new InMemoryNonceStore());
+        if (!$this->app->bound(NonceStore::class)) {
+            $this->app->singleton(NonceStore::class, static fn (Application $app): NonceStore => new LazyNonceStore(
+                static fn (): NonceStore => $app->make(NonceStoreFactory::class)->create(),
+            ));
+        }
 
         $this->app->singleton(MethodsResolver::class, function (Application $app): MethodsResolver {
             $resolver = new MethodsResolver();

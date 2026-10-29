@@ -15,6 +15,7 @@ composer install
 cp .env.example .env
 php artisan key:generate
 php artisan atoms:install
+php artisan migrate
 npm exec --yes --package=@atomsphp/runtime-cloudflare@0.8.0 -- \
   atoms-runtime-cloudflare init atoms-worker
 (cd atoms-worker && npm ci)
@@ -45,6 +46,13 @@ Calling the route again returns `visits: 2`, demonstrating that the Atom's
 SQLite state survived the request boundary.
 
 ## Run callbacks locally
+
+The example selects database nonce storage in `.env.example`. Run
+`php artisan migrate` to create the package's nonce table before accepting
+callbacks. Laravel can create the SQLite file when prompted. Use a stable
+namespace for this application and environment; all callback workers must
+access the same file. See the [nonce storage guide](https://docs.atomsphp.dev/guides/callbacks/#store-callback-nonces)
+for Redis and deployments with several hosts.
 
 Set `ATOMS_ENDPOINT=http://127.0.0.1:8787` in `.env`. Start the Worker first,
 then Laravel in another terminal:

@@ -309,8 +309,11 @@ Implemented by `Atoms\Client\Callback\CallbackKernel` (PSR-15); verified
   check also tries the key derived from `ATOMS_SHARED_SECRET_PREVIOUS`,
   accepting a signature that verifies under either (`Atoms\Client\Crypto\
   KeyDerivation::callbackKeys()`). Reject if |now − timestamp| > 300s
-  (configurable); nonce LRU (default 10,000 entries, configurable) rejects
-  replays.
+  (configurable). A configured shared `NonceStore` atomically records callback
+  nonces. Framework adapters provide Redis and database implementations.
+  Retention covers twice the timestamp window, one boundary second, and the
+  configured clock allowance. The default store rejects callbacks until
+  configured; bounded in-memory storage requires an explicit test choice.
 - `methods` body: `{"atom":{"type":"GameRoom","id":"g-1"},"method":"getPlayer",
   "args":[...],"manifest_hash":"..."}` → resolve Methods class, denormalize
   args against the method signature, invoke, respond `{"result": <json>}`.
@@ -319,6 +322,9 @@ Implemented by `Atoms\Client\Callback\CallbackKernel` (PSR-15); verified
   (`enqueue(AtomJob $job): void`); respond `{"queued": true}`.
 - Error responses use the platform error envelope shape
   `{"error":{"code":"ATOMS-E064","message":"..."}}` with 401/403/422 as apt.
+  Missing or invalid nonce-store configuration returns 503 / ATOMS-E111;
+  unavailable storage returns 503 / ATOMS-E112. These failures happen before
+  Methods or queue side effects and never expose backend credentials.
 
 Methods resolution default: Atom class `App\Atoms\GameRoom` → Methods class
 `App\Atoms\GameRoom\Methods`; `#[MethodsFor]` or an explicit map overrides.
