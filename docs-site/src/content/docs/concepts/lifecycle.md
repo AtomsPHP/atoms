@@ -50,7 +50,9 @@ An Atom's schema lives in a `migrations/` directory next to its class: a numbere
 
 A migration can also be a `.php` file, named the same way, that returns an object with an `up()` method.
 
-Once deployed, migrations are append-only. Editing an applied migration changes its hash, and the next attempt to apply migrations fails.
+Each Atom's database records its highest applied migration version. At activation, Atoms runs only migrations with a higher version; versions at or below the recorded version are skipped, even if their contents have changed. The build manifest includes migration hashes, but Atoms does not compare them against previously applied migrations or reject edits.
+
+Treat deployed migrations as immutable. Editing an old migration leaves existing Atoms unchanged while new Atoms run the edited version, potentially producing different schemas. To change the schema, add a new migration with a higher version instead.
 
 ## State belongs in SQLite
 
