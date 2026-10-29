@@ -123,10 +123,13 @@ Every auto-detected collaborator has an explicit override point:
 - **Queue bridge** — install `symfony/messenger` and register a message bus,
   or bind your own `Atoms\Client\Callback\QueueBridge` implementation to that
   service id directly.
-- **Nonce store** — the bundle wires `Atoms\Client\Callback\InMemoryNonceStore`
-  (process-local, not shared across workers); alias
-  `Atoms\Client\Callback\NonceStore` to your own implementation (e.g.
-  Redis-backed) for a multi-process deployment.
+- **Nonce store.** The bundle defaults to `InMemoryNonceStore`. PHP-FPM,
+  multiple workers on one host, and recreated request containers need a
+  persistent shared implementation. Alias `Atoms\Client\Callback\NonceStore`
+  to it as shown in the [Symfony setup guide](https://docs.atomsphp.dev/getting-started/symfony/#configure-callback-replay-protection).
+  The [callback guide](https://docs.atomsphp.dev/guides/callbacks/#store-callback-nonces)
+  covers atomic recording and retention. A shared service definition alone
+  does not preserve nonce records across requests.
 - **Methods classes** — list them under `methods_classes` to get container
   resolution (and `#[MethodsFor]` support); anything else resolves by naming
   convention with `new $class()`.

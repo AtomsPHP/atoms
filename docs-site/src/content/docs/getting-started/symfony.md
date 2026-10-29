@@ -51,6 +51,45 @@ atoms:
 
 The callback endpoint accepts POST only and is intentionally outside session and CSRF middleware. HMAC-SHA256 signatures — keyed from `shared_secret`, alongside a timestamp and a nonce — authenticate callback requests; see [Callbacks](/guides/callbacks/#configure-the-channel).
 
+## Configure callback replay protection
+
+If your Atoms use `app()` or `dispatch()`, configure a shared nonce store before
+accepting callbacks. PHP-FPM needs it even on one host. Add the
+[database table and `DatabaseNonceStore` class](/guides/callbacks/#database-example),
+then merge these definitions into `config/services.yaml`, after the `App\`
+service resource:
+
+```yaml title="config/services.yaml"
+services:
+    app.atoms_nonce_database:
+        class: PDO
+        arguments:
+            - '%env(ATOMS_NONCE_DSN)%'
+            - '%env(ATOMS_NONCE_DB_USER)%'
+            - '%env(ATOMS_NONCE_DB_PASSWORD)%'
+
+    App\Callbacks\DatabaseNonceStore:
+        arguments:
+            $database: '@app.atoms_nonce_database'
+            $retentionSeconds: '%env(int:ATOMS_NONCE_RETENTION_SECONDS)%'
+
+    Atoms\Client\Callback\NonceStore:
+        alias: App\Callbacks\DatabaseNonceStore
+```
+
+Set `ATOMS_NONCE_DSN` to a PDO DSN such as
+`pgsql:host=database;dbname=app`, with the corresponding user and password.
+For one host, you can use `sqlite:/absolute/path/to/callback-nonces.sqlite`
+and set both credentials to empty strings. Create the table in that database
+first. Set `ATOMS_NONCE_RETENTION_SECONDS=900` for the default
+`callback_timestamp_window: 300`; adjust retention for larger windows or clock
+differences as [Callbacks](/guides/callbacks/#store-callback-nonces) explains.
+These environment variables configure the example service.
+
+The alias replaces the bundle's in-memory default. Symfony's shared service
+setting only reuses an object within one container; the database keeps the
+nonce records when PHP creates the next request's container.
+
 ## Create an Atom
 
 ```bash

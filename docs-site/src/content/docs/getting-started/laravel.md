@@ -28,6 +28,55 @@ ATOMS_SHARED_SECRET=base64-of-32-random-bytes
 
 `ATOMS_SHARED_SECRET` is required and must be identical on this application and the Worker. Set it on the Worker with `vendor/bin/atoms shared-secret:set`, not with `atoms:install` or `secrets:set`. See [Secrets and authentication](/guides/secrets/) for generating it, what it authenticates, and how to rotate it.
 
+## Configure callback replay protection
+
+If your Atoms use `app()` or `dispatch()`, configure a shared nonce store before
+accepting callbacks. PHP-FPM and multiple local web workers need it too. Add the
+[database table and `DatabaseNonceStore` class](/guides/callbacks/#database-example),
+then create this application configuration file:
+
+```php title="config/atoms_callbacks.php"
+<?php
+
+return [
+    'dsn' => env('ATOMS_NONCE_DSN'),
+    'username' => env('ATOMS_NONCE_DB_USER'),
+    'password' => env('ATOMS_NONCE_DB_PASSWORD'),
+    'retention_seconds' => (int) env('ATOMS_NONCE_RETENTION_SECONDS', 900),
+];
+```
+
+Set `ATOMS_NONCE_DSN` to a PDO DSN such as
+`pgsql:host=database;dbname=app`, with the corresponding user and password.
+For one host, you can use `sqlite:/absolute/path/to/callback-nonces.sqlite`
+and leave the credentials unset. Create the table in that database first.
+These are application settings for this example.
+
+Add this binding to your `AppServiceProvider::register()` after the Atoms
+package provider registers its defaults, and before any code resolves the
+callback kernel:
+
+```php title="app/Providers/AppServiceProvider.php"
+$this->app->singleton(
+    \Atoms\Client\Callback\NonceStore::class,
+    static function (\Illuminate\Contracts\Foundation\Application $app): \Atoms\Client\Callback\NonceStore {
+        $config = $app['config']->get('atoms_callbacks');
+
+        return new \App\Callbacks\DatabaseNonceStore(
+            new \PDO($config['dsn'], $config['username'], $config['password']),
+            $config['retention_seconds'],
+        );
+    },
+);
+```
+
+Laravel normally discovers the Atoms package provider before application
+providers. If you register providers manually, preserve that order. The
+database keeps nonces across requests; the singleton binding only reuses the
+store object within a container. Keep retention long enough for your configured
+`atoms.callback_timestamp_window`, as [Callbacks](/guides/callbacks/#store-callback-nonces)
+explains.
+
 ## Create an Atom
 
 ```bash
