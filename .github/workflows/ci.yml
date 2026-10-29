@@ -24,6 +24,8 @@ jobs:
           cache-dependency-path: cloudflare/worker/package-lock.json
       - name: Check coordinated release metadata
         run: php scripts/release/release.php check
+      - name: Test compatibility generation
+        run: php scripts/release/test-compatibility.php
       - name: Validate Composer mirror splits
         run: php scripts/release/release.php validate-splits
       # test:package bundles the scaffolded worker to prove its module graph
@@ -39,11 +41,13 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     strategy:
+      # BEGIN generated Laravel matrix
       matrix:
         php-version: ['8.3', '8.4']
         laravel:
           - {version: '12', testbench: '^10.0'}
           - {version: '13', testbench: '^11.0'}
+      # END generated Laravel matrix
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -58,8 +62,40 @@ jobs:
       - run: composer install --no-interaction --no-progress
       - name: Select Laravel ${{ matrix.laravel.version }}
         run: composer update "orchestra/testbench:${{ matrix.laravel.testbench }}" --with-all-dependencies --no-interaction --no-progress --minimal-changes
+      - name: Verify installed Laravel version
+        env:
+          EXPECTED_LARAVEL_MAJOR: ${{ matrix.laravel.version }}
+        run: |
+          php -r '
+            require "vendor/autoload.php";
+            $version = Composer\InstalledVersions::getVersion("laravel/framework");
+            if ($version === null || explode(".", $version)[0] !== getenv("EXPECTED_LARAVEL_MAJOR")) {
+                fwrite(STDERR, "Installed Laravel version does not match the CI matrix: " . ($version ?? "missing") . "\n");
+                exit(1);
+            }
+          '
       - run: composer test
       - run: composer stan
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+      - name: Install documentation dependencies
+        working-directory: docs-site
+        run: npm ci
+      - name: Build documentation
+        working-directory: docs-site
+        run: npm run build
 
   lint:
     runs-on: ubuntu-latest

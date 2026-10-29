@@ -5,7 +5,9 @@ description: Create, call, migrate, test, and run an Atom locally from a Laravel
 
 The maintained example lives at [`examples/laravel/`](https://github.com/AtomsPHP/atoms/tree/main/examples/laravel). It is the executable companion to this guide.
 
-The adapter supports Laravel 11, 12, and 13 on PHP 8.3 or later.
+<!-- BEGIN generated Laravel compatibility -->
+The Laravel adapter allows Laravel 11, 12 and 13 through its Illuminate dependencies. CI tests Laravel 12 and 13. Laravel 11 is allowed but is not currently tested in CI. See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).
+<!-- END generated Laravel compatibility -->
 
 ## Configure the adapter
 

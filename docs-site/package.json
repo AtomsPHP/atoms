@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "npm run generate:errors && astro dev",
     "generate:errors": "node scripts/generate-errors.mjs",
-    "check:generated": "node scripts/generate-errors.mjs --check",
+    "check:generated": "node scripts/generate-errors.mjs --check && php ../scripts/release/release.php check",
     "check": "npm run check:generated && astro check",
     "build": "npm run check && astro build && node scripts/validate-site.mjs",
     "preview": "astro preview",
