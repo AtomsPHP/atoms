@@ -31,7 +31,7 @@ interface AdapterHost
 
     /**
      * Run $request through the host's real stack — its own router/front
-     * controller where it has one ({@see self::supports()} 'routing'), the
+     * controller where it has one ({@see self::capabilities()} 'routing'), the
      * callback kernel underneath it always — and return the response it
      * produced.
      */
@@ -40,7 +40,7 @@ interface AdapterHost
     /**
      * Resolve a service from the host's own container/service map (e.g.
      * `AtomsClient::class`). Throws when the host has no such thing to
-     * resolve — check {@see self::supports()} ('client' or 'container')
+     * resolve — check {@see self::capabilities()} ('client' or 'container')
      * first.
      */
     public function service(string $id): object;
@@ -64,7 +64,9 @@ interface AdapterHost
     public function httpFake(): FakePsr18Client;
 
     /**
-     * @param 'routing'|'container'|'client'|'queue'|'logging' $capability
+     * Supported entries from CapabilityMatrix::SUPPORTED_BY.
+     *
+     * @return list<string>
      */
-    public function supports(string $capability): bool;
+    public function capabilities(): array;
 }

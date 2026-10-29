@@ -124,9 +124,9 @@ final class PlainPhpHost implements AdapterHost
         return $this->http;
     }
 
-    public function supports(string $capability): bool
+    public function capabilities(): array
     {
-        return in_array($capability, ['routing', 'client', 'queue', 'logging', 'container'], true);
+        return ['routing', 'client', 'queue', 'logging', 'container', 'no-queue'];
     }
 
     /**

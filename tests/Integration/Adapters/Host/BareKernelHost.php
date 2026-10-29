@@ -97,7 +97,7 @@ final class BareKernelHost implements AdapterHost
     public function service(string $id): object
     {
         throw new \LogicException(
-            'BareKernelHost has no container or client: ' . $id . ' is not resolvable. Check supports() first.',
+            'BareKernelHost has no container or client: ' . $id . ' is not resolvable. Check capabilities() first.',
         );
     }
 
@@ -116,9 +116,9 @@ final class BareKernelHost implements AdapterHost
         return $this->http;
     }
 
-    public function supports(string $capability): bool
+    public function capabilities(): array
     {
-        return in_array($capability, ['queue', 'logging', 'container'], true);
+        return ['queue', 'logging', 'container', 'no-queue'];
     }
 
     /**
