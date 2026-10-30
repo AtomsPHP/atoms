@@ -105,14 +105,19 @@ stale doc is not excused by a missing run.
 
 ## Tests that are not conformance checks
 
-Two files here run without a Worker, a network, or `npm ci`:
+The runtime scaffold and residency tests also have dedicated commands:
 
 | File | `npm run` | What it holds |
 |---|---|---|
 | `runtime-package.mjs` | `test:package` | the public runtime scaffold's shape, its `atoms-runtime.json` stamp and `.gitignore`, and what `upgrade` writes, removes and leaves alone |
-| `atom-do-instance.mjs` | `test:instance` | a discarded PHP instance cannot report onto a live one |
+| `atom-do-instance.test.mjs` | `test:instance` | a discarded PHP instance cannot report onto a live one |
 
-`atom-do-instance.mjs` exists because the conformance suite cannot express its
+CI runs all `test/*.test.mjs` files with `node --test test/*.test.mjs` from
+`cloudflare/worker`. Add new unit regressions using that filename suffix; they
+are included automatically without changing the workflow. Helpers and fixtures
+should use other filenames.
+
+`atom-do-instance.test.mjs` exists because the conformance suite cannot express its
 subject. `php.run()` is never awaited and ends only when the guest exits, so a
 run belonging to a discarded instance can settle after a fresh instance has
 booted into the same residency — and the suite, which drives a real Worker over

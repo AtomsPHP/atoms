@@ -20,7 +20,7 @@
 		"bundle:cli": "node scripts/bundle-from-cli.mjs",
 		"package:runtime": "node scripts/pack-runtime.mjs",
 		"test:package": "node test/runtime-package.mjs",
-		"test:instance": "node test/atom-do-instance.mjs",
+		"test:instance": "node test/atom-do-instance.test.mjs",
 		"dev": "wrangler dev",
 		"dev:callback": "node scripts/dev-with-callback.mjs",
 		"deploy": "wrangler deploy",
