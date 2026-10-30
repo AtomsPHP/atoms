@@ -87,6 +87,28 @@ jobs:
       - name: Application HTTP can invoke an Atom that calls back into Laravel
         run: node tests/Smoke/laravel-callback.mjs
 
+  psr7-3:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite, sodium, curl
+          coverage: none
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: ${{ runner.os }}-composer-${{ hashFiles('composer.lock') }}
+      # The regular matrix retains the locked PSR-7 2.x coverage. Guzzle
+      # itself must also be unlocked because its locked 7.x requires PSR-7 2.x.
+      - name: Install with PSR-7 3.x
+        run: composer update 'guzzlehttp/psr7:^3.0' guzzlehttp/guzzle --with-all-dependencies --minimal-changes --no-interaction --no-progress
+      - run: composer test
+      - run: composer stan
+      - name: Install Atoms into a fresh Laravel app with PSR-7 3.x locked
+        run: bash tests/Smoke/laravel-install.sh
+
   docs:
     runs-on: ubuntu-latest
     steps:
