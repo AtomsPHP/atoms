@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * atom-do-instance.mjs — a discarded PHP instance cannot report onto a live one.
+ * atom-do-instance.test.mjs — a discarded PHP instance cannot report onto a live one.
  *
  * `php.run()` is started once per activation and never awaited: it ends only
  * when the guest exits. Discarding an instance does not settle that promise, so
@@ -18,7 +18,7 @@
  * `watchRun()`/`settleRun()` against promises whose settle moment the test
  * chooses.
  *
- *   node test/atom-do-instance.mjs
+ *   node --test test/atom-do-instance.test.mjs
  *
  * `src/atom-do.js` imports `cloudflare:workers` and, through `php-host.js`, a
  * `.wasm` module — neither of which plain Node resolves. Both are stubbed by a

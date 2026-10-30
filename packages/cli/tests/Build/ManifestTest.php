@@ -6,7 +6,9 @@ namespace Atoms\Cli\Tests\Build;
 
 use Atoms\Cli\Build\ManifestHash;
 use Atoms\Cli\Build\Validator;
+use Atoms\Cli\Config\AtomsJson;
 use Atoms\Cli\Tests\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 final class ManifestTest extends TestCase
 {
@@ -73,6 +75,93 @@ final class ManifestTest extends TestCase
             $byType['Subroom'],
             'an Atom whose parent is not Atoms\\Atom must omit the key, not claim false',
         );
+    }
+
+    public function testBroadcastWithoutLifecycleHandlersEnablesWebsockets(): void
+    {
+        $dir = $this->tempCopy('ws-app');
+        file_put_contents($dir . '/app/Atoms/Dashboard.php', <<<'PHP'
+<?php
+declare(strict_types=1);
+namespace App\Atoms;
+
+use Atoms\Atom;
+
+final class Dashboard extends Atom
+{
+    public function publish(): void
+    {
+        $this->broadcast('all', ['updated' => true]);
+    }
+}
+PHP);
+
+        $result = (new Validator())->validate(AtomsJson::load($dir . '/atoms.json'));
+        self::assertSame([], $result->errors);
+        $byType = array_column($result->manifest['atoms'], null, 'type');
+        self::assertTrue($byType['Dashboard']['websocket']);
+        self::assertSame(['publish'], array_column($byType['Dashboard']['methods'], 'name'));
+    }
+
+    #[DataProvider('broadcastCallShapes')]
+    public function testBroadcastDetectionUsesCallsOnTheAtom(string $body, bool $expected): void
+    {
+        $dir = $this->tempCopy('ws-app');
+        file_put_contents($dir . '/app/Atoms/Dashboard.php',
+            '<?php namespace App\\Atoms; final class Dashboard extends \\Atoms\\Atom {'
+            . 'public function publish(): void {' . $body . '}}',
+        );
+
+        $result = (new Validator())->validate(AtomsJson::load($dir . '/atoms.json'));
+        self::assertSame([], $result->errors);
+        $byType = array_column($result->manifest['atoms'], null, 'type');
+        self::assertSame($expected, $byType['Dashboard']['websocket']);
+    }
+
+    /** @return iterable<string, array{string, bool}> */
+    public static function broadcastCallShapes(): iterable
+    {
+        yield 'case insensitive' => ['$this->BROADCAST("all", []);', true];
+        yield 'nullsafe' => ['$this?->broadcast("all", []);', true];
+        yield 'parent' => ['parent::broadcast("all", []);', true];
+        yield 'self' => ['self::broadcast("all", []);', true];
+        yield 'static' => ['static::broadcast("all", []);', true];
+        yield 'closure' => ['$send = function () { $this->broadcast("all", []); }; $send();', true];
+        yield 'arrow function' => ['$send = fn () => $this->broadcast("all", []); $send();', true];
+        yield 'private helper' => ['$this->send(); } private function send(): void { $this->broadcast("all", []);', true];
+        yield 'another receiver' => ['$other = new \\stdClass(); $other->broadcast("all", []);', false];
+        yield 'string and comment' => ['/* $this->broadcast("all", []); */ $text = "broadcast";', false];
+        yield 'nested class' => ['$other = new class { public function send(): void { $this->broadcast("all", []); } };', false];
+        yield 'named function' => ['function unrelated(): void { $this->broadcast("all", []); }', false];
+    }
+
+    public function testTraitCapabilityIsNotRejectedWhenItCannotBeSeen(): void
+    {
+        $dir = $this->tempCopy('ws-app');
+        mkdir($dir . '/app/Atoms/Dashboard/Support', 0777, true);
+        file_put_contents($dir . '/app/Atoms/Dashboard/Support/Publishes.php', <<<'PHP'
+<?php
+namespace App\Atoms\Dashboard\Support;
+trait Publishes
+{
+    public function publish(): void
+    {
+        $this->broadcast('all', ['updated' => true]);
+    }
+}
+PHP);
+        file_put_contents($dir . '/app/Atoms/Dashboard.php', <<<'PHP'
+<?php
+namespace App\Atoms;
+final class Dashboard extends \Atoms\Atom
+{
+    use Dashboard\Support\Publishes;
+}
+PHP);
+        $result = (new Validator())->validate(AtomsJson::load($dir . '/atoms.json'));
+        self::assertSame([], $result->errors);
+        $byType = array_column($result->manifest['atoms'], null, 'type');
+        self::assertArrayNotHasKey('websocket', $byType['Dashboard']);
     }
 
     public function testMethodsAndJobsAndShared(): void

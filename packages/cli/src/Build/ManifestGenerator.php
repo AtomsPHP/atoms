@@ -6,6 +6,7 @@ namespace Atoms\Cli\Build;
 
 use Atoms\Cli\Config\AtomsJson;
 use Atoms\Cli\Release\RuntimeVersion;
+use PhpParser\Node;
 
 /**
  * Stage 6: assemble the manifest — the single contract artifact for everything
@@ -144,16 +145,17 @@ final class ManifestGenerator
      * is touched. `false` is therefore a claim, not a default, and this
      * generator may only make it when it can actually see the whole class:
      *
-     * - the class declares a handler itself             => `true`;
-     * - the class extends `Atoms\Atom` DIRECTLY and declares none => `false`
-     *   (the base-class handlers are no-ops, so there is genuinely nothing to
-     *   reach);
-     * - the class extends anything else                 => **omitted**.
+     * - the class declares a handler or calls broadcast() on itself => `true`;
+     * - the class extends `Atoms\Atom` DIRECTLY, uses no traits, and does
+     *   neither => `false`;
+     * - otherwise (an intermediate parent or traits) => **omitted**.
      *
      * That last case is the one this exists for. Discovery parses files, it
      * does not load classes, so for `final class Room extends BaseRoom` it
      * cannot see whether `BaseRoom` (possibly in a vendor package, possibly
-     * itself extending something else) overrides `onMessage`. Emitting `false`
+     * itself extending something else) overrides `onMessage` or broadcasts.
+     * Traits can also supply either capability, so they omit the key unless
+     * a declared method already establishes it. Emitting `false`
      * there produced a wrongful 501 on a type whose handlers work perfectly —
      * a build-time guess breaking a runtime that would have been correct. When
      * the generator cannot see the hierarchy it declines to answer, and the
@@ -171,10 +173,47 @@ final class ManifestGenerator
                     return true;
                 }
             }
+            if ($this->callsBroadcast($method)) {
+                return true;
+            }
         }
 
         $parent = $atom->parent === null ? null : ltrim($atom->parent, '\\');
 
-        return $parent === Discovery::ATOM_BASE ? false : null;
+        return $parent === Discovery::ATOM_BASE && $atom->traits === [] ? false : null;
+    }
+
+    /** Detect named calls on this Atom without executing customer code. */
+    private function callsBroadcast(Node $node): bool
+    {
+        // These introduce another scope; closures and arrow functions can
+        // retain this Atom's $this and must still be inspected.
+        if ($node instanceof Node\Stmt\ClassLike || $node instanceof Node\Stmt\Function_) {
+            return false;
+        }
+
+        if (($node instanceof Node\Expr\MethodCall || $node instanceof Node\Expr\NullsafeMethodCall)
+            && $node->var instanceof Node\Expr\Variable && $node->var->name === 'this'
+            && $node->name instanceof Node\Identifier
+            && strcasecmp($node->name->toString(), 'broadcast') === 0) {
+            return true;
+        }
+        if ($node instanceof Node\Expr\StaticCall && $node->class instanceof Node\Name
+            && \in_array(strtolower($node->class->toString()), ['self', 'parent', 'static'], true)
+            && $node->name instanceof Node\Identifier
+            && strcasecmp($node->name->toString(), 'broadcast') === 0) {
+            return true;
+        }
+
+        foreach ($node->getSubNodeNames() as $name) {
+            $value = $node->$name;
+            foreach (\is_array($value) ? $value : [$value] as $child) {
+                if ($child instanceof Node && $this->callsBroadcast($child)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

@@ -1103,27 +1103,30 @@ additive; `schema` stays `1`.
   `require`s the declared file. Absent key ⇒ no vendor tree, nothing changes;
   `bundle_format` stays `0`. Conformance check 45 pins the guest behaviour.
 
-**`atoms[].websocket` is three-valued, and the third value is "no answer".**
-The Worker reads the key as: absent ⇒ allowed, `true` ⇒ allowed, `false` ⇒
-refuse `GET /ws/:type/:id` with 501 before any Durable Object is touched. So
-`false` is a *claim*, and `ManifestGenerator` may only make it when it can
-actually see that no handler exists. Discovery parses files; it does not load
-classes. For `class Room extends BaseRoom` it cannot follow `BaseRoom`
-— which may live in a vendor package and may itself extend something else — so
-it cannot know whether `onMessage` is declared up the chain. The generator
-therefore emits `true` when the class declares a handler **itself** (matched
-case-insensitively, because PHP method names are), `false` only when the class
-extends `Atoms\Atom` **directly** and declares none, and **omits the key
-entirely** in every other case, leaving the decision to the runtime's own
-dispatch. The limitation this documents is real and deliberate: a project that
-puts its handlers on an intermediate base class gets no build-time 501
-shortcut for its non-WebSocket types. The alternative — guessing `false` —
-produced a wrongful 501 on handlers that worked perfectly, which is the worse
-failure by a wide margin: a build-time guess breaking a runtime that was
-correct.
+### WebSocket eligibility
 
-`tests/Integration/BundleBridgeTest.php` runs a real build through the real
-translator and is the test that catches either half drifting away from it.
+The Worker allows WebSocket connections when `atoms[].websocket` is `true` or
+absent. If it is `false`, `GET /ws/:type/:id` returns HTTP 501 before contacting
+a Durable Object.
+
+`ManifestGenerator` parses the class without executing it:
+
+| Value | Condition |
+|---|---|
+| `true` | The class declares `onConnect`, `onMessage`, or `onDisconnect`, or contains a recognized broadcast call. |
+| `false` | The class extends `Atoms\Atom` directly, uses no traits, and has none of those handlers or calls. |
+| Omitted | Neither rule above applies. A parent class or trait may provide WebSocket behavior. |
+
+Recognized broadcast calls are `$this->broadcast()`, `$this?->broadcast()`,
+`self::broadcast()`, `parent::broadcast()`, and `static::broadcast()`. Method
+names are case-insensitive. Detection includes private methods and closures
+within the Atom's methods. It excludes calls on other objects and calls inside
+nested classes or named functions. It does not resolve variable method names
+or aliases for `$this`.
+
+The bundle translator must preserve the flag, including its absence.
+`tests/Integration/BundleBridgeTest.php` checks this through a build and
+translation.
 
 ## What `atoms deploy` does, end to end
 

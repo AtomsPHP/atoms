@@ -36,6 +36,28 @@ public function onDisconnect(Connection $connection): void
 }
 ```
 
+### Broadcast-only Atoms
+
+Calling `publish()` sends an update to clients connected with `channels=all`:
+
+```php title="app/Atoms/Dashboard.php"
+<?php
+
+declare(strict_types=1);
+
+namespace App\Atoms;
+
+use Atoms\Atom;
+
+final class Dashboard extends Atom
+{
+    public function publish(): void
+    {
+        $this->broadcast('all', ['updated' => true]);
+    }
+}
+```
+
 ### Connecting
 
 A browser authenticates with a short-lived connection ticket carried in the URL. Your application mints the ticket
