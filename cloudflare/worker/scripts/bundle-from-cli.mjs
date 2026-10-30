@@ -225,12 +225,11 @@ function hostManifest(cli) {
 			// through as the TRI-STATE the CLI emits, never collapsed to a
 			// definite bool. `ManifestGenerator::websocketFlag()` produces three
 			// shapes and the runtime reads all three:
-			//   - present `true`  => the Atom declares a WS handler        => allowed;
-			//   - present `false` => it extends Atoms\Atom DIRECTLY and declares
-			//                        none, a claim discovery could prove     => 501;
-			//   - ABSENT          => it extends something discovery cannot follow,
-			//                        so an inherited handler is unknowable to a
-			//                        file-parser => allowed, runtime dispatch decides.
+			//   - present `true`  => a declared WS handler or broadcast call => allowed;
+			//   - present `false` => directly extends Atoms\Atom, no traits,
+			//                        no handler or recognized broadcast call => 501;
+			//   - ABSENT          => an intermediate parent or traits may supply
+			//                        either capability => allowed, runtime dispatch decides.
 			// Collapsing the absent case to `false` here (the old
 			// `websocket: atom.websocket === true`) re-manufactured the wrongful
 			// 501 that the omission exists to avoid: index.js refuses

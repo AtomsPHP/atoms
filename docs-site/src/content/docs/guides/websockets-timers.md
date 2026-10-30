@@ -36,6 +36,37 @@ public function onDisconnect(Connection $connection): void
 }
 ```
 
+### Broadcast-only Atoms
+
+A dashboard can publish updates without handling incoming WebSocket events:
+
+```php title="app/Atoms/Dashboard.php"
+<?php
+
+declare(strict_types=1);
+
+namespace App\Atoms;
+
+use Atoms\Atom;
+
+final class Dashboard extends Atom
+{
+    public function publish(): void
+    {
+        $this->broadcast('all', ['updated' => true]);
+    }
+}
+```
+
+The build recognizes `$this->broadcast()` and enables WebSocket connections in
+the manifest. Connect to the same `Dashboard` instance with `channels=all` and
+invoke `publish()` to receive an update. No lifecycle handler is required.
+
+In Atoms 0.8.0, the generator only recognizes lifecycle handlers. Until you
+upgrade to a release containing broadcast detection, this example needs an
+empty `onConnect(\Atoms\Websocket\Connection $connection, array $params): void`
+method to enable connections.
+
 ### Connecting
 
 A browser authenticates with a short-lived connection ticket carried in the URL. Your application mints the ticket

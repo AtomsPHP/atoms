@@ -86,6 +86,8 @@ jobs:
         run: npm ci
       - name: Application HTTP can invoke an Atom that calls back into Laravel
         run: node tests/Smoke/laravel-callback.mjs
+      - name: Broadcast-only documentation example accepts subscriptions
+        run: node tests/Smoke/broadcast-dashboard.mjs
 
   docs:
     runs-on: ubuntu-latest

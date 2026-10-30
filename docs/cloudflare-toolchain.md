@@ -1107,14 +1107,21 @@ additive; `schema` stays `1`.
 The Worker reads the key as: absent ⇒ allowed, `true` ⇒ allowed, `false` ⇒
 refuse `GET /ws/:type/:id` with 501 before any Durable Object is touched. So
 `false` is a *claim*, and `ManifestGenerator` may only make it when it can
-actually see that no handler exists. Discovery parses files; it does not load
+inspect the class's handlers and broadcast calls. Discovery parses files; it does not load
 classes. For `class Room extends BaseRoom` it cannot follow `BaseRoom`
 — which may live in a vendor package and may itself extend something else — so
 it cannot know whether `onMessage` is declared up the chain. The generator
-therefore emits `true` when the class declares a handler **itself** (matched
-case-insensitively, because PHP method names are), `false` only when the class
-extends `Atoms\Atom` **directly** and declares none, and **omits the key
-entirely** in every other case, leaving the decision to the runtime's own
+therefore emits `true` when the class declares a handler **itself** or makes a
+named broadcast call on itself (`$this->broadcast()`, including nullsafe calls,
+or `self::broadcast()`, `parent::broadcast()`, or `static::broadcast()`). Names
+are matched case-insensitively, because PHP method names are. Calls in closures
+and private helper methods count; calls on another object or inside a nested
+class or named function do not. This is static detection, not call-graph or
+data-flow analysis: variable method names and aliases for `$this` are not
+resolved. The generator emits `false` only when the class extends `Atoms\Atom`
+**directly**, uses no traits, and declares neither a handler nor a recognized
+broadcast call, and **omits the key entirely** in every other case, leaving
+the decision to the runtime's own
 dispatch. The limitation this documents is real and deliberate: a project that
 puts its handlers on an intermediate base class gets no build-time 501
 shortcut for its non-WebSocket types. The alternative — guessing `false` —
