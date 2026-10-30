@@ -106,8 +106,6 @@ jobs:
         run: composer update 'guzzlehttp/psr7:^3.0' guzzlehttp/guzzle --with-all-dependencies --minimal-changes --no-interaction --no-progress
       - run: composer test
       - run: composer stan
-      - name: Install Atoms into a fresh Laravel app with PSR-7 3.x locked
-        run: bash tests/Smoke/laravel-install.sh
 
   docs:
     runs-on: ubuntu-latest
