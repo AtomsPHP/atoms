@@ -4,6 +4,9 @@
 PHP packages, Cloudflare runtime, deploy Action, and compatibility table.
 Publication workflows reject a release tag unless its status is `ready`.
 
+`php.tested` defines host CI coverage. After changing it, run
+`php scripts/release/release.php generate` and `check`.
+
 Use the release tool rather than editing version fields by hand:
 
 ```sh

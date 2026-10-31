@@ -35,6 +35,32 @@ try {
     expect(str_contains($toolchainPage, '| Node.js | `>=24` | Node.js 24 |'), 'Node constraint and version must come from the manifest');
     expect(str_contains($toolchainPage, '| Wrangler | `5.2.1` | Wrangler 5.2.1 |'), 'Wrangler pin must come from the manifest');
     expect(str_contains($toolchainPage, 'PHP 9.0 interpreter compiled to WebAssembly'), 'Guest interpreter version must come from the manifest');
+
+    $expandedPhp = $manifest;
+    $expandedPhp['php']['tested'] = ['8.3', '8.4', '8.5', '8.6'];
+    expect(validateManifest($expandedPhp) === [], 'Host PHP coverage must be configurable without changing the guest target');
+    $expandedPage = renderCompatibility($temp, $expandedPhp);
+    expect(str_contains($expandedPage, '| Host PHP | `^8.3` | PHP 8.3, PHP 8.4, PHP 8.5 and PHP 8.6 |'), 'Host table must list all tested PHP versions');
+    expect(str_contains($expandedPage, 'PHP 8.3 interpreter compiled to WebAssembly'), 'Expanding host coverage must leave the guest on PHP 8.3');
+    $expandedMatrix = compatibilityBlocks($temp, $expandedPhp)['.github/workflows/ci.yml'][2];
+    expect(str_contains($expandedMatrix, "php-version: ['8.3', '8.4', '8.5', '8.6']"), 'Every tested host PHP version must run in CI');
+    foreach ($expandedPhp['laravel']['ci'] as $entry) {
+        expect(str_contains($expandedMatrix, "version: '{$entry['version']}'"), 'Every Laravel CI version must retain the full host PHP matrix');
+    }
+
+    foreach ([
+        ['tested' => []],
+        ['tested' => ['8.3', '8.3']],
+        ['tested' => ['8.3', '8.6-dev']],
+        ['tested' => ['8.3', 8.6]],
+        ['tested' => '8.3'],
+        ['tested' => ['host' => '8.3']],
+        ['tested' => ['8.4', '8.5', '8.6']],
+    ] as $invalidPhp) {
+        $invalidManifest = $expandedPhp;
+        $invalidManifest['php'] = array_replace($expandedPhp['php'], $invalidPhp);
+        expect(validateManifest($invalidManifest) !== [], 'Invalid host PHP metadata must fail release validation: ' . json_encode($invalidPhp));
+    }
     $adapterPath = "{$temp}/packages/laravel/composer.json";
     $adapter = readJson($adapterPath);
     foreach ($adapter['require'] as $name => $constraint) {

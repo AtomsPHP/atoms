@@ -141,7 +141,7 @@ convenient it looks.
   checks and materially affects review, such as a manual or external
   measurement that informed the implementation.
 - **One CI workflow tests everything, from one clone.** `.github/workflows/ci.yml`
-  runs the PHP suites (`composer test` on 8.3 and 8.4), `composer stan`,
+  runs the PHP suites (`composer test` on 8.3–8.6), `composer stan`,
   manifest lint, *and* the Worker's conformance suite under a local
   `wrangler dev`, run for three auth postures: the full suite with
   `ATOMS_BEARER_AUTH=disabled`, the ticket/rotation/cross-language checks

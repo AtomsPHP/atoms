@@ -33,7 +33,7 @@ so application and Worker installs are repeatable.
 
 | Component | Dependency constraint | Supported versions, tested in CI |
 |---|---|---|
-| Host PHP | `^8.3` | PHP 8.3 and PHP 8.4 |
+| Host PHP | `^8.3` | PHP 8.3, PHP 8.4, PHP 8.5 and PHP 8.6 |
 | Node.js | `>=22` | Node.js 22 |
 | Wrangler | `4.118.0` | Wrangler 4.118.0 |
 
@@ -42,6 +42,7 @@ versions that Atoms has not tested.
 
 Host PHP runs your application and CLI. The Worker release supplies its own
 PHP 8.3 interpreter compiled to WebAssembly.
+All bundled PHP code must remain compatible with that interpreter.
 
 ## Laravel and Illuminate
 
@@ -49,8 +50,8 @@ PHP 8.3 interpreter compiled to WebAssembly.
 
 | Laravel | Orchestra Testbench constraint | Host PHP |
 |---|---|---|
-| Laravel 12 | `^10.0` | PHP 8.3 and PHP 8.4 |
-| Laravel 13 | `^11.0` | PHP 8.3 and PHP 8.4 |
+| Laravel 12 | `^10.0` | PHP 8.3, PHP 8.4, PHP 8.5 and PHP 8.6 |
+| Laravel 13 | `^11.0` | PHP 8.3, PHP 8.4, PHP 8.5 and PHP 8.6 |
 
 Laravel 11 has no current CI coverage.
 
