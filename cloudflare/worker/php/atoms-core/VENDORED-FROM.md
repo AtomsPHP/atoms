@@ -42,6 +42,7 @@ reason the Cloudflare runtime can claim the real API runs inside the guest.
 | Re-verified | 2026-10-28, on the remote exception fix guidance — `resources/errors.json` re-vendored after rewording ATOMS-E063. Still 24 files total, the other 23 digests are unchanged |
 | Re-verified | 2026-10-29, on the support-directory casing fix — `resources/errors.json` re-vendored after E001 and E012 fix lines were updated to name `Support/`, matching the PSR-4 namespace segment. Still 24 files total; the other 23 digests are unchanged |
 | Re-verified | 2026-10-29, `Errors/ErrorCode.php` and `resources/errors.json` copied after adding ATOMS-E111 and ATOMS-E112 for callback nonce configuration and storage failures. The other digests are unchanged. |
+| Re-verified | 2026-10-31, `resources/errors.json` copied after clarifying that ATOMS-E050 is reserved and current migration validation does not emit it. The other digests are unchanged. |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -138,7 +139,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
 a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
 b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
-ab60226c1ba0a9f5c262a11c4efa22d00cd096132071d71bfe3339b4c3f946a4  resources/errors.json
+e446c7175d2bed35c5157f3de6a04029a92d2222cda63248ef445f00445ee92c  resources/errors.json
 ```
 
 Verify with, from this directory:

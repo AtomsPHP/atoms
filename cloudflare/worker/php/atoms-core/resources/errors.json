@@ -204,8 +204,8 @@
         {
             "code": "ATOMS-E050",
             "title": "Shipped migration was edited",
-            "message": "Migration {file} differs from the version recorded in the deployed manifest.",
-            "fix": "Migrations are append-only once shipped. Restore the original file and add a new migration instead.",
+            "message": "Reserved for detecting edits to shipped migrations. Current migration validation does not emit this code or compare historical migration hashes.",
+            "fix": "Keep shipped migrations unchanged and add a higher-numbered migration. Existing Atoms skip applied versions; new identities can execute edited files. Do not rely on E050 to detect edits.",
             "severity": "error",
             "phase": "build"
         },
