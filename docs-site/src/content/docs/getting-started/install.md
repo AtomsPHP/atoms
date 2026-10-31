@@ -15,13 +15,18 @@ Atoms is currently experimental and in early stages. The goal is to keep the cur
 - A Cloudflare account for deployment
 
 See [Compatibility](/reference/compatibility/#host-and-toolchain-support) for
-dependency constraints and tested versions.
+dependency constraints and tested versions. Your application and the Atoms CLI
+use host PHP. Atom classes, Support code, bundled shared code, migrations, and
+bundled dependencies execute in the Worker's PHP 8.3 interpreter and must use
+PHP 8.3-compatible syntax.
 
 ## PHP
 
 <!-- BEGIN generated Laravel compatibility -->
 The adapter accepts Laravel 11, 12 and 13. CI tests Laravel 12 and 13. See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).
 <!-- END generated Laravel compatibility -->
+
+Starting without an application? Follow [New Laravel application](/getting-started/laravel/#new-laravel-application).
 
 Choose the adapter for the application you already have:
 

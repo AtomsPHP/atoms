@@ -90,12 +90,55 @@ feature. They write a copy of this file with the selected environment's Worker
 name, custom domains, callback URL and debug setting filled in, to
 `atoms-worker/.wrangler/deploy/wrangler.json`, alongside a `config.json` that
 tells Wrangler to use the copy. Wrangler prints "Using redirected Wrangler
-configuration" when it does. Both files are removed when Wrangler exits.
+configuration" when it does. Atoms removes both files after Wrangler returns
+normally, including when Wrangler reports an error. Abrupt termination of the
+parent Atoms process can prevent that cleanup.
 
 Define environments in `atoms.json` rather than in Wrangler's `env.<name>`
 sections, and declare hostnames under `custom_domains` rather than as routes
 here. The generated copy leaves out both, and `atoms deploy` prints a notice
 when it finds routes in this file.
+
+### Recover a stale Wrangler redirect
+
+A leftover redirect can make a later direct Wrangler invocation use a previously
+selected environment. Before changing generated files, stop this project's Atoms
+and Wrangler processes and confirm they have exited. A closed terminal alone is
+not proof that every child process stopped.
+
+From the application root, inspect the redirect and the generated Worker name:
+
+```bash
+cat atoms-worker/.wrangler/deploy/config.json
+node -e 'const fs = require("node:fs"); const c = JSON.parse(fs.readFileSync("atoms-worker/.wrangler/deploy/wrangler.json", "utf8")); console.log(c.name);'
+```
+
+Confirm that `configPath` is `wrangler.json` and that the Worker name matches the
+stale environment in this project's `atoms.json`. Check the generated file
+against `atoms-worker/wrangler.jsonc` before proceeding. The redirect format alone
+does not establish that Atoms owns it. Do not move another tool's configuration.
+
+Once you have confirmed that both files are stale Atoms output, move only those
+two files into a backup directory:
+
+```bash
+mkdir -p .atoms
+backup_dir="$(mktemp -d "$PWD/.atoms/stale-wrangler.XXXXXX")"
+mv atoms-worker/.wrangler/deploy/config.json \
+   atoms-worker/.wrangler/deploy/wrangler.json "$backup_dir/"
+```
+
+Keep `atoms-worker/wrangler.jsonc` and `.wrangler/state` in place. The latter
+contains local Durable Object data. Do not delete `.wrangler/` to clear a redirect.
+
+Restart the intended environment, for example with `vendor/bin/atoms dev --env
+staging`, and check the Worker name in its settings report. Do not run two Atoms
+commands against the same Worker directory concurrently.
+
+The interrupted-run report for Atoms 0.9.1 involved a Ctrl+C byte sent to a
+non-TTY session. It did not establish that ordinary terminal Ctrl+C leaves stale
+files. Report that case separately with the terminal and process details if you
+observe it.
 
 ## `atoms-composer.json`
 

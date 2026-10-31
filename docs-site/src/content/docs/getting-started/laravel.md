@@ -9,15 +9,48 @@ The maintained example lives at [`examples/laravel/`](https://github.com/AtomsPH
 The adapter accepts Laravel 11, 12 and 13. CI tests Laravel 12 and 13. See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).
 <!-- END generated Laravel compatibility -->
 
+## New Laravel application
+
+This example uses Atoms 0.9.1, Laravel 13, PHP 8.3 and Node.js 22. From the
+parent directory where you want the application, run:
+
+```bash
+composer create-project laravel/laravel atoms-demo '^13.0'
+cd atoms-demo
+composer require atoms/laravel:0.9.1 --with-all-dependencies
+composer require --dev atoms/cli:0.9.1 atoms/testing:0.9.1 atoms/phpstan-rules:0.9.1
+php artisan atoms:install
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.9.1 -- \
+  atoms-runtime-cloudflare init atoms-worker
+(cd atoms-worker && npm ci)
+```
+
+The project is now initialized. Do not run `atoms init` or `atoms:install`
+again. Keep the PHP packages and runtime on the same release. When using a
+later release, run the matching scaffold command printed by `atoms:install`.
+
+Continue with [Configure callback replay protection](#configure-callback-replay-protection).
+For this local example, use the database driver and namespace
+`atoms-demo:local`, then run `php artisan migrate`. Keep Laravel's generated
+SQLite database. Next, [create the Atom](#create-an-atom), add its migration,
+and [configure PHPStan](#check-the-atom). Set the local endpoint and start
+Atoms before Laravel as shown in [Run it locally](#run-it-locally).
+
 ## Configure the adapter
 
-Initialize the Atoms project and publish the Laravel adapter configuration:
+For an existing Laravel application, install the packages from the
+[installation guide](/getting-started/install/#php), then initialize Atoms and
+publish the adapter configuration:
 
 ```bash
 php artisan atoms:install
 ```
 
-Set your deployed Worker endpoint:
+If you already ran `atoms init`, publish only the adapter configuration with
+`php artisan vendor:publish --tag=atoms-config` instead. Readers who completed
+the new-application steps can skip this section.
+
+For a deployed Worker, set:
 
 ```dotenv
 ATOMS_ENDPOINT=https://your-atoms-worker.example.workers.dev
@@ -101,11 +134,14 @@ requests. Existing custom `NonceStore` bindings remain supported.
 php artisan make:atom GameRoom --with-migration
 ```
 
-```php
+```php title="app/Atoms/GameRoom.php"
+<?php
+
 namespace App\Atoms;
 
 use Atoms\Atom;
 
+/** @extends Atom<\Atoms\AtomMethods> */
 class GameRoom extends Atom
 {
     public function join(string $playerId): int
@@ -126,9 +162,10 @@ class GameRoom extends Atom
 }
 ```
 
-Add an append-only migration beside the Atom using the layout produced by the generator:
+Replace the generated migration's contents with this SQL. Keep only one
+migration numbered `001`; rename the generated file to the path below if needed:
 
-```sql
+```sql title="app/Atoms/GameRoom/migrations/001_create_players.sql"
 CREATE TABLE players (
     player_id TEXT PRIMARY KEY,
     visits INTEGER NOT NULL DEFAULT 0
@@ -164,7 +201,30 @@ self::assertSame(1, $room->invoke('join', ['ada']));
 self::assertSame(2, $room->invoke('join', ['ada']));
 ```
 
-Before deploying, run PHPStan with `vendor/atoms/phpstan-rules/rules.neon` included. It catches values that cannot cross the boundary and the frozen-clock hazards described in [Limits](/reference/limits/#the-clock-does-not-advance-inside-a-turn).
+## Check the Atom
+
+Create `phpstan.neon` in the application root, or merge these settings into
+an existing configuration:
+
+```yaml title="phpstan.neon"
+includes:
+    - vendor/atoms/phpstan-rules/rules.neon
+
+parameters:
+    level: 8
+    paths:
+        - app/Atoms
+```
+
+Run validation and static analysis:
+
+```bash
+vendor/bin/atoms validate
+vendor/bin/phpstan analyse
+```
+
+The rules check boundary types and the
+[frozen-clock hazards](/reference/limits/#the-clock-does-not-advance-inside-a-turn).
 
 ## Run it locally
 
@@ -193,6 +253,30 @@ Laravel needs at least two workers when an HTTP request invokes an Atom that cal
 `atoms dev` creates a shared secret in `.env` if needed and copies it to the Worker's `.dev.vars`. Start Laravel afterward so it reads that value. No Cloudflare account is needed.
 
 `--env` selects an environment from `atoms.json`; `--callback-url` overrides its callback address. See the [CLI reference](/reference/cli/) for other options and how settings are resolved.
+
+### Verify two calls
+
+With both servers running, open a third terminal in the application root:
+
+```bash
+php artisan tinker
+```
+
+Run these calls in Tinker:
+
+```php
+\Atoms\Laravel\Facades\Atoms::get(\App\Atoms\GameRoom::class, 'quickstart-1')->join('ada');
+\Atoms\Laravel\Facades\Atoms::get(\App\Atoms\GameRoom::class, 'quickstart-1')->join('ada');
+```
+
+A new identity returns `1`, then `2`. Repeating the calls increments the
+stored count. Use a new identity if you want to repeat the initial result.
+
+### Troubleshoot the selected environment
+
+If Wrangler selects an unexpected Worker after an interrupted run, follow
+[Recover a stale Wrangler redirect](/guides/configuration/#recover-a-stale-wrangler-redirect).
+Preserve `.wrangler/state` to keep the local Atom databases.
 
 ## Build and deploy
 

@@ -4,6 +4,9 @@ All errors in the Atoms platform carry a stable, machine-readable code (`ATOMS-E
 
 This catalog is the single source of truth: `packages/core/resources/errors.json`. Changes are append-only; codes are never renumbered.
 
+ATOMS-E050 reserves a build-time error for edits to shipped migrations. Current
+migration validation does not emit it or compare historical migration hashes.
+
 | Code | Title | Severity | Phase | Fix |
 |------|-------|----------|-------|-----|
 | ATOMS-E001 | Unclassifiable file under the Atoms path | warning | build | Move non-Atoms code out of the Atoms path, make the class extend the appropriate atoms/core base class, or move an Atom-side helper into the Atom's Support/ directory (e.g. app/Atoms/GameRoom/Support/). |
@@ -31,7 +34,7 @@ This catalog is the single source of truth: `packages/core/resources/errors.json
 | ATOMS-E041 | Method not in deployed version | error | runtime | The monolith is ahead of the Atom deploy. Deploy Atoms first for additive changes (`atoms deploy`), then the monolith. |
 | ATOMS-E042 | Bundle rejected by platform validation | error | deploy | Run `atoms validate` locally — it applies the same checks and must reproduce the failure. |
 | ATOMS-E043 | atoms/core version outside the runtime's supported range | error | deploy | composer update atoms/core to a supported version and rebuild. |
-| ATOMS-E050 | Shipped migration was edited | error | build | Migrations are append-only once shipped. Restore the original file and add a new migration instead. |
+| ATOMS-E050 | Shipped migration was edited | error | build | Keep shipped migrations unchanged and add a higher-numbered migration. Existing Atoms skip applied versions; new identities can execute edited files. Do not rely on E050 to detect edits. |
 | ATOMS-E051 | Migration numbering conflict | error | build | Number migrations with strictly increasing NNN_ prefixes (001_, 002_, ...). |
 | ATOMS-E052 | Migration likely exceeds the activation budget | warning | build | Migrations run at Atom activation. Keep them tiny, or restructure as lazy per-row upgrades in Atom code. |
 | ATOMS-E053 | Migration failed at activation | error | runtime | The Atom stays deactivated. Fix the migration by appending a corrective one — never edit the failed file — and redeploy. |
