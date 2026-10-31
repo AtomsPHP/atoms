@@ -67,7 +67,8 @@
                         "required": ["version", "testbench"],
                         "properties": {
                             "version": { "type": "string", "pattern": "^[1-9][0-9]*$" },
-                            "testbench": { "type": "string", "pattern": "^\\^[1-9][0-9]*\\.0$" }
+                            "testbench": { "type": "string", "pattern": "^\\^[1-9][0-9]*\\.0$" },
+                            "php_max": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" }
                         }
                     }
                 }

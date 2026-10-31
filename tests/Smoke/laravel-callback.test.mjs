@@ -57,21 +57,17 @@ async function freePort() {
 
 async function ready(url, entry) {
     const deadline = Date.now() + settings.startupMs;
-    let failure;
     while (Date.now() < deadline) {
         assert.equal(entry.error, null, `${entry.name}: ${entry.error}`);
         assert.equal(entry.child.exitCode, null, `${entry.name} exited before readiness`);
         try {
-            const response = await fetch(url, {
-                headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(settings.pollMs),
-            });
-            const body = await response.text();
+            const response = await fetch(url, { signal: AbortSignal.timeout(settings.pollMs) });
+            await response.arrayBuffer();
             if (response.ok) return;
-            failure = new Error(`HTTP ${response.status}: ${body}`);
-        } catch (error) { failure = error; }
+        } catch { /* Startup has not finished. */ }
         await delay(settings.pollMs);
     }
-    throw new Error(`${entry.name} did not become ready: ${url}`, { cause: failure });
+    throw new Error(`${entry.name} did not become ready: ${url}`);
 }
 
 async function stop() {
@@ -111,7 +107,7 @@ try {
     let workerPort = await freePort();
     while (workerPort === appPort) workerPort = await freePort();
     const label = `callback-${randomUUID()}`;
-    writeFileSync(join(app, '.env'), `APP_NAME=${label}\nAPP_ENV=local\nAPP_DEBUG=true\nATOMS_ENDPOINT=http://127.0.0.1:${workerPort}\nDB_CONNECTION=sqlite\nDB_DATABASE=${join(app, 'database/nonces.sqlite')}\nATOMS_CALLBACK_NONCE_DRIVER=database\nATOMS_CALLBACK_NONCE_NAMESPACE=${label}\n`);
+    writeFileSync(join(app, '.env'), `APP_NAME=${label}\nAPP_ENV=local\nAPP_DEBUG=false\nATOMS_ENDPOINT=http://127.0.0.1:${workerPort}\nDB_CONNECTION=sqlite\nDB_DATABASE=${join(app, 'database/nonces.sqlite')}\nATOMS_CALLBACK_NONCE_DRIVER=database\nATOMS_CALLBACK_NONCE_NAMESPACE=${label}\n`);
     writeFileSync(join(app, 'database/nonces.sqlite'), '');
     run('php', ['artisan', 'migrate', '--force', '--no-interaction'], app);
 

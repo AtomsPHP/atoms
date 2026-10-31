@@ -50,7 +50,7 @@ All bundled PHP code must remain compatible with that interpreter.
 
 | Laravel | Orchestra Testbench constraint | Host PHP |
 |---|---|---|
-| Laravel 12 | `^10.0` | PHP 8.3, PHP 8.4, PHP 8.5 and PHP 8.6 |
+| Laravel 12 | `^10.0` | PHP 8.3, PHP 8.4 and PHP 8.5 |
 | Laravel 13 | `^11.0` | PHP 8.3, PHP 8.4, PHP 8.5 and PHP 8.6 |
 
 Laravel 11 has no current CI coverage.

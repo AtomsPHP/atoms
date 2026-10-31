@@ -605,7 +605,8 @@ function renderCompatibility(string $root, array $manifest): string
     $adapterMajors = formatMajors($compatibility['adapter']);
     $bridgeMajors = formatMajors($compatibility['bridge']);
     $ciRows = implode("\n", array_map(
-        static fn (array $entry): string => "| Laravel {$entry['version']} | `{$entry['testbench']}` | {$testedPhp} |",
+        static fn (array $entry): string => "| Laravel {$entry['version']} | `{$entry['testbench']}` | "
+            . formatMajors(array_map(static fn (string $v): string => 'PHP ' . $v, $entry['php'])) . ' |',
         $compatibility['ci'],
     ));
     $untested = array_values(array_diff($compatibility['adapter'], array_column($compatibility['ci'], 'version')));
@@ -690,7 +691,7 @@ function illuminateMajors(string $constraint, string $name): array
     return $majors;
 }
 
-/** @param array<string, mixed> $manifest @return array{adapter: list<string>, bridge: list<string>, ci: list<array{version: string, testbench: string}>} */
+/** @param array<string, mixed> $manifest @return array{adapter: list<string>, bridge: list<string>, ci: list<array{version: string, testbench: string, php: list<string>}>} */
 function laravelCompatibility(string $root, array $manifest): array
 {
     $adapter = readJson("{$root}/packages/laravel/composer.json");
@@ -718,16 +719,32 @@ function laravelCompatibility(string $root, array $manifest): array
         throw new RuntimeException('laravel.ci must be a non-empty list');
     }
     $seen = [];
+    $hostPhp = hostPhpVersions($manifest);
+    $profiles = [];
     foreach ($ci as $entry) {
-        if (!is_array($entry) || array_diff(array_keys($entry), ['version', 'testbench']) !== []
+        if (!is_array($entry) || array_diff(array_keys($entry), ['version', 'testbench', 'php_max']) !== []
             || !is_string($entry['version'] ?? null) || !preg_match('/^[1-9][0-9]*$/', $entry['version'])
             || !is_string($entry['testbench'] ?? null) || !preg_match('/^\^[1-9][0-9]*\.0$/', $entry['testbench'])
             || in_array($entry['version'], $seen, true) || !in_array($entry['version'], $majors, true)) {
             throw new RuntimeException('Invalid or unsupported laravel.ci entry');
         }
+        if (array_key_exists('php_max', $entry)
+            && (!is_string($entry['php_max']) || !preg_match('/^[0-9]+\.[0-9]+$/', $entry['php_max']))) {
+            throw new RuntimeException('laravel.ci.php_max must be a PHP major.minor version');
+        }
+        $php = array_values(array_filter($hostPhp,
+            static fn (string $v): bool => !isset($entry['php_max']) || version_compare($v, $entry['php_max'], '<='),
+        ));
+        if ($php === []) {
+            throw new RuntimeException("Laravel {$entry['version']} has no tested host PHP versions");
+        }
+        $profiles[] = ['version' => $entry['version'], 'testbench' => $entry['testbench'], 'php' => $php];
         $seen[] = $entry['version'];
     }
-    return ['adapter' => $majors, 'bridge' => $bridgeMajors, 'ci' => $ci];
+    if (array_diff($hostPhp, ...array_column($profiles, 'php')) !== []) {
+        throw new RuntimeException('Every php.tested version must have Laravel CI coverage');
+    }
+    return ['adapter' => $majors, 'bridge' => $bridgeMajors, 'ci' => $profiles];
 }
 
 /** @param list<string> $majors */
@@ -751,8 +768,16 @@ function compatibilityBlocks(string $root, array $manifest): array
     $php = hostPhpVersions($manifest);
     $versions = implode(', ', array_map(static fn (string $v): string => "'{$v}'", $php));
     $matrix = "      matrix:\n        php-version: [{$versions}]\n        laravel:";
+    $excluded = [];
     foreach ($compatibility['ci'] as $entry) {
-        $matrix .= "\n          - {version: '{$entry['version']}', testbench: '{$entry['testbench']}'}";
+        $laravel = "{version: '{$entry['version']}', testbench: '{$entry['testbench']}'}";
+        $matrix .= "\n          - {$laravel}";
+        foreach (array_diff($php, $entry['php']) as $version) {
+            $excluded[] = "          - php-version: '{$version}'\n            laravel: {$laravel}";
+        }
+    }
+    if ($excluded !== []) {
+        $matrix .= "\n        exclude:\n" . implode("\n", $excluded);
     }
     $start = '<!-- BEGIN generated Laravel compatibility -->';
     $end = '<!-- END generated Laravel compatibility -->';
