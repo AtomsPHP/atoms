@@ -6,7 +6,7 @@ do not execute customer code; Cloudflare operations use the Wrangler binary
 already installed in your committed Worker directory (`atoms-worker/`).
 
 ```sh
-composer require --dev atoms/cli:^0.8
+composer require --dev atoms/cli:^0.9
 vendor/bin/atoms --help
 ```
 
