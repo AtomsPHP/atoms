@@ -48,9 +48,27 @@ When an Atom wakes up, the runtime starts PHP, applies pending migrations, and c
 
 An Atom's schema lives in a `migrations/` directory next to its class: a numbered series like `001_create_events.sql`, `002_add_round_index.sql`. When an Atom wakes up, the runtime applies new migrations before your code runs.
 
-A migration can also be a `.php` file, named the same way, that returns an object with an `up()` method.
+A PHP migration uses the same numbered filename, such as
+`001_create_events.php`. It must return an object that implements
+`Atoms\Migrations\Migration` with `up(Atoms\Database $db): void`:
+
+```php
+<?php
+return new class implements \Atoms\Migrations\Migration {
+    public function up(\Atoms\Database $db): void
+    {
+        $db->execute('CREATE TABLE events (id INTEGER PRIMARY KEY)');
+    }
+};
+```
+
+An `up()` method alone is insufficient. Without the interface, the migration
+fails with [ATOMS-E053](/reference/errors/#atoms-e053) and does not advance the
+schema version.
 
 Each Atom's database records its highest applied migration version. At activation, Atoms runs only migrations with a higher version; versions at or below the recorded version are skipped, even if their contents have changed. The build manifest includes migration hashes, but Atoms does not compare them against previously applied migrations or reject edits.
+
+[ATOMS-E050](/reference/errors/#atoms-e050) is reserved and is not emitted by current migration validation. Do not rely on it to detect historical edits.
 
 Treat deployed migrations as immutable. Editing an old migration leaves existing Atoms unchanged while new Atoms run the edited version, potentially producing different schemas. To change the schema, add a new migration with a higher version instead.
 

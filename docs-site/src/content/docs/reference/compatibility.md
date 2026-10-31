@@ -42,7 +42,9 @@ versions that Atoms has not tested.
 
 Host PHP runs your application and CLI. The Worker release supplies its own
 PHP 8.3 interpreter compiled to WebAssembly.
-All bundled PHP code must remain compatible with that interpreter.
+Atom classes, Support code, shared code included in the bundle, migrations,
+and bundled dependencies must use PHP 8.3-compatible syntax,
+even when the application host uses a newer PHP version.
 
 ## Laravel and Illuminate
 
