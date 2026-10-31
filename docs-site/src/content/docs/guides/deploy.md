@@ -81,6 +81,124 @@ is lost. Calls may fail and WebSockets may disconnect during
 [shutdown](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/#shutdown-behavior).
 Reconnect sockets and make mutating calls safe to repeat before retrying them.
 
+### Check protected RPC and a signed callback
+
+For the [Laravel quickstart](/getting-started/laravel/), add these methods inside
+`App\Atoms\GameRoom`. They read the tutorial's `players` table and call the
+application without inserting player records:
+
+```php
+/** @return list<array<string, mixed>> */
+public function players(): array
+{
+    return $this->db()->query('SELECT player_id, visits FROM players ORDER BY player_id');
+}
+
+public function applicationName(): string
+{
+    return $this->app()->applicationName();
+}
+```
+
+Replace the class's `@extends` annotation with the Methods type:
+
+```php
+/** @extends Atom<\App\Atoms\GameRoom\Methods> */
+class GameRoom extends Atom
+```
+
+Create the app-side Methods class:
+
+```php title="app/Atoms/GameRoom/Methods.php"
+<?php
+
+declare(strict_types=1);
+
+namespace App\Atoms\GameRoom;
+
+use Atoms\AtomMethods;
+
+final class Methods extends AtomMethods
+{
+    public function applicationName(): string
+    {
+        return (string) config('app.name');
+    }
+}
+```
+
+Run `vendor/bin/atoms validate` and `vendor/bin/phpstan analyse`. Deploy the
+updated Atom and install the Methods class in the application that receives
+callbacks. Configure the [shared nonce store](/getting-started/laravel/#configure-callback-replay-protection)
+and the target environment's `callback_url`. The application and Worker must
+have the same shared secret, and the Worker must require bearer authentication.
+The runtime scaffold uses `ATOMS_BEARER_AUTH=required` by default.
+
+Save this script in the Laravel application root:
+
+```php title="atoms-smoke.php"
+<?php
+
+declare(strict_types=1);
+
+use App\Atoms\GameRoom;
+use Atoms\Laravel\Facades\Atoms;
+use Illuminate\Contracts\Console\Kernel;
+
+try {
+    require __DIR__ . '/vendor/autoload.php';
+    $app = require __DIR__ . '/bootstrap/app.php';
+    $app->make(Kernel::class)->bootstrap();
+
+    $expectedName = (string) config('app.name');
+    if ($expectedName === '') {
+        throw new RuntimeException('The application name is empty.');
+    }
+
+    $room = Atoms::get(GameRoom::class, 'deployment-smoke-v1');
+    if ($room->players() !== []) {
+        throw new RuntimeException('The smoke-test identity has player records.');
+    }
+    if ($room->applicationName() !== $expectedName) {
+        throw new RuntimeException('The callback returned an unexpected application name.');
+    }
+    if ($room->players() !== []) {
+        throw new RuntimeException('The smoke-test identity changed.');
+    }
+
+    fwrite(STDOUT, "Atom read and signed callback succeeded.\n");
+} catch (Throwable $error) {
+    // Do not print exception details that could contain application data.
+    fwrite(STDERR, "Atom smoke test failed. Check the application and Worker logs.\n");
+    exit(1);
+}
+```
+
+Run it using the intended application's configuration:
+
+```bash
+php atoms-smoke.php
+```
+
+The script uses the configured endpoint and shared secret. It does not need a
+pasted bearer token and does not print secrets. Reserve `deployment-smoke-v1`
+for this check. Its first access may create the Atom and apply migrations even
+though the methods do not add domain records.
+
+For a local check, start Atoms and Laravel with the
+[documented concurrent-server setup](/getting-started/laravel/#run-it-locally)
+before running the script. In a disposable copy with uncached Laravel
+configuration, set `ATOMS_SHARED_SECRET` to a different valid secret and rerun
+the script. It must exit nonzero. Restore the shared secret, restart the local
+Worker with an unreachable callback URL, and confirm that the script again
+exits nonzero. Restore the working callback URL after this check. Do not change
+production secrets or callback settings to test these failure cases.
+
+Success confirms protected RPC, activation and migrations for one identity,
+and a signed callback accepted by the configured application. It does not prove
+fleet-wide version propagation, production concurrency, or complete replay
+protection coverage.
+
 ### Stage application and Atom releases
 
 1. Deploy compatible Atom changes before application code that uses them.

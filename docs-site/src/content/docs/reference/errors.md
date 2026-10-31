@@ -469,11 +469,11 @@ composer update atoms/core to a supported version and rebuild.
 
 **Message**
 
-Migration {file} differs from the version recorded in the deployed manifest.
+Reserved for detecting edits to shipped migrations. Current migration validation does not emit this code or compare historical migration hashes.
 
 **Fix**
 
-Migrations are append-only once shipped. Restore the original file and add a new migration instead.
+Keep shipped migrations unchanged and add a higher-numbered migration. Existing Atoms skip applied versions; new identities can execute edited files. Do not rely on E050 to detect edits.
 
 
 <a id="atoms-e051"></a>
