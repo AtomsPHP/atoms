@@ -55,6 +55,7 @@ jobs:
         with:
           php-version: ${{ matrix.php-version }}
           extensions: pdo_sqlite, sodium, curl
+          ini-values: display_errors=Off, log_errors=On
           coverage: none
       - uses: actions/cache@v4
         with:
