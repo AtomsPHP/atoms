@@ -1,7 +1,7 @@
 {
     "name": "atoms/database-illuminate",
     "description": "Illuminate bridge for Atoms: the Laravel query builder and Eloquent models against an Atom's own SQLite database.",
-    "version": "0.9.0",
+    "version": "0.9.1",
     "license": "MIT",
     "homepage": "https://atomsphp.dev",
     "support": {

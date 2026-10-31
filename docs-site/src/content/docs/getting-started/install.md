@@ -68,7 +68,7 @@ vendor/bin/atoms init
 The `init` command creates `atoms.json` and `atoms-composer.json`, and appends `/.atoms/` and `/.env.atoms.*` to your `.gitignore`. It also prints a command that scaffolds the matching version of the Cloudflare Worker runtime:
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.9.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.9.1 -- \
   atoms-runtime-cloudflare init atoms-worker
 cd atoms-worker
 npm ci

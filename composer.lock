@@ -9,11 +9,11 @@
     "packages-dev": [
         {
             "name": "atoms/cli",
-            "version": "0.9.0",
+            "version": "0.9.1",
             "dist": {
                 "type": "path",
                 "url": "packages/cli",
-                "reference": "04c6b83947eb98ae3213ddda2453e0d871574b7d"
+                "reference": "5c26b508d890c51feae6d6bd2ca93e308762148f"
             },
             "require": {
                 "atoms/core": "^0.9",
@@ -65,11 +65,11 @@
         },
         {
             "name": "atoms/client",
-            "version": "0.9.0",
+            "version": "0.9.1",
             "dist": {
                 "type": "path",
                 "url": "packages/client",
-                "reference": "bd0987f4f979d32824192abceaf8ad4977828d16"
+                "reference": "a6f964c8c396938a08928f48b30670bea423ba1e"
             },
             "require": {
                 "atoms/core": "^0.9",
@@ -122,11 +122,11 @@
         },
         {
             "name": "atoms/core",
-            "version": "0.9.0",
+            "version": "0.9.1",
             "dist": {
                 "type": "path",
                 "url": "packages/core",
-                "reference": "b726dc8781afe38d9d7e5eddf8936b7b2808f760"
+                "reference": "67ceb14573df5b9e946039189caef37eba54d4b3"
             },
             "require": {
                 "ext-pdo": "*",
@@ -168,11 +168,11 @@
         },
         {
             "name": "atoms/database-illuminate",
-            "version": "0.9.0",
+            "version": "0.9.1",
             "dist": {
                 "type": "path",
                 "url": "packages/database-illuminate",
-                "reference": "1ae400aeba84aaba7e39c7d6108b7636a70fdd33"
+                "reference": "1268d843509506a9fd72b7822b8c1f2a56d73e11"
             },
             "require": {
                 "atoms/core": "^0.9",
@@ -216,11 +216,11 @@
         },
         {
             "name": "atoms/laravel",
-            "version": "0.9.0",
+            "version": "0.9.1",
             "dist": {
                 "type": "path",
                 "url": "packages/laravel",
-                "reference": "b520293c48ebfef480beef4452d5e7b406887ce8"
+                "reference": "4f3f0585750f5c1380c9e07538c289237a884285"
             },
             "require": {
                 "atoms/client": "^0.9",
@@ -284,11 +284,11 @@
         },
         {
             "name": "atoms/phpstan-rules",
-            "version": "0.9.0",
+            "version": "0.9.1",
             "dist": {
                 "type": "path",
                 "url": "packages/phpstan-rules",
-                "reference": "6c9a58ea7884748323e1d9a87e343759b9311a6e"
+                "reference": "ec40f4f3b9759913547c147b5c7da9790d3fb5dd"
             },
             "require": {
                 "atoms/core": "^0.9",
@@ -335,11 +335,11 @@
         },
         {
             "name": "atoms/symfony",
-            "version": "0.9.0",
+            "version": "0.9.1",
             "dist": {
                 "type": "path",
                 "url": "packages/symfony",
-                "reference": "b319de5a9864d45f627ea5167199fe3dc9f67e6d"
+                "reference": "1db5c97808962eee51e142d464fa8aa6fce5680c"
             },
             "require": {
                 "atoms/client": "^0.9",
@@ -403,11 +403,11 @@
         },
         {
             "name": "atoms/testing",
-            "version": "0.9.0",
+            "version": "0.9.1",
             "dist": {
                 "type": "path",
                 "url": "packages/testing",
-                "reference": "7fc3ef8bb2aaea4b0694fb6a756534462ecbb153"
+                "reference": "24e7bd462fd5b97d40d4ac33b086985ec6d991e6"
             },
             "require": {
                 "atoms/core": "^0.9",
