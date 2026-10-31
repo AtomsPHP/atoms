@@ -5,6 +5,11 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-31
+
+- **Added:** Host PHP support through 8.6 with Laravel 13; Laravel 12 supports
+  host PHP through 8.5. The Atom runtime remains on PHP 8.3.
+
 ## [0.9.0] - Unreleased
 
 - **Changed:** Authenticated callbacks require a configured nonce store and
@@ -579,7 +584,7 @@ Initial open-source release of the Atoms programming model, Laravel and
 Symfony adapters, testing and PHPStan tooling, deterministic CLI build and
 deploy workflow, and the Cloudflare Durable Object PHP runtime.
 
-[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.7.0...main
+[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.9.1...main
 
 [0.1.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.0
 
@@ -602,3 +607,5 @@ deploy workflow, and the Cloudflare Durable Object PHP runtime.
 [0.8.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.8.0
 
 [0.9.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.9.0
+
+[0.9.1]: https://github.com/AtomsPHP/atoms/releases/tag/v0.9.1
