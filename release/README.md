@@ -4,6 +4,10 @@
 PHP packages, Cloudflare runtime, deploy Action, and compatibility table.
 Publication workflows reject a release tag unless its status is `ready`.
 
+`php.tested` defines host CI coverage; `laravel.ci[].php_max` optionally caps it
+for a Laravel release. After changing either, run
+`php scripts/release/release.php generate` and `check`.
+
 Use the release tool rather than editing version fields by hand:
 
 ```sh

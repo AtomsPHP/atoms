@@ -541,8 +541,13 @@ function validateManifest(array $manifest): array
     if (($manifest['runtime']['guest_php'] ?? null) !== '8.3') {
         $errors[] = 'runtime.guest_php must be 8.3, the frozen core API\'s PHP target';
     }
-    if (($manifest['php']['tested'] ?? null) !== ['8.3', '8.4']) {
-        $errors[] = 'php.tested must match the CI matrix: 8.3 and 8.4';
+    try {
+        $hostPhp = hostPhpVersions($manifest);
+        if (!in_array($manifest['runtime']['guest_php'] ?? null, $hostPhp, true)) {
+            $errors[] = 'php.tested must include runtime.guest_php to retain baseline coverage';
+        }
+    } catch (RuntimeException $error) {
+        $errors[] = $error->getMessage();
     }
 
     return $errors;
@@ -592,15 +597,16 @@ function renderCompatibility(string $root, array $manifest): string
     $runtime = arrayValue($manifest, 'runtime');
     $php = arrayValue($manifest, 'php');
     $core = arrayValue($manifest, 'core');
-    $testedPhp = implode(' and ', array_map(
-        static fn (mixed $value): string => 'PHP ' . (string) $value,
-        is_array($php['tested'] ?? null) ? $php['tested'] : [],
+    $testedPhp = formatMajors(array_map(
+        static fn (string $value): string => 'PHP ' . $value,
+        hostPhpVersions($manifest),
     ));
     $compatibility = laravelCompatibility($root, $manifest);
     $adapterMajors = formatMajors($compatibility['adapter']);
     $bridgeMajors = formatMajors($compatibility['bridge']);
     $ciRows = implode("\n", array_map(
-        static fn (array $entry): string => "| Laravel {$entry['version']} | `{$entry['testbench']}` | {$testedPhp} |",
+        static fn (array $entry): string => "| Laravel {$entry['version']} | `{$entry['testbench']}` | "
+            . formatMajors(array_map(static fn (string $v): string => 'PHP ' . $v, $entry['php'])) . ' |',
         $compatibility['ci'],
     ));
     $untested = array_values(array_diff($compatibility['adapter'], array_column($compatibility['ci'], 'version')));
@@ -653,6 +659,7 @@ versions that Atoms has not tested.
 
 Host PHP runs your application and CLI. The Worker release supplies its own
 PHP {$runtime['guest_php']} interpreter compiled to WebAssembly.
+All bundled PHP code must remain compatible with that interpreter.
 
 ## Laravel and Illuminate
 
@@ -684,7 +691,7 @@ function illuminateMajors(string $constraint, string $name): array
     return $majors;
 }
 
-/** @param array<string, mixed> $manifest @return array{adapter: list<string>, bridge: list<string>, ci: list<array{version: string, testbench: string}>} */
+/** @param array<string, mixed> $manifest @return array{adapter: list<string>, bridge: list<string>, ci: list<array{version: string, testbench: string, php: list<string>}>} */
 function laravelCompatibility(string $root, array $manifest): array
 {
     $adapter = readJson("{$root}/packages/laravel/composer.json");
@@ -712,16 +719,32 @@ function laravelCompatibility(string $root, array $manifest): array
         throw new RuntimeException('laravel.ci must be a non-empty list');
     }
     $seen = [];
+    $hostPhp = hostPhpVersions($manifest);
+    $profiles = [];
     foreach ($ci as $entry) {
-        if (!is_array($entry) || array_diff(array_keys($entry), ['version', 'testbench']) !== []
+        if (!is_array($entry) || array_diff(array_keys($entry), ['version', 'testbench', 'php_max']) !== []
             || !is_string($entry['version'] ?? null) || !preg_match('/^[1-9][0-9]*$/', $entry['version'])
             || !is_string($entry['testbench'] ?? null) || !preg_match('/^\^[1-9][0-9]*\.0$/', $entry['testbench'])
             || in_array($entry['version'], $seen, true) || !in_array($entry['version'], $majors, true)) {
             throw new RuntimeException('Invalid or unsupported laravel.ci entry');
         }
+        if (array_key_exists('php_max', $entry)
+            && (!is_string($entry['php_max']) || !preg_match('/^[0-9]+\.[0-9]+$/', $entry['php_max']))) {
+            throw new RuntimeException('laravel.ci.php_max must be a PHP major.minor version');
+        }
+        $php = array_values(array_filter($hostPhp,
+            static fn (string $v): bool => !isset($entry['php_max']) || version_compare($v, $entry['php_max'], '<='),
+        ));
+        if ($php === []) {
+            throw new RuntimeException("Laravel {$entry['version']} has no tested host PHP versions");
+        }
+        $profiles[] = ['version' => $entry['version'], 'testbench' => $entry['testbench'], 'php' => $php];
         $seen[] = $entry['version'];
     }
-    return ['adapter' => $majors, 'bridge' => $bridgeMajors, 'ci' => $ci];
+    if (array_diff($hostPhp, ...array_column($profiles, 'php')) !== []) {
+        throw new RuntimeException('Every php.tested version must have Laravel CI coverage');
+    }
+    return ['adapter' => $majors, 'bridge' => $bridgeMajors, 'ci' => $profiles];
 }
 
 /** @param list<string> $majors */
@@ -742,14 +765,19 @@ function compatibilityBlocks(string $root, array $manifest): array
     $ciVersions = formatMajors(array_column($compatibility['ci'], 'version'));
     $note = "The adapter accepts Laravel {$adapter}. CI tests Laravel {$ciVersions}.";
     $note .= ' See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).';
-    $php = arrayValue($manifest, 'php')['tested'] ?? null;
-    if (!is_array($php) || !array_is_list($php) || $php === [] || array_filter($php, static fn ($v): bool => !is_string($v) || !preg_match('/^[0-9]+\.[0-9]+$/', $v))) {
-        throw new RuntimeException('php.tested must be a non-empty list of PHP versions');
-    }
+    $php = hostPhpVersions($manifest);
     $versions = implode(', ', array_map(static fn (string $v): string => "'{$v}'", $php));
     $matrix = "      matrix:\n        php-version: [{$versions}]\n        laravel:";
+    $excluded = [];
     foreach ($compatibility['ci'] as $entry) {
-        $matrix .= "\n          - {version: '{$entry['version']}', testbench: '{$entry['testbench']}'}";
+        $laravel = "{version: '{$entry['version']}', testbench: '{$entry['testbench']}'}";
+        $matrix .= "\n          - {$laravel}";
+        foreach (array_diff($php, $entry['php']) as $version) {
+            $excluded[] = "          - php-version: '{$version}'\n            laravel: {$laravel}";
+        }
+    }
+    if ($excluded !== []) {
+        $matrix .= "\n        exclude:\n" . implode("\n", $excluded);
     }
     $start = '<!-- BEGIN generated Laravel compatibility -->';
     $end = '<!-- END generated Laravel compatibility -->';
@@ -758,6 +786,19 @@ function compatibilityBlocks(string $root, array $manifest): array
         'docs-site/src/content/docs/getting-started/laravel.md' => [$start, $end, $note],
         '.github/workflows/ci.yml' => ['      # BEGIN generated Laravel matrix', '      # END generated Laravel matrix', $matrix],
     ];
+}
+
+/** @param array<string, mixed> $manifest @return list<string> */
+function hostPhpVersions(array $manifest): array
+{
+    $versions = arrayValue($manifest, 'php')['tested'] ?? null;
+    if (!is_array($versions) || !array_is_list($versions) || $versions === []
+        || array_filter($versions, static fn ($v): bool => !is_string($v) || !preg_match('/^[0-9]+\.[0-9]+$/', $v))
+        || count(array_unique($versions)) !== count($versions)) {
+        throw new RuntimeException('php.tested must be a non-empty list of unique PHP major.minor versions');
+    }
+
+    return $versions;
 }
 
 function replaceTaggedBlock(string $contents, string $start, string $end, string $body): string

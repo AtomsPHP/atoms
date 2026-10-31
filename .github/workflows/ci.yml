@@ -41,12 +41,16 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       # BEGIN generated Laravel matrix
       matrix:
-        php-version: ['8.3', '8.4']
+        php-version: ['8.3', '8.4', '8.5', '8.6']
         laravel:
           - {version: '12', testbench: '^10.0'}
           - {version: '13', testbench: '^11.0'}
+        exclude:
+          - php-version: '8.6'
+            laravel: {version: '12', testbench: '^10.0'}
       # END generated Laravel matrix
     steps:
       - uses: actions/checkout@v4
@@ -62,6 +66,7 @@ jobs:
       - run: composer install --no-interaction --no-progress
       - name: Select Laravel ${{ matrix.laravel.version }}
         run: composer update "orchestra/testbench:${{ matrix.laravel.testbench }}" --with-all-dependencies --no-interaction --no-progress --minimal-changes
+      - run: composer check-platform-reqs
       - name: Verify installed Laravel version
         env:
           EXPECTED_LARAVEL_MAJOR: ${{ matrix.laravel.version }}

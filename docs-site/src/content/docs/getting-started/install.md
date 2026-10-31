@@ -9,7 +9,7 @@ Atoms is currently experimental and in early stages. The goal is to keep the cur
 
 ## Requirements
 
-- PHP 8.3 or 8.4 on the application host
+- PHP 8.3–8.6 on the application host
 - Composer 2
 - Node.js 22 for the Cloudflare Worker toolchain
 - A Cloudflare account for deployment

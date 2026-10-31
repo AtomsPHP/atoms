@@ -130,8 +130,8 @@ WordPress Playground's own npm package and stages it into a gitignored
 `worker/.php-wasm/` after verifying its hashes.
 
 One GitHub Actions workflow ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))
-covers both halves: the PHP suites on 8.3 and 8.4, static analysis, and the
-Worker conformance suite under a local `wrangler dev`.
+covers both halves: the PHP suites on 8.3–8.6, static analysis,
+and the PHP 8.3 Worker conformance suite under a local `wrangler dev`.
 
 ## Licensing and third-party components
 

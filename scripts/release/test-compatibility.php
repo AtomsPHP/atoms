@@ -27,6 +27,7 @@ try {
     $changedToolchain = $manifest;
     $changedToolchain['php']['constraint'] = '^9.0';
     $changedToolchain['php']['tested'] = ['9.1', '9.2'];
+    unset($changedToolchain['laravel']['ci'][0]['php_max']);
     $changedToolchain['runtime']['node'] = '24';
     $changedToolchain['runtime']['wrangler'] = '5.2.1';
     $changedToolchain['runtime']['guest_php'] = '9.0';
@@ -35,6 +36,57 @@ try {
     expect(str_contains($toolchainPage, '| Node.js | `>=24` | Node.js 24 |'), 'Node constraint and version must come from the manifest');
     expect(str_contains($toolchainPage, '| Wrangler | `5.2.1` | Wrangler 5.2.1 |'), 'Wrangler pin must come from the manifest');
     expect(str_contains($toolchainPage, 'PHP 9.0 interpreter compiled to WebAssembly'), 'Guest interpreter version must come from the manifest');
+
+    $expandedPhp = $manifest;
+    $expandedPhp['php']['tested'] = ['8.3', '8.4', '8.5', '8.6'];
+    expect(validateManifest($expandedPhp) === [], 'Host PHP coverage must be configurable without changing the guest target');
+    $expandedPage = renderCompatibility($temp, $expandedPhp);
+    expect(str_contains($expandedPage, '| Host PHP | `^8.3` | PHP 8.3, PHP 8.4, PHP 8.5 and PHP 8.6 |'), 'Host table must list all tested PHP versions');
+    expect(str_contains($expandedPage, 'PHP 8.3 interpreter compiled to WebAssembly'), 'Expanding host coverage must leave the guest on PHP 8.3');
+    $expandedMatrix = compatibilityBlocks($temp, $expandedPhp)['.github/workflows/ci.yml'][2];
+    expect(str_contains($expandedMatrix, "php-version: ['8.3', '8.4', '8.5', '8.6']"), 'Every tested host PHP version must run in CI');
+    foreach ($expandedPhp['laravel']['ci'] as $entry) {
+        expect(str_contains($expandedMatrix, "version: '{$entry['version']}'"), 'Every Laravel CI version must remain in the matrix');
+    }
+    $profiles = laravelCompatibility($temp, $expandedPhp)['ci'];
+    expect($profiles[0]['php'] === ['8.3', '8.4', '8.5'], 'Laravel 12 must retain coverage through PHP 8.5');
+    expect($profiles[1]['php'] === $expandedPhp['php']['tested'], 'Laravel 13 must cover every tested host PHP version');
+    expect(str_contains($expandedMatrix, "exclude:\n          - php-version: '8.6'\n            laravel: {version: '12', testbench: '^10.0'}"), 'CI must exclude the unsupported Laravel 12/PHP 8.6 combination');
+    expect(str_contains($expandedPage, '| Laravel 12 | `^10.0` | PHP 8.3, PHP 8.4 and PHP 8.5 |'), 'Docs must respect the Laravel PHP cap');
+    expect(str_contains($expandedPage, '| Laravel 13 | `^11.0` | PHP 8.3, PHP 8.4, PHP 8.5 and PHP 8.6 |'), 'Docs must retain PHP 8.6 coverage for Laravel 13');
+
+    foreach (['8.6-dev', 8.5, null, '8.2'] as $invalidMax) {
+        $invalidManifest = $expandedPhp;
+        $invalidManifest['laravel']['ci'][0]['php_max'] = $invalidMax;
+        try {
+            laravelCompatibility($temp, $invalidManifest);
+            throw new RuntimeException('Invalid Laravel PHP cap was accepted');
+        } catch (RuntimeException $error) {
+            expect(str_contains($error->getMessage(), 'php_max') || str_contains($error->getMessage(), 'no tested host'), 'Invalid Laravel PHP caps must fail validation');
+        }
+    }
+    $uncoveredPhp = $expandedPhp;
+    $uncoveredPhp['laravel']['ci'][1]['php_max'] = '8.5';
+    try {
+        laravelCompatibility($temp, $uncoveredPhp);
+        throw new RuntimeException('Uncovered host PHP version was accepted');
+    } catch (RuntimeException $error) {
+        expect(str_contains($error->getMessage(), 'Every php.tested'), 'Every advertised host version must retain CI coverage');
+    }
+
+    foreach ([
+        ['tested' => []],
+        ['tested' => ['8.3', '8.3']],
+        ['tested' => ['8.3', '8.6-dev']],
+        ['tested' => ['8.3', 8.6]],
+        ['tested' => '8.3'],
+        ['tested' => ['host' => '8.3']],
+        ['tested' => ['8.4', '8.5', '8.6']],
+    ] as $invalidPhp) {
+        $invalidManifest = $expandedPhp;
+        $invalidManifest['php'] = array_replace($expandedPhp['php'], $invalidPhp);
+        expect(validateManifest($invalidManifest) !== [], 'Invalid host PHP metadata must fail release validation: ' . json_encode($invalidPhp));
+    }
     $adapterPath = "{$temp}/packages/laravel/composer.json";
     $adapter = readJson($adapterPath);
     foreach ($adapter['require'] as $name => $constraint) {
