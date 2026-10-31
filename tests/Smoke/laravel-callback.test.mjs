@@ -57,17 +57,19 @@ async function freePort() {
 
 async function ready(url, entry) {
     const deadline = Date.now() + settings.startupMs;
+    let failure;
     while (Date.now() < deadline) {
         assert.equal(entry.error, null, `${entry.name}: ${entry.error}`);
         assert.equal(entry.child.exitCode, null, `${entry.name} exited before readiness`);
         try {
             const response = await fetch(url, { signal: AbortSignal.timeout(settings.pollMs) });
-            await response.arrayBuffer();
+            const body = await response.text();
             if (response.ok) return;
-        } catch { /* Startup has not finished. */ }
+            failure = new Error(`HTTP ${response.status}: ${body}`);
+        } catch (error) { failure = error; }
         await delay(settings.pollMs);
     }
-    throw new Error(`${entry.name} did not become ready: ${url}`);
+    throw new Error(`${entry.name} did not become ready: ${url}`, { cause: failure });
 }
 
 async function stop() {
