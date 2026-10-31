@@ -5,7 +5,7 @@ Atom proxies, the signed callback kernel, manifest loading, retries, and the
 shared host-adapter contracts used by the Laravel and Symfony integrations.
 
 ```sh
-composer require atoms/client:^0.8
+composer require atoms/client:^0.9
 ```
 
 Applications normally install a framework adapter. Use this package directly

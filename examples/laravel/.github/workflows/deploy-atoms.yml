@@ -15,7 +15,7 @@ jobs:
       # installs its pinned dependencies and deploys from it, never
       # scaffolding one.
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms/action@v0.8.0
+      - uses: AtomsPHP/atoms/action@v0.9.0
         with:
           environment: production
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}

@@ -4,19 +4,19 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "4cdcfd0a161203ae3d34ee28a1a21da4",
+    "content-hash": "78a657ceb7c945e628926848e1fb1d9d",
     "packages": [],
     "packages-dev": [
         {
             "name": "atoms/cli",
-            "version": "0.8.0",
+            "version": "0.9.0",
             "dist": {
                 "type": "path",
                 "url": "packages/cli",
-                "reference": "0f74d9d401d9b17ace6a536d7efa20ff2bfbfbc2"
+                "reference": "04c6b83947eb98ae3213ddda2453e0d871574b7d"
             },
             "require": {
-                "atoms/core": "^0.8",
+                "atoms/core": "^0.9",
                 "colinodell/json5": "^2.3 || ^3.0",
                 "ext-curl": "*",
                 "ext-json": "*",
@@ -65,14 +65,14 @@
         },
         {
             "name": "atoms/client",
-            "version": "0.8.0",
+            "version": "0.9.0",
             "dist": {
                 "type": "path",
                 "url": "packages/client",
-                "reference": "a34cbd85031e9c5e402f58e6aa399f64182fbfba"
+                "reference": "bd0987f4f979d32824192abceaf8ad4977828d16"
             },
             "require": {
-                "atoms/core": "^0.8",
+                "atoms/core": "^0.9",
                 "php": "^8.3",
                 "psr/container": "^1.1 || ^2.0",
                 "psr/http-client": "^1.0",
@@ -122,11 +122,11 @@
         },
         {
             "name": "atoms/core",
-            "version": "0.8.0",
+            "version": "0.9.0",
             "dist": {
                 "type": "path",
                 "url": "packages/core",
-                "reference": "c5e5622515ecd25e1b0baa866efe32c731c3f6f7"
+                "reference": "b726dc8781afe38d9d7e5eddf8936b7b2808f760"
             },
             "require": {
                 "ext-pdo": "*",
@@ -168,14 +168,14 @@
         },
         {
             "name": "atoms/database-illuminate",
-            "version": "0.8.0",
+            "version": "0.9.0",
             "dist": {
                 "type": "path",
                 "url": "packages/database-illuminate",
-                "reference": "b584efc01b40d566937ad9833c101a0e98deb9b3"
+                "reference": "1ae400aeba84aaba7e39c7d6108b7636a70fdd33"
             },
             "require": {
-                "atoms/core": "^0.8",
+                "atoms/core": "^0.9",
                 "ext-pdo": "*",
                 "illuminate/database": "^12.0 || ^13.0",
                 "php": "^8.3"
@@ -216,14 +216,14 @@
         },
         {
             "name": "atoms/laravel",
-            "version": "0.8.0",
+            "version": "0.9.0",
             "dist": {
                 "type": "path",
                 "url": "packages/laravel",
-                "reference": "0dedd1dd25305a436336fee4cc1343a4dc080b6a"
+                "reference": "b520293c48ebfef480beef4452d5e7b406887ce8"
             },
             "require": {
-                "atoms/client": "^0.8",
+                "atoms/client": "^0.9",
                 "guzzlehttp/psr7": "^2.7 || ^3.0",
                 "illuminate/bus": "^11.0 || ^12.0 || ^13.0",
                 "illuminate/console": "^11.0 || ^12.0 || ^13.0",
@@ -284,14 +284,14 @@
         },
         {
             "name": "atoms/phpstan-rules",
-            "version": "0.8.0",
+            "version": "0.9.0",
             "dist": {
                 "type": "path",
                 "url": "packages/phpstan-rules",
-                "reference": "7cf4696c32af2c4d052e38cf40d9c9252a039afb"
+                "reference": "6c9a58ea7884748323e1d9a87e343759b9311a6e"
             },
             "require": {
-                "atoms/core": "^0.8",
+                "atoms/core": "^0.9",
                 "php": "^8.3",
                 "phpstan/phpstan": "^2.0"
             },
@@ -335,14 +335,14 @@
         },
         {
             "name": "atoms/symfony",
-            "version": "0.8.0",
+            "version": "0.9.0",
             "dist": {
                 "type": "path",
                 "url": "packages/symfony",
-                "reference": "91e316626f4d39b7e48b19df47b80998abb39b51"
+                "reference": "b319de5a9864d45f627ea5167199fe3dc9f67e6d"
             },
             "require": {
-                "atoms/client": "^0.8",
+                "atoms/client": "^0.9",
                 "php": "^8.3",
                 "psr/container": "^1.1 || ^2.0",
                 "psr/http-factory": "^1.0",
@@ -403,14 +403,14 @@
         },
         {
             "name": "atoms/testing",
-            "version": "0.8.0",
+            "version": "0.9.0",
             "dist": {
                 "type": "path",
                 "url": "packages/testing",
-                "reference": "1af5e3caf936c51ebaec8a01bb9502457594c54c"
+                "reference": "7fc3ef8bb2aaea4b0694fb6a756534462ecbb153"
             },
             "require": {
-                "atoms/core": "^0.8",
+                "atoms/core": "^0.9",
                 "ext-pdo_sqlite": "*",
                 "php": "^8.3",
                 "phpunit/phpunit": "^10.5 || ^11.0 || ^12.0"

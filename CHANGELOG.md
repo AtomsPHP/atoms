@@ -5,6 +5,19 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+## [0.9.0] - Unreleased
+
+- **Changed:** Authenticated callbacks require a configured nonce store and
+  fail with `ATOMS-E111` until one is available. Configure shared Redis or
+  database storage for Laravel or Symfony, or pass a shared `NonceStore` to
+  `CallbackKernelFactory::create()` in other applications. Database storage
+  requires its migration and scheduled pruning. See the
+  [callback guide](https://docs.atomsphp.dev/guides/callbacks/#store-callback-nonces)
+  for setup and retention requirements.
+- **Fixed:** Worker request body limits are enforced by UTF-8 byte count.
+- **Fixed:** Broadcast-only Atoms enable WebSockets in the generated manifest.
+- **Fixed:** The Laravel adapter accepts Guzzle PSR-7 3.x as well as 2.x.
+
 ## [0.8.0] - Unreleased
 
 - **Changed:** Atom helpers must use `Support/` to match their PSR-4 namespace.
@@ -587,3 +600,5 @@ deploy workflow, and the Cloudflare Durable Object PHP runtime.
 [0.7.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.7.0
 
 [0.8.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.8.0
+
+[0.9.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.9.0
