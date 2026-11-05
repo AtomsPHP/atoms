@@ -1183,8 +1183,7 @@ atoms deploy --env production
 Success prints `Dry run complete. Nothing was deployed.` instead of the deploy
 and propagation messages. It checks local packaging and configuration only.
 It does not check remote permissions, startup, callback reachability, or rollout.
-Both modes accept `--bundle` and `--manifest` and remove their generated files
-on exit. Both accept `--outdir <directory>` to keep packaged output, resolving
+Both modes remove their generated files on exit and accept `--outdir <directory>` to keep packaged output, resolving
 relative paths against the caller's working directory.
 
 Nothing in this sequence contacts a service operated by Atoms.
