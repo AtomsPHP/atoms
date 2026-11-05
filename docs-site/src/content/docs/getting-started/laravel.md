@@ -127,7 +127,7 @@ requests. Existing custom `NonceStore` bindings remain supported.
 ## Create an Atom
 
 ```bash
-php artisan make:atom GameRoom --with-migration
+php artisan make:atom GameRoom
 ```
 
 ```php title="app/Atoms/GameRoom.php"
@@ -158,8 +158,7 @@ class GameRoom extends Atom
 }
 ```
 
-Replace the generated migration's contents with this SQL. Keep only one
-migration numbered `001`. Rename the generated file to the path below if needed:
+Create `app/Atoms/GameRoom/migrations/001_create_players.sql` with this SQL:
 
 ```sql title="app/Atoms/GameRoom/migrations/001_create_players.sql"
 CREATE TABLE players (
