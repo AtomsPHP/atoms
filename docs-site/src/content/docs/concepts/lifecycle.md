@@ -62,16 +62,11 @@ return new class implements \Atoms\Migrations\Migration {
 };
 ```
 
-If the returned object does not implement the interface, the migration fails
-with [ATOMS-E053](/reference/errors/#atoms-e053) and does not advance the
-schema version.
+Each Atom's database records its highest applied migration version. At
+activation, Atoms runs migrations with a higher version.
 
-Each Atom's database records its highest applied migration version. At activation, Atoms runs only migrations with a higher version; versions at or below the recorded version are skipped, even if their contents have changed. The build manifest includes migration hashes, but Atoms does not compare them against previously applied migrations or reject edits.
-
-[ATOMS-E050](/reference/errors/#atoms-e050) is reserved. Migration validation
-does not emit this code or detect edits to previously applied migrations.
-
-Treat deployed migrations as immutable. Editing an old migration leaves existing Atoms unchanged while new Atoms run the edited version, potentially producing different schemas. To change the schema, add a new migration with a higher version instead.
+Keep deployed migrations unchanged. To change the schema, add a migration
+with a higher version.
 
 ## State belongs in SQLite
 

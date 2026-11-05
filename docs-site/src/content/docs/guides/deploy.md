@@ -187,18 +187,11 @@ apply migrations. Neither method inserts player records.
 
 For a local check, start Atoms and Laravel with the
 [documented concurrent-server setup](/getting-started/laravel/#run-it-locally)
-before running the script. In a disposable copy with uncached Laravel
-configuration, set `ATOMS_SHARED_SECRET` to a different valid secret and rerun
-the script. It must exit nonzero. Restore the shared secret, restart the local
-Worker with an unreachable callback URL, and confirm that the script again
-exits nonzero. Restore the working callback URL after this check. Do not change
-production secrets or callback settings to test these failure cases.
+before running the script.
 
 A successful run confirms that one Atom accepts authenticated RPC calls,
 activates, applies any pending migrations, and receives a response to a signed
-callback. It does not check whether every Atom runs the new version, whether
-concurrent production requests work, or whether the application rejects all
-replayed callbacks.
+callback.
 
 ### Stage application and Atom releases
 

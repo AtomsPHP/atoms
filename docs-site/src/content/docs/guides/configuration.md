@@ -136,11 +136,6 @@ Restart the intended environment, for example with `vendor/bin/atoms dev --env
 staging`, and check the Worker name in its settings report. Do not run two Atoms
 commands against the same Worker directory at the same time.
 
-The interrupted-run report for Atoms 0.9.1 involved a Ctrl+C byte sent to a
-non-TTY session. That test did not show whether pressing Ctrl+C in a terminal
-leaves stale files. If you observe that behavior, report it with the terminal
-and process details.
-
 ## `atoms-composer.json`
 
 `atoms init` also writes this file. It lists the Composer packages that ship
