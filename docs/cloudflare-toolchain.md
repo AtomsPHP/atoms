@@ -223,14 +223,13 @@ user's own file, and `git status` stays clean. `.dev.vars` is unaffected:
 Wrangler resolves it beside the user's config, not the generated one, which
 was checked in the pinned Wrangler rather than assumed.
 
-`dev` and `deploy` reserve these files before building, staging, or writing dev
-secrets, under a nonblocking exclusive lock at `.wrangler/deploy/atoms.lock`.
-An active owner or an existing config/redirect is E076. Existing files are
-never overwritten or removed by a refusing command: after stopping all
-processes, the operator moves stale files aside, preserving `.wrangler/state`.
-Only the invocation that created the config removes it, including on failure.
-The empty lock file remains to avoid racing lock-file replacement; its
-existence alone does not mean a command is active.
+Before building, staging, or writing dev secrets, `dev` and `deploy` acquire a
+nonblocking exclusive lock at `.wrangler/deploy/atoms.lock`. They fail with
+E076 if another command holds the lock or a config or redirect already exists.
+Each command removes only files it created, including on failure. To recover
+stale files, stop all processes and move those files aside. Keep `.wrangler/state`.
+The lock file remains to prevent lock-file replacement races. Its presence
+does not indicate an active command.
 
 The redirect applies to `deploy`, `dev`, `versions upload` and
 `versions deploy` only. `atoms status`, `rollback` and the secrets commands
@@ -1179,15 +1178,14 @@ atoms deploy --env production
    **ATOMS-E075** when it could not choose between several accounts, or
    **ATOMS-E110** when the script uploaded and only the routing failed.
 
-`atoms deploy --env production --dry-run` follows the same sequence through
-Wrangler, always adding `--dry-run`. It uploads nothing and needs no Cloudflare
-credentials. Success says `Dry run complete. Nothing was deployed.` and omits
-the deployment/propagation message. `--outdir <directory>` optionally retains
-Wrangler's packaged output (on a dry run or real deploy); relative paths resolve
-against the caller's working directory before entering the Worker directory.
-This validates local packaging/configuration only, not remote permissions,
-startup, callback reachability, or rollout. `--bundle`/`--manifest` work in both
-modes, and both remove their generated config and redirect on exit.
+`atoms deploy --env production --dry-run` follows the same sequence but passes
+`--dry-run` to Wrangler. It uploads nothing and needs no Cloudflare credentials.
+Success prints `Dry run complete. Nothing was deployed.` instead of the deploy
+and propagation messages. It checks local packaging and configuration only.
+It does not check remote permissions, startup, callback reachability, or rollout.
+Both modes accept `--bundle` and `--manifest` and remove their generated files
+on exit. Both accept `--outdir <directory>` to keep packaged output, resolving
+relative paths against the caller's working directory.
 
 Nothing in this sequence contacts a service operated by Atoms.
 

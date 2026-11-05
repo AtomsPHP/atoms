@@ -45,18 +45,9 @@ vendor/bin/atoms deploy --env production
 vendor/bin/atoms status --env production
 ```
 
-To check the selected environment's packaging without uploading:
-
-```bash
-vendor/bin/atoms deploy --env production --dry-run --outdir .atoms/preflight/production
-```
-
-No Cloudflare credentials are required. This checks local packaging and
-configuration, not remote permissions, startup, callback reachability, or
-rollout. Stop `atoms dev` first when it uses the same Worker directory; an
-active command or stale generated config is `ATOMS-E076`. See
-[Check deployment packaging](/guides/deploy/#check-deployment-packaging) for
-cleanup and output details.
+Add `--dry-run` to check packaging without deploying or needing Cloudflare
+credentials. Use `--outdir <directory>` to keep the packaged files. See
+[Check deployment packaging](/guides/deploy/#check-deployment-packaging).
 
 To restore a selected Worker version, follow [Rollback](/guides/rollback/).
 
