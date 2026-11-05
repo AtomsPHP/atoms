@@ -10,9 +10,8 @@ use Atoms\Cli\Process\SymfonyProcessRunner;
 /**
  * Drives a real, locally installed Wrangler as a subprocess.
  *
- * Not exercised by the test suite, which fakes {@see Wrangler} — the rule that
- * tests never hit the network is what makes that mandatory rather than
- * convenient. `wrangler deploy` talks to Cloudflare.
+ * Unit tests capture command arguments through a fake ProcessRunner.
+ * The local smoke test runs Wrangler with --dry-run and no credentials.
  */
 final class ProcessWrangler implements Wrangler
 {
@@ -26,13 +25,22 @@ final class ProcessWrangler implements Wrangler
         $this->runner = $runner ?? new SymfonyProcessRunner();
     }
 
-    public function deploy(CloudflareTarget $target): WranglerResult
+    public function deploy(CloudflareTarget $target, bool $dryRun = false, ?string $outdir = null): WranglerResult
     {
         // No --name, --var, --route or --domain: the generated config in
         // .wrangler/deploy/ carries all of them, and Wrangler reads it in
         // place of the user's file. Passing any of them here would make the
         // command line a second source for values the file already settles.
-        return $this->run($target, ['deploy']);
+        $argv = ['deploy'];
+        if ($dryRun) {
+            $argv[] = '--dry-run';
+        }
+        if ($outdir !== null) {
+            $argv[] = '--outdir';
+            $argv[] = $outdir;
+        }
+
+        return $this->run($target, $argv);
     }
 
     public function versions(CloudflareTarget $target): WranglerResult

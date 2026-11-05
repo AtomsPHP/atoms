@@ -159,13 +159,58 @@ final class GeneratedWranglerConfigTest extends TestCase
         $generated->remove();
     }
 
+    public function testConcurrentOwnerIsRefusedAndOnlyTheOwnerCanCleanUp(): void
+    {
+        $target = $this->target('{"main":"src/index.js"}');
+        $first = GeneratedWranglerConfig::generate($target, []);
+        $second = GeneratedWranglerConfig::generate($target, []);
+        $first->write();
+        try {
+            $second->write();
+            self::fail('A second command must not replace the active config.');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('another atoms dev or deploy', $e->getMessage());
+        }
+        $second->remove();
+        self::assertFileExists($first->path());
+        self::assertFileExists($first->redirectPath());
+        $first->remove();
+        $second->write();
+        self::assertFileExists($second->path());
+        $second->remove();
+    }
+
+    public function testAnUnownedConfigOrRedirectIsPreserved(): void
+    {
+        foreach ([GeneratedWranglerConfig::FILE, GeneratedWranglerConfig::REDIRECT_FILE] as $name) {
+            $target = $this->target('{}');
+            mkdir($target->workerDir . '/' . GeneratedWranglerConfig::DIR, 0777, true);
+            $file = $target->workerDir . '/' . GeneratedWranglerConfig::DIR . '/' . $name;
+            file_put_contents($file, 'existing');
+            $generated = GeneratedWranglerConfig::generate($target, []);
+            try {
+                $generated->write();
+                self::fail('A stale file must not be replaced.');
+            } catch (AtomsError $e) {
+                self::assertStringContainsString('already exists', $e->getMessage());
+            }
+            $generated->remove();
+            self::assertSame('existing', file_get_contents($file));
+            unlink($file);
+            $generated->write();
+            $generated->remove();
+        }
+    }
+
     public function testWriteIsDeterministic(): void
     {
         $target = $this->target('{"main": "src/index.js", "vars": {"B": "2", "A": "1"}}', ['a.example.com/*']);
         $generated = GeneratedWranglerConfig::generate($target, ['Z' => 'z']);
 
         $first = file_get_contents($generated->write());
+        $generated->remove();
         $second = file_get_contents($generated->write());
+        $generated->remove();
 
         self::assertSame($first, $second);
         self::assertStringEndsWith("\n", (string) $first);
