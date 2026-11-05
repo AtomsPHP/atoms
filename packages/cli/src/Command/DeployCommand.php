@@ -102,9 +102,8 @@ final class DeployCommand extends AbstractCommand
             self::writeResolvedConfiguration($output, $target);
             $output->writeln('');
 
-            // Derived now, before the build, so a Worker config that cannot
-            // be read fails in seconds rather than after a build that was
-            // never going to ship. Reserved before the build starts.
+            // Read the Worker config before building so an unreadable config
+            // fails without running the build.
             $generated = GeneratedWranglerConfig::generate($target, $target->runtimeVars());
             if ($generated->declaresRouting) {
                 // Top-level routing in the user's file is dropped from the
@@ -119,8 +118,8 @@ final class DeployCommand extends AbstractCommand
                 $output->writeln('');
             }
 
-            // Reserve the shared config before building or staging: an active
-            // dev process must never receive a bundle from another command.
+            // Lock the Worker directory before building or staging so this command
+            // cannot replace the bundle while a dev process is using it.
             $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
 
             $bundleOpt = self::stringOption($input, 'bundle');

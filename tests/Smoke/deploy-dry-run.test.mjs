@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Exercise the public CLI against a real scaffold and pinned Wrangler, without upload.
+// Test the public CLI with a generated Worker project and pinned Wrangler without uploading.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -17,7 +17,7 @@ const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
     !/^(ATOMS_|CLOUDFLARE_|CF_)/.test(key)));
 env.CI = 'true';
 env.WRANGLER_SEND_METRICS = 'false';
-// Isolate Wrangler's login/config directories, as well as credential variables.
+// Use temporary directories so Wrangler cannot read saved login credentials or configuration.
 env.HOME = join(temporary, 'home');
 env.XDG_CONFIG_HOME = join(temporary, 'config');
 
@@ -58,7 +58,7 @@ try {
         join(repo, 'packages/cli/bin/atoms'), 'deploy', '--root', app, '--env', 'production',
         '--worker-dir', runtime, '--dry-run', '--outdir', 'review output',
     ];
-    // cwd deliberately differs from both --root and --worker-dir.
+    // Use a working directory that differs from both --root and --worker-dir.
     const output = run('php', args, temporary);
     assert.match(output, /Using redirected Wrangler configuration/);
     assert.match(output, /dry-run-production/);
@@ -74,7 +74,7 @@ try {
         assert.ok(!existsSync(join(runtime, '.wrangler/deploy', file)), `${file} must be cleaned up`);
     }
 
-    // The prebuilt path uses the same real packaging flow and needs no outdir.
+    // Package a prebuilt bundle without --outdir.
     const bundle = readdirSync(join(app, '.atoms/build')).find((file) => file.endsWith('.tar.gz'));
     assert.ok(bundle);
     const prebuilt = run('php', [

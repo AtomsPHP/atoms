@@ -10,8 +10,8 @@ use Atoms\Cli\Process\SymfonyProcessRunner;
 /**
  * Drives a real, locally installed Wrangler as a subprocess.
  *
- * Unit tests capture argv through a fake ProcessRunner. The local packaging
- * smoke test exercises the real binary with --dry-run and no credentials.
+ * Unit tests capture command arguments through a fake ProcessRunner.
+ * The local smoke test runs Wrangler with --dry-run and no credentials.
  */
 final class ProcessWrangler implements Wrangler
 {

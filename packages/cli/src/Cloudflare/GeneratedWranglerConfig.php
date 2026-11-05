@@ -46,10 +46,10 @@ class GeneratedWranglerConfig
     public const REDIRECT_FILE = 'config.json';
     public const FILE = 'wrangler.json';
 
-    /** @var resource|null Held until remove(); the lock file is never unlinked. */
+    /** @var resource|null The lock remains held until remove(), which leaves the lock file in place. */
     private $lock = null;
 
-    /** @var list<string> Files created by this instance, for partial-write cleanup. */
+    /** @var list<string> Files this instance created and must remove if a write fails. */
     private array $ownedFiles = [];
 
     /**
@@ -181,12 +181,12 @@ class GeneratedWranglerConfig
     }
 
     /**
-     * Reserve and write the generated config and its redirect. Call before
-     * staging; the directory lock stays held until remove().
+     * Write the generated config and its redirect before staging the bundle.
+     * Hold the directory lock until remove().
      *
      * @return string The generated config's absolute path
      *
-     * @throws AtomsError E076 when busy, stale, or unwritable
+     * @throws AtomsError E076 when the directory is locked, contains an existing config or redirect, or cannot be written
      */
     public function write(): string
     {
@@ -216,8 +216,7 @@ class GeneratedWranglerConfig
         $this->lock = $lock;
 
         try {
-            // A redirect left by an interrupted run, or another build tool,
-            // must not be overwritten or removed by this invocation.
+            // Preserve configs and redirects left by interrupted runs or other tools.
             foreach ([$this->path(), $this->redirectPath()] as $file) {
                 if (file_exists($file) || is_link($file)) {
                     throw $this->writeError("{$file} already exists; stop any dev/deploy process, then move the stale generated config and redirect out of {$dir} before retrying; preserve .wrangler/state");
@@ -227,8 +226,8 @@ class GeneratedWranglerConfig
             $config = json_encode($this->document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
             $redirect = json_encode(['configPath' => self::FILE], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n";
             foreach ([$this->path() => $config, $this->redirectPath() => $redirect] as $file => $contents) {
-                // Exclusive creation also refuses a non-Atoms writer racing
-                // our existence check. Never truncate another tool's config.
+                // Exclusive creation fails if another tool created the file
+                // after the existence check, preserving that file.
                 $handle = @fopen($file, 'x');
                 if ($handle === false) {
                     throw $this->writeError("could not create {$file}; check for an existing generated config and directory permissions");
