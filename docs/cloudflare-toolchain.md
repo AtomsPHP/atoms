@@ -1152,9 +1152,9 @@ atoms deploy --env production
    `wrangler.json` (E076; a `wrangler.toml` is refused with the conversion
    named), that its `atoms-runtime.json` names this CLI's release (E108), and
    that the file parses, by deriving the environment's generated config from
-   it now. Reserve and write the generated config and redirect under the
-   Worker-directory lock before the build; refuse an existing owner or stale
-   config with E076.
+   it now. Before the build, acquire the Worker-directory lock and write
+   `.wrangler/deploy/wrangler.json` and `.wrangler/deploy/config.json`.
+   Refuse an existing owner or stale config with E076.
 5. `atoms build` → `.atoms/build/bundle-{sha}.tar.gz` + `manifest.json`.
    Deterministic; executes no customer code. (`--bundle` skips this and deploys
    a prebuilt one.)
@@ -1162,9 +1162,8 @@ atoms deploy --env production
    inside the Worker directory. The translator refuses a manifest paired with
    the wrong bundle, and refuses a manifest naming a file the bundle does not
    contain. The output is gitignored there.
-7. Run `wrangler deploy` in that directory using the reserved config,
-   with whatever credentials this
-   process resolved in its environment — possibly none, in which case
+7. Run `wrangler deploy` in that directory using the generated config,
+   with whatever credentials this process resolved in its environment — possibly none, in which case
    Wrangler uses its own login session — and Wrangler's own output passed
    through unedited. Both generated files are removed once Wrangler exits,
    whatever the outcome.
