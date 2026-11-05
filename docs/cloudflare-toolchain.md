@@ -223,13 +223,8 @@ user's own file, and `git status` stays clean. `.dev.vars` is unaffected:
 Wrangler resolves it beside the user's config, not the generated one, which
 was checked in the pinned Wrangler rather than assumed.
 
-Before building, staging, or writing dev secrets, `dev` and `deploy` acquire a
-nonblocking exclusive lock at `.wrangler/deploy/atoms.lock`. They fail with
-E076 if another command holds the lock or a config or redirect already exists.
-Each command removes only files it created, including on failure. To recover
-stale files, stop all processes and move those files aside. Keep `.wrangler/state`.
-The lock file remains to prevent lock-file replacement races. Its presence
-does not indicate an active command.
+`dev` and `deploy` hold an exclusive lock on `.wrangler/deploy/atoms.lock`
+from before the build until cleanup. They remove only files they created.
 
 The redirect applies to `deploy`, `dev`, `versions upload` and
 `versions deploy` only. `atoms status`, `rollback` and the secrets commands
@@ -1179,12 +1174,9 @@ atoms deploy --env production
    **ATOMS-E110** when the script uploaded and only the routing failed.
 
 `atoms deploy --env production --dry-run` follows the same sequence but passes
-`--dry-run` to Wrangler. It uploads nothing and needs no Cloudflare credentials.
-Success prints `Dry run complete. Nothing was deployed.` instead of the deploy
-and propagation messages. It checks local packaging and configuration only.
-It does not check remote permissions, startup, callback reachability, or rollout.
-Both modes remove their generated files on exit and accept `--outdir <directory>` to keep packaged output, resolving
-relative paths against the caller's working directory.
+`--dry-run` to Wrangler. It checks local packaging without uploading or needing
+Cloudflare credentials. It does not test the deployed Worker. Add
+`--outdir <directory>` to keep packaged output.
 
 Nothing in this sequence contacts a service operated by Atoms.
 
