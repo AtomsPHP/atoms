@@ -11,8 +11,7 @@ The adapter accepts Laravel 11, 12 and 13. CI tests Laravel 12 and 13. See [Lara
 
 ## New Laravel application
 
-This example uses Atoms 0.9.1, Laravel 13, PHP 8.3 and Node.js 22. Run these
-commands in the directory where you want to create `atoms-demo`:
+Run these commands in the directory where you want to create `atoms-demo`:
 
 ```bash
 composer create-project laravel/laravel atoms-demo '^13.0'
