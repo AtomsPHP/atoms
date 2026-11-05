@@ -8,6 +8,7 @@ use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
 use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\RuntimeStamp;
+use Atoms\Cli\Cloudflare\ProcessWrangler;
 use Atoms\Cli\Command\DeployCommand;
 use Atoms\Cli\Process\ProcessResult;
 use Atoms\Cli\Release\RuntimeVersion;
@@ -78,6 +79,102 @@ final class DeployCommandTest extends TestCase
         putenv('CLOUDFLARE_API_TOKEN');
         putenv(CloudflareTarget::CALLBACK_VAR);
         parent::tearDown();
+    }
+
+    public function testDryRunUsesTheSameResolvedTargetAndConfigurationAsDeploy(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $config['environments']['production']['debug_endpoints'] = true;
+        $config['environments']['production']['custom_domains'] = ['atoms.example.com'];
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+        file_put_contents($root . '/.env.atoms.production', "CLOUDFLARE_ACCOUNT_ID=selected-account\n");
+        $dir = $this->workerDir();
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $options = [
+            '--root' => $root, '--env' => 'production', '--worker-dir' => $dir,
+            '--bundle' => $this->bundleFile(), '--callback-url' => 'https://override.example.com/callback',
+        ];
+        self::assertSame(0, $tester->execute($options), $tester->getDisplay());
+        $deploy = $wrangler->lastCall('deploy');
+        self::assertFalse($deploy['args']['dryRun']);
+        self::assertSame(0, $tester->execute([...$options, '--dry-run' => true, '--outdir' => 'review output']), $tester->getDisplay());
+        $dryRun = $wrangler->lastCall('deploy');
+        self::assertTrue($dryRun['args']['dryRun']);
+        self::assertSame(getcwd() . '/review output', $dryRun['args']['outdir']);
+        self::assertEquals($deploy['target'], $dryRun['target']);
+        self::assertSame($deploy['args']['config'], $dryRun['args']['config']);
+        self::assertSame('selected-account', $dryRun['target']->credentialEnv()['CLOUDFLARE_ACCOUNT_ID']);
+        self::assertSame('acme-games', $dryRun['args']['config']['name']);
+        self::assertSame([['pattern' => 'atoms.example.com', 'custom_domain' => true]], $dryRun['args']['config']['routes']);
+        self::assertSame(['ATOMS_DEBUG_ENDPOINTS' => '1', 'ATOMS_CALLBACK_URL' => 'https://override.example.com/callback'], $dryRun['args']['config']['vars']);
+        self::assertStringContainsString('Dry run complete. Nothing was deployed.', $tester->getDisplay());
+        self::assertStringNotContainsString('Deployed acme-games', $tester->getDisplay());
+        self::assertStringNotContainsString('propagates', $tester->getDisplay());
+        self::assertStringNotContainsString('cf-token', $tester->getDisplay());
+        self::assertFileDoesNotExist($dir . '/.wrangler/deploy/config.json');
+        self::assertFileDoesNotExist($dir . '/.wrangler/deploy/wrangler.json');
+    }
+
+    public function testDryRunAlwaysPassesTheWranglerFlagAndCleansUpOnFailure(): void
+    {
+        putenv('ATOMS_WRANGLER_BIN');
+        foreach ([null, '/tmp/review output'] as $outdir) {
+            foreach ([0, 1] as $status) {
+                $runner = new FakeProcessRunner(new ProcessResult($status, '', $status ? 'packaging failed' : ''), ['wrangler' => '/usr/bin/wrangler']);
+                $dir = $this->workerDir();
+                $tester = new CommandTester(new DeployCommand(new ProcessWrangler($runner), $this->stager()));
+                $options = [
+                    '--root' => $this->fixtureDir('sample-app'), '--env' => 'production',
+                    '--worker-dir' => $dir, '--bundle' => $this->bundleFile(), '--dry-run' => true,
+                ];
+                if ($outdir !== null) {
+                    $options['--outdir'] = $outdir;
+                }
+                self::assertSame($status, $tester->execute($options), $tester->getDisplay());
+                self::assertCount(1, $runner->runs);
+                self::assertSame(
+                    ['/usr/bin/wrangler', 'deploy', '--dry-run', ...($outdir === null ? [] : ['--outdir', $outdir])],
+                    $runner->runs[0]['command'],
+                );
+                self::assertSame($dir, $runner->runs[0]['cwd']);
+                self::assertSame('cf-account-1234', $runner->runs[0]['env']['CLOUDFLARE_ACCOUNT_ID']);
+                self::assertFileDoesNotExist($dir . '/.wrangler/deploy/config.json');
+                self::assertFileDoesNotExist($dir . '/.wrangler/deploy/wrangler.json');
+                if ($status !== 0) {
+                    self::assertStringContainsString('ATOMS-E074', $tester->getDisplay());
+                    self::assertStringNotContainsString('Dry run complete', $tester->getDisplay());
+                }
+            }
+        }
+    }
+
+    public function testExistingRedirectRefusesBeforeBuildingOrStagingAndPreservesState(): void
+    {
+        foreach ([false, true] as $dryRun) {
+            $dir = $this->workerDir();
+            mkdir($dir . '/.wrangler/deploy', 0777, true);
+            file_put_contents($dir . '/.wrangler/deploy/config.json', '{"configPath":"existing.json"}');
+            file_put_contents($dir . '/.wrangler/deploy/wrangler.json', 'existing config');
+            mkdir($dir . '/.wrangler/state');
+            file_put_contents($dir . '/.wrangler/state/local.sqlite', 'local state');
+            $root = $this->tempCopy('sample-app');
+            $runner = new FakeProcessRunner();
+            $wrangler = new FakeWrangler();
+            $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+            self::assertSame(1, $tester->execute([
+                '--root' => $root, '--env' => 'production', '--worker-dir' => $dir, '--dry-run' => $dryRun,
+            ]));
+            self::assertStringContainsString('ATOMS-E076', $tester->getDisplay());
+            self::assertStringContainsString('stop any dev/deploy process', $tester->getDisplay());
+            self::assertSame([], $runner->runs);
+            self::assertSame([], $wrangler->calls);
+            self::assertDirectoryDoesNotExist($root . '/.atoms/build');
+            self::assertSame('{"configPath":"existing.json"}', file_get_contents($dir . '/.wrangler/deploy/config.json'));
+            self::assertSame('existing config', file_get_contents($dir . '/.wrangler/deploy/wrangler.json'));
+            self::assertSame('local state', file_get_contents($dir . '/.wrangler/state/local.sqlite'));
+        }
     }
 
     public function testSuccessfulDeployStagesThenRunsWrangler(): void

@@ -20,8 +20,9 @@ interface Wrangler
      * runtime vars and routing are not flags: the caller has already written
      * the environment's {@see GeneratedWranglerConfig}, which Wrangler picks
      * up through `.wrangler/deploy/config.json` in that directory.
+     * $dryRun always adds --dry-run; $outdir retains the packaged output.
      */
-    public function deploy(CloudflareTarget $target): WranglerResult;
+    public function deploy(CloudflareTarget $target, bool $dryRun = false, ?string $outdir = null): WranglerResult;
 
     /**
      * `wrangler versions list --name {worker} --json`.

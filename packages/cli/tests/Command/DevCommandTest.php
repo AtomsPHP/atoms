@@ -63,6 +63,20 @@ final class DevCommandTest extends TestCase
         return $tester;
     }
 
+    public function testExistingRedirectIsRefusedBeforeCreatingSecrets(): void
+    {
+        $dir = $this->workerDir();
+        mkdir($dir . '/.wrangler/deploy', 0777, true);
+        file_put_contents($dir . '/.wrangler/deploy/config.json', 'existing');
+        $wrangler = new FakeWrangler();
+        $tester = $this->execute($dir, $wrangler);
+        self::assertSame(1, $tester->getStatusCode());
+        self::assertStringContainsString('ATOMS-E076', $tester->getDisplay());
+        self::assertSame('existing', file_get_contents($dir . '/.wrangler/deploy/config.json'));
+        self::assertFileDoesNotExist($dir . '/.dev.vars');
+        self::assertSame([], $wrangler->calls);
+    }
+
     public function testGeneratesADevSecretWhenDevVarsIsAbsent(): void
     {
         $dir = $this->workerDir();

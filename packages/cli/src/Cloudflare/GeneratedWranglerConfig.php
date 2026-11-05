@@ -46,6 +46,12 @@ class GeneratedWranglerConfig
     public const REDIRECT_FILE = 'config.json';
     public const FILE = 'wrangler.json';
 
+    /** @var resource|null Held until remove(); the lock file is never unlinked. */
+    private $lock = null;
+
+    /** @var list<string> Files created by this instance, for partial-write cleanup. */
+    private array $ownedFiles = [];
+
     /**
      * Keys Wrangler resolves relative to the directory holding the config
      * file that declares them. The generated file lives two levels below the
@@ -175,11 +181,12 @@ class GeneratedWranglerConfig
     }
 
     /**
-     * Write the generated config and the redirect that points Wrangler at it.
+     * Reserve and write the generated config and its redirect. Call before
+     * staging; the directory lock stays held until remove().
      *
      * @return string The generated config's absolute path
      *
-     * @throws AtomsError E076 when the directory cannot be written
+     * @throws AtomsError E076 when busy, stale, or unwritable
      */
     public function write(): string
     {
@@ -194,11 +201,51 @@ class GeneratedWranglerConfig
             );
         }
 
-        $config = json_encode($this->document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
-        $redirect = json_encode(['configPath' => self::FILE], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n";
+        if ($this->lock !== null) {
+            return $this->path();
+        }
 
-        file_put_contents($this->path(), $config, LOCK_EX);
-        file_put_contents($this->redirectPath(), $redirect, LOCK_EX);
+        $lock = @fopen($dir . '/atoms.lock', 'c');
+        if ($lock === false) {
+            throw $this->writeError("could not open {$dir}/atoms.lock");
+        }
+        if (!flock($lock, LOCK_EX | LOCK_NB)) {
+            fclose($lock);
+            throw $this->writeError('another atoms dev or deploy command is using this Worker directory; stop it before retrying');
+        }
+        $this->lock = $lock;
+
+        try {
+            // A redirect left by an interrupted run, or another build tool,
+            // must not be overwritten or removed by this invocation.
+            foreach ([$this->path(), $this->redirectPath()] as $file) {
+                if (file_exists($file) || is_link($file)) {
+                    throw $this->writeError("{$file} already exists; stop any dev/deploy process, then move the stale generated config and redirect out of {$dir} before retrying; preserve .wrangler/state");
+                }
+            }
+
+            $config = json_encode($this->document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+            $redirect = json_encode(['configPath' => self::FILE], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n";
+            foreach ([$this->path() => $config, $this->redirectPath() => $redirect] as $file => $contents) {
+                // Exclusive creation also refuses a non-Atoms writer racing
+                // our existence check. Never truncate another tool's config.
+                $handle = @fopen($file, 'x');
+                if ($handle === false) {
+                    throw $this->writeError("could not create {$file}; check for an existing generated config and directory permissions");
+                }
+                $this->ownedFiles[] = $file;
+                try {
+                    if (fwrite($handle, $contents) !== strlen($contents)) {
+                        throw $this->writeError("could not write {$file}");
+                    }
+                } finally {
+                    fclose($handle);
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->remove();
+            throw $e;
+        }
 
         return $this->path();
     }
@@ -209,11 +256,26 @@ class GeneratedWranglerConfig
      */
     public function remove(): void
     {
-        foreach ([$this->path(), $this->redirectPath()] as $file) {
-            if (is_file($file)) {
-                @unlink($file);
-            }
+        foreach (array_reverse($this->ownedFiles) as $file) {
+            @unlink($file);
         }
+        $this->ownedFiles = [];
+        if ($this->lock !== null) {
+            flock($this->lock, LOCK_UN);
+            fclose($this->lock);
+            $this->lock = null;
+        }
+    }
+
+    private function writeError(string $reason): AtomsError
+    {
+        return new AtomsError(
+            ErrorCode::WorkerDirectoryInvalid,
+            ErrorCatalog::format(ErrorCode::WorkerDirectoryInvalid, [
+                'environment' => $this->environment,
+                'reason' => $reason,
+            ]),
+        );
     }
 
     /**

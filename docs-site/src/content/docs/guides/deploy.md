@@ -57,6 +57,40 @@ To check your Atom code without deploying, run `atoms validate` (add `--json`
 for JSON output). To produce a bundle for inspection or a later deploy, run
 `atoms build`.
 
+## Check deployment packaging
+
+Run a dry run for the environment you intend to deploy:
+
+```bash
+vendor/bin/atoms deploy --env production --dry-run --outdir .atoms/preflight/production
+```
+
+This runs the same validation, build, staging, and environment resolution as
+`deploy`, then passes `--dry-run` to the installed Wrangler. The selected
+Worker name, callback URL, custom domains, account selection, and debug setting
+are unchanged. Cloudflare credentials are not required. Completion prints
+`Dry run complete. Nothing was deployed.`
+
+`--outdir` retains Wrangler's packaged files for inspection. Relative paths
+are resolved from your current directory, including when you use `--root` or
+`--worker-dir`. Omit it if you do not need the output files. You can also use
+`--bundle` and `--manifest` to check a prebuilt bundle.
+
+A dry run writes the local build and staged bundle. It checks local packaging
+and configuration; it does not verify remote permissions, Worker startup,
+callback reachability, or rollout completion. Wrangler warnings remain visible.
+
+Stop `atoms dev` before running a deploy or dry run against the same Worker
+directory. The commands share the staged bundle and `.wrangler/deploy/`
+redirect. An active command or an existing generated config causes
+`ATOMS-E076` before building or staging. Normal completion and handled failures
+remove the temporary config and redirect. If a terminated process left them
+behind, stop all dev/deploy processes and move
+`atoms-worker/.wrangler/deploy/config.json` and `wrangler.json` out of that
+directory before retrying. Preserve `.wrangler/state`; it holds local data.
+The empty `atoms.lock` file may remain and does not itself indicate an active
+process.
+
 ## Set the shared secret
 
 After the first deploy, set `ATOMS_SHARED_SECRET` on the Worker. The Worker

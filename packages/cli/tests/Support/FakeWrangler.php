@@ -26,11 +26,11 @@ final class FakeWrangler implements Wrangler
     public ?WranglerResult $deleteSecretResult = null;
     public ?WranglerResult $devResult = null;
 
-    public function deploy(CloudflareTarget $target): WranglerResult
+    public function deploy(CloudflareTarget $target, bool $dryRun = false, ?string $outdir = null): WranglerResult
     {
-        $this->record('deploy', $target, $this->generatedConfig($target));
+        $this->record('deploy', $target, ['dryRun' => $dryRun, 'outdir' => $outdir, ...$this->generatedConfig($target)]);
 
-        return $this->deployResult ?? self::ok(['deploy'], "Deployed {$target->workerName}\n");
+        return $this->deployResult ?? self::ok(['deploy'], $dryRun ? "--dry-run: exiting now.\n" : "Deployed {$target->workerName}\n");
     }
 
     public function versions(CloudflareTarget $target): WranglerResult

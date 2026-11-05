@@ -223,6 +223,15 @@ user's own file, and `git status` stays clean. `.dev.vars` is unaffected:
 Wrangler resolves it beside the user's config, not the generated one, which
 was checked in the pinned Wrangler rather than assumed.
 
+`dev` and `deploy` reserve these files before building, staging, or writing dev
+secrets, under a nonblocking exclusive lock at `.wrangler/deploy/atoms.lock`.
+An active owner or an existing config/redirect is E076. Existing files are
+never overwritten or removed by a refusing command: after stopping all
+processes, the operator moves stale files aside, preserving `.wrangler/state`.
+Only the invocation that created the config removes it, including on failure.
+The empty lock file remains to avoid racing lock-file replacement; its
+existence alone does not mean a command is active.
+
 The redirect applies to `deploy`, `dev`, `versions upload` and
 `versions deploy` only. `atoms status`, `rollback` and the secrets commands
 run `wrangler versions list`, `wrangler rollback` and `wrangler secret ...`
@@ -1149,7 +1158,9 @@ atoms deploy --env production
    `wrangler.json` (E076; a `wrangler.toml` is refused with the conversion
    named), that its `atoms-runtime.json` names this CLI's release (E108), and
    that the file parses, by deriving the environment's generated config from
-   it now. Before the build, so a stale directory costs seconds, not a build.
+   it now. Reserve and write the generated config and redirect under the
+   Worker-directory lock before the build; refuse an existing owner or stale
+   config with E076.
 5. `atoms build` → `.atoms/build/bundle-{sha}.tar.gz` + `manifest.json`.
    Deterministic; executes no customer code. (`--bundle` skips this and deploys
    a prebuilt one.)
@@ -1157,9 +1168,8 @@ atoms deploy --env production
    inside the Worker directory. The translator refuses a manifest paired with
    the wrong bundle, and refuses a manifest naming a file the bundle does not
    contain. The output is gitignored there.
-7. Write the generated config to `.wrangler/deploy/wrangler.json` and the
-   redirect to `.wrangler/deploy/config.json`, print the path, and run
-   `wrangler deploy` in that directory, with whatever credentials this
+7. Run `wrangler deploy` in that directory using the reserved config,
+   with whatever credentials this
    process resolved in its environment — possibly none, in which case
    Wrangler uses its own login session — and Wrangler's own output passed
    through unedited. Both generated files are removed once Wrangler exits,
@@ -1168,6 +1178,16 @@ atoms deploy --env production
    or **ATOMS-E072** when that diagnosis is that it had no credentials at all,
    **ATOMS-E075** when it could not choose between several accounts, or
    **ATOMS-E110** when the script uploaded and only the routing failed.
+
+`atoms deploy --env production --dry-run` follows the same sequence through
+Wrangler, always adding `--dry-run`. It uploads nothing and needs no Cloudflare
+credentials. Success says `Dry run complete. Nothing was deployed.` and omits
+the deployment/propagation message. `--outdir <directory>` optionally retains
+Wrangler's packaged output (on a dry run or real deploy); relative paths resolve
+against the caller's working directory before entering the Worker directory.
+This validates local packaging/configuration only, not remote permissions,
+startup, callback reachability, or rollout. `--bundle`/`--manifest` work in both
+modes, and both remove their generated config and redirect on exit.
 
 Nothing in this sequence contacts a service operated by Atoms.
 
