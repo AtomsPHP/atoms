@@ -1230,3 +1230,21 @@ The callback was rejected because its nonce could not be recorded.
 **Fix**
 
 Check the nonce backend connection, permissions, schema, and capacity. Keep existing nonce records and restore the shared store before retrying; do not fall back to memory.
+
+
+<a id="atoms-e113"></a>
+
+## ATOMS-E113: PHPStan configuration could not be created
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `cli` |
+
+**Message**
+
+Could not create the Atoms PHPStan configuration: {reason}.
+
+**Fix**
+
+Check that the project directory is writable and phpstan.atoms.neon is not a directory or a broken symlink, then run `atoms phpstan:install` again. Existing configuration files are preserved; edit them directly to change analysis settings.

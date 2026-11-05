@@ -29,7 +29,7 @@ Use the database driver and namespace `atoms-demo:local`, then run
 `php artisan migrate`. Keep Laravel's generated SQLite database.
 
 Next, [create the Atom](#create-an-atom), add its migration, and
-[configure PHPStan](#check-the-atom). Set the local endpoint and start Atoms
+[check it](#check-the-atom). Set the local endpoint and start Atoms
 before Laravel as shown in [Run it locally](#run-it-locally).
 
 ## Configure the adapter
@@ -42,9 +42,9 @@ publish the adapter configuration:
 php artisan atoms:install
 ```
 
-If you already ran `atoms init`, publish only the adapter configuration with
-`php artisan vendor:publish --tag=atoms-config` instead. Skip this section if
-you created a new application above.
+The installer preserves an existing `atoms.json`, published adapter config,
+and `phpstan.atoms.neon`, so you can also run it after `atoms init`. Skip this
+section if you created a new application above.
 
 For a deployed Worker, set:
 
@@ -198,24 +198,16 @@ self::assertSame(2, $room->invoke('join', ['ada']));
 
 ## Check the Atom
 
-Create `phpstan.neon` in the application root, or merge these settings into
-an existing configuration:
-
-```yaml title="phpstan.neon"
-includes:
-    - vendor/atoms/phpstan-rules/rules.neon
-
-parameters:
-    level: 8
-    paths:
-        - app/Atoms
-```
+`php artisan atoms:install` creates `phpstan.atoms.neon` with the Atoms rules,
+analysis level 8, and source paths from `atoms.json`. Your application's existing
+PHPStan configuration is unchanged. Commit the generated file; later installer
+runs preserve any edits you make to it.
 
 Run validation and static analysis:
 
 ```bash
 vendor/bin/atoms validate
-vendor/bin/phpstan analyse
+vendor/bin/phpstan analyse --configuration=phpstan.atoms.neon
 ```
 
 The rules check which types can pass between Atoms and your application. They

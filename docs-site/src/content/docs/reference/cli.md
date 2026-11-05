@@ -21,6 +21,7 @@ Run the project-local executable as `vendor/bin/atoms`. Every command accepts `-
 | `shared-secret:set` | Set `ATOMS_SHARED_SECRET` (or, with `--previous`, the rotation overlap) on the Worker, read from stdin. |
 | `shared-secret:unset` | Remove the rotation overlap secret from the Worker, closing a rotation window. |
 | `token` | Print the bearer derived from `ATOMS_SHARED_SECRET`, for hand-issued requests. |
+| `phpstan:install` | Create a separate PHPStan configuration for Atoms, preserving existing files. |
 | `ai:install` | Install or regenerate the Atoms agent guidance. |
 
 ## Local development
@@ -51,6 +52,7 @@ To restore a selected Worker version, follow [Rollback](/guides/rollback/).
 
 - **`init`** — `--project` (defaults to the directory name), `--path` (defaults to `app/Atoms`). Refuses if `atoms.json` already exists. Also appends `/.atoms/` and `/.env.atoms.*` to `.gitignore`, each only if absent.
 - **`make:atom NAME`** — `--with-methods`, `--with-migration`, `--websocket`. `NAME` must be a valid PHP class name.
+- **`phpstan:install`** — creates `phpstan.atoms.neon` with the Atoms rules, level 8, and Atom/shared source paths from `atoms.json`. Existing files are preserved, including application PHPStan configs. Run `vendor/bin/phpstan analyse --configuration=phpstan.atoms.neon` after creating an Atom. Install `atoms/phpstan-rules` as a development dependency if the command reports it missing. Laravel's `atoms:install` runs this step automatically.
 - **`validate`** — `--json` for machine-readable output.
 - **`build`** — `--fast` skips the vendor stage (refuses with `ATOMS-E107` if `atoms-composer.json` declares packages); `--out` (defaults to `.atoms/build`).
 - **`diff`** — `--against` a saved `manifest.json` to compare with the current one.
