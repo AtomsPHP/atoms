@@ -67,12 +67,7 @@ vendor/bin/atoms deploy --env production --dry-run
 
 This builds and stages the bundle with the selected environment's settings.
 It does not test the deployed Worker. Add `--outdir <directory>` to keep the
-packaged files. Relative paths start at your current directory.
-
-Stop `atoms dev` before using the same Worker directory. If `ATOMS-E076`
-reports leftover config files, stop all dev/deploy processes and move
-`config.json` and `wrangler.json` out of `atoms-worker/.wrangler/deploy/`.
-Keep `.wrangler/state`, which holds local data. An empty `atoms.lock` can remain.
+packaged files.
 
 ## Set the shared secret
 
