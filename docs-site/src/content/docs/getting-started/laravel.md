@@ -14,19 +14,15 @@ The adapter accepts Laravel 11, 12 and 13. CI tests Laravel 12 and 13. See [Lara
 Run these commands in the directory where you want to create `atoms-demo`:
 
 ```bash
-composer create-project laravel/laravel atoms-demo '^13.0'
+composer create-project laravel/laravel atoms-demo
 cd atoms-demo
-composer require atoms/laravel:0.9.1 --with-all-dependencies
-composer require --dev atoms/cli:0.9.1 atoms/testing:0.9.1 atoms/phpstan-rules:0.9.1
+composer require atoms/laravel --with-all-dependencies
+composer require --dev atoms/cli atoms/testing atoms/phpstan-rules
 php artisan atoms:install
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.9.1 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare -- \
   atoms-runtime-cloudflare init atoms-worker
 (cd atoms-worker && npm ci)
 ```
-
-Do not run `atoms init` or `atoms:install` again. Keep the PHP packages and
-runtime on the same release. When using a later release, run the matching
-scaffold command printed by `atoms:install`.
 
 Continue with [Configure callback replay protection](#configure-callback-replay-protection).
 Use the database driver and namespace `atoms-demo:local`, then run
@@ -188,7 +184,7 @@ $count = Atoms::get(GameRoom::class, 'room-42')->join('ada');
 Use `atoms/testing` for fast local tests of Atom behavior, migrations, callbacks, broadcasts, and timers:
 
 ```bash
-composer require --dev atoms/testing:^0.9
+composer require --dev atoms/testing
 ```
 
 ```php

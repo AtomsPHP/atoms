@@ -59,12 +59,6 @@ docs, compare the live installation requirements and compatibility tables with
 the source verified for that release. A package release does not update those
 pages.
 
-When updating examples, use the same release for the PHP packages, CLI,
-runtime scaffold and upgrade commands, and Action tag. Review
-`getting-started/install.md`, `getting-started/laravel.md`, and `guides/deploy.md`
-under `src/content/docs/`, then rerun the new-project instructions in a clean
-directory.
-
 ## JSON examples
 
 Use `json` fences for valid JSON without comments or trailing commas. Add
