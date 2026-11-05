@@ -11,8 +11,8 @@ The adapter accepts Laravel 11, 12 and 13. CI tests Laravel 12 and 13. See [Lara
 
 ## New Laravel application
 
-This example uses Atoms 0.9.1, Laravel 13, PHP 8.3 and Node.js 22. From the
-parent directory where you want the application, run:
+This example uses Atoms 0.9.1, Laravel 13, PHP 8.3 and Node.js 22. Run these
+commands in the directory where you want to create `atoms-demo`:
 
 ```bash
 composer create-project laravel/laravel atoms-demo '^13.0'
@@ -25,16 +25,17 @@ npm exec --yes --package=@atomsphp/runtime-cloudflare@0.9.1 -- \
 (cd atoms-worker && npm ci)
 ```
 
-The project is now initialized. Do not run `atoms init` or `atoms:install`
-again. Keep the PHP packages and runtime on the same release. When using a
-later release, run the matching scaffold command printed by `atoms:install`.
+Do not run `atoms init` or `atoms:install` again. Keep the PHP packages and
+runtime on the same release. When using a later release, run the matching
+scaffold command printed by `atoms:install`.
 
 Continue with [Configure callback replay protection](#configure-callback-replay-protection).
-For this local example, use the database driver and namespace
-`atoms-demo:local`, then run `php artisan migrate`. Keep Laravel's generated
-SQLite database. Next, [create the Atom](#create-an-atom), add its migration,
-and [configure PHPStan](#check-the-atom). Set the local endpoint and start
-Atoms before Laravel as shown in [Run it locally](#run-it-locally).
+Use the database driver and namespace `atoms-demo:local`, then run
+`php artisan migrate`. Keep Laravel's generated SQLite database.
+
+Next, [create the Atom](#create-an-atom), add its migration, and
+[configure PHPStan](#check-the-atom). Set the local endpoint and start Atoms
+before Laravel as shown in [Run it locally](#run-it-locally).
 
 ## Configure the adapter
 
@@ -47,8 +48,8 @@ php artisan atoms:install
 ```
 
 If you already ran `atoms init`, publish only the adapter configuration with
-`php artisan vendor:publish --tag=atoms-config` instead. Readers who completed
-the new-application steps can skip this section.
+`php artisan vendor:publish --tag=atoms-config` instead. Skip this section if
+you created a new application above.
 
 For a deployed Worker, set:
 
@@ -163,7 +164,7 @@ class GameRoom extends Atom
 ```
 
 Replace the generated migration's contents with this SQL. Keep only one
-migration numbered `001`; rename the generated file to the path below if needed:
+migration numbered `001`. Rename the generated file to the path below if needed:
 
 ```sql title="app/Atoms/GameRoom/migrations/001_create_players.sql"
 CREATE TABLE players (
@@ -223,8 +224,9 @@ vendor/bin/atoms validate
 vendor/bin/phpstan analyse
 ```
 
-The rules check boundary types and the
-[frozen-clock hazards](/reference/limits/#the-clock-does-not-advance-inside-a-turn).
+The rules check which types can pass between Atoms and your application. They
+also detect uses of PHP time functions that are unsafe when
+[the clock does not advance inside a turn](/reference/limits/#the-clock-does-not-advance-inside-a-turn).
 
 ## Run it locally
 

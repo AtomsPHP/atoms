@@ -4,8 +4,9 @@ All errors in the Atoms platform carry a stable, machine-readable code (`ATOMS-E
 
 This catalog is the single source of truth: `packages/core/resources/errors.json`. Changes are append-only; codes are never renumbered.
 
-ATOMS-E050 reserves a build-time error for edits to shipped migrations. Current
-migration validation does not emit it or compare historical migration hashes.
+ATOMS-E050 is reserved for detecting edits to shipped migrations. Migration
+validation does not emit this code or compare a migration's hash with
+previous versions.
 
 | Code | Title | Severity | Phase | Fix |
 |------|-------|----------|-------|-----|

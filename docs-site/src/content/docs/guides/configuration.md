@@ -101,10 +101,10 @@ when it finds routes in this file.
 
 ### Recover a stale Wrangler redirect
 
-A leftover redirect can make a later direct Wrangler invocation use a previously
-selected environment. Before changing generated files, stop this project's Atoms
-and Wrangler processes and confirm they have exited. A closed terminal alone is
-not proof that every child process stopped.
+A leftover redirect can make Wrangler use an environment selected by an
+earlier command. Before changing generated files, stop this project's Atoms
+and Wrangler processes and confirm they have exited. Child processes can
+keep running after you close the terminal.
 
 From the application root, inspect the redirect and the generated Worker name:
 
@@ -115,11 +115,11 @@ node -e 'const fs = require("node:fs"); const c = JSON.parse(fs.readFileSync("at
 
 Confirm that `configPath` is `wrangler.json` and that the Worker name matches the
 stale environment in this project's `atoms.json`. Check the generated file
-against `atoms-worker/wrangler.jsonc` before proceeding. The redirect format alone
-does not establish that Atoms owns it. Do not move another tool's configuration.
+against `atoms-worker/wrangler.jsonc` before proceeding. Other tools use the same
+redirect format. Do not move another tool's configuration.
 
-Once you have confirmed that both files are stale Atoms output, move only those
-two files into a backup directory:
+After confirming that Atoms created both files and no process is using them,
+move them into a backup directory:
 
 ```bash
 mkdir -p .atoms
@@ -128,17 +128,18 @@ mv atoms-worker/.wrangler/deploy/config.json \
    atoms-worker/.wrangler/deploy/wrangler.json "$backup_dir/"
 ```
 
-Keep `atoms-worker/wrangler.jsonc` and `.wrangler/state` in place. The latter
-contains local Durable Object data. Do not delete `.wrangler/` to clear a redirect.
+Keep `atoms-worker/wrangler.jsonc` and `.wrangler/state` in place.
+`.wrangler/state` contains local Durable Object data. Do not delete
+`.wrangler/` to clear a redirect.
 
 Restart the intended environment, for example with `vendor/bin/atoms dev --env
 staging`, and check the Worker name in its settings report. Do not run two Atoms
-commands against the same Worker directory concurrently.
+commands against the same Worker directory at the same time.
 
 The interrupted-run report for Atoms 0.9.1 involved a Ctrl+C byte sent to a
-non-TTY session. It did not establish that ordinary terminal Ctrl+C leaves stale
-files. Report that case separately with the terminal and process details if you
-observe it.
+non-TTY session. That test did not show whether pressing Ctrl+C in a terminal
+leaves stale files. If you observe that behavior, report it with the terminal
+and process details.
 
 ## `atoms-composer.json`
 
