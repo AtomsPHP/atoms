@@ -81,4 +81,5 @@ enum ErrorCode: string
     case RoutingNotAttached = 'ATOMS-E110';
     case CallbackNonceStoreConfiguration = 'ATOMS-E111';
     case CallbackNonceStoreUnavailable = 'ATOMS-E112';
+    case PhpstanConfigurationFailed = 'ATOMS-E113';
 }

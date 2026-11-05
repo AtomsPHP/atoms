@@ -43,6 +43,7 @@ reason the Cloudflare runtime can claim the real API runs inside the guest.
 | Re-verified | 2026-10-29, on the support-directory casing fix — `resources/errors.json` re-vendored after E001 and E012 fix lines were updated to name `Support/`, matching the PSR-4 namespace segment. Still 24 files total; the other 23 digests are unchanged |
 | Re-verified | 2026-10-29, `Errors/ErrorCode.php` and `resources/errors.json` copied after adding ATOMS-E111 and ATOMS-E112 for callback nonce configuration and storage failures. The other digests are unchanged. |
 | Re-verified | 2026-10-31, `resources/errors.json` copied after clarifying that ATOMS-E050 is reserved and current migration validation does not emit it. The other digests are unchanged. |
+| Re-verified | 2026-11-05, `Errors/ErrorCode.php` and `resources/errors.json` copied after adding ATOMS-E113 for PHPStan configuration creation failures. The other digests are unchanged. |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -125,7 +126,7 @@ bdccde339e844104309093d66577483269595946973cba4a77abb1d10bc1401c  Database.php
 7c996f6c31cff9bf210040f311bb534a140e79ae3c62b721c6266ad6d78353e2  Errors/AtomsError.php
 0b4bfcf9ea74ed277614139157b03696f4eae42dc85f420120f96663cf654283  Errors/CatalogEntry.php
 6fd9aca635612d35077fccb6fee7d749bf04df54ccf5a45eea5e4921a402c9fe  Errors/ErrorCatalog.php
-376b4b2f3ba3acd011bdaa2fb3f367f8ff23ef743bb8dbca9e09f6c802e3ce78  Errors/ErrorCode.php
+4ade631564f35f957e863ee05f574c3ff0a6ca7cb005374b69881a94ff552b5a  Errors/ErrorCode.php
 e230d8cf59d4d9c773be3f46fb4b49db948dd52279ffe08a5488d7b35718987f  Migrations/Migration.php
 6ad41de5de3dcc255650f6d9dd29d80fc1c01625f90c8c8f5129cbb965a04069  Migrations/MigrationEntry.php
 addfe71f9472e7f2e76422227ef06586818b546e09842cdcba8e8a97a1dcd690  Migrations/MigrationSet.php
@@ -139,7 +140,7 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
 a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
 b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
-e446c7175d2bed35c5157f3de6a04029a92d2222cda63248ef445f00445ee92c  resources/errors.json
+0126b7f8315b7300eec25381e91be7d9cdb67f0541d23667669d1bad3b588114  resources/errors.json
 ```
 
 Verify with, from this directory:
