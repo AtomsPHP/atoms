@@ -15,13 +15,18 @@ Atoms is currently experimental and in early stages. The goal is to keep the cur
 - A Cloudflare account for deployment
 
 See [Compatibility](/reference/compatibility/#host-and-toolchain-support) for
-dependency constraints and tested versions.
+dependency constraints and tested versions. Your application and the Atoms CLI
+use host PHP. Atom classes, Support code, bundled shared code, migrations, and
+bundled dependencies execute in the Worker's PHP 8.3 interpreter and must use
+PHP 8.3-compatible syntax.
 
 ## PHP
 
 <!-- BEGIN generated Laravel compatibility -->
 The adapter accepts Laravel 11, 12 and 13. CI tests Laravel 12 and 13. See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).
 <!-- END generated Laravel compatibility -->
+
+To create an application, follow [New Laravel application](/getting-started/laravel/#new-laravel-application).
 
 Choose the adapter for the application you already have:
 
@@ -49,7 +54,7 @@ To use Eloquent inside your Atom (with Atom-specific models only!), you need to 
 Add the static rules that protect the PHP↔Worker boundary:
 
 ```bash
-composer require --dev atoms/phpstan-rules:^0.9
+composer require --dev atoms/phpstan-rules
 ```
 
 Then include its configuration from your PHPStan config:
@@ -65,10 +70,12 @@ includes:
 vendor/bin/atoms init
 ```
 
-The `init` command creates `atoms.json` and `atoms-composer.json`, and appends `/.atoms/` and `/.env.atoms.*` to your `.gitignore`. It also prints a command that scaffolds the matching version of the Cloudflare Worker runtime:
+The `init` command creates `atoms.json` and `atoms-composer.json`, and appends `/.atoms/` and `/.env.atoms.*` to your `.gitignore`.
+
+Create the Cloudflare Worker runtime:
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.9.1 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare -- \
   atoms-runtime-cloudflare init atoms-worker
 cd atoms-worker
 npm ci

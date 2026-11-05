@@ -659,7 +659,9 @@ versions that Atoms has not tested.
 
 Host PHP runs your application and CLI. The Worker release supplies its own
 PHP {$runtime['guest_php']} interpreter compiled to WebAssembly.
-All bundled PHP code must remain compatible with that interpreter.
+Atom classes, Support code, shared code included in the bundle, migrations,
+and bundled dependencies must use PHP {$runtime['guest_php']}-compatible syntax,
+even when the application host uses a newer PHP version.
 
 ## Laravel and Illuminate
 
