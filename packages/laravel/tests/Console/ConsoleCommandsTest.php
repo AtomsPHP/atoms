@@ -159,7 +159,41 @@ final class ConsoleCommandsTest extends TestCase
 
         $this->artisan('atoms:install')->assertExitCode(0);
 
-        self::assertSame([['init']], $this->runner->calls);
+        self::assertSame([['init'], ['phpstan:install']], $this->runner->calls);
         self::assertFileExists($configPath);
+    }
+
+    public function testInstallStopsWhenInitFails(): void
+    {
+        $this->runner->exitCode = 7;
+
+        $this->artisan('atoms:install')->assertExitCode(7);
+
+        self::assertSame([['init']], $this->runner->calls);
+        self::assertFileDoesNotExist($this->app->configPath('atoms.php'));
+    }
+
+    public function testInstallPreservesAnInitializedProjectAndReportsPhpstanFailure(): void
+    {
+        $dir = sys_get_temp_dir() . '/atoms-install-' . bin2hex(random_bytes(6));
+        mkdir($dir . '/config', 0777, true);
+        $this->app->setBasePath($dir);
+        $config = '{"project":"existing","paths":{"atoms":"src/Rooms"}}';
+        file_put_contents($dir . '/atoms.json', $config);
+        file_put_contents($dir . '/config/atoms.php', '<?php return ["custom" => true];');
+        $this->runner->exitCode = 9;
+
+        try {
+            $this->artisan('atoms:install')->assertExitCode(9);
+
+            self::assertSame([['phpstan:install']], $this->runner->calls);
+            self::assertSame($config, file_get_contents($dir . '/atoms.json'));
+            self::assertSame('<?php return ["custom" => true];', file_get_contents($dir . '/config/atoms.php'));
+        } finally {
+            unlink($dir . '/atoms.json');
+            unlink($dir . '/config/atoms.php');
+            rmdir($dir . '/config');
+            rmdir($dir);
+        }
     }
 }

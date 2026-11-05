@@ -127,7 +127,7 @@ final class Methods extends AtomMethods
 }
 ```
 
-Run `vendor/bin/atoms validate` and `vendor/bin/phpstan analyse`. Deploy the
+Run `vendor/bin/atoms validate` and `vendor/bin/phpstan analyse --configuration=phpstan.atoms.neon`. Deploy the
 updated Atom and install the Methods class in the application that receives
 callbacks. Configure the [shared nonce store](/getting-started/laravel/#configure-callback-replay-protection)
 and the target environment's `callback_url`. The application and Worker must
