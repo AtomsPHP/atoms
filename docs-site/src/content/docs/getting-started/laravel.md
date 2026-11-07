@@ -25,8 +25,10 @@ npm exec --yes --package=@atomsphp/runtime-cloudflare -- \
 ```
 
 Continue with [Configure callback replay protection](#configure-callback-replay-protection).
-Use the database driver and namespace `atoms-demo:local`, then run
-`php artisan migrate`. Keep Laravel's generated SQLite database.
+For this quickstart, use Laravel's generated SQLite database with the database
+nonce driver and namespace `atoms-demo:local`, then run `php artisan migrate`.
+You can instead use your configured Laravel database connection or the Redis
+nonce driver, as described below.
 
 Next, [create the Atom](#create-an-atom), add its migration, and
 [configure PHPStan](#check-the-atom). Set the local endpoint and start Atoms
