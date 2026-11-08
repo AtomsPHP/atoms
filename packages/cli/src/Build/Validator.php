@@ -7,12 +7,11 @@ namespace Atoms\Cli\Build;
 use Atoms\Cli\Config\AllowedPackages;
 use Atoms\Cli\Config\AtomsComposerJson;
 use Atoms\Cli\Config\AtomsJson;
+use Atoms\Cli\Config\PhpTarget;
 
 /**
- * `atoms validate`: stages 1–3 + 5 of the pipeline plus manifest generation, in
- * seconds and without touching the network or running composer. The build
- * service and `atoms build` run the identical checks, so a bundle that validates
- * locally cannot be rejected for a reason validate would not have caught.
+ * Validate source, dependency declarations and the lock without running
+ * Composer or loading application code. Builder also checks resolved vendor PHP.
  */
 final class Validator
 {
@@ -23,8 +22,16 @@ final class Validator
 
     public function validate(AtomsJson $config): ValidationResult
     {
+        $target = PhpTarget::forPhp($config->php);
         $allowed = AllowedPackages::load();
         $composer = AtomsComposerJson::locate($config->rootDir, $allowed);
+
+        $composerPath = $config->rootDir . '/atoms-composer.json';
+        $lockPath = $config->rootDir . '/atoms-composer.lock';
+        if (is_file($composerPath)) {
+            VendorStage::assertPhpRequirements((string) file_get_contents($composerPath),
+                is_file($lockPath) ? (string) file_get_contents($lockPath) : null, $target->version);
+        }
 
         $discovered = $this->discovery->discover($config);
 
@@ -32,6 +39,7 @@ final class Validator
             $discovered,
             $allowed,
             $composer->approvedNamespaces($allowed),
+            php: $target->php,
         );
 
         $violations = $discovered->violations;
@@ -52,6 +60,12 @@ final class Validator
 
         // Stage 6: manifest.
         $bundleFiles = BundleFileSet::collect($config, $discovered);
+        $syntax = new TargetSyntax($target);
+        foreach ($bundleFiles->files as $file) {
+            if (str_ends_with($file['relative'], '.php')) {
+                $syntax->check($bundleFiles->contentsOf($file), $file['relative']);
+            }
+        }
         $manifest = (new ManifestGenerator($config, $discovered, $methodsResolver, $migrations))
             ->generate($bundleFiles->scoperPrefix(), $classifier->usedExtensions());
 

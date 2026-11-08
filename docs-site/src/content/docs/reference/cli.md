@@ -110,3 +110,19 @@ values. A `.env.atoms.<env>` that exists but cannot be parsed is
 `atoms.json`; configure the monolith's independent `ATOMS_ENDPOINT` yourself.
 
 For data recovery limitations, see [Rollback](/guides/rollback/#data-recovery).
+
+## Experimental TypePHP backend
+
+`dev` and `deploy` accept `--compiler typephp` and select PHP 8.5.9 for Atom
+code. The default `--compiler php-wasm` targets PHP 8.3.32. The CLI and
+monolith retain their PHP 8.3 baseline; the TypePHP compiler process has its
+own host PHP requirement.
+
+For a separate `atoms build`, set `"php": "8.5"` in `atoms.json` before
+building. The source archive records this target. `deploy --bundle` refuses
+an archive for a different backend target. `dev --no-build` reuses the staged
+backend and rejects an explicit compiler option.
+
+Install the pinned toolchain before staging. The
+[TypePHP setup guide](https://github.com/AtomsPHP/atoms/blob/codex/typephp-wasm/cloudflare/docs/typephp.md)
+records its language restrictions and remaining compatibility failures.

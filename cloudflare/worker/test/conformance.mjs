@@ -2,6 +2,7 @@
 
 /**
  * Conformance suite for the Atoms runtime on Cloudflare.
+ * ATOMS_CONFORMANCE_BACKEND selects php-wasm (default) or typephp expectations.
  *
  * Runs the conformance contract against a live Worker URL. For callback
  * checks, this suite plays the monolith with a `node:http` listener bound to
@@ -68,6 +69,7 @@
  *     run check 44, which asserts that setup — spec §"The shared secret")
  */
 
+import { phpContract } from './php-contract.mjs';
 import assert from 'node:assert/strict';
 import { createHmac, hkdfSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
@@ -117,6 +119,8 @@ if (!BASE_URL) {
 }
 
 const baseUrl = BASE_URL.replace(/\/$/, '');
+const PHP_CONTRACT = phpContract(process.env.ATOMS_CONFORMANCE_BACKEND || 'php-wasm');
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // -------------------------------------------------------------- credentials
@@ -2846,7 +2850,7 @@ check(26, 'pdo surface tripwire', async ({ num: checkNum, name }) => {
     const problems = [];
     const id = atomId('probe-surface');
 
-    const res = await invoke('Probe', id, 'surfaceAudit', []);
+    const res = await invoke('Probe', id, 'surfaceAudit', PHP_CONTRACT.backend === 'php-wasm' ? [] : [PHP_CONTRACT.php]);
     if (res.status !== 200) {
         fail(checkNum, name, `HTTP ${res.status}: ${JSON.stringify(res.data)}`);
         return;
@@ -2899,8 +2903,12 @@ check(26, 'pdo surface tripwire', async ({ num: checkNum, name }) => {
         problems.push('members_checked is empty (the audit enumerated nothing)');
     }
 
-    if (typeof result.php !== 'string' || !result.php.startsWith('8.3.')) {
-        problems.push(`php=${JSON.stringify(result.php)} (expected to start with "8.3.")`);
+    if (PHP_CONTRACT.backend === 'typephp') {
+        if (result.php !== PHP_CONTRACT.php_version) problems.push(`php=${result.php} (expected ${PHP_CONTRACT.php_version})`);
+    } else {
+        if (typeof result.php !== 'string' || !result.php.startsWith('8.3.')) {
+            problems.push(`php=${JSON.stringify(result.php)} (expected to start with "8.3.")`);
+        }
     }
 
     // Every allowlist entry must have run its assertion and passed.
@@ -2990,7 +2998,7 @@ check(27, 'pdo comparator integrity', async ({ num: checkNum, name }) => {
 check(28, 'pdo differential matrix', async ({ num: checkNum, name }) => {
     const problems = [];
 
-    const pinPath = join(__dirname, 'pdo-expected.json');
+    const pinPath = join(__dirname, PHP_CONTRACT.pins);
     let pinFile;
     try {
         pinFile = JSON.parse(readFileSync(pinPath, 'utf8'));
@@ -3050,6 +3058,9 @@ check(28, 'pdo differential matrix', async ({ num: checkNum, name }) => {
             return;
         }
 
+        if (result.php !== PHP_CONTRACT.php_version) {
+            problems.push(`differential(${group}) PHP ${result.php}; expected ${PHP_CONTRACT.php_version}`);
+        }
         if (typeof result.php === 'string') {
             php = result.php;
         }
@@ -3195,7 +3206,7 @@ check(28, 'pdo differential matrix', async ({ num: checkNum, name }) => {
     try {
         const resultsDir = join(__dirname, 'results');
         mkdirSync(resultsDir, { recursive: true });
-        writeFileSync(join(resultsDir, 'pdo-matrix.json'), JSON.stringify(pdoMatrixReport, null, 2) + '\n');
+        writeFileSync(join(resultsDir, PHP_CONTRACT.report), JSON.stringify(pdoMatrixReport, null, 2) + '\n');
     } catch {
         /* read-only checkout or similar — not a failure */
     }
@@ -3353,8 +3364,8 @@ check(30, 'pdo compatibility doc is current', async ({ num: checkNum, name }) =>
         return;
     }
 
-    const pinPath = join(__dirname, 'pdo-expected.json');
-    const docPath = join(__dirname, '..', '..', 'docs', 'pdo-compatibility.md');
+    const pinPath = join(__dirname, PHP_CONTRACT.pins);
+    const docPath = join(__dirname, '..', '..', 'docs', PHP_CONTRACT.doc);
 
     let pins;
     try {
@@ -3372,7 +3383,7 @@ check(30, 'pdo compatibility doc is current', async ({ num: checkNum, name }) =>
         return;
     }
 
-    const fresh = renderMatrixDoc(pdoMatrixReport, pins);
+    const fresh = renderMatrixDoc(pdoMatrixReport, pins, PHP_CONTRACT.backend);
 
     if (fresh === committed) {
         pass(checkNum, name, `${docPath} matches a fresh render of the differential report (${pdoMatrixReport.cases.length} cases)`);
@@ -3393,10 +3404,10 @@ check(30, 'pdo compatibility doc is current', async ({ num: checkNum, name }) =>
     fail(
         checkNum,
         name,
-        `docs/pdo-compatibility.md is stale — first differing line ${firstDiff}: ` +
+        `docs/${PHP_CONTRACT.doc} is stale — first differing line ${firstDiff}: ` +
             `committed=${JSON.stringify(committedLines[firstDiff - 1] ?? '(missing)')} ` +
             `fresh=${JSON.stringify(freshLines[firstDiff - 1] ?? '(missing)')} — regenerate with ` +
-            '`node scripts/gen-pdo-matrix.mjs > ../docs/pdo-compatibility.md` (from cloudflare/worker)'
+            `\`ATOMS_CONFORMANCE_BACKEND=${PHP_CONTRACT.backend} node scripts/gen-pdo-matrix.mjs --write\` (from cloudflare/worker)`
     );
 });
 

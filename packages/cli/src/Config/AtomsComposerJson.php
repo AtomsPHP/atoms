@@ -102,7 +102,7 @@ final class AtomsComposerJson
                 throw self::invalid('"require" entries must be string => string');
             }
             // php / ext-* pseudo-packages are always fine.
-            if ($package === 'php' || str_starts_with($package, 'ext-')) {
+            if ($package === 'php' || $package === 'php-64bit' || str_starts_with($package, 'ext-')) {
                 $require[$package] = $constraint;
                 continue;
             }

@@ -1008,16 +1008,16 @@ supplies it.**
 `atoms dev --env staging --compiler typephp` and
 `atoms deploy --env production --compiler typephp` select the experimental
 TypePHP backend at the translation step. `--compiler php-wasm` is the default.
-`atoms build` produces the same portable archive and schema-1 manifest for
-both compilers. Laravel's `atoms:dev` and `atoms:deploy` wrappers
+`atoms build` produces a portable source archive and schema-1 manifest.
+The archive records its PHP target; it contains no compiled WASM. Laravel's `atoms:dev` and `atoms:deploy` wrappers
 forward the option. Symfony's deploy wrapper accepts it through its forwarded
 arguments after `--`.
 
 The TypePHP backend compiles the runtime, core, and primary Atom files into a
 PHP 8.5 WASI component. Supporting PHP and migrations remain guest files.
 Primary Atoms must directly extend `Atoms\Atom` and must not use traits.
-Unsupported compiler inputs fail with ATOMS-E113. The TypePHP backend does not
-pass the complete PHP 8.3 conformance suite. See the
+Unsupported compiler inputs fail with ATOMS-E113. TypePHP has a separate PHP 8.5 conformance contract with remaining
+compatibility failures. See the
 [measured differences](../cloudflare/docs/typephp.md#current-conformance-differences).
 
 The translator emits a matching `runtime.generated.js` beside the bundle and
@@ -1032,6 +1032,48 @@ WASI SDK tools, Wasmtime, and Jco must already be installed locally at the
 accepted versions. Missing or incomplete toolchains fail staging before Wrangler
 runs. See [TypePHP setup](../cloudflare/docs/typephp.md) for the version pins,
 the measured SDK repair, environment variables, and reproducibility limits.
+
+### PHP target contract
+
+`packages/cli/resources/php-targets.json` is authoritative. The Worker ships
+an identical copy at `scripts/lib/php-targets.json`; regenerate it with
+`node scripts/sync-php-targets.mjs` after changing a pin. Tests check equality.
+The default backend targets PHP **8.3.32** from `@php-wasm/web-8-3@3.1.48`.
+TypePHP **0.9.5** targets PHP **8.5.9** from the pinned PHPX **2.9.4** WASI SDK.
+
+For `atoms build` and `atoms validate`, `atoms.json`'s `php` selects `8.3`
+(default) or `8.5`. Dev and deploy builds derive this value from `--compiler`.
+Selecting TypePHP therefore selects PHP 8.5 for that build, even when the
+configuration omits `php`. For a prebuilt TypePHP archive, set `"php": "8.5"`
+before running `atoms build`, then deploy it with `--compiler typephp`.
+Staging rejects a different target, including a different recorded patch
+version. It never relabels an 8.3 archive as 8.5. Older manifests without
+`php_version` remain accepted when their `php` ABI matches.
+
+The CLI parses through PHP 8.5 without including customer files. It checks
+shipped Atom, Shared, support, migration, and vendor PHP against the chosen
+target. This is source validation, not proof that TypePHP implements every
+PHP 8.5 feature: the compiler applies its own language restrictions later.
+The classifier resolves PHP 8.4/8.5 additions in allowed extensions from the
+Atom target, so an older CLI can recognize classes such as `RoundingMode`
+and record the same extension metadata for `array_first()`.
+Composer resolution uses the exact guest version as `config.platform.php`
+and `php-64bit`. Root requirements and locked transitive PHP requirements
+and conflicts are checked before cache reuse. Cache keys include the target.
+Extension requirements remain separate from the host PHP installation.
+
+The monolith and CLI retain their PHP 8.3 package baseline. The TypePHP source
+compiler is a separate process with upstream requirement `>=8.4 <8.6`; a
+`tpc` wrapper may select its own PHP executable. The source tokenizer can run
+on PHP 8.3 via `ATOMS_TYPEPHP_PHP`. Neither host executable determines the
+Atom target. Shared DTOs must also parse on the monolith version, and Methods
+and jobs execute there. Do not put PHP 8.5-only shared code into a PHP 8.3 app.
+
+Default staging verifies the npm version and the existing artifact hashes.
+TypePHP preflight checks the compiler, SDK package/revision/target metadata,
+PHP version headers and required symbols. The actual guest checks its ABI
+and recorded patch version at activation, before loading customer files.
+No build downloads a toolchain or executes a customer program.
 
 ### Why not make one side adopt the other
 

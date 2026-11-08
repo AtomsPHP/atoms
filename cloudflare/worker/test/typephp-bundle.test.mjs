@@ -13,7 +13,7 @@ const tools = fakeTypePhpTools(scratch);
 const hashes = new Set();
 const php = process.env.ATOMS_TYPEPHP_PHP || (process.env.PATH ?? '').split(path.delimiter)
 	.map(dir => path.join(dir, 'php')).find(file => { try { fs.accessSync(file, fs.constants.X_OK); return true; } catch { return false; } });
-const manifest = { abi: { php: '8.3' }, atoms: { Counter: { class: 'App\\Counter', file: '/app/Counter.php' } } };
+const manifest = { abi: { php: '8.5' }, atoms: { Counter: { class: 'App\\Counter', file: '/app/Counter.php' } } };
 const files = {
 	'/app/Counter.php': '<?php namespace App; class Counter extends \\Atoms\\Atom {}',
 	'/app/Support.php': '<?php throw new \\RuntimeException("must not execute while building");',
@@ -55,7 +55,7 @@ test('production staging switches the default selector and publishes matching pr
 	build(output);
 	const bundle = await readBundle(output);
 	assert.deepEqual(bundle.files, files, 'supporting PHP remains available to the guest');
-	assert.deepEqual(manifest.abi, { php: '8.3' }, 'staging does not mutate its inputs');
+	assert.deepEqual(manifest.abi, { php: '8.5' }, 'staging does not mutate its inputs');
 	assert.equal(bundle.manifest.abi.php, '8.5');
 	assert.equal(bundle.manifest.compiler.name, 'typephp');
 	assert.equal(bundle.manifest.compiler.version, '0.9.5');

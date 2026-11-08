@@ -863,6 +863,13 @@ function activate(array $cfg)
     require_all($coreDir, core_files());
     require_all($runtimeDir, runtime_files());
 
+    $abi = $cfg['manifest']['abi'] ?? [];
+    $minor = PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;
+    if (($abi['php'] ?? null) !== $minor
+        || (isset($abi['php_version']) && $abi['php_version'] !== PHP_VERSION)) {
+        throw new BootstrapError('internal', 'Atom PHP target does not match the installed runtime ' . PHP_VERSION . '.');
+    }
+
     if (!isset($cfg['atom']['type']) || !is_string($cfg['atom']['type']) || $cfg['atom']['type'] === '') {
         throw new BootstrapError('internal', '$CFG.atom.type is missing.');
     }

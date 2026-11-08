@@ -68,6 +68,7 @@ const STATIC_FILES = [
 	'php/atoms-core',
 	'php/runtime',
 	'scripts/lib/typephp-magic.php',
+	'scripts/lib/php-targets.json',
 	'release/supported-core',
 	// Ships as the template's wrangler.jsonc. The repository's own
 	// wrangler.jsonc is the conformance-harness config (debug endpoints on,

@@ -2,7 +2,7 @@
 
 `--compiler typephp` selects [TypePHP](https://github.com/swoole/typephp) when
 staging a Worker bundle. The default is `php-wasm`. `atoms build` produces the
-same portable archive and manifest for either backend. Select the compiler
+portable source archive with an explicit PHP target. Select the compiler
 when running `dev`, `deploy`, or the Worker's bundle translator.
 
 ```sh
@@ -16,6 +16,32 @@ Symfony's deploy wrapper forwards it after `--`. `dev --no-build` uses the
 already staged backend and rejects an explicit `--compiler` option. To return
 to the default backend, stage again with
 `--compiler php-wasm` or omit the option on a command that builds.
+
+## PHP version contract
+
+Selecting TypePHP selects PHP **8.5.9**, supplied by the pinned PHPX 2.9.4
+WASI SDK. The default backend targets PHP **8.3.32**. These pins are defined
+in `packages/cli/resources/php-targets.json` and copied into the Worker package.
+TypePHP is not expected to reproduce PHP 8.3 behavior.
+
+`dev` and `deploy` derive the build target from `--compiler`. For a separate
+`atoms build` or `atoms validate`, set `"php": "8.5"` in `atoms.json`.
+The resulting manifest records `toolchain.php: "8.5"` and
+`toolchain.php_version: "8.5.9"`. Staging requires a matching target; an 8.3
+archive must be rebuilt before staging it with TypePHP. The archive format
+stays portable and contains no compiled WASM.
+
+The CLI and monolith can still run PHP 8.3. Static parsing supports PHP 8.5
+without loading customer code. Composer resolves Atom dependencies against
+the guest version and checks locked PHP constraints even on cache hits.
+The monolith's own dependencies are resolved separately. Shared DTOs must
+parse on both the guest and monolith; Methods and jobs run in the monolith.
+
+The source compiler process has upstream requirement `>=8.4 <8.6`. A `tpc`
+wrapper may run it with its own PHP binary. `ATOMS_TYPEPHP_PHP` selects the
+source tokenizer, which can run on PHP 8.3. Neither executable changes the
+runtime target. TypePHP's own language restrictions still apply after source
+validation; selecting 8.5 does not promise support for every PHP 8.5 feature.
 
 ## Scope and measured limits
 
@@ -46,26 +72,53 @@ a compiler, run an installer, or repair an SDK.
 
 ## Current conformance differences
 
-The unmodified conformance suite ran against the complete compiled fixture
-with Wrangler 4.118.0, compatibility date 2026-08-01, and the pinned toolchain
-below. The full run with bearer authentication disabled completed with 31
-checks passing and 7 failing. The TypePHP backend does not meet the complete
-default runtime contract. The PHP 8.3 acceptance gate and committed PDO
-compatibility matrix remain unchanged.
+The suite runs against the complete compiled fixture with Wrangler 4.118.0,
+compatibility date 2026-08-01, and the pinned toolchain below. Select
+`ATOMS_CONFORMANCE_BACKEND=typephp` explicitly. Checks 26, 28, and 30 use the
+reviewed PHP 8.5 contract and the separate
+[PHP 8.5 PDO report](pdo-compatibility-php85.md). The default PHP 8.3 assertions,
+pins, and compatibility report remain unchanged. No checks are disabled for
+TypePHP and measured output does not generate acceptance pins.
+
+The complete bearer-disabled run finished with 34 checks passing and four
+failing. Checks that require another authentication posture retain their
+existing prerequisites. The remaining failures are:
 
 | Checks | Observed difference |
 |---|---|
-| 9 | Returning an array nested 600 levels deep traps with an out-of-bounds WASM memory error and discards the residency, instead of returning `atom_exception`. Other int64 cases passed. |
-| 14, 17, 20 | Compiled transaction closures that declare no parameters reject the database argument with `ArgumentCountError`. This prevents those callback, job, and broadcast scenarios. |
-| 26 | PHP 8.5 changes PDO fetch constants and the ABI differs from the pinned PHP 8.3 reflection contract. |
-| 28 | Native PDO quoting, NUL handling, and statement attribute behavior differ. Compiled PDO quote methods also reject weak boolean and integer coercions that the default runtime accepts. |
-| 30 | The measured PHP 8.5 PDO report differs from the committed PHP 8.3 report. Keep that report unchanged. |
+| 9 | Returning an array nested 600 levels deep traps with an out-of-bounds WASM memory error and discards the residency, instead of returning `atom_exception`. This crash is outside the PHP-version contract work. |
+| 14, 17, 20 | Compiled transaction closures that declare no parameters reject the database argument with `ArgumentCountError`. This prevents those callback, job, and broadcast scenarios. This is an intentional TypePHP language rule. |
+
+The PDO investigation separates three causes:
+
+- **PHP changes:** `PDO::connect()` was added in PHP 8.4. PHP 8.5 changed
+  five fetch flag values (`GROUP=32`, `UNIQUE=64`, `CLASSTYPE=128`,
+  `PROPS_LATE=256`, `SERIALIZE=512`). Native SQLite quoting rejects embedded
+  NUL bytes; PHP 8.3 truncated them. SQLite statement `setAttribute()` returns
+  `false` on the native 8.5.9 reference, where the 8.3 comparator throws.
+- **TypePHP language rules:** compiled scalar parameters reject weak boolean
+  and integer arguments to `quote()`. Native PHP's weak call sites coerce
+  these values. The two differences are pinned with that explanation;
+  callers should pass strings explicitly.
+- **Adapter defect:** the inherited native `PDO::connect()` factory could
+  bypass Durable Object storage. `AtomsPDO` now declares it and throws
+  `AtomsNotSupported`, directing callers to `$this->db()->pdo()`. Check 26
+  verifies the refusal as well as declaration ownership.
+
+The PHP 8.5 migration guide documents the
+[fetch-flag and NUL-quoting changes](https://www.php.net/manual/en/migration85.incompatible.php).
+The [native factory documentation](https://www.php.net/manual/en/pdo.connect.php)
+records its PHP 8.4 introduction. `test/pdo-native-php85.php` independently
+checks the reviewed constants, factory availability, NUL refusal, and statement
+attribute behavior on native PHP 8.5.9. The full differential suite measures
+our adapter against native PDO inside the guest; the native reference does
+not replace it. The generated report refuses unreviewed or stale pins.
 
 TypePHP documents extra-argument rejection as an
 [intentional language rule](https://github.com/swoole/typephp/blob/5ba9376642d8dd75efcd002b41b09a9d6bcca3e2/docs/en/INCOMPATIBLE_PHP_FEATURES.md#calls-and-references).
 Declare the database parameter on transaction callbacks when using this backend,
-including when the callback does not use it. This does not resolve the other
-compatibility differences above. The SDK also emits tentative-return-type
+including when the callback does not use it. The fixture retains its existing
+assertions, so those checks still fail and expose the language difference. The SDK also emits tentative-return-type
 notices for compiled PDO overrides despite their `ReturnTypeWillChange`
 attributes. These notices appear in guest output logs.
 
@@ -217,9 +270,12 @@ node --input-type=module -e "import { preflightTypePhp } from './cloudflare/work
 jco --version
 ```
 
-Preflight checks SDK headers, seven static archives, and defined PHPX symbols,
+Preflight verifies the SDK manifest package, PHP 8.5.9 version and PHPX source
+revision, the `PHP_VERSION` and `PHP_VERSION_ID` headers, seven static archives,
+and defined PHPX symbols,
 including the missing property and runtime entry points. The translation stage
-then checks Jco's exact version. Missing tools or unsupported source fail with
+then checks Jco's exact version. At activation the guest checks the manifest
+ABI and recorded patch against its actual PHP version before loading Atom code. Missing tools or unsupported source fail with
 `ATOMS-E113` when staging through the CLI.
 
 To test the installation separately, create `hello.php` containing
@@ -274,3 +330,27 @@ staged bundle. It records build provenance in each artifact directory's
 
 See [third-party notices](../THIRD_PARTY_NOTICES.md#optional-typephp-backend)
 for compiler and runtime component provenance.
+
+## Run the PHP 8.5 contract
+
+From `cloudflare/worker`, compile the fixture with the installed tools, start
+its local Worker using the same callback, deadline, and SQL-cap settings as
+the default conformance run, then run:
+
+```sh
+ATOMS_CONFORMANCE_BACKEND=typephp ATOMS_BASE_URL=http://127.0.0.1:8787 node test/conformance.mjs
+```
+
+The profile writes `test/results/pdo-matrix-php85.json`. After reviewing any
+new differences against native PHP and TypePHP's documented language rules,
+edit the explicit pins in `test/pdo-expected-php85.json`. Never copy measured
+classifications into that file automatically. Regenerate the separate report:
+
+```sh
+ATOMS_CONFORMANCE_BACKEND=typephp node scripts/gen-pdo-matrix.mjs --write
+```
+
+Omit the profile variable for the default PHP 8.3 contract. Its pins and report
+keep their existing filenames. Run the independent native reference with a
+PHP 8.5.9 binary using `php test/pdo-native-php85.php`. Neither test command
+installs a toolchain.

@@ -90,6 +90,9 @@ final class DevCommandTest extends TestCase
         self::assertSame(0, $exit, $tester->getDisplay());
         self::assertCount(1, $runner->runs);
         self::assertSame(['--compiler', 'typephp'], array_slice($runner->runs[0]['command'], 5));
+        $manifest = json_decode((string) file_get_contents($runner->runs[0]['command'][3]), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('8.5', $manifest['toolchain']['php']);
+        self::assertSame('8.5.9', $manifest['toolchain']['php_version']);
         self::assertNotNull($wrangler->lastCall('dev'));
     }
 
