@@ -152,12 +152,11 @@ final class DeployCommand extends AbstractCommand
                     . 'or "${ATOMS_CALLBACK_URL}".'
                 );
             }
-            // The environment's Wrangler config, written where wrangler
-            // deploy looks for a generated one, and removed again once it
-            // has run so the directory is left as it was found.
-            $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
+            // Pass this invocation's config explicitly, then remove it when
+            // Wrangler exits. Configuration selection never relies on cleanup.
             try {
-                $wrangler = $this->wrangler->deploy($target);
+                $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
+                $wrangler = $this->wrangler->deploy($target, $generated->path());
             } finally {
                 $generated->remove();
             }

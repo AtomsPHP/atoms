@@ -16,21 +16,12 @@ namespace Atoms\Cli\Cloudflare;
 interface Wrangler
 {
     /**
-     * `wrangler deploy`, in the Worker project directory. The Worker name,
-     * runtime vars and routing are not flags: the caller has already written
-     * the environment's {@see GeneratedWranglerConfig}, which Wrangler picks
-     * up through `.wrangler/deploy/config.json` in that directory.
+     * `wrangler deploy --config {configPath}`, in the Worker project directory.
+     * The caller has written the selected environment's GeneratedWranglerConfig.
      */
-    public function deploy(CloudflareTarget $target): WranglerResult;
+    public function deploy(CloudflareTarget $target, string $configPath): WranglerResult;
 
-    /**
-     * `wrangler versions list --name {worker} --json`.
-     *
-     * This and the commands below still name the Worker on the command line:
-     * Wrangler consults the generated-config redirect only for `deploy`,
-     * `dev` and `versions upload`/`deploy`, so `--name` is what selects the
-     * environment's Worker here.
-     */
+    /** `wrangler versions list --name {worker} --json`. */
     public function versions(CloudflareTarget $target): WranglerResult;
 
     /**
@@ -58,8 +49,8 @@ interface Wrangler
     public function deleteSecret(CloudflareTarget $target, string $key): WranglerResult;
 
     /**
-     * `wrangler dev --port {port}`, reading the same generated config as
-     * `deploy()` does. Runs in the foreground until interrupted.
+     * `wrangler dev --config {configPath} --port {port}`, reading the same
+     * generated config as `deploy()`. Runs in the foreground until interrupted.
      */
-    public function dev(CloudflareTarget $target, string $port): WranglerResult;
+    public function dev(CloudflareTarget $target, string $port, string $configPath): WranglerResult;
 }

@@ -14,14 +14,11 @@
 	//
 	// HOW THIS FILE IS USED. `atoms deploy` and `atoms dev` do not hand this
 	// file to Wrangler as it is. They derive a copy for the selected
-	// atoms.json environment, written to `.wrangler/deploy/wrangler.json`
-	// beside a `config.json` that points Wrangler at it (Wrangler's
-	// "generated configuration" redirect), and remove both once Wrangler has
-	// exited. In that copy `name` is the environment's `worker_name`, `routes`
+	// atoms.json environment and pass that copy directly to Wrangler.
+	// In that copy `name` is the environment's `worker_name`, `routes`
 	// is built from its `custom_domains`, the callback URL and
 	// debug-endpoints switch are merged into `vars`, and any `env` blocks are
-	// dropped. Everything else here travels through unchanged. Wrangler says
-	// "Using redirected Wrangler configuration" when it reads the copy.
+	// dropped. Everything else here travels through unchanged.
 	//
 	// So: per-environment settings — the Worker name, custom domains,
 	// callback URL, debug endpoints — belong in atoms.json. Routes or custom

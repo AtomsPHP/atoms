@@ -99,16 +99,17 @@ final class GeneratedWranglerConfigTest extends TestCase
     }
 
     /**
-     * Wrangler resolves these keys against the directory of the config file
-     * that declares them, and the generated file lives two levels below the
-     * Worker directory.
+     * Copies live beside the source: every path keeps the same base directory,
+     * including fields the CLI does not interpret.
      */
-    public function testRelativePathsAreReanchoredAndAbsoluteOnesLeftAlone(): void
+    public function testPathsKeepTheirOriginalBaseDirectory(): void
     {
         $target = $this->target(json_encode([
             '$schema' => 'node_modules/wrangler/config-schema.json',
             'main' => 'src/index.js',
             'tsconfig' => '/abs/tsconfig.json',
+            'build' => ['cwd' => 'build', 'watch_dir' => './src'],
+            'wasm_modules' => ['MODULE' => './module.wasm'],
             'assets' => ['directory' => 'public', 'binding' => 'ASSETS'],
             'site' => ['bucket' => './static'],
             'rules' => [['type' => 'CompiledWasm', 'globs' => ['**/*.wasm']]],
@@ -116,11 +117,13 @@ final class GeneratedWranglerConfigTest extends TestCase
 
         $document = GeneratedWranglerConfig::generate($target, [])->document;
 
-        self::assertSame('../../node_modules/wrangler/config-schema.json', $document['$schema']);
-        self::assertSame('../../src/index.js', $document['main']);
+        self::assertSame('node_modules/wrangler/config-schema.json', $document['$schema']);
+        self::assertSame('src/index.js', $document['main']);
         self::assertSame('/abs/tsconfig.json', $document['tsconfig']);
-        self::assertSame(['directory' => '../../public', 'binding' => 'ASSETS'], $document['assets']);
-        self::assertSame(['bucket' => '../.././static'], $document['site']);
+        self::assertSame(['directory' => 'public', 'binding' => 'ASSETS'], $document['assets']);
+        self::assertSame(['bucket' => './static'], $document['site']);
+        self::assertSame(['cwd' => 'build', 'watch_dir' => './src'], $document['build']);
+        self::assertSame(['MODULE' => './module.wasm'], $document['wasm_modules']);
         // Globs are matched against module paths, not the config directory.
         self::assertSame([['type' => 'CompiledWasm', 'globs' => ['**/*.wasm']]], $document['rules']);
     }
@@ -132,43 +135,88 @@ final class GeneratedWranglerConfigTest extends TestCase
         self::assertSame('https://example.com/schema.json', GeneratedWranglerConfig::generate($target, [])->document['$schema']);
     }
 
-    public function testWriteProducesTheRedirectAndTheConfigAndRemoveTakesOnlyThoseAway(): void
+    public function testWriteCreatesNoRedirectAndRemovePreservesLocalState(): void
     {
         $target = $this->target('{"main": "src/index.js"}');
         $generated = GeneratedWranglerConfig::generate($target, ['ATOMS_DEBUG_ENDPOINTS' => '1']);
+        mkdir($target->workerDir . '/.wrangler/state', 0777, true);
+        $state = $target->workerDir . '/.wrangler/state/local.sqlite';
+        file_put_contents($state, 'local data');
 
         $path = $generated->write();
 
-        self::assertSame($target->workerDir . '/.wrangler/deploy/wrangler.json', $path);
-        self::assertSame(
-            ['configPath' => 'wrangler.json'],
-            json_decode((string) file_get_contents($target->workerDir . '/.wrangler/deploy/config.json'), true),
-        );
+        self::assertSame($target->workerDir, \dirname($path));
+        self::assertMatchesRegularExpression('/^\.wrangler\.atoms-[a-f0-9]+\.json$/', basename($path));
+        self::assertFileDoesNotExist($target->workerDir . '/.wrangler/deploy/config.json');
         $written = json_decode((string) file_get_contents($path), true);
         self::assertSame('acme-games', $written['name']);
         self::assertSame(['ATOMS_DEBUG_ENDPOINTS' => '1'], $written['vars']);
+        self::assertSame('src/index.js', $written['main']);
 
-        // Wrangler's other state in that directory is not ours to delete.
-        file_put_contents($target->workerDir . '/.wrangler/deploy/other.txt', 'x');
         $generated->remove();
         self::assertFileDoesNotExist($path);
-        self::assertFileDoesNotExist($target->workerDir . '/.wrangler/deploy/config.json');
-        self::assertFileExists($target->workerDir . '/.wrangler/deploy/other.txt');
-
-        // Removing twice is fine.
+        self::assertSame('local data', file_get_contents($state));
+        self::assertSame('{"main": "src/index.js"}', file_get_contents($generated->source));
         $generated->remove();
+    }
+
+    public function testAnAbandonedOrActiveConfigCannotBeOverwrittenOrRemovedByAnotherRun(): void
+    {
+        $target = $this->target('{"main": "src/index.js"}');
+        $first = GeneratedWranglerConfig::generate($target, ['ATOMS_CALLBACK_URL' => 'https://first.example.com']);
+        $second = GeneratedWranglerConfig::generate($target, ['ATOMS_CALLBACK_URL' => 'https://second.example.com']);
+        $firstPath = $first->write();
+        $firstContents = file_get_contents($firstPath);
+        $secondPath = $second->write();
+
+        self::assertNotSame($firstPath, $secondPath);
+        self::assertSame($firstContents, file_get_contents($firstPath));
+        self::assertNotSame($firstContents, file_get_contents($secondPath));
+        $second->remove();
+        self::assertSame($firstContents, file_get_contents($firstPath));
+        self::assertFileDoesNotExist($target->workerDir . '/.wrangler/deploy/config.json');
+    }
+
+    public function testExistingRedirectsBelongToOtherToolsAndAreLeftUntouched(): void
+    {
+        $target = $this->target('{"main": "src/index.js"}');
+        $dir = $target->workerDir . '/.wrangler/deploy';
+        mkdir($dir, 0777, true);
+        file_put_contents($dir . '/config.json', '{"configPath":"wrangler.json"}');
+        file_put_contents($dir . '/wrangler.json', '{"name":"another-worker"}');
+        $generated = GeneratedWranglerConfig::generate($target, []);
+
+        $generated->write();
+        $generated->remove();
+
+        self::assertSame('{"configPath":"wrangler.json"}', file_get_contents($dir . '/config.json'));
+        self::assertSame('{"name":"another-worker"}', file_get_contents($dir . '/wrangler.json'));
     }
 
     public function testWriteIsDeterministic(): void
     {
-        $target = $this->target('{"main": "src/index.js", "vars": {"B": "2", "A": "1"}}', ['a.example.com/*']);
-        $generated = GeneratedWranglerConfig::generate($target, ['Z' => 'z']);
+        $target = $this->target('{"main": "src/index.js", "vars": {"B": "2", "A": "1"}}', ['a.example.com']);
+        $first = GeneratedWranglerConfig::generate($target, ['Z' => 'z']);
+        $second = GeneratedWranglerConfig::generate($target, ['Z' => 'z']);
 
-        $first = file_get_contents($generated->write());
-        $second = file_get_contents($generated->write());
+        self::assertSame(file_get_contents($first->write()), file_get_contents($second->write()));
+    }
 
-        self::assertSame($first, $second);
-        self::assertStringEndsWith("\n", (string) $first);
+    public function testWriteFailureIsE076AndCannotRemoveAnExistingFile(): void
+    {
+        $target = $this->target('{"main": "src/index.js"}');
+        $generated = GeneratedWranglerConfig::generate($target, []);
+        file_put_contents($generated->path(), 'existing file');
+
+        try {
+            $generated->write();
+            self::fail('An existing file must never be overwritten.');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E076', $e->getMessage());
+        } finally {
+            $generated->remove();
+        }
+        self::assertSame('existing file', file_get_contents($generated->path()));
     }
 
     public function testAWranglerJsonIsReadWhenThereIsNoJsonc(): void

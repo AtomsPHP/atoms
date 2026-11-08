@@ -85,11 +85,28 @@ final class DevCommandTest extends TestCase
 
         $dev = $wrangler->lastCall('dev');
         self::assertNotNull($dev, 'wrangler dev must still run once the secret is guaranteed');
+        self::assertFileDoesNotExist($dev['args']['configPath']);
+        self::assertFileDoesNotExist($dir . '/.wrangler/deploy/config.json');
         self::assertArrayNotHasKey(
             'ATOMS_SHARED_SECRET',
             $dev['args']['vars'],
             'the secret must reach the Worker only via .dev.vars, never as a --var/argv value',
         );
+    }
+
+    public function testWranglerFailureRemovesOnlyTheInvocationConfig(): void
+    {
+        $dir = $this->workerDir();
+        $wrangler = new FakeWrangler();
+        $wrangler->devResult = FakeWrangler::failed(['dev'], 'Cannot start Worker');
+
+        $tester = $this->execute($dir, $wrangler);
+
+        self::assertSame(1, $tester->getStatusCode());
+        self::assertFileDoesNotExist($wrangler->lastCall('dev')['args']['configPath']);
+        self::assertFileExists($dir . '/.dev.vars');
+        self::assertFileExists($dir . '/wrangler.jsonc');
+        self::assertFileDoesNotExist($dir . '/.wrangler/deploy/config.json');
     }
 
     public function testNewDevVarsFileIsCreatedWithMode0600(): void

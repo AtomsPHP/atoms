@@ -10,9 +10,7 @@ use Atoms\Cli\Process\SymfonyProcessRunner;
 /**
  * Drives a real, locally installed Wrangler as a subprocess.
  *
- * Not exercised by the test suite, which fakes {@see Wrangler} — the rule that
- * tests never hit the network is what makes that mandatory rather than
- * convenient. `wrangler deploy` talks to Cloudflare.
+ * Tests inject a ProcessRunner to inspect argv without contacting Cloudflare.
  */
 final class ProcessWrangler implements Wrangler
 {
@@ -26,13 +24,9 @@ final class ProcessWrangler implements Wrangler
         $this->runner = $runner ?? new SymfonyProcessRunner();
     }
 
-    public function deploy(CloudflareTarget $target): WranglerResult
+    public function deploy(CloudflareTarget $target, string $configPath): WranglerResult
     {
-        // No --name, --var, --route or --domain: the generated config in
-        // .wrangler/deploy/ carries all of them, and Wrangler reads it in
-        // place of the user's file. Passing any of them here would make the
-        // command line a second source for values the file already settles.
-        return $this->run($target, ['deploy']);
+        return $this->run($target, ['deploy', '--config', $configPath]);
     }
 
     public function versions(CloudflareTarget $target): WranglerResult
@@ -76,10 +70,10 @@ final class ProcessWrangler implements Wrangler
         return $this->run($target, ['secret', 'delete', $key, '--name', $target->workerName]);
     }
 
-    public function dev(CloudflareTarget $target, string $port): WranglerResult
+    public function dev(CloudflareTarget $target, string $port, string $configPath): WranglerResult
     {
         $binary = WranglerBinary::resolve($this->runner, $target);
-        $command = [$binary, 'dev', '--port', $port];
+        $command = [$binary, 'dev', '--config', $configPath, '--port', $port];
 
         $result = $this->runner->runForeground($command, $target->workerDir, $this->childEnv($target));
 
