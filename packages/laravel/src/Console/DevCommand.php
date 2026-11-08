@@ -16,6 +16,7 @@ final class DevCommand extends AtomsBinaryCommand
         {--port= : Port for wrangler dev (default: 8787)}
         {--callback-url= : Local callback URL (beats ATOMS_CALLBACK_URL and atoms.json callback_url)}
         {--worker-dir= : Worker project directory (else atoms-worker/ beside atoms.json)}
+        {--compiler= : WebAssembly backend: php-wasm or experimental typephp (requires a build)}
         {--no-build : Serve the bundle already staged in the Worker project}';
 
     protected $description = 'Run the Atoms Worker locally with wrangler dev';
@@ -24,7 +25,7 @@ final class DevCommand extends AtomsBinaryCommand
     {
         $args = ['dev'];
 
-        foreach (['env', 'port', 'callback-url', 'worker-dir'] as $option) {
+        foreach (['env', 'port', 'callback-url', 'worker-dir', 'compiler'] as $option) {
             if (($value = $this->option($option)) !== null) {
                 $args[] = '--' . $option;
                 $args[] = (string) $value;

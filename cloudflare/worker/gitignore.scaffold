@@ -12,6 +12,9 @@
 # (scripts/bundle-from-cli.mjs). It embeds your app; regenerate it, never
 # commit it.
 /src/bundle.generated.js
+/src/runtime.generated.js
+/src/.typephp/
+/src/.typephp-stage-*/
 
 # Installed by `npm ci` from the committed package-lock.json.
 /node_modules/

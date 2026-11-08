@@ -38,6 +38,46 @@ requires synchronous guest re-entry, which only Asyncify provides. Boot uses
 
 ## PHP↔JS protocol
 
+### Experimental TypePHP transport
+
+The optional TypePHP backend compiles PHP to a WASI 0.2 command component.
+It uses the JSON operations and turn envelopes below. The guest writes
+`\x1eATOMS:<UTF-8 byte length>\n<payload>` to stdout
+and reads one JSON reply line from stdin. The payload still starts with `!`
+or `~`. The host logs ordinary stdout separately from turn results. Each
+residency owns its streams, filesystem, component instance, and pending reply.
+The first stdin line carries the boot payload. A component runs until shutdown
+or a fatal error. The same PHP request stays active between turns.
+
+Jco converts the component to core WebAssembly modules using JSPI. The Worker
+imports Wrangler's precompiled modules statically and instantiates them without
+fetching or compiling WebAssembly bytes. The guest filesystem is in memory.
+The host disables WASI network access. Application callbacks
+use the signed host callback channel.
+
+JSPI resumes through a promise. TypePHP transactions therefore
+use `ctx.storage.transaction(async () => ...)`. The host resumes `tx.begin`
+inside that callback, awaits parks through `tx.commit` or `tx.rollback`, and
+only replies to the terminating park after the storage transaction finishes.
+Guest parks notify the host directly. The transaction input gate can block
+polling timers, so the host cannot rely on them to complete the transaction.
+SQL uses the Durable Object's own connection. The host refuses nested transactions
+and `app.call` inside a transaction. It releases dispatches only after commit.
+A fatal or abandoned transaction rolls back. The existing
+Asyncify backend continues to use `transactionSync()`.
+
+Local tests with Wrangler 4.118.0 and compatibility date 2026-08-01 confirmed
+that JSPI is available. Asynchronous SQL transactions
+commit and roll back across suspension, and separate WASI instances resume
+across Durable Object events without sharing stream or filesystem state.
+This measurement does not establish complete PHP or PDO compatibility. The
+[TypePHP conformance differences](typephp.md#current-conformance-differences)
+record the failing checks against the full compiled fixture. This backend is
+experimental and does not satisfy the complete default runtime contract.
+TypePHP's AOT language restrictions and PHP 8.5 SDK are distinct from the
+default PHP 8.3 interpreter. Staging requires a successful native build.
+The portable source archive remains unchanged.
+
 ### Doors
 
 One wasm import, dispatched on the first byte of the message string:

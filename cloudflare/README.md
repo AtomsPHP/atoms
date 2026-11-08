@@ -17,7 +17,10 @@ from WordPress Playground's npm package, and
 `worker/scripts/prepare-runtime.mjs` stages it into the gitignored
 `worker/.php-wasm/` directory after verifying its size and SHA-256.
 
-This is the only runtime Atoms targets.
+An experimental alternate bundle compiles the Atom and guest runtime with
+[TypePHP](docs/typephp.md). Select it with `atoms dev --compiler typephp` or
+`atoms deploy --env production --compiler typephp` after installing the pinned
+toolchain. Both backends target the same Cloudflare Durable Object host.
 
 ## Running it
 

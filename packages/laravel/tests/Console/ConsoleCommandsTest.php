@@ -79,6 +79,19 @@ final class ConsoleCommandsTest extends TestCase
         );
     }
 
+    public function testDeployForwardsAnExplicitCompiler(): void
+    {
+        $this->artisan('atoms:deploy', [
+            '--env' => 'production',
+            '--compiler' => 'typephp',
+        ])->assertExitCode(0);
+
+        self::assertSame(
+            [['deploy', '--env', 'production', '--compiler', 'typephp']],
+            $this->runner->calls,
+        );
+    }
+
     public function testRollbackBuildsArgvWithEnvAndVersion(): void
     {
         $this->artisan('atoms:rollback', ['version' => 'abc123', '--env' => 'production'])
@@ -133,6 +146,33 @@ final class ConsoleCommandsTest extends TestCase
             '--worker-dir', '/srv/worker',
             '--no-build',
         ]], $this->runner->calls);
+    }
+
+    public function testDevForwardsAnExplicitCompiler(): void
+    {
+        $this->artisan('atoms:dev', [
+            '--env' => 'staging',
+            '--compiler' => 'typephp',
+        ])->assertExitCode(0);
+
+        self::assertSame(
+            [['dev', '--env', 'staging', '--compiler', 'typephp']],
+            $this->runner->calls,
+        );
+    }
+
+    public function testDevPreservesExplicitCompilerWithNoBuildForCliValidation(): void
+    {
+        $this->artisan('atoms:dev', [
+            '--env' => 'staging',
+            '--compiler' => 'php-wasm',
+            '--no-build' => true,
+        ])->assertExitCode(0);
+
+        self::assertSame(
+            [['dev', '--env', 'staging', '--compiler', 'php-wasm', '--no-build']],
+            $this->runner->calls,
+        );
     }
 
     public function testMakeAtomBuildsArgvWithFlags(): void

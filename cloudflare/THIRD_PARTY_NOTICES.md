@@ -252,10 +252,53 @@ actually linked decides, and for most of these rows that has not been checked.
 OpenSSL is the worked example of what "unaudited" is hiding: it began as one
 more row in this table and turned out to be a possible blocker.
 
+## Optional TypePHP backend
+
+`--compiler typephp` selects the TypePHP runtime. Install its compiler and SDK
+separately before building. Normal bundle builds do not fetch or repair them.
+The repository does not include these tools or the generated WASM. See
+[TypePHP setup](docs/typephp.md) for exact input digests and the manual SDK
+preparation procedure.
+
+| Component | Pin and source | Upstream licence evidence |
+|---|---|---|
+| TypePHP compiler | `0.9.5`, [`5ba9376642d8dd75efcd002b41b09a9d6bcca3e2`](https://github.com/swoole/typephp/tree/5ba9376642d8dd75efcd002b41b09a9d6bcca3e2) | `GPL-3.0-only` in that commit's `composer.json`; compiler `LICENSE` |
+| PHPX target library | `2.9.4`, [`f6a2555e14694e8888d2f40ff2838ffb22bc04f2`](https://github.com/swoole/phpx/tree/f6a2555e14694e8888d2f40ff2838ffb22bc04f2) | `Apache-2.0` in `composer.json` and `LICENSE` |
+| PHP target runtime | PHP `8.5.9` in the PHPX WASI SDK release | The release includes PHP License 3.01 in `LICENSES/PHP-LICENSE` and includes `PHP-README.REDIST.BINS`. SDK preparation retains both files. |
+| Jco build tool and generated bindings | [`@bytecodealliance/jco@1.41.0`](https://github.com/bytecodealliance/jco) | `Apache-2.0 WITH LLVM-exception` in package metadata |
+| WASI host shim | [`@bytecodealliance/preview2-shim@0.31.0`](https://github.com/bytecodealliance/jco/tree/main/packages/preview2-shim) | `Apache-2.0 WITH LLVM-exception` in the installed package's metadata and licence file |
+
+TypePHP is a compiler dependency. PHPX and PHP provide code that the compiler
+links into the component. Each has its own upstream licence. This inventory
+records those licences without drawing conclusions about a generated
+application's licence from the compiler's licence alone.
+
+The PHPX release SDK's static archives also include `libgmp.a`, `libgmpxx.a`,
+`libmpfr.a`, `libmpdec.a` and `libmpdec++.a`. Their installed headers record:
+
+| Component | Header version | Header licence notice |
+|---|---|---|
+| GMP | `6.3.0` in `gmp.h` | `LGPL-3.0-or-later OR GPL-2.0-or-later` |
+| MPFR | `4.2.2` in `mpfr.h` | `LGPL-3.0-or-later` |
+| mpdecimal | `4.0.1` in `mpdecimal.h` | BSD two-clause terms, copyright Stefan Krah |
+
+These versions come from the pinned SDK's headers. An audit of the objects
+linked into a generated component remains incomplete. A complete inventory
+must also cover the WASI SDK's libc and libc++ support and the dependencies
+inside `libphp.a`. The table above includes dependencies with copyleft licences.
+
+The SDK repair script copies five missing PHPX headers and compiles five
+existing PHPX translation units from the pinned source commit. It uses the
+upstream implementations and preserves the archive's licence files.
+`atoms-sdk-repair.json` records that preparation. `typephp-build.json` records
+the target header and static-library hashes and the generated component hash.
+Keep both files with the generated bundle's provenance records.
+
 ## What is *not* third-party
 
 `worker/php/atoms-core/` is not covered by this file. Those are verbatim
 copies of the `atoms/core` package from `packages/core`, which is
 Atoms' own MIT-licensed code; see `worker/php/atoms-core/VENDORED-FROM.md`.
-They are carried into the guest as interpreted data and are not linked into
-the WebAssembly binary.
+The default backend loads these sources as interpreted guest files. The
+TypePHP backend compiles them into its WebAssembly component. The repository's
+MIT licence files cover these Atoms-authored sources in both cases.

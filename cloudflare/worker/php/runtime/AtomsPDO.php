@@ -364,6 +364,7 @@ class AtomsPDO extends \PDO
     #[\ReturnTypeWillChange]
     public function getAttribute($attribute)
     {
+        $value = null;
         $known = true;
 
         switch ($attribute) {
@@ -393,6 +394,7 @@ class AtomsPDO extends \PDO
 
             default:
                 $known = false;
+                break;
         }
 
         if (!$known) {

@@ -37,6 +37,8 @@ const repoRoot = resolve(cloudflareRoot, '..');
 /** Roots of the shipped module graph; everything they reach is packaged. */
 const PACKAGE_ENTRYPOINTS = [
 	'src/index.js',
+	'src/php-host-playground.js',
+	'src/typephp-host.js',
 	'scripts/bundle-from-cli.mjs',
 	'scripts/prepare-runtime.mjs',
 ];
@@ -47,6 +49,7 @@ const UNPACKAGED_MODULES = new Set([
 	// `atoms build` output. The repository's own copy is the conformance
 	// fixture's bundle and must never enter the tarball.
 	'src/bundle.generated.js',
+	'src/runtime.generated.js',
 ]);
 
 /** Directory prefixes imported by shipped code, deliberately not shipped. */
@@ -64,6 +67,7 @@ const STATIC_FILES = [
 	'gitignore.scaffold',
 	'php/atoms-core',
 	'php/runtime',
+	'scripts/lib/typephp-magic.php',
 	'release/supported-core',
 	// Ships as the template's wrangler.jsonc. The repository's own
 	// wrangler.jsonc is the conformance-harness config (debug endpoints on,

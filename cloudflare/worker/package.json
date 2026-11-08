@@ -6,6 +6,7 @@
 	"description": "Atoms on Cloudflare: one generic AtomDurableObject hosting a parked PHP loop.",
 	"license": "MIT",
 	"dependencies": {
+		"@bytecodealliance/preview2-shim": "0.31.0",
 		"@php-wasm/universal": "3.1.48",
 		"@php-wasm/web-8-3": "3.1.48"
 	},
@@ -16,11 +17,12 @@
 		"prepare": "node scripts/prepare-runtime.mjs --if-installed",
 		"prepare-runtime": "node scripts/prepare-runtime.mjs",
 		"bundle": "node scripts/build-bundle.mjs",
-		"check:fresh": "npm run bundle && git diff --exit-code -- src/bundle.generated.js",
+		"check:fresh": "npm run bundle && git diff --exit-code -- src/bundle.generated.js src/runtime.generated.js",
 		"bundle:cli": "node scripts/bundle-from-cli.mjs",
 		"package:runtime": "node scripts/pack-runtime.mjs",
 		"test:package": "node test/runtime-package.mjs",
 		"test:instance": "node test/atom-do-instance.test.mjs",
+		"test:typephp": "node --test test/typephp-*.test.mjs",
 		"dev": "wrangler dev",
 		"dev:callback": "node scripts/dev-with-callback.mjs",
 		"deploy": "wrangler deploy",
