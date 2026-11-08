@@ -56,6 +56,7 @@ final class DeployCommand extends AbstractCommand
         $this->addOption('bundle', null, InputOption::VALUE_REQUIRED, 'Deploy a prebuilt bundle instead of building');
         $this->addOption('manifest', null, InputOption::VALUE_REQUIRED, 'Manifest for --bundle (default: manifest.json beside it)');
         $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (default: atoms-worker/ beside atoms.json)');
+        $this->addOption('compiler', null, InputOption::VALUE_REQUIRED, 'WebAssembly backend: php-wasm or experimental typephp', 'php-wasm');
         $this->addOption('callback-url', null, InputOption::VALUE_REQUIRED, 'Callback URL for this deployment (beats ATOMS_CALLBACK_URL and atoms.json callback_url)');
     }
 
@@ -69,6 +70,8 @@ final class DeployCommand extends AbstractCommand
         }
 
         try {
+            $compiler = self::stringOption($input, 'compiler') ?? 'php-wasm';
+            BundleStager::assertCompiler($compiler);
             $config = $this->atomsJson($input);
             $target = CloudflareTarget::resolve(
                 $config,
@@ -127,7 +130,7 @@ final class DeployCommand extends AbstractCommand
             }
 
             $output->writeln('Staging bundle into ' . $target->workerDir . '…');
-            $this->stager->stage($target, $bundlePath, $manifestPath);
+            $this->stager->stage($target, $bundlePath, $manifestPath, $compiler);
 
             $output->writeln('Deploying Worker ' . $target->workerName . ' with wrangler…');
             if ($target->debugEndpoints) {

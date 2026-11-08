@@ -190,4 +190,91 @@ await check('discardPhp detaches the instance before anything can settle onto it
 	assert.equal(host.instance, null, 'and the late settle does not resurrect one');
 });
 
+await check('TypePHP shutdown lets the guest consume its reply before disposal', async () => {
+	const { default: bundle } = await import('../src/bundle.generated.js');
+	const compiler = bundle.manifest.compiler;
+	bundle.manifest.compiler = { name: 'typephp' };
+	try {
+		const host = residency();
+		host.turnChain = Promise.resolve();
+		host.config = { parkWaitTimeoutMs: 100 };
+		const { instance, control } = bootInstance(host, 1);
+		let consumed = false;
+		host.parkedTurn = { reply(raw) {
+			assert.equal(JSON.parse(raw).kind, 'shutdown');
+			queueMicrotask(() => { consumed = true; control.resolve({ exitCode: 0 }); });
+		} };
+		host.discardPhp = () => {
+			assert.equal(consumed, true, 'shutdown must reach the suspended guest');
+			assert.equal(instance.settled, true);
+			host.instance = null;
+		};
+		assert.deepEqual(await host.shutdown(), { ok: true, shutdown: 'sent' });
+		assert.equal(host.instance, null);
+	} finally {
+		if (compiler === undefined) delete bundle.manifest.compiler;
+		else bundle.manifest.compiler = compiler;
+	}
+});
+
+await check('TypePHP shutdown disposes a non-terminating guest within its configured wait', async () => {
+	const { default: bundle } = await import('../src/bundle.generated.js');
+	const compiler = bundle.manifest.compiler;
+	bundle.manifest.compiler = { name: 'typephp' };
+	try {
+		const host = residency();
+		host.turnChain = Promise.resolve();
+		host.config = { parkWaitTimeoutMs: 1 };
+		const { instance } = bootInstance(host, 1);
+		host.parkedTurn = { reply() {} };
+		host.discardPhp = () => { host.instance = null; };
+		assert.deepEqual(await host.shutdown(), { ok: true, shutdown: 'sent' });
+		assert.equal(instance.settled, false, 'the timeout does not pretend the guest exited');
+		assert.equal(host.instance, null);
+	} finally {
+		if (compiler === undefined) delete bundle.manifest.compiler;
+		else bundle.manifest.compiler = compiler;
+	}
+});
+
+await check('the default backend retains immediate shutdown disposal', async () => {
+	const host = residency();
+	host.turnChain = Promise.resolve();
+	bootInstance(host, 1);
+	host.parkedTurn = { reply() {} };
+	host.discardPhp = () => { host.instance = null; };
+	assert.deepEqual(await host.shutdown(), { ok: true, shutdown: 'sent' });
+	assert.equal(host.instance, null);
+});
+
+await check('TypePHP parks and guest exits wake the host without a polling timer', async () => {
+	const { default: bundle } = await import('../src/bundle.generated.js');
+	const compiler = bundle.manifest.compiler;
+	const realSetTimeout = globalThis.setTimeout;
+	bundle.manifest.compiler = { name: 'typephp' };
+	// Model a storage transaction whose input gate prevents timers from running.
+	globalThis.setTimeout = () => undefined;
+	try {
+		for (const outcome of ['park', 'exit']) {
+			const host = residency();
+			const { control } = bootInstance(host, 1);
+			host.config = { activationMaxPolls: 1, activationPollMs: 1 };
+			const waiting = host.waitForPark(100);
+			if (outcome === 'park') host.handlePark('{"op":"tx.commit"}', () => {});
+			else control.resolve({ exitCode: 0 });
+			const result = await Promise.race([
+				waiting,
+				new Promise((_, reject) => setImmediate(() => reject(new Error('waitForPark depended on a blocked timer')))),
+			]);
+			if (outcome === 'park') assert.equal(result.msg.op, 'tx.commit');
+			else assert.equal(result, null);
+			assert.equal(host.parkWaiters.size, 0, 'completed waits release their listeners');
+		}
+	} finally {
+		globalThis.setTimeout = realSetTimeout;
+		if (compiler === undefined) delete bundle.manifest.compiler;
+		else bundle.manifest.compiler = compiler;
+	}
+});
+
 process.exit(failures === 0 ? 0 : 1);

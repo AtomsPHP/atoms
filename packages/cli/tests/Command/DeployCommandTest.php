@@ -103,6 +103,7 @@ final class DeployCommandTest extends TestCase
 
         // Staged before deployed, and staged by the Worker tree's own script.
         self::assertCount(1, $runner->runs);
+        self::assertCount(5, $runner->runs[0]['command'], 'the default backend keeps the existing staging command');
         self::assertSame('/usr/bin/node', $runner->runs[0]['command'][0]);
         self::assertStringEndsWith(BundleStager::SCRIPT, $runner->runs[0]['command'][1]);
         self::assertSame(BundleStager::OUTPUT, $runner->runs[0]['command'][4]);
@@ -135,6 +136,68 @@ final class DeployCommandTest extends TestCase
             $tester->getDisplay(),
             'and which source supplied it',
         );
+    }
+
+    public function testDeployForwardsTypePhpCompilerToStaging(): void
+    {
+        $runner = new FakeProcessRunner();
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+
+        $exit = $tester->execute([
+            '--root' => $this->tempCopy('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+            '--compiler' => 'typephp',
+        ]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        self::assertCount(1, $runner->runs);
+        self::assertSame(['--compiler', 'typephp'], array_slice($runner->runs[0]['command'], 5));
+        self::assertNotNull($wrangler->lastCall('deploy'));
+    }
+
+    public function testTypePhpCompilationFailurePreventsDeployAndPreservesDiagnostic(): void
+    {
+        $diagnostic = 'ATOMS-E113: TypePHP compilation failed: missing SDK symbol typephp_read_property_cached.';
+        $runner = new FakeProcessRunner(new ProcessResult(1, '', $diagnostic));
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+
+        $exit = $tester->execute([
+            '--root' => $this->tempCopy('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+            '--compiler' => 'typephp',
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString($diagnostic, $tester->getDisplay());
+        self::assertStringNotContainsString('ATOMS-E074', $tester->getDisplay());
+        self::assertNull($wrangler->lastCall('deploy'));
+    }
+
+    public function testUnknownCompilerFailsBeforeStagingOrDeploy(): void
+    {
+        $runner = new FakeProcessRunner();
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+
+        $exit = $tester->execute([
+            '--root' => $this->tempCopy('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--bundle' => $this->bundleFile(),
+            '--compiler' => 'unknown',
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E113', $tester->getDisplay());
+        self::assertStringContainsString('unknown compiler unknown', $tester->getDisplay());
+        self::assertSame([], $runner->runs);
+        self::assertNull($wrangler->lastCall('deploy'));
     }
 
     public function testDeployTakesTheEnvironmentCallbackOverTheFile(): void

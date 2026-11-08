@@ -143,8 +143,8 @@ Supporting types in core (exact FQCNs — other packages reference these):
   `schedule(string $name, \DateTimeImmutable $at): void`, `cancel(string $name): void`,
   `scheduledAt(string $name): ?\DateTimeImmutable`. Delivery invokes the Atom's
   `onTimer($name)` hook.
-- `Atoms\Runtime\LifecycleInvoker` — static helpers to invoke the protected
-  lifecycle hooks from outside (Closure::bind), used by runtime + harness.
+- `Atoms\Runtime\LifecycleInvoker` provides static helpers that use reflection
+  to invoke protected lifecycle hooks. The runtime and tests use these helpers.
 - `Atoms\Sqlite\SqliteDatabase implements Database` — PDO(sqlite) wrapper.
   Opens with `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000`,
   foreign keys on. Constructor takes a `\PDO` OR a static `open(string $path)`.

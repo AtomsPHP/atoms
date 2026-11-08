@@ -13,14 +13,20 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 
 import { runtimeFiles, sortedFiles, walkDir, writeBundleModule } from './lib/bundle-module.mjs';
+import { writeTypePhpBundle } from './lib/typephp-bundle.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
-const fixtureDir = path.resolve(PROJECT_ROOT, process.argv[2] || 'fixtures/counter');
-const outputFile = path.resolve(PROJECT_ROOT, process.argv[3] || 'src/bundle.generated.js');
+const { values, positionals } = parseArgs({
+    allowPositionals: true,
+    options: { compiler: { type: 'string', default: 'php-wasm' } },
+});
+const fixtureDir = path.resolve(PROJECT_ROOT, positionals[0] || 'fixtures/counter');
+const outputFile = path.resolve(PROJECT_ROOT, positionals[1] || 'src/bundle.generated.js');
 
 /** Read and parse manifest.json from fixture. */
 function readManifest(dir) {
@@ -33,6 +39,7 @@ function readManifest(dir) {
 
 /** Build the bundle. */
 async function buildBundle() {
+    if (!['php-wasm', 'typephp'].includes(values.compiler)) throw new Error('Unknown compiler; use php-wasm or typephp');
     console.error(`Reading fixture from: ${fixtureDir}`);
     console.error(`Writing bundle to: ${outputFile}`);
 
@@ -73,7 +80,11 @@ async function buildBundle() {
         atoms: rewrittenAtoms,
     };
 
-    writeBundleModule('build-bundle.mjs', outputManifest, sorted, outputFile);
+    if (values.compiler === 'typephp') {
+        writeTypePhpBundle('build-bundle.mjs', outputManifest, sorted, outputFile);
+    } else {
+        writeBundleModule('build-bundle.mjs', outputManifest, sorted, outputFile);
+    }
     console.error(`Bundle generated successfully`);
     console.error(`Files included: ${Object.keys(sorted).length}`);
     console.error(`Atoms defined: ${Object.keys(rewrittenAtoms).length}`);

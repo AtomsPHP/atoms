@@ -40,6 +40,7 @@ try {
 	assert.equal(templateManifest.devDependencies.wrangler, release.runtime.wrangler);
 	assert.ok(existsSync(join(stage, 'template', 'package-lock.json')));
 	assert.ok(!existsSync(join(stage, 'template', 'src', 'bundle.generated.js')));
+	assert.ok(!existsSync(join(stage, 'template', 'src', 'runtime.generated.js')));
 
 	// The stamp: the CLI reads its version (ATOMS-E108), upgrade reads its
 	// ownership split. Every template file is accounted for exactly once, as
@@ -69,7 +70,7 @@ try {
 	// A scaffolded directory is committed, so everything the CLI generates
 	// inside it must be ignored there — or every deploy dirties the tree.
 	const templateGitignore = readFileSync(join(stage, 'template', 'gitignore'), 'utf8');
-	for (const generated of ['/src/bundle.generated.js', '/node_modules/', '/.php-wasm/', '/.dev.vars', '/.wrangler/']) {
+	for (const generated of ['/src/bundle.generated.js', '/src/runtime.generated.js', '/src/.typephp/', '/src/.typephp-stage-*/', '/node_modules/', '/.php-wasm/', '/.dev.vars', '/.wrangler/']) {
 		assert.ok(
 			templateGitignore.split(/\r?\n/).includes(generated),
 			`the scaffold .gitignore must ignore ${generated}`,
@@ -116,6 +117,9 @@ try {
 		'/fixtures/',
 		'/test/',
 		'/bundle.generated.js',
+		'/runtime.generated.js',
+		'/.typephp/',
+		'/.typephp-stage-',
 		'/pdo-matrix.json',
 		'/remote.json',
 	];
@@ -128,6 +132,11 @@ try {
 		'package/template/scripts/prepare-runtime.mjs',
 		'package/template/scripts/bundle-from-cli.mjs',
 		'package/template/scripts/lib/bundle-module.mjs',
+		'package/template/scripts/lib/typephp-sources.mjs',
+		'package/template/scripts/lib/typephp-magic.php',
+		'package/template/scripts/lib/typephp-compiler.mjs',
+		'package/template/src/typephp-host.js',
+		'package/template/src/php-host-playground.js',
 		'package/template/src/index.js',
 		'package/template/wrangler.jsonc',
 		'package/LICENSE',
@@ -180,8 +189,13 @@ try {
 		content_hash: createHash('sha256').update(emptyTar).digest('hex'),
 	};
 	writeFileSync(manifestPath, `${JSON.stringify(baseManifest)}\n`);
+	const runtimeSelector = join(target, 'src', 'runtime.generated.js');
+	writeFileSync(runtimeSelector, "export { bootPHP } from './typephp-host.js';\n");
 	run('node', [join(target, 'scripts', 'bundle-from-cli.mjs'), bundle, manifestPath, workerBundle]);
 	assert.ok(existsSync(workerBundle), 'a release-matched bundle should stage');
+	assert.match(readFileSync(runtimeSelector, 'utf8'), /from ['"]\.\/php-host-playground\.js['"]/,
+		'staging the default bundle must replace a previously selected TypePHP runtime');
+	assert.doesNotMatch(readFileSync(runtimeSelector, 'utf8'), /typephp/);
 
 	// The scaffolded worker must actually build. Asserting that a list of paths
 	// exists cannot catch a module that is imported by shipped code but was
@@ -213,6 +227,7 @@ try {
 	);
 
 	rmSync(workerBundle);
+	rmSync(runtimeSelector);
 	writeFileSync(
 		manifestPath,
 		`${JSON.stringify({ ...baseManifest, toolchain: { ...baseManifest.toolchain, core_version: '999.0.0' } })}\n`,

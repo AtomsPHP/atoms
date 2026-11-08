@@ -29,6 +29,7 @@ import { CallbackChannel } from './callbacks.js';
 import { loadConfig, META_KEYS } from './config.js';
 import { AtomsError, normalizeError, retryableFor, statusFor } from './errors.js';
 import { bootPHP, composeBootCode, guestMemoryBytes, mkdirp, writeGuestFile } from './php-host.js';
+import { TypePhpTransactions } from './typephp-transactions.js';
 import { TimersHost } from './timers.js';
 import { WebSocketHost, WS_ATTACHMENT_VERSION, buildAttachment, readAttachment, attachmentByteLength } from './websockets.js';
 
@@ -42,7 +43,7 @@ const BOOT_PROTOCOL = 1;
  * instances can have unsettled runs at once, because discarding an instance
  * does not make its run promise settle on the spot.
  *
- * @typedef {{php: any, gen: number, settled: boolean, error: string|null}} PhpInstance
+ * @typedef {{php: any, gen: number, settled: boolean, error: string|null, done?: Promise<void>}} PhpInstance
  */
 
 const now = () => Date.now();
@@ -157,7 +158,8 @@ export class AtomDurableObject extends DurableObject {
 			timers: this.timers,
 			inTransactionRef: () => this.tx.open,
 		});
-		this.tx = new TransactionMachine({ ctx, config: this.config, host: this, callbacks: this.callbacks });
+		const Transactions = bundle?.manifest?.compiler?.name === 'typephp' ? TypePhpTransactions : TransactionMachine;
+		this.tx = new Transactions({ ctx, config: this.config, host: this, callbacks: this.callbacks });
 
 		// Residency-local WebSocket bookkeeping. None of this is ever
 		// persisted: it exists to make a wake path cheap and to give the
@@ -745,7 +747,7 @@ export class AtomDurableObject extends DurableObject {
 				return p;
 			}
 			if (op === 'tx.begin') {
-				this.tx.begin(p);
+				await this.tx.begin(p);
 			} else if (op === 'tx.commit' || op === 'tx.rollback') {
 				p.reply(errorReply('tx_state', `${op} received with no transaction open`));
 			} else if (op === 'app.call') {
@@ -835,6 +837,8 @@ export class AtomDurableObject extends DurableObject {
 		const php = await bootPHP({
 			onSync: (msg) => this.bridge.handleSync(msg),
 			onPark: (msg, reply) => this.handlePark(msg, reply),
+			maxFrameBytes: this.config.typephpBridgeMaxBytes,
+			onLog: (bytes) => this.log('info', { msg: 'atoms.php.output', output: new TextDecoder().decode(bytes) }),
 		});
 
 		for (const dir of this.config.guestDirs) mkdirp(php, dir);
@@ -870,7 +874,10 @@ export class AtomDurableObject extends DurableObject {
 		try {
 			// One php.run() that never returns until shutdown. It is deliberately not
 			// awaited; handlers are attached so a rejection is never unhandled.
-			this.watchRun(instance, php.run({ code: composeBootCode(payload, bootstrapPath) }));
+			this.watchRun(instance, php.run({
+				code: composeBootCode(payload, bootstrapPath),
+				...(manifest.compiler?.name === 'typephp' ? { bootPayload: payload } : {}),
+			}));
 
 			const first = await this.waitForPark(this.config.activationTimeoutMs);
 			if (!first) {
@@ -1017,6 +1024,7 @@ export class AtomDurableObject extends DurableObject {
 		}
 		if (typeof msg !== 'object' || msg === null) msg = { op: '(non-object)' };
 		this.pending = { msg, reply };
+		for (const wake of this.parkWaiters ?? []) wake();
 	}
 
 	/**
@@ -1060,7 +1068,7 @@ export class AtomDurableObject extends DurableObject {
 	 * @param {Promise<any>} run
 	 */
 	watchRun(instance, run) {
-		run.then(
+		instance.done = run.then(
 			(/** @type {any} */ r) =>
 				this.settleRun(
 					instance,
@@ -1078,6 +1086,9 @@ export class AtomDurableObject extends DurableObject {
 	settleRun(instance, error) {
 		instance.settled = true;
 		instance.error = error;
+		if (this.instance === instance) {
+			for (const wake of this.parkWaiters ?? []) wake();
+		}
 		if (this.instance !== instance) {
 			// Not a failure: a discarded instance's run ends when it ends. It is
 			// logged because this is the moment that used to corrupt the state
@@ -1095,6 +1106,30 @@ export class AtomDurableObject extends DurableObject {
 	 * @returns {Promise<import('./bridge.js').ParkedCall|null>}
 	 */
 	async waitForPark(timeoutMs) {
+		if (bundle?.manifest?.compiler?.name === 'typephp') {
+			if (this.pending) return this.takePending();
+			const instance = this.instance;
+			if (!instance || instance.settled) return null;
+			// A storage transaction can block polling timers while a JSPI guest
+			// resumes. Wake from its next host call so the transaction can commit.
+			const waiters = this.parkWaiters ??= new Set();
+			let wake;
+			let timeout;
+			try {
+				await new Promise(resolve => {
+					wake = resolve;
+					waiters.add(wake);
+					timeout = setTimeout(resolve, timeoutMs);
+				});
+			} finally {
+				waiters.delete(wake);
+				clearTimeout(timeout);
+			}
+			if (this.instance !== instance) return null;
+			if (this.pending) return this.takePending();
+			if (instance.settled) return null;
+			throw new AtomsError('internal', `the PHP runtime did not park within ${timeoutMs}ms`);
+		}
 		const deadline = now() + timeoutMs;
 		for (let polls = 0; polls <= this.config.activationMaxPolls; polls++) {
 			if (this.pending) return this.takePending();
@@ -1133,6 +1168,7 @@ export class AtomDurableObject extends DurableObject {
 		// next.
 		const discarded = this.instance;
 		this.instance = null;
+		for (const wake of this.parkWaiters ?? []) wake();
 		this.pending = null;
 		this.parkedTurn = null;
 		this.activationPromise = null;
@@ -1172,8 +1208,25 @@ export class AtomDurableObject extends DurableObject {
 			this.parkedTurn = null;
 			if (!parked) return { ok: true, shutdown: 'not_resident' };
 			this.pending = null;
+			const instance = this.instance;
 			parked.reply(JSON.stringify({ ok: true, kind: 'shutdown' }));
-			this.discardPhp();
+			try {
+				if (bundle?.manifest?.compiler?.name === 'typephp' && instance?.done) {
+					// JSPI consumes the reply on a later continuation. Calling exit()
+					// now would clear stdin before the guest receives shutdown.
+					let timeout;
+					try {
+						await Promise.race([
+							instance.done,
+							new Promise(resolve => { timeout = setTimeout(resolve, this.config.parkWaitTimeoutMs); }),
+						]);
+					} finally {
+						clearTimeout(timeout);
+					}
+				}
+			} finally {
+				this.discardPhp();
+			}
 			return { ok: true, shutdown: 'sent' };
 		});
 	}

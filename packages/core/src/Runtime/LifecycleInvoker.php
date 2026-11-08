@@ -8,8 +8,8 @@ use Atoms\Atom;
 
 /**
  * Invokes an Atom's protected lifecycle hooks from outside the class. The
- * runtime and the test harness call these at activation/deactivation; they use
- * Closure::bind rather than reflection so the calls type-check cleanly.
+ * runtime and tests use these helpers for activation, deactivation, and timers.
+ * Reflection supports AOT runtimes that cannot rebind a closure's object or scope.
  */
 final class LifecycleInvoker
 {
@@ -22,10 +22,7 @@ final class LifecycleInvoker
      */
     public static function activate(Atom $atom): void
     {
-        (function (): void {
-            /** @var Atom<\Atoms\AtomMethods> $this */
-            $this->onActivation();
-        })->call($atom);
+        (new \ReflectionMethod($atom, 'onActivation'))->invoke($atom);
     }
 
     /**
@@ -33,10 +30,7 @@ final class LifecycleInvoker
      */
     public static function deactivate(Atom $atom): void
     {
-        (function (): void {
-            /** @var Atom<\Atoms\AtomMethods> $this */
-            $this->onDeactivation();
-        })->call($atom);
+        (new \ReflectionMethod($atom, 'onDeactivation'))->invoke($atom);
     }
 
     /**
@@ -44,9 +38,6 @@ final class LifecycleInvoker
      */
     public static function timer(Atom $atom, string $name): void
     {
-        (function (string $name): void {
-            /** @var Atom<\Atoms\AtomMethods> $this */
-            $this->onTimer($name);
-        })->call($atom, $name);
+        (new \ReflectionMethod($atom, 'onTimer'))->invoke($atom, $name);
     }
 }
