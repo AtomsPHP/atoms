@@ -270,12 +270,6 @@ Run these calls in Tinker:
 A new identity returns `1`, then `2`. Repeating the calls increments the
 stored count. Use a new identity if you want to repeat the initial result.
 
-### Troubleshoot the selected environment
-
-If Wrangler selects an unexpected Worker after an interrupted run, follow
-[Recover a stale Wrangler redirect](/guides/configuration/#recover-a-stale-wrangler-redirect).
-Preserve `.wrangler/state` to keep the local Atom databases.
-
 ## Build and deploy
 
 ```bash

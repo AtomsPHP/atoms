@@ -6,7 +6,6 @@ namespace Atoms\Cli\Tests\Command;
 
 use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
-use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Command\DeployCommand;
 use Atoms\Cli\Process\ProcessResult;
@@ -119,11 +118,10 @@ final class DeployCommandTest extends TestCase
             [CloudflareTarget::CALLBACK_VAR => 'https://acme.example.com'],
             $deploy['args']['vars'],
         );
-        // Wrangler reads the environment's config through its redirect file,
-        // both present while it runs and gone once it has.
-        self::assertSame(['configPath' => GeneratedWranglerConfig::FILE], $deploy['args']['redirect']);
+        // The config is passed directly, and removed once Wrangler exits.
+        self::assertFileDoesNotExist($deploy['target']->workerDir . '/.wrangler/deploy/config.json');
         self::assertSame('acme-games', $deploy['args']['config']['name']);
-        self::assertFileDoesNotExist($deploy['target']->workerDir . '/' . GeneratedWranglerConfig::relativePath());
+        self::assertFileDoesNotExist($deploy['args']['configPath']);
         self::assertStringContainsString('Generated config: ', $tester->getDisplay());
         self::assertStringContainsString(
             'Callback:     https://acme.example.com',
@@ -413,6 +411,7 @@ final class DeployCommandTest extends TestCase
         self::assertSame(1, $exit);
         self::assertStringContainsString('ATOMS-E074', $display);
         self::assertStringContainsString('Script size too large', $display, "wrangler's own diagnosis must survive");
+        self::assertFileDoesNotExist($wrangler->lastCall('deploy')['args']['configPath']);
     }
 
     public function testStagingFailureMapsToE074AndNeverDeploys(): void
@@ -656,9 +655,9 @@ final class DeployCommandTest extends TestCase
         // The fixture environment declares no routing, so none ships — the
         // file's custom domain in particular does not.
         self::assertArrayNotHasKey('routes', $deploy['args']['config']);
-        // And the rest of the file travels through, with the entry point
-        // re-anchored to the Worker directory from where the generated file lives.
-        self::assertSame('../../src/index.js', $deploy['args']['config']['main']);
+        // The rest of the file travels through with paths relative to the
+        // same Worker directory as the original config.
+        self::assertSame('src/index.js', $deploy['args']['config']['main']);
         self::assertSame('2026-08-01', $deploy['args']['config']['compatibility_date']);
     }
 

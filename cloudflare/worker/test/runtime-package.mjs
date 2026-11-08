@@ -69,7 +69,7 @@ try {
 	// A scaffolded directory is committed, so everything the CLI generates
 	// inside it must be ignored there — or every deploy dirties the tree.
 	const templateGitignore = readFileSync(join(stage, 'template', 'gitignore'), 'utf8');
-	for (const generated of ['/src/bundle.generated.js', '/node_modules/', '/.php-wasm/', '/.dev.vars', '/.wrangler/']) {
+	for (const generated of ['/src/bundle.generated.js', '/node_modules/', '/.php-wasm/', '/.dev.vars', '/.wrangler/', '/.wrangler.atoms-*.json']) {
 		assert.ok(
 			templateGitignore.split(/\r?\n/).includes(generated),
 			`the scaffold .gitignore must ignore ${generated}`,

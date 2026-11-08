@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Atoms\Cli\Tests\Support;
 
 use Atoms\Cli\Cloudflare\CloudflareTarget;
-use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\Wrangler;
 use Atoms\Cli\Cloudflare\WranglerResult;
 
@@ -26,9 +25,9 @@ final class FakeWrangler implements Wrangler
     public ?WranglerResult $deleteSecretResult = null;
     public ?WranglerResult $devResult = null;
 
-    public function deploy(CloudflareTarget $target): WranglerResult
+    public function deploy(CloudflareTarget $target, string $configPath): WranglerResult
     {
-        $this->record('deploy', $target, $this->generatedConfig($target));
+        $this->record('deploy', $target, $this->generatedConfig($configPath));
 
         return $this->deployResult ?? self::ok(['deploy'], "Deployed {$target->workerName}\n");
     }
@@ -68,32 +67,28 @@ final class FakeWrangler implements Wrangler
         return $this->deleteSecretResult ?? self::ok(['secret', 'delete'], '');
     }
 
-    public function dev(CloudflareTarget $target, string $port): WranglerResult
+    public function dev(CloudflareTarget $target, string $port, string $configPath): WranglerResult
     {
-        $this->record('dev', $target, ['port' => $port, ...$this->generatedConfig($target)]);
+        $this->record('dev', $target, ['port' => $port, ...$this->generatedConfig($configPath)]);
 
         return $this->devResult ?? self::ok(['dev'], '');
     }
 
     /**
-     * What a real Wrangler would read for this call: the generated config
-     * under `.wrangler/deploy/` and the redirect pointing at it. Captured at
-     * call time because the command removes both once Wrangler exits.
+     * Capture the explicit config while it exists; commands remove it on exit.
      * `vars` is lifted out for the tests that only care about it.
      *
-     * @return array{config: array<string, mixed>|null, redirect: array<string, mixed>|null, vars: array<string, mixed>}
+     * @return array{configPath: string, config: array<string, mixed>|null, vars: array<string, mixed>}
      */
-    private function generatedConfig(CloudflareTarget $target): array
+    private function generatedConfig(string $configPath): array
     {
-        $dir = rtrim($target->workerDir, '/') . '/' . GeneratedWranglerConfig::DIR;
-        $config = self::readJson($dir . '/' . GeneratedWranglerConfig::FILE);
-        $redirect = self::readJson($dir . '/' . GeneratedWranglerConfig::REDIRECT_FILE);
+        $config = self::readJson($configPath);
 
         $vars = $config['vars'] ?? [];
 
         return [
             'config' => $config,
-            'redirect' => $redirect,
+            'configPath' => $configPath,
             'vars' => \is_array($vars) ? $vars : [],
         ];
     }

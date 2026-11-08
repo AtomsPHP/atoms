@@ -190,9 +190,9 @@ final class DevCommand extends AbstractCommand
                 );
             }
 
-            $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
             try {
-                $result = $this->wrangler->dev($target, $port);
+                $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
+                $result = $this->wrangler->dev($target, $port, $generated->path());
             } finally {
                 $generated->remove();
             }
