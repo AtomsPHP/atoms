@@ -102,6 +102,7 @@ final class DevCommand extends AbstractCommand
         $this->addOption('callback-url', null, InputOption::VALUE_REQUIRED, 'Local callback URL (beats ATOMS_CALLBACK_URL and atoms.json callback_url)');
         $this->addOption('worker-dir', null, InputOption::VALUE_REQUIRED, 'Worker project directory (default: atoms-worker/ beside atoms.json)');
         $this->addOption('no-build', null, InputOption::VALUE_NONE, 'Use the bundle already staged in the Worker project');
+        $this->addOption('compiler', null, InputOption::VALUE_REQUIRED, 'WebAssembly backend: php-wasm or experimental typephp (requires a build)', 'php-wasm');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -120,6 +121,14 @@ final class DevCommand extends AbstractCommand
         $port = self::stringOption($input, 'port') ?? self::DEFAULT_PORT;
 
         try {
+            $compiler = self::stringOption($input, 'compiler') ?? 'php-wasm';
+            BundleStager::assertCompiler($compiler);
+            if ($input->getOption('no-build') === true && $input->hasParameterOption('--compiler')) {
+                throw new AtomsError(
+                    ErrorCode::WasmCompilationFailed,
+                    \Atoms\Errors\ErrorCatalog::format(ErrorCode::WasmCompilationFailed, ['reason' => '--compiler cannot be used with --no-build']),
+                );
+            }
             $config = $this->atomsJson($input);
             $target = CloudflareTarget::resolve(
                 $config,
@@ -152,7 +161,7 @@ final class DevCommand extends AbstractCommand
                 // vendor stage caches its resolution under .atoms/vendor-cache,
                 // so only the first run (or a lock change) pays for composer.
                 $result = $this->builder->build($config, $config->rootDir . '/.atoms/build');
-                $this->stager->stage($target, $result->bundlePath, $result->manifestPath);
+                $this->stager->stage($target, $result->bundlePath, $result->manifestPath, $compiler);
             }
 
             // atoms.json holds per-environment settings; the committed

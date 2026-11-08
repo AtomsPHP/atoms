@@ -1003,6 +1003,36 @@ supplies it.**
   second. `atoms deploy` runs it (`Atoms\Cli\Cloudflare\BundleStager`) before
   invoking `wrangler deploy`.
 
+### Selecting the Worker compiler
+
+`atoms dev --env staging --compiler typephp` and
+`atoms deploy --env production --compiler typephp` select the experimental
+TypePHP backend at the translation step. `--compiler php-wasm` is the default.
+`atoms build` produces the same portable archive and schema-1 manifest for
+both compilers. Laravel's `atoms:dev` and `atoms:deploy` wrappers
+forward the option. Symfony's deploy wrapper accepts it through its forwarded
+arguments after `--`.
+
+The TypePHP backend compiles the runtime, core, and primary Atom files into a
+PHP 8.5 WASI component. Supporting PHP and migrations remain guest files.
+Primary Atoms must directly extend `Atoms\Atom` and must not use traits.
+Unsupported compiler inputs fail with ATOMS-E113. The TypePHP backend does not
+pass the complete PHP 8.3 conformance suite. See the
+[measured differences](../cloudflare/docs/typephp.md#current-conformance-differences).
+
+The translator emits a matching `runtime.generated.js` beside the bundle and
+references generated Jco/WASM artifacts under `src/.typephp/`. All generated
+files are deployment artifacts. Do not commit generated WASM. Staging
+with the default compiler switches the runtime selection back to php-wasm.
+The CLI rejects an explicit `--compiler` with `dev --no-build` because that command
+uses the already staged runtime.
+
+Compiler selection does not install software. TypePHP, its PHPX WASI SDK,
+WASI SDK tools, Wasmtime, and Jco must already be installed locally at the
+accepted versions. Missing or incomplete toolchains fail staging before Wrangler
+runs. See [TypePHP setup](../cloudflare/docs/typephp.md) for the version pins,
+the measured SDK repair, environment variables, and reproducibility limits.
+
 ### Why not make one side adopt the other
 
 *Teaching `atoms build` to emit the Worker module* would put the guest
@@ -1023,11 +1053,11 @@ needs `php/runtime/` and `php/atoms-core/`, which are the Worker's own.
 
 ### What this bought
 
-**Nothing under `cloudflare/worker/src/**` or `cloudflare/worker/php/**`
-changed.** The emitted module is exactly the shape the host already reads, so
-the Worker conformance suite was untouched by the CLI integration (see
-`cloudflare/docs/runtime-spec.md` §Conformance suite), and the vendored
-`atoms/core` copy needed no re-vendor on this account.
+The original CLI bundle bridge required no changes under
+`cloudflare/worker/src/**` or `cloudflare/worker/php/**`. Its emitted module used
+the shape the host already read. That CLI integration required no changes to
+the Worker conformance suite or the vendored `atoms/core` copy. See
+`cloudflare/docs/runtime-spec.md` §Conformance suite.
 
 `build-bundle.mjs` is the conformance fixture builder. It is not a stand-in
 for the real `atoms build`.

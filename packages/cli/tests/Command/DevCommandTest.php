@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Tests\Command;
 
+use Atoms\Cli\Build\Builder;
+use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Command\DevCommand;
 use Atoms\Cli\Process\ProcessResult;
 use Atoms\Cli\Release\RuntimeVersion;
+use Atoms\Cli\Tests\Support\CannedComposer;
 use Atoms\Cli\Tests\Support\FakeProcessRunner;
 use Atoms\Cli\Tests\Support\FakeWrangler;
 use Atoms\Cli\Tests\TestCase;
@@ -61,6 +64,88 @@ final class DevCommandTest extends TestCase
         ]);
 
         return $tester;
+    }
+
+    public function testDevBuildForwardsTypePhpCompilerToStaging(): void
+    {
+        $dir = $this->workerDir();
+        mkdir($dir . '/scripts');
+        file_put_contents($dir . '/' . BundleStager::SCRIPT, '');
+        $runner = new FakeProcessRunner();
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DevCommand(
+            $wrangler,
+            new BundleStager($runner),
+            new Builder(runner: CannedComposer::runner()),
+            new FakeProcessRunner(),
+        ));
+
+        $exit = $tester->execute([
+            '--root' => $this->tempCopy('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $dir,
+            '--compiler' => 'typephp',
+        ]);
+
+        self::assertSame(0, $exit, $tester->getDisplay());
+        self::assertCount(1, $runner->runs);
+        self::assertSame(['--compiler', 'typephp'], array_slice($runner->runs[0]['command'], 5));
+        self::assertNotNull($wrangler->lastCall('dev'));
+    }
+
+    public function testTypePhpCompilationFailurePreventsDev(): void
+    {
+        $dir = $this->workerDir();
+        mkdir($dir . '/scripts');
+        file_put_contents($dir . '/' . BundleStager::SCRIPT, '');
+        $diagnostic = 'ATOMS-E113: TypePHP compilation failed: tpc was not found on PATH.';
+        $runner = new FakeProcessRunner(new ProcessResult(1, '', $diagnostic));
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DevCommand(
+            $wrangler,
+            new BundleStager($runner),
+            new Builder(runner: CannedComposer::runner()),
+            new FakeProcessRunner(),
+        ));
+
+        $exit = $tester->execute([
+            '--root' => $this->tempCopy('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $dir,
+            '--compiler' => 'typephp',
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString($diagnostic, $tester->getDisplay());
+        self::assertStringNotContainsString('ATOMS-E074', $tester->getDisplay());
+        self::assertNull($wrangler->lastCall('dev'));
+    }
+
+    public function testExplicitCompilerCannotBeCombinedWithNoBuild(): void
+    {
+        foreach (['typephp', 'php-wasm'] as $compiler) {
+            $dir = $this->workerDir();
+            $root = $this->tempCopy('sample-app');
+            $runner = new FakeProcessRunner();
+            $wrangler = new FakeWrangler();
+            $tester = new CommandTester(new DevCommand($wrangler, processRunner: $runner));
+
+            $exit = $tester->execute([
+                '--root' => $root,
+                '--env' => 'production',
+                '--worker-dir' => $dir,
+                '--no-build' => true,
+                '--compiler' => $compiler,
+            ]);
+
+            self::assertSame(1, $exit, $compiler);
+            self::assertStringContainsString('ATOMS-E113', $tester->getDisplay());
+            self::assertStringContainsString('--compiler cannot be used with --no-build', $tester->getDisplay());
+            self::assertSame([], $runner->runs);
+            self::assertNull($wrangler->lastCall('dev'));
+            self::assertFileDoesNotExist($dir . '/.dev.vars');
+            self::assertDirectoryDoesNotExist($root . '/.atoms/build');
+        }
     }
 
     public function testGeneratesADevSecretWhenDevVarsIsAbsent(): void

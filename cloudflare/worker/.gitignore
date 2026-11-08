@@ -17,6 +17,10 @@ wrangler.pid
 # GPL-licensed PHP binary.
 .php-wasm/
 
+# Per-application TypePHP output, never repository source.
+src/.typephp/
+src/.typephp-stage-*/
+
 # Written by scripts/dev-with-callback.mjs: the shared secret generated for
 # that one dev/CI session, plus the listener port. This is the per-run ROOT —
 # bearer, ticket and callback keys all derive from it. Never commit it: a

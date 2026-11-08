@@ -523,8 +523,9 @@ class AtomsStatement extends \PDOStatement
             $args = $this->fetchModeArgs;
         }
 
-        $base = $mode & ~self::MODE_FLAGS;
-        $flags = $mode & self::MODE_FLAGS;
+        $modeFlags = \constant(self::class . '::MODE_FLAGS');
+        $base = $mode & ~$modeFlags;
+        $flags = $mode & $modeFlags;
         $hasUnique = ($mode & \PDO::FETCH_UNIQUE) === \PDO::FETCH_UNIQUE;
         $hasGroup = !$hasUnique && ($mode & \PDO::FETCH_GROUP) === \PDO::FETCH_GROUP;
 
@@ -651,6 +652,7 @@ class AtomsStatement extends \PDOStatement
                             $shaped[$i] = $val;
                             $i++;
                         }
+                        break;
                 }
 
                 if ($hasUnique) {
@@ -977,7 +979,8 @@ class AtomsStatement extends \PDOStatement
     #[\ReturnTypeWillChange]
     public function setFetchMode($mode, ...$args)
     {
-        $base = $mode & ~self::MODE_FLAGS;
+        $modeFlags = \constant(self::class . '::MODE_FLAGS');
+        $base = $mode & ~$modeFlags;
 
         switch ($base) {
             case \PDO::FETCH_ASSOC:
@@ -1043,11 +1046,15 @@ class AtomsStatement extends \PDOStatement
      */
     private function resolveMode($mode)
     {
+        // TypePHP 0.9.5 reuses temporary C++ variables when folding this
+        // compound class constant across methods. Runtime lookup preserves
+        // the value without depending on that compiler optimization.
+        $modeFlags = \constant(self::class . '::MODE_FLAGS');
         if ($mode === \PDO::FETCH_DEFAULT) {
-            return [$this->fetchMode & ~self::MODE_FLAGS, $this->fetchMode & self::MODE_FLAGS, $this->fetchModeArgs];
+            return [$this->fetchMode & ~$modeFlags, $this->fetchMode & $modeFlags, $this->fetchModeArgs];
         }
 
-        return [$mode & ~self::MODE_FLAGS, $mode & self::MODE_FLAGS, []];
+        return [$mode & ~$modeFlags, $mode & $modeFlags, []];
     }
 
     /**

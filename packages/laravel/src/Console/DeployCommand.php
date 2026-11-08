@@ -29,6 +29,7 @@ final class DeployCommand extends AtomsBinaryCommand
         {--bundle= : Path to a prebuilt bundle instead of building one}
         {--manifest= : Manifest for --bundle (default: manifest.json beside it)}
         {--worker-dir= : Worker project directory (else atoms-worker/ beside atoms.json)}
+        {--compiler= : WebAssembly backend: php-wasm or experimental typephp}
         {--callback-url= : Callback URL for this deployment (beats ATOMS_CALLBACK_URL and atoms.json callback_url)}';
 
     protected $description = 'Deploy the current build to your Atoms Worker';
@@ -37,7 +38,7 @@ final class DeployCommand extends AtomsBinaryCommand
     {
         $args = ['deploy'];
 
-        foreach (['env', 'bundle', 'manifest', 'worker-dir', 'callback-url'] as $option) {
+        foreach (['env', 'bundle', 'manifest', 'worker-dir', 'callback-url', 'compiler'] as $option) {
             if (($value = $this->option($option)) !== null) {
                 $args[] = '--' . $option;
                 $args[] = (string) $value;
