@@ -1117,7 +1117,7 @@ class AtomsStatement extends \PDOStatement
     {
         throw new AtomsNotSupported(
             'PDOStatement::setAttribute()',
-            'There is no driver-owned statement handle to configure — real pdo_sqlite refuses this too.',
+            'There is no driver-owned statement handle to configure.',
             'IM001'
         );
     }

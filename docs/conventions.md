@@ -8,9 +8,11 @@ package and this document disagree, the package is wrong.
 - Vendor prefix: **`atoms/*`** — `atoms/core`, `atoms/client`, `atoms/laravel`,
   `atoms/symfony`, `atoms/testing`, `atoms/phpstan-rules`, `atoms/cli`,
   `atoms/database-illuminate`.
-- PHP baseline: **`^8.3`**. No 8.4-only features (no property hooks, no
-  asymmetric visibility) anywhere — `atoms/core` executes inside the platform's
-  PHP 8.3 runtime image.
+- PHP baseline for the packages and default runtime: **`^8.3`**. Keep
+  `atoms/core` and shared runtime source compatible with PHP 8.3. Customer
+  Atom code targets its selected backend: PHP 8.3 for php-wasm, PHP 8.5
+  for the experimental TypePHP toolchain. This does not change the PHP
+  requirement of the monolith or CLI.
 - All packages: `declare(strict_types=1);`, final classes unless the class is
   explicitly designed for extension (`Atom`, `AtomMethods`, `AtomJob`).
 - Monorepo package versions and inter-package constraints are coordinated from
@@ -381,12 +383,16 @@ default?}], return}], websocket: bool, migrations: {head: int, files:
 [{version, name, sha256, path}]}}`), `methods` (list of
 `{atom_type, class, methods: [...]}`), `jobs`
 (list of `{class, params: [...]}`), `shared` (list of `{class, properties:
-[{name, type}]}`), `toolchain` (`{core_version, php, extensions: [...],
+[{name, type}]}`), `toolchain` (`{core_version, php, php_version, extensions: [...],
 scoper_prefix}`), `vendor` (optional, present only when the build shipped
 `atoms-composer.json` packages: `{autoload, packages: {name: version}}`,
 where `autoload` is the bundle-relative path of the build-generated vendor
 autoload file — see `docs/cloudflare-toolchain.md` §3), `content_hash`
 (sha256 of the bundle tarball, hex).
+`toolchain.php` names the Atom runtime ABI; additive `php_version` records
+the exact pinned runtime version. Neither field describes the PHP process
+running the CLI or monolith. See the PHP target contract in
+`docs/cloudflare-toolchain.md`.
 `file` and `migrations.files[].path` are bundle-relative paths:
 the Cloudflare Worker must `require` and migrate exactly those files, and
 `MigrationEntry::$name` keeps only the descriptive part of `NNN_name.sql`, so

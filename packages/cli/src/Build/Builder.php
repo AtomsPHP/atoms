@@ -6,6 +6,7 @@ namespace Atoms\Cli\Build;
 
 use Atoms\Cli\Config\AtomsComposerJson;
 use Atoms\Cli\Config\AtomsJson;
+use Atoms\Cli\Config\PhpTarget;
 use Atoms\Cli\Process\ProcessRunner;
 use Atoms\Cli\Process\SymfonyProcessRunner;
 use Atoms\Errors\AtomsError;
@@ -55,7 +56,16 @@ final class Builder
             }
 
             $stage = new VendorStage($this->runner ?? new SymfonyProcessRunner());
-            $vendor = $stage->resolve($config->rootDir);
+            $vendor = $stage->resolve($config->rootDir, PhpTarget::forPhp($config->php)->version);
+        }
+
+        if ($vendor !== null) {
+            $syntax = new TargetSyntax(PhpTarget::forPhp($config->php));
+            foreach ($vendor->entries as $entry) {
+                if (str_ends_with($entry['name'], '.php')) {
+                    $syntax->check($entry['contents'], $entry['name']);
+                }
+            }
         }
 
         $manifest = $validation->manifest;

@@ -1,8 +1,10 @@
+import { phpTarget } from './php-target.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
+const PHP_TARGET = phpTarget('typephp');
 const CACHE = '/tmp/atoms-typephp';
 const FORMAT = 'atoms-typephp-v1';
 const COMPONENT_HEADER = Buffer.from([0, 97, 115, 109, 13, 0, 1, 0]);
@@ -70,7 +72,7 @@ export function preflightTypePhp({ compiler = process.env.ATOMS_TYPEPHP_COMPILER
 	const environment = { ...env, PHPX_HOME: path.resolve(phpxHome), SOURCE_DATE_EPOCH: '0' };
 	const options = { env: environment };
 	const compilerVersion = run(compiler, ['--version'], options).trim();
-	if (!/^TypePHP Compiler \(AOT\) v0\.9\.5$/.test(compilerVersion)) throw new Error(`TypePHP 0.9.5 is required; found ${compilerVersion}.`);
+	if (compilerVersion !== `TypePHP Compiler (AOT) v${PHP_TARGET.compiler_version}`) throw new Error(`TypePHP 0.9.5 is required; found ${compilerVersion}.`);
 	for (const tool of ['wasm32-wasip2-clang', 'wasm32-wasip2-clang++', 'llvm-ar', 'llvm-ranlib', 'llvm-nm', 'wasm-component-ld']) {
 		const version = run(tool, ['--version'], options);
 		if (!/22\.1\.0/.test(version) && tool !== 'wasm-component-ld') throw new Error(`WASI SDK 33 (LLVM 22.1.0) is required: ${tool}.`);
@@ -81,7 +83,20 @@ export function preflightTypePhp({ compiler = process.env.ATOMS_TYPEPHP_COMPILER
 	const wasmtimeVersion = run('wasmtime', ['--version'], options).trim();
 	if (!/^wasmtime 47\.0\.0\b/.test(wasmtimeVersion)) throw new Error(`Wasmtime 47.0.0 is required; found ${wasmtimeVersion}.`);
 	const sdk = path.join(environment.PHPX_HOME, 'wasm/wasm32-wasip2');
-	if (regularFile(path.join(sdk, '.typephp-wasi-sdk-abi')).toString().trim() !== 'typephp-wasip2-sdk-abi-v4') throw new Error(`Incompatible TypePHP WASI SDK: ${sdk}.`);
+	if (regularFile(path.join(sdk, '.typephp-wasi-sdk-abi')).toString().trim() !== PHP_TARGET.sdk_abi) throw new Error(`Incompatible TypePHP WASI SDK: ${sdk}.`);
+	const sdkManifest = JSON.parse(regularFile(path.join(sdk, 'manifest.json')));
+	if (sdkManifest.php_version !== PHP_TARGET.php_version || sdkManifest.phpx_revision !== PHP_TARGET.phpx_revision
+		|| sdkManifest.target !== 'wasm32-wasip2'
+		|| sdkManifest.package !== `phpx-wasi-sdk_v${PHP_TARGET.phpx_version}_php${PHP_TARGET.php_version}_wasm32-wasip2`) {
+		throw new Error(`TypePHP requires the pinned PHPX ${PHP_TARGET.phpx_version} SDK for PHP ${PHP_TARGET.php_version}.`);
+	}
+	const versionHeader = regularFile(path.join(sdk, 'include/php/main/php_version.h')).toString();
+	const version = /^#define PHP_VERSION "([^"\n]+)"$/m.exec(versionHeader)?.[1];
+	const versionId = /^#define PHP_VERSION_ID (\d+)$/m.exec(versionHeader)?.[1];
+	const [major, minor, patch] = PHP_TARGET.php_version.split('.').map(Number);
+	if (version !== PHP_TARGET.php_version || Number(versionId) !== major * 10000 + minor * 100 + patch) {
+		throw new Error(`TypePHP SDK headers must target PHP ${PHP_TARGET.php_version}; found ${version ?? 'unknown'} (${versionId ?? 'unknown'}).`);
+	}
 	for (const header of ['php/main/php.h', 'php/main/php_config.h', 'php/Zend/zend_config.h', 'php/TSRM/TSRM.h', 'phpx/phpx.h', 'phpx/phpx_exception_policy.h', 'phpx/phpx_cast_policy.h', 'phpx/typephp_runtime.h', 'phpx/typephp_opcode_table.h', 'phpx/typephp_helper.h']) {
 		regularFile(path.join(sdk, 'include', header));
 	}
@@ -90,7 +105,7 @@ export function preflightTypePhp({ compiler = process.env.ATOMS_TYPEPHP_COMPILER
 	const defined = new Set(symbols.split('\n').flatMap((line) => { const match = /^\s*[0-9a-f]+\s+[Tt]\s+(.+)$/.exec(line); return match ? [match[1]] : []; }));
 	const missing = SYMBOLS.filter((symbol) => !defined.has(symbol));
 	if (missing.length) throw new Error(`Incomplete TypePHP WASI SDK; install a corrected SDK containing: ${missing.join(', ')}. No SDK files were changed.`);
-	return { environment, fingerprint: { compiler: compilerVersion, target, wasmtime: wasmtimeVersion, libraries, headers: headerTree(path.join(sdk, 'include')) } };
+	return { environment, fingerprint: { compiler: compilerVersion, php: PHP_TARGET.php_version, sdk: sdkManifest, target, wasmtime: wasmtimeVersion, libraries, headers: headerTree(path.join(sdk, 'include')) } };
 }
 
 /** Retain every Jco WASM output, including conditional-host-import modules. */
@@ -169,7 +184,7 @@ export function compileTypePhp({ sources, outputDir, compiler = process.env.ATOM
 			entryPath: path.join(destination, metadata.entry),
 			modulePaths: metadata.modules.map((name) => path.join(destination, name)),
 			coreModules: Object.fromEntries(metadata.modules.map((name) => [path.basename(name), path.join(destination, name)])),
-			compilerVersion: '0.9.5', phpAbi: '8.5',
+			compilerVersion: PHP_TARGET.compiler_version, phpAbi: PHP_TARGET.php, phpVersion: PHP_TARGET.php_version,
 		};
 	} finally {
 		if (temporary) fs.rmSync(temporary, { recursive: true, force: true });

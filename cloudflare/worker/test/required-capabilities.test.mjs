@@ -18,6 +18,11 @@ for (const name of ['conformance.mjs', 'required-capabilities.mjs']) {
 }
 copyFileSync(fileURLToPath(new URL('../scripts/gen-pdo-matrix.mjs', import.meta.url)),
     join(directory, 'scripts', 'gen-pdo-matrix.mjs'));
+mkdirSync(join(directory, 'scripts', 'lib'), { recursive: true });
+copyFileSync(new URL('./php-contract.mjs', import.meta.url), join(directory, 'test', 'php-contract.mjs'));
+for (const file of ['php-target.mjs', 'php-targets.json']) {
+    copyFileSync(new URL('../scripts/lib/' + file, import.meta.url), join(directory, 'scripts', 'lib', file));
+}
 const runner = join(directory, 'test', 'conformance.mjs');
 after(() => rmSync(directory, { recursive: true, force: true }));
 const secret = Buffer.alloc(32, 1).toString('base64');

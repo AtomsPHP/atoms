@@ -403,7 +403,7 @@ final class BundleBridgeTest extends TestCase
             'schema' => 1,
             'project' => 'utf8-refusal-test',
             'atoms' => [],
-            'toolchain' => ['core_version' => \Atoms\Cli\Release\RuntimeVersion::CORE_VERSION],
+            'toolchain' => ['core_version' => \Atoms\Cli\Release\RuntimeVersion::CORE_VERSION, 'php' => '8.3'],
             'content_hash' => hash('sha256', $tar),
         ], JSON_THROW_ON_ERROR));
 

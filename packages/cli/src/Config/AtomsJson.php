@@ -51,6 +51,12 @@ final class AtomsJson
     ) {
     }
 
+    public function withPhp(string $php): self
+    {
+        return new self($this->rootDir, $this->project, $this->atomsPath, $this->sharedPath,
+            $php, $this->environments, $this->atomConfig);
+    }
+
     /**
      * Absolute path to the Atoms source directory.
      */

@@ -53,6 +53,23 @@ test('rejects a core module passed off as a component and incomplete SDK symbols
 	assert.equal(fs.readFileSync(calls, 'utf8'), before);
 });
 
+test('rejects mismatched SDK metadata and headers before compiling', () => {
+    const sdk = path.join(phpxHome, 'wasm/wasm32-wasip2');
+    for (const [file, replacement, diagnostic] of [
+        ['manifest.json', '{}', /pinned PHPX 2.9.4 SDK for PHP 8.5.9/],
+        ['include/php/main/php_version.h', '#define PHP_VERSION "8.3.32"\n#define PHP_VERSION_ID 80332\n', /headers must target PHP 8.5.9/],
+    ]) {
+        const filename = path.join(sdk, file);
+        const original = fs.readFileSync(filename);
+        const before = fs.readFileSync(calls, 'utf8');
+        try {
+            fs.writeFileSync(filename, replacement);
+            assert.throws(() => build('wrong-php'), diagnostic);
+            assert.equal(fs.readFileSync(calls, 'utf8'), before);
+        } finally { fs.writeFileSync(filename, original); }
+    }
+});
+
 test('rejects traversal, symlink outputs, and directories not owned by this bundler', () => {
 	for (const name of ['/../escape.php', '/app/../escape.php', '/app//file.php', 'relative.php', '/app\\file.php']) {
 		assert.throws(() => build('bad-path', { sources: { [name]: '<?php' } }), /Invalid TypePHP source path/);
