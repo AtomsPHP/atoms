@@ -56,8 +56,13 @@ final class SurfaceAudit
      *     allowlist: list<array{id: string, asserted: bool}>
      * }
      */
-    public static function run(\PDO $pdo): array
+    public static function run(\PDO $pdo, string $php = '8.3'): array
     {
+        $pins = match ($php) {
+            '8.3' => PinnedConstants::class,
+            '8.5' => PinnedConstants85::class,
+            default => throw new \InvalidArgumentException('Unknown PDO PHP contract: ' . $php),
+        };
         $violations = [];
         $membersChecked = [];
         $counts = [
@@ -82,8 +87,9 @@ final class SurfaceAudit
             self::auditInterfaces($parent, $child, $parentClass, $childClass, $violations, $counts);
         }
 
-        self::auditConstants($violations, $membersChecked, $counts);
-        self::auditFetchBehaviour($pdo, $violations);
+        self::auditConstants($violations, $membersChecked, $counts, $pins);
+        self::auditFetchBehaviour($pdo, $violations, $pins);
+        self::auditConnectRefusal($violations);
 
         $allowlist = self::runAllowlist($pdo, $violations);
 
@@ -95,6 +101,19 @@ final class SurfaceAudit
             'members_checked' => $membersChecked,
             'allowlist' => $allowlist,
         ];
+    }
+
+    /** Refuse the native connection factory before it can bypass the bridge. */
+    private static function auditConnectRefusal(array &$violations): void
+    {
+        try {
+            \Atoms\Cf\AtomsPDO::connect('sqlite::memory:');
+            $violations[] = ['rule' => 'R8', 'member' => 'PDO::connect', 'detail' => 'native connection factory answered'];
+        } catch (AtomsNotSupported $error) {
+            // The explicit refusal is the contract on both runtimes.
+        } catch (\Throwable $error) {
+            $violations[] = ['rule' => 'R8', 'member' => 'PDO::connect', 'detail' => get_class($error) . ': ' . $error->getMessage()];
+        }
     }
 
     /**
@@ -261,10 +280,10 @@ final class SurfaceAudit
      * @param list<string> $membersChecked
      * @param array<string, int> $counts
      */
-    private static function auditConstants(array &$violations, array &$membersChecked, array &$counts): void
+    private static function auditConstants(array &$violations, array &$membersChecked, array &$counts, string $pins): void
     {
         $runtime = self::runtimePinnedConstants();
-        $pinned = PinnedConstants::all();
+        $pinned = $pins::all();
 
         foreach ($runtime as $name => $value) {
             $membersChecked[] = 'PDO::' . $name;
@@ -307,9 +326,9 @@ final class SurfaceAudit
             }
         }
 
-        $counts['pinned_fetch'] = count(PinnedConstants::fetch());
-        $counts['pinned_attr'] = count(PinnedConstants::attr());
-        $counts['pinned_param'] = count(PinnedConstants::param());
+        $counts['pinned_fetch'] = count($pins::fetch());
+        $counts['pinned_attr'] = count($pins::attr());
+        $counts['pinned_param'] = count($pins::param());
     }
 
     /**
@@ -351,7 +370,7 @@ final class SurfaceAudit
      *
      * @param list<array{rule: string, member: string, detail: string}> $violations
      */
-    private static function auditFetchBehaviour(\PDO $pdo, array &$violations): void
+    private static function auditFetchBehaviour(\PDO $pdo, array &$violations, string $pins): void
     {
         $answered = [];
 
@@ -381,7 +400,7 @@ final class SurfaceAudit
         }
 
         sort($answered);
-        $expected = PinnedConstants::expectedAnsweredFetchModes();
+        $expected = $pins::expectedAnsweredFetchModes();
         sort($expected);
 
         if ($answered !== $expected) {

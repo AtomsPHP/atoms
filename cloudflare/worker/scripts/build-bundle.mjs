@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { runtimeFiles, sortedFiles, walkDir, writeBundleModule } from './lib/bundle-module.mjs';
+import { phpTarget } from './lib/php-target.mjs';
 import { writeTypePhpBundle } from './lib/typephp-bundle.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -77,6 +78,7 @@ async function buildBundle() {
 
     const outputManifest = {
         ...manifest,
+        abi: { php: phpTarget(values.compiler).php, php_version: phpTarget(values.compiler).php_version },
         atoms: rewrittenAtoms,
     };
 

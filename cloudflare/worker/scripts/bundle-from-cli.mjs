@@ -40,6 +40,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { runtimeFiles, sortedFiles, writeBundleModule } from './lib/bundle-module.mjs';
+import { targetManifest } from './lib/php-target.mjs';
 import { writeTypePhpBundle } from './lib/typephp-bundle.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -280,7 +281,7 @@ function main() {
 	console.error(`Writing bundle to: ${outputFile}`);
 
 	const cli = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-	const manifest = hostManifest(cli);
+	const manifest = targetManifest(hostManifest(cli), values.compiler, cli.toolchain);
 
 	const tar = zlib.gunzipSync(fs.readFileSync(bundlePath));
 

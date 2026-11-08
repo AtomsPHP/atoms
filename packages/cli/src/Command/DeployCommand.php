@@ -10,6 +10,7 @@ use Atoms\Cli\Cloudflare\CloudflareTarget;
 use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\Wrangler;
 use Atoms\Cli\Config\AtomsDotenv;
+use Atoms\Cli\Config\PhpTarget;
 use Atoms\Errors\AtomsError;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
@@ -118,7 +119,8 @@ final class DeployCommand extends AbstractCommand
                 $manifestPath = self::stringOption($input, 'manifest') ?? \dirname($bundlePath) . '/manifest.json';
             } else {
                 $output->writeln('Building bundle…');
-                $result = $this->builder->build($config, $config->rootDir . '/.atoms/build');
+                $buildConfig = $config->withPhp(PhpTarget::forCompiler($compiler)->php);
+                $result = $this->builder->build($buildConfig, $config->rootDir . '/.atoms/build');
                 $bundlePath = $result->bundlePath;
                 $manifestPath = $result->manifestPath;
                 if ($result->vendor !== null && $result->vendor->prunedDataFiles !== []) {

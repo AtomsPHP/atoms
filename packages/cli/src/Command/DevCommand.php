@@ -11,6 +11,7 @@ use Atoms\Cli\Cloudflare\DevVars;
 use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\Wrangler;
 use Atoms\Cli\Config\AtomsDotenv;
+use Atoms\Cli\Config\PhpTarget;
 use Atoms\Cli\Config\EnvFile;
 use Atoms\Cli\Process\ProcessRunner;
 use Atoms\Cli\Process\SymfonyProcessRunner;
@@ -160,7 +161,8 @@ final class DevCommand extends AbstractCommand
                 // packages needs the vendor tree in the dev bundle too. The
                 // vendor stage caches its resolution under .atoms/vendor-cache,
                 // so only the first run (or a lock change) pays for composer.
-                $result = $this->builder->build($config, $config->rootDir . '/.atoms/build');
+                $buildConfig = $config->withPhp(PhpTarget::forCompiler($compiler)->php);
+                $result = $this->builder->build($buildConfig, $config->rootDir . '/.atoms/build');
                 $this->stager->stage($target, $result->bundlePath, $result->manifestPath, $compiler);
             }
 

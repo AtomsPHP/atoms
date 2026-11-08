@@ -21,7 +21,8 @@
         "ext-json": "*",
         "atoms/core": "^0.9",
         "colinodell/json5": "^2.3 || ^3.0",
-        "nikic/php-parser": "^5.0",
+        "composer/semver": "^3.4",
+        "nikic/php-parser": "^5.8",
         "symfony/console": "^6.4 || ^7.0",
         "symfony/filesystem": "^6.4 || ^7.0",
         "symfony/process": "^6.4 || ^7.0"

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Atoms\Cli\Build;
 
 use Atoms\Cli\Config\Timeouts;
+use Atoms\Cli\Config\PhpTarget;
+use Composer\Semver\Semver;
 use Atoms\Cli\Process\ProcessRunner;
 use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCatalog;
@@ -74,8 +76,9 @@ final class VendorStage
     /**
      * @throws AtomsError ATOMS-E079 when resolution fails
      */
-    public function resolve(string $rootDir): VendorTree
+    public function resolve(string $rootDir, ?string $phpVersion = null): VendorTree
     {
+        $phpVersion ??= PhpTarget::forCompiler('php-wasm')->version;
         $rootDir = rtrim($rootDir, '/');
         $composerJson = $rootDir . '/atoms-composer.json';
         $lockPath = $rootDir . '/atoms-composer.lock';
@@ -83,8 +86,10 @@ final class VendorStage
         $jsonBytes = $this->readOrFail($composerJson);
         $lockBytes = is_file($lockPath) ? $this->readOrFail($lockPath) : null;
 
+        self::assertPhpRequirements($jsonBytes, $lockBytes, $phpVersion);
+
         if ($lockBytes !== null) {
-            $cached = $this->readCache($rootDir, self::cacheKey($jsonBytes, $lockBytes));
+            $cached = $this->readCache($rootDir, self::cacheKey($jsonBytes, $lockBytes, $phpVersion));
             if ($cached !== null) {
                 return $cached;
             }
@@ -100,7 +105,7 @@ final class VendorStage
         }
 
         try {
-            $this->writeOrFail($work . '/composer.json', self::stagedComposerJson($rootDir, $jsonBytes));
+            $this->writeOrFail($work . '/composer.json', self::stagedComposerJson($rootDir, $jsonBytes, $phpVersion));
             if ($lockBytes !== null) {
                 $this->writeOrFail($work . '/composer.lock', $lockBytes);
             }
@@ -118,6 +123,7 @@ final class VendorStage
             $wroteLock = false;
             if ($lockBytes === null && is_file($work . '/composer.lock')) {
                 $lockBytes = $this->readOrFail($work . '/composer.lock');
+                self::assertPhpRequirements($jsonBytes, $lockBytes, $phpVersion);
                 $this->writeOrFail($lockPath, $lockBytes);
                 $wroteLock = true;
             }
@@ -130,7 +136,7 @@ final class VendorStage
             $tree = new VendorTree($entries, $packages, $wroteLock, $pruned);
 
             if ($lockBytes !== null) {
-                $this->writeCache($rootDir, self::cacheKey($jsonBytes, $lockBytes), $tree);
+                $this->writeCache($rootDir, self::cacheKey($jsonBytes, $lockBytes, $phpVersion), $tree);
             }
 
             return $tree;
@@ -146,18 +152,21 @@ final class VendorStage
      * `options.symlink: false` is forced — a symlinked package install is
      * invisible to the tree walk, so nothing would ship.
      */
-    public static function stagedComposerJson(string $rootDir, string $jsonBytes): string
+    public static function stagedComposerJson(string $rootDir, string $jsonBytes, ?string $phpVersion = null): string
     {
         try {
             $decoded = json_decode($jsonBytes, true, 16, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return $jsonBytes; // AtomsComposerJson already validated/refused upstream
         }
-        if (!\is_array($decoded) || !\is_array($decoded['repositories'] ?? null)) {
+        if (!\is_array($decoded)) {
             return $jsonBytes;
         }
 
-        foreach ($decoded['repositories'] as $i => $repo) {
+        $phpVersion ??= PhpTarget::forCompiler('php-wasm')->version;
+        $decoded['config']['platform'] = ['php' => $phpVersion, 'php-64bit' => $phpVersion];
+
+        foreach (($decoded['repositories'] ?? []) as $i => $repo) {
             if (!\is_array($repo) || ($repo['type'] ?? null) !== 'path' || !\is_string($repo['url'] ?? null)) {
                 continue;
             }
@@ -172,6 +181,32 @@ final class VendorStage
         }
 
         return json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+    }
+
+    /** Check the runtime requirements even when the vendor cache is reused. */
+    public static function assertPhpRequirements(string $json, ?string $lock, string $version): void
+    {
+        try {
+            /** @var array{require?: array<string, string>} $root */
+            $root = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+            /** @var array{packages?: list<array{name: string, require?: array<string, string>, conflict?: array<string, string>}>} $locked */
+            $locked = json_decode($lock ?? '{}', true, 512, JSON_THROW_ON_ERROR);
+            $packages = [['name' => 'atoms-composer.json', 'require' => $root['require'] ?? []], ...($locked['packages'] ?? [])];
+            foreach ($packages as $package) {
+                foreach (['php', 'php-64bit'] as $platform) {
+                    $required = $package['require'][$platform] ?? '*';
+                    $conflict = $package['conflict'][$platform] ?? null;
+                    if (!Semver::satisfies($version, $required)
+                        || ($conflict !== null && Semver::satisfies($version, $conflict))) {
+                        throw self::failure($package['name'] . " requires {$platform} {$required}"
+                            . ($conflict === null ? '' : " and conflicts with {$conflict}")
+                            . "; the Atom runtime target is PHP {$version}. Update atoms-composer.json and its lock for this target.");
+                    }
+                }
+            }
+        } catch (\JsonException | \UnexpectedValueException $error) {
+            throw self::failure('Invalid Atom dependency PHP requirements: ' . $error->getMessage());
+        }
     }
 
     private static function composerTimeout(): float
@@ -194,7 +229,7 @@ final class VendorStage
         // gets written back as atoms-composer.lock.
         return [
             'composer', 'install', '--no-dev', '--no-interaction', '--no-progress',
-            '--no-scripts', '--no-plugins', '--ignore-platform-reqs', '--optimize-autoloader',
+            '--no-scripts', '--no-plugins', '--ignore-platform-req=ext-*', '--optimize-autoloader',
         ];
     }
 
@@ -364,9 +399,9 @@ final class VendorStage
         return substr($real, \strlen($vendorReal) + 1);
     }
 
-    private static function cacheKey(string $jsonBytes, string $lockBytes): string
+    private static function cacheKey(string $jsonBytes, string $lockBytes, string $phpVersion): string
     {
-        return hash('sha256', $jsonBytes . "\0" . $lockBytes);
+        return hash('sha256', 'php-target-v1' . $phpVersion . $jsonBytes . "\0" . $lockBytes);
     }
 
     private function cacheDir(string $rootDir, string $key): string

@@ -196,7 +196,8 @@ final class VendorStageTest extends TestCase
      * offline. Without the staging rewrite, resolve() succeeds with an empty
      * tree and the bundle deploys unable to load the package.
      */
-    public function testARealComposerPathRepositoryProducesAShippableTree(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('phpTargets')]
+    public function testARealComposerPathRepositoryProducesAShippableTree(string $target, string $requirement): void
     {
         $composer = (new \Symfony\Component\Process\ExecutableFinder())->find('composer');
         if ($composer === null) {
@@ -208,6 +209,7 @@ final class VendorStageTest extends TestCase
         file_put_contents($root . '/packages/local/composer.json', json_encode([
             'name' => 'acme/local',
             'version' => '1.0.0',
+            'require' => ['php' => $requirement],
             'autoload' => ['psr-4' => ['Acme\\Local\\' => 'src/']],
         ], JSON_THROW_ON_ERROR));
         file_put_contents(
@@ -222,7 +224,7 @@ final class VendorStageTest extends TestCase
             ],
         ], JSON_THROW_ON_ERROR));
 
-        $tree = (new VendorStage(new \Atoms\Cli\Process\SymfonyProcessRunner()))->resolve($root);
+        $tree = (new VendorStage(new \Atoms\Cli\Process\SymfonyProcessRunner()))->resolve($root, $target);
 
         $names = array_column($tree->entries, 'name');
         self::assertContains('vendor/acme/local/src/Widget.php', $names, 'the path package must ship as real files');
@@ -231,6 +233,12 @@ final class VendorStageTest extends TestCase
         $autoload = array_column($tree->entries, 'contents', 'name')[VendorStage::AUTOLOAD_PATH];
         self::assertStringContainsString("'Acme\\\\Local\\\\Widget'", $autoload);
         self::assertStringContainsString('/acme/local/src/Widget.php', $autoload);
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function phpTargets(): array
+    {
+        return ['php-wasm' => ['8.3.32', '8.3.*'], 'typephp' => ['8.5.9', '8.5.*']];
     }
 
     public function testAFailedLockWriteBackRefusesInsteadOfClaimingReproducibility(): void

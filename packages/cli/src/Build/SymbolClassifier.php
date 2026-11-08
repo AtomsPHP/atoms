@@ -16,6 +16,23 @@ final class SymbolClassifier
 {
     private const FRAMEWORK_PREFIXES = ['Illuminate\\', 'Laravel\\', 'Symfony\\'];
 
+    // PHP 8.4/8.5 additions in the runtime's allowed extensions. Do not ask
+    // the CLI interpreter whether the selected guest provides these symbols.
+    private const PHP85_CLASSES = [
+        'deprecated' => 'Core', 'nodiscard' => 'Core', 'requestparsebodyexception' => 'Core',
+        'roundingmode' => 'standard', 'streambucket' => 'standard', 'pdo\\sqlite' => 'pdo_sqlite',
+    ];
+    private const PHP85_FUNCTIONS = [
+        'request_parse_body' => 'Core', 'get_error_handler' => 'Core', 'get_exception_handler' => 'Core',
+        'array_all' => 'standard', 'array_any' => 'standard', 'array_find' => 'standard',
+        'array_find_key' => 'standard', 'array_first' => 'standard', 'array_last' => 'standard',
+        'http_get_last_response_headers' => 'standard', 'http_clear_last_response_headers' => 'standard',
+        'fpow' => 'standard', 'mb_trim' => 'mbstring', 'mb_ltrim' => 'mbstring',
+        'mb_rtrim' => 'mbstring', 'mb_ucfirst' => 'mbstring', 'mb_lcfirst' => 'mbstring',
+        'pcntl_getcpu' => 'pcntl', 'pcntl_getcpuaffinity' => 'pcntl', 'pcntl_getqos_class' => 'pcntl',
+        'pcntl_setns' => 'pcntl', 'pcntl_setqos_class' => 'pcntl', 'pcntl_waitid' => 'pcntl',
+    ];
+
     /** Global helpers that only exist inside a web framework. */
     private const GLOBAL_HELPERS = [
         'config', 'app', 'resolve', 'auth', 'cache', 'session', 'request',
@@ -41,6 +58,7 @@ final class SymbolClassifier
         private readonly AllowedPackages $allowedPackages,
         array $approvedNamespaces,
         ?string $extensionsResource = null,
+        private readonly string $php = '8.3',
     ) {
         $this->approvedNamespaces = $approvedNamespaces;
         $this->runtimeExtensions = self::loadExtensions($extensionsResource);
@@ -124,6 +142,13 @@ final class SymbolClassifier
             return $this->classifyNamespaced($name, $file, $line, SymbolKind::FunctionCall, false, '');
         }
 
+        if (isset(self::PHP85_FUNCTIONS[$lower])) {
+            // On 8.3 this remains an unknown global, which may be a polyfill.
+            return $this->php === '8.5'
+                ? $this->checkExtension(self::PHP85_FUNCTIONS[$lower], $name, $file, $line)
+                : null;
+        }
+
         // Global, unqualified: allowed if it is a runtime-provided builtin.
         if (\function_exists($name)) {
             return $this->checkExtension(
@@ -160,6 +185,10 @@ final class SymbolClassifier
             }
 
             return null; // discovered: either ships in the bundle or is a legal class-string
+        }
+
+        if (isset(self::PHP85_CLASSES[strtolower($name)])) {
+            return $this->checkPhp85(self::PHP85_CLASSES[strtolower($name)], $name, $file, $line);
         }
 
         if (str_contains($name, '\\')) {
@@ -243,6 +272,14 @@ final class SymbolClassifier
             ['class' => $owner, 'symbol' => $symbol],
             $symbol,
         );
+    }
+
+    private function checkPhp85(string $extension, string $name, string $file, int $line): ?Violation
+    {
+        return $this->php === '8.5'
+            ? $this->checkExtension($extension, $name, $file, $line)
+            : new Violation(ErrorCode::BundleRejected, $file, $line,
+                ['reason' => $name . ' is not provided by the PHP 8.3 target'], $name);
     }
 
     private function checkExtension(?string $extension, string $name, string $file, int $line): ?Violation

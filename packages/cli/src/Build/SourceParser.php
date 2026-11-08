@@ -13,9 +13,8 @@ use PhpParser\Parser;
 use PhpParser\ParserFactory;
 
 /**
- * Wraps nikic/php-parser: parses a source file for the newest supported PHP
- * version and runs the NameResolver so every class-name reference is fully
- * qualified. Never includes or executes the file — pure static analysis.
+ * Parse through PHP 8.5 and resolve class names without executing the file.
+ * TargetSyntax checks the files that will ship against the selected target.
  */
 final class SourceParser
 {
@@ -23,7 +22,7 @@ final class SourceParser
 
     public function __construct()
     {
-        $this->parser = (new ParserFactory())->createForNewestSupportedVersion();
+        $this->parser = (new ParserFactory())->createForVersion(\PhpParser\PhpVersion::fromString('8.5'));
     }
 
     /**

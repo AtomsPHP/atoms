@@ -21,6 +21,7 @@
  * `npm ci` via the `prepare` lifecycle script.
  */
 
+import { phpTarget } from './lib/php-target.mjs';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -37,13 +38,7 @@ const outDir = join(workerRoot, '.php-wasm');
  * old committed copy made impossible, and dropping the copy must not drop
  * that guarantee with it.
  */
-const EXPECTED = {
-	wasmSha256: 'eca478d2bad4cae984cd5b5ec39ce42311fcc4d31cf48fce7293e9a5034f1c98',
-	wasmBytes: 18309089,
-	glueSha256: '719346ea1827cc48c8dd298974649503b7a227a7c0e5c12827db1c993dccf3ac',
-	glueBytes: 268881,
-	version: '3.1.48',
-};
+const EXPECTED = phpTarget('php-wasm');
 
 /**
  * The one functional change Atoms makes to upstream's glue.
@@ -106,6 +101,7 @@ try {
 	);
 }
 
+check('package version', JSON.parse(readFileSync(join(pkgRoot, 'package.json'))).version, EXPECTED.package_version);
 check('wasm size', wasm.length, EXPECTED.wasmBytes);
 check('wasm sha256', sha256(wasm), EXPECTED.wasmSha256);
 check('glue size', glue.length, EXPECTED.glueBytes);
@@ -132,6 +128,6 @@ writeFileSync(join(outDir, 'php_8_3.js'), glueText);
 writeFileSync(join(outDir, '8_3_32', 'php_8_3.wasm'), wasm);
 
 console.log(
-	`php-wasm ${EXPECTED.version} staged into .php-wasm/ ` +
+	`php-wasm ${EXPECTED.package_version} staged into .php-wasm/ ` +
 		`(wasm ${wasm.length} bytes, verified; glue patched: 1 line)`,
 );
