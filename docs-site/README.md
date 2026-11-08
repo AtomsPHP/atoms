@@ -43,21 +43,8 @@ and CI matrix from package constraints and `release/manifest.json`. After editin
 these inputs or the generator's prose, run `php scripts/release/release.php generate`
 from the repository root and commit the results.
 
-Before publishing compatibility changes, check CI for the release commit.
-Each Laravel/PHP combination must pass its matrix job. The Worker job must
-also run the test bundle in its PHP interpreter. Composer constraints alone
-do not show which versions work.
-
-For 0.9.1, [release-commit CI](https://github.com/AtomsPHP/atoms/actions/runs/41172031612)
-passed Laravel 12 on PHP 8.3, 8.4 and 8.5, and Laravel 13 on PHP 8.3, 8.4, 8.5
-and 8.6. Its Worker job also passed. The
-[release run](https://github.com/AtomsPHP/atoms/actions/runs/41172307195)
-required that successful CI result before publication.
-
-The docs deployment is separate from package publication. After deploying the
-docs, compare the live installation requirements and compatibility tables with
-the source verified for that release. A package release does not update those
-pages.
+The docs deployment is separate from package publication. A package release does
+not update the published docs.
 
 ## JSON examples
 
