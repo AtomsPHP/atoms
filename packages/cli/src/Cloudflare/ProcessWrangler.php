@@ -24,9 +24,18 @@ final class ProcessWrangler implements Wrangler
         $this->runner = $runner ?? new SymfonyProcessRunner();
     }
 
-    public function deploy(CloudflareTarget $target, string $configPath): WranglerResult
+    public function deploy(CloudflareTarget $target, string $configPath, bool $dryRun = false, ?string $outdir = null): WranglerResult
     {
-        return $this->run($target, ['deploy', '--config', $configPath]);
+        $argv = ['deploy', '--config', $configPath];
+        if ($dryRun) {
+            $argv[] = '--dry-run';
+        }
+        if ($outdir !== null) {
+            $argv[] = '--outdir';
+            $argv[] = $outdir;
+        }
+
+        return $this->run($target, $argv);
     }
 
     public function versions(CloudflareTarget $target): WranglerResult

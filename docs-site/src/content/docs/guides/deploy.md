@@ -57,6 +57,18 @@ To check your Atom code without deploying, run `atoms validate` (add `--json`
 for JSON output). To produce a bundle for inspection or a later deploy, run
 `atoms build`.
 
+## Check deployment packaging
+
+Check local packaging without uploading or needing Cloudflare credentials:
+
+```bash
+vendor/bin/atoms deploy --env production --dry-run
+```
+
+This builds and stages the bundle with the selected environment's settings.
+It does not test the deployed Worker. Add `--outdir <directory>` to keep the
+packaged files.
+
 ## Set the shared secret
 
 After the first deploy, set `ATOMS_SHARED_SECRET` on the Worker. The Worker

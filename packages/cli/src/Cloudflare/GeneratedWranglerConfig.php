@@ -22,6 +22,9 @@ final class GeneratedWranglerConfig
     private readonly string $filename;
     private bool $ownsFile = false;
 
+    /** @var resource|null Held until remove(); the lock file stays in place. */
+    private $lock = null;
+
     /**
      * @param array<string, mixed> $document        The generated config
      * @param string               $source          The user's config file it was derived from
@@ -119,50 +122,77 @@ final class GeneratedWranglerConfig
     }
 
     /**
+     * Write this invocation's config before building or staging the bundle.
+     * Hold the Worker-directory lock until remove().
+     *
      * @return string The generated config's absolute path
      *
-     * @throws AtomsError E076 when the file cannot be written
+     * @throws AtomsError E076 when the directory is locked or the file cannot be written
      */
     public function write(): string
     {
-        $config = json_encode($this->document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
-        // Exclusive creation prevents overwriting any existing file. A config
-        // belongs to this invocation alone, including while Wrangler watches it.
-        $file = @fopen($this->path(), 'x');
-        if ($file === false) {
-            throw $this->writeError();
+        if ($this->lock !== null) {
+            return $this->path();
         }
 
-        $this->ownsFile = true;
-        try {
-            $written = @fwrite($file, $config);
-        } finally {
-            fclose($file);
+        $dir = $this->workerDir . '/.wrangler/deploy';
+        if (!is_dir($dir) && !@mkdir($dir, 0777, true) && !is_dir($dir)) {
+            throw $this->writeError("could not create {$dir}");
         }
-        if ($written !== \strlen($config)) {
+        $lock = @fopen($dir . '/atoms.lock', 'c');
+        if ($lock === false) {
+            throw $this->writeError("could not open {$dir}/atoms.lock");
+        }
+        if (!flock($lock, LOCK_EX | LOCK_NB)) {
+            fclose($lock);
+            throw $this->writeError('another atoms dev or deploy command is using this Worker directory; stop it before retrying');
+        }
+        $this->lock = $lock;
+
+        try {
+            $config = json_encode($this->document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+            // Exclusive creation preserves any existing file, even after an interrupted run.
+            $file = @fopen($this->path(), 'x');
+            if ($file === false) {
+                throw $this->writeError('could not create ' . $this->path());
+            }
+            $this->ownsFile = true;
+            try {
+                if (@fwrite($file, $config) !== \strlen($config)) {
+                    throw $this->writeError('could not write ' . $this->path());
+                }
+            } finally {
+                fclose($file);
+            }
+        } catch (\Throwable $e) {
             $this->remove();
-            throw $this->writeError();
+            throw $e;
         }
 
         return $this->path();
     }
 
-    /** Remove only this invocation's config; never touch Wrangler's state. */
+    /** Remove only this invocation's config and release the Worker-directory lock. */
     public function remove(): void
     {
         if ($this->ownsFile && is_file($this->path())) {
             @unlink($this->path());
         }
         $this->ownsFile = false;
+        if ($this->lock !== null) {
+            flock($this->lock, LOCK_UN);
+            fclose($this->lock);
+            $this->lock = null;
+        }
     }
 
-    private function writeError(): AtomsError
+    private function writeError(string $reason): AtomsError
     {
         return new AtomsError(
             ErrorCode::WorkerDirectoryInvalid,
             ErrorCatalog::format(ErrorCode::WorkerDirectoryInvalid, [
                 'environment' => $this->environment,
-                'reason' => 'could not write ' . $this->path(),
+                'reason' => $reason,
             ]),
         );
     }
