@@ -15,6 +15,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Filesystem\Path;
 
 /**
  * `atoms deploy --env X` — build, stage the bundle into the Worker project, and
@@ -52,6 +53,8 @@ final class DeployCommand extends AbstractCommand
     protected function configure(): void
     {
         parent::configure();
+        $this->addOption('dry-run', null, InputOption::VALUE_NONE, 'Package the selected environment without uploading or deploying');
+        $this->addOption('outdir', null, InputOption::VALUE_REQUIRED, 'Retain Wrangler output in this directory (relative to the current directory)');
         $this->addOption('env', null, InputOption::VALUE_REQUIRED, 'Target environment');
         $this->addOption('bundle', null, InputOption::VALUE_REQUIRED, 'Deploy a prebuilt bundle instead of building');
         $this->addOption('manifest', null, InputOption::VALUE_REQUIRED, 'Manifest for --bundle (default: manifest.json beside it)');
@@ -67,6 +70,13 @@ final class DeployCommand extends AbstractCommand
 
             return self::FAILURE;
         }
+
+        $dryRun = $input->getOption('dry-run') === true;
+        $outdir = self::stringOption($input, 'outdir');
+        if ($outdir !== null) {
+            $outdir = Path::makeAbsolute($outdir, getcwd() ?: '.');
+        }
+        $generated = null;
 
         try {
             $config = $this->atomsJson($input);
@@ -92,9 +102,8 @@ final class DeployCommand extends AbstractCommand
             self::writeResolvedConfiguration($output, $target);
             $output->writeln('');
 
-            // Derived now, before the build, so a Worker config that cannot
-            // be read fails in seconds rather than after a build that was
-            // never going to ship. Written just before wrangler runs.
+            // Read the Worker config before building so an unreadable config
+            // fails without running the build.
             $generated = GeneratedWranglerConfig::generate($target, $target->runtimeVars());
             if ($generated->declaresRouting) {
                 // Top-level routing in the user's file is dropped from the
@@ -108,6 +117,10 @@ final class DeployCommand extends AbstractCommand
                 $output->writeln('<comment>  in atoms.json, and this deploy uses the ones on "' . $env . '".</comment>');
                 $output->writeln('');
             }
+
+            // Lock the Worker directory before building or staging so this command
+            // cannot replace the bundle while a dev process is using it.
+            $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
 
             $bundleOpt = self::stringOption($input, 'bundle');
             if ($bundleOpt !== null) {
@@ -129,8 +142,8 @@ final class DeployCommand extends AbstractCommand
             $output->writeln('Staging bundle into ' . $target->workerDir . '…');
             $this->stager->stage($target, $bundlePath, $manifestPath);
 
-            $output->writeln('Deploying Worker ' . $target->workerName . ' with wrangler…');
-            if ($target->debugEndpoints) {
+            $output->writeln(($dryRun ? 'Packaging Worker ' : 'Deploying Worker ') . $target->workerName . ' with wrangler…');
+            if (!$dryRun && $target->debugEndpoints) {
                 // Debug endpoints are a second gate behind the Worker's auth
                 // check — but under ATOMS_BEARER_AUTH=disabled (an
                 // authenticating proxy in front of the Worker), the flag is
@@ -140,7 +153,7 @@ final class DeployCommand extends AbstractCommand
                     . 'ATOMS_BEARER_AUTH=disabled this flag is the only gate in front of it.</comment>');
             }
             if ($target->callbackUrl !== null) {
-                $output->writeln('  The Worker will call back to the URL above for $this->app() and $this->dispatch().');
+                $output->writeln('  Configured callback URL: ' . $target->callbackUrl);
             } else {
                 $output->writeln(
                     '  No callback URL configured: $this->app() and $this->dispatch() will fail with '
@@ -152,14 +165,7 @@ final class DeployCommand extends AbstractCommand
                     . 'or "${ATOMS_CALLBACK_URL}".'
                 );
             }
-            // Pass this invocation's config explicitly, then remove it when
-            // Wrangler exits. Configuration selection never relies on cleanup.
-            try {
-                $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
-                $wrangler = $this->wrangler->deploy($target, $generated->path());
-            } finally {
-                $generated->remove();
-            }
+            $wrangler = $this->wrangler->deploy($target, $generated->path(), $dryRun, $outdir);
 
             // Wrangler's own output is the deploy log — including the URL it
             // published to and any Cloudflare API rejection. Reprinting it is
@@ -172,6 +178,17 @@ final class DeployCommand extends AbstractCommand
             $output->writeln('<error>' . $e->getMessage() . '</error>');
 
             return self::FAILURE;
+        } finally {
+            $generated?->remove();
+        }
+
+        if ($dryRun) {
+            $output->writeln('<info>Dry run complete. Nothing was deployed.</info>');
+            if ($outdir !== null) {
+                $output->writeln('  Output: ' . $outdir);
+            }
+
+            return self::SUCCESS;
         }
 
         $output->writeln('<info>✓ Deployed ' . $config->project . ' to ' . $env . '.</info>');

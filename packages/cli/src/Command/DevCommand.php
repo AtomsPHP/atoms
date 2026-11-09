@@ -119,6 +119,7 @@ final class DevCommand extends AbstractCommand
         }
         $port = self::stringOption($input, 'port') ?? self::DEFAULT_PORT;
 
+        $generated = null;
         try {
             $config = $this->atomsJson($input);
             $target = CloudflareTarget::resolve(
@@ -143,6 +144,9 @@ final class DevCommand extends AbstractCommand
             self::writeResolvedConfiguration($output, $target);
             $output->writeln('');
 
+            $generated = GeneratedWranglerConfig::generate($target, $target->runtimeVars());
+            $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
+
             $this->ensureDevSecret($config->rootDir, $target->workerDir, $output);
 
             if ($input->getOption('no-build') !== true) {
@@ -160,7 +164,6 @@ final class DevCommand extends AbstractCommand
             // environment's Wrangler config from the two, and dev resolves a
             // local callback independently of the named deployment when the
             // machine supplies one.
-            $generated = GeneratedWranglerConfig::generate($target, $target->runtimeVars());
             $callback = $target->callbackUrl;
 
             $output->writeln('Starting wrangler dev on port ' . $port . '…');
@@ -190,16 +193,13 @@ final class DevCommand extends AbstractCommand
                 );
             }
 
-            try {
-                $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
-                $result = $this->wrangler->dev($target, $port, $generated->path());
-            } finally {
-                $generated->remove();
-            }
+            $result = $this->wrangler->dev($target, $port, $generated->path());
         } catch (AtomsError $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
 
             return self::FAILURE;
+        } finally {
+            $generated?->remove();
         }
 
         return $result->ok() ? self::SUCCESS : self::FAILURE;

@@ -24,6 +24,11 @@ name through a signed callback. No Cloudflare account is needed.
 `broadcast-dashboard.test.mjs` builds the guide's broadcast-only Atom, connects
 with a signed WebSocket ticket, and checks that publishing delivers an update.
 
+`deploy-dry-run.test.mjs` packages a generated Worker project through `atoms deploy
+--dry-run`, using both a fresh build and a prebuilt bundle. It needs no
+Cloudflare credentials and checks packaged files, explicit configuration, and cleanup.
+An existing configuration redirect is bypassed and preserved.
+
 To run one smoke test, pass its path to `node --test`.
 
 The runner uses free loopback ports. Slow machines can adjust the test runner's

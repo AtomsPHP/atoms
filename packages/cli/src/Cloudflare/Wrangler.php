@@ -18,8 +18,10 @@ interface Wrangler
     /**
      * `wrangler deploy --config {configPath}`, in the Worker project directory.
      * The caller has written the selected environment's GeneratedWranglerConfig.
+     * When $dryRun is true, add --dry-run. When $outdir is set, save the
+     * packaged output in that directory.
      */
-    public function deploy(CloudflareTarget $target, string $configPath): WranglerResult;
+    public function deploy(CloudflareTarget $target, string $configPath, bool $dryRun = false, ?string $outdir = null): WranglerResult;
 
     /** `wrangler versions list --name {worker} --json`. */
     public function versions(CloudflareTarget $target): WranglerResult;

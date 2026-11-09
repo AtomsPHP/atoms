@@ -160,13 +160,15 @@ final class GeneratedWranglerConfigTest extends TestCase
         $generated->remove();
     }
 
-    public function testAnAbandonedOrActiveConfigCannotBeOverwrittenOrRemovedByAnotherRun(): void
+    public function testAnAbandonedConfigCannotBeOverwrittenOrRemovedByAnotherRun(): void
     {
         $target = $this->target('{"main": "src/index.js"}');
         $first = GeneratedWranglerConfig::generate($target, ['ATOMS_CALLBACK_URL' => 'https://first.example.com']);
         $second = GeneratedWranglerConfig::generate($target, ['ATOMS_CALLBACK_URL' => 'https://second.example.com']);
-        $firstPath = $first->write();
-        $firstContents = file_get_contents($firstPath);
+        // Model a file left behind after its process exited and released the lock.
+        $firstPath = $first->path();
+        $firstContents = json_encode($first->document, JSON_THROW_ON_ERROR);
+        file_put_contents($firstPath, $firstContents);
         $secondPath = $second->write();
 
         self::assertNotSame($firstPath, $secondPath);
@@ -175,6 +177,30 @@ final class GeneratedWranglerConfigTest extends TestCase
         $second->remove();
         self::assertSame($firstContents, file_get_contents($firstPath));
         self::assertFileDoesNotExist($target->workerDir . '/.wrangler/deploy/config.json');
+    }
+
+    public function testConcurrentOwnerIsRefusedAndOnlyTheOwnerCanCleanUp(): void
+    {
+        $target = $this->target('{"main":"src/index.js"}');
+        $first = GeneratedWranglerConfig::generate($target, []);
+        $second = GeneratedWranglerConfig::generate($target, []);
+        $first->write();
+        self::assertSame($first->path(), $first->write());
+        try {
+            $second->write();
+            self::fail('A second command must not replace the active bundle.');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E076', $e->getMessage());
+            self::assertStringContainsString('another atoms dev or deploy', $e->getMessage());
+        }
+        $second->remove();
+        self::assertFileExists($first->path());
+        self::assertFileDoesNotExist($second->path());
+        $first->remove();
+        self::assertFileExists($target->workerDir . '/.wrangler/deploy/atoms.lock');
+        $second->write();
+        self::assertFileExists($second->path());
+        $second->remove();
     }
 
     public function testExistingRedirectsBelongToOtherToolsAndAreLeftUntouched(): void
@@ -199,7 +225,10 @@ final class GeneratedWranglerConfigTest extends TestCase
         $first = GeneratedWranglerConfig::generate($target, ['Z' => 'z']);
         $second = GeneratedWranglerConfig::generate($target, ['Z' => 'z']);
 
-        self::assertSame(file_get_contents($first->write()), file_get_contents($second->write()));
+        $firstContents = file_get_contents($first->write());
+        $first->remove();
+        self::assertSame($firstContents, file_get_contents($second->write()));
+        $second->remove();
     }
 
     public function testWriteFailureIsE076AndCannotRemoveAnExistingFile(): void
@@ -217,6 +246,10 @@ final class GeneratedWranglerConfigTest extends TestCase
             $generated->remove();
         }
         self::assertSame('existing file', file_get_contents($generated->path()));
+        // Failure must also release the bundle lock for the next invocation.
+        $next = GeneratedWranglerConfig::generate($target, []);
+        $next->write();
+        $next->remove();
     }
 
     public function testAWranglerJsonIsReadWhenThereIsNoJsonc(): void

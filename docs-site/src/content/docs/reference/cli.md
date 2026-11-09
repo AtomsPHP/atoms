@@ -13,7 +13,7 @@ Run the project-local executable as `vendor/bin/atoms`. Every command accepts `-
 | `build` | Produce a deterministic bundle and manifest. |
 | `diff` | Compare the current manifest with a saved manifest. |
 | `dev` | Build and run the local Worker through its installed Wrangler. |
-| `deploy` | Build, stage, and deploy through the installed Wrangler. |
+| `deploy` | Build, stage, and deploy through the installed Wrangler; `--dry-run` packages without deploying. |
 | `status` | List deployed Worker versions for an environment. |
 | `rollback [VERSION]` | Move a Worker to an earlier version (default: the previous one). |
 | `secrets:set KEY [VALUE]` | Set a secret readable by Atom code through `$this->config()`. |
@@ -45,6 +45,10 @@ vendor/bin/atoms deploy --env production
 vendor/bin/atoms status --env production
 ```
 
+Add `--dry-run` to check packaging without deploying or needing Cloudflare
+credentials. Use `--outdir <directory>` to keep the packaged files. See
+[Check deployment packaging](/guides/deploy/#check-deployment-packaging).
+
 To restore a selected Worker version, follow [Rollback](/guides/rollback/).
 
 ## Command options
@@ -55,7 +59,7 @@ To restore a selected Worker version, follow [Rollback](/guides/rollback/).
 - **`build`** — `--fast` skips the vendor stage (refuses with `ATOMS-E107` if `atoms-composer.json` declares packages); `--out` (defaults to `.atoms/build`).
 - **`diff`** — `--against` a saved `manifest.json` to compare with the current one.
 - **`dev`** — `--env` (required), `--port` (defaults to `8787`), `--callback-url` (overrides everything else; otherwise `ATOMS_CALLBACK_URL` from the environment this command was started with, then from `.env.atoms.<env>`, then the selected environment's `callback_url`), `--worker-dir` (defaults to `atoms-worker/` beside `atoms.json`), `--no-build` to reuse the bundle already staged in the Worker project.
-- **`deploy`** — `--env` (required), `--bundle` to deploy a prebuilt bundle instead of building, `--manifest` (defaults to `manifest.json` beside `--bundle`), `--worker-dir`, `--callback-url` (overrides everything else; otherwise `ATOMS_CALLBACK_URL` from the environment this command was started with, then from `.env.atoms.<env>`, then the selected environment's `callback_url` — the same order `dev` uses).
+- **`deploy`** — `--env` (required), `--dry-run` to package without uploading or deploying, `--outdir` to retain Wrangler output (relative to the current directory; also accepted on a real deploy), `--bundle` to deploy a prebuilt bundle instead of building, `--manifest` (defaults to `manifest.json` beside `--bundle`), `--worker-dir`, `--callback-url` (overrides everything else; otherwise `ATOMS_CALLBACK_URL` from the environment this command was started with, then from `.env.atoms.<env>`, then the selected environment's `callback_url` — the same order `dev` uses).
 - **`status`**, **`secrets:list`**, **`shared-secret:unset`** — `--env` (required), `--worker-dir`.
 - **`rollback [VERSION]`** — `--env` (required), `--message`/`-m`, `--worker-dir`. `VERSION` defaults to the previous version.
 - **`secrets:set KEY [VALUE]`** — `--env` (required), `--worker-dir`. Reads the value from stdin when the `VALUE` argument is omitted.
