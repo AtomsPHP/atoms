@@ -195,40 +195,43 @@ none, and reports **ATOMS-E075** when it can reach several.
 
 Wrangler has its own environments: `env.<name>` blocks in `wrangler.jsonc`,
 selected with `-e`. Atoms does not use them, and never passes `-e`. Instead
-`atoms deploy` and `atoms dev` use Wrangler's [generated
-configuration](https://developers.cloudflare.com/workers/wrangler/configuration/#generated-wrangler-configuration)
-redirect, the mechanism Cloudflare documents for build tools that already
-know which environment they target. Before running Wrangler, the CLI
-(`Atoms\Cli\Cloudflare\GeneratedWranglerConfig`) writes two files under the
-Worker directory:
+`atoms deploy` and `atoms dev` generate a config for the selected environment
+and pass its path directly to Wrangler with `--config`. Before running Wrangler,
+the CLI (`Atoms\Cli\Cloudflare\GeneratedWranglerConfig`) writes a uniquely named
+file beside the user's config in the Worker directory:
 
 ```
-.wrangler/deploy/config.json    { "configPath": "wrangler.json" }
-.wrangler/deploy/wrangler.json  the environment's config
+.wrangler.atoms-<random>.json  the invocation's config
 ```
 
-`wrangler deploy` and `wrangler dev` find the first, read the second in place
-of the user's `wrangler.jsonc`, and print "Using redirected Wrangler
-configuration" naming both. The generated document is the user's file with
-the selected environment applied: `name` is its `worker_name`; `routes` is
+The generated document is the user's file with the selected environment
+applied: `name` is its `worker_name`; `routes` is
 rebuilt from its `custom_domains`, each flagged as a custom domain; the
 runtime vars the CLI resolves (`ATOMS_CALLBACK_URL`,
 `ATOMS_DEBUG_ENDPOINTS`) are merged into `vars` over the file's own; `env`
 blocks are dropped, since a generated config targets one environment by
-construction; and `main` and the other keys Wrangler resolves relative to the
-config file's directory are rewritten to point back at the Worker directory.
-Everything else travels through unchanged. Both files are removed once
-Wrangler exits, so a `wrangler deploy` run by hand in that directory sees the
-user's own file, and `git status` stays clean. `.dev.vars` is unaffected:
-Wrangler resolves it beside the user's config, not the generated one, which
-was checked in the pinned Wrangler rather than assumed.
+construction. Everything else travels through unchanged. Keeping the copy in
+the same directory preserves all relative paths, `.dev.vars` discovery and
+the existing `.wrangler/state` location.
+
+The CLI removes its copy when Wrangler exits, including on failure. Correct
+configuration selection must not depend on cleanup: an interrupted process may
+leave a copy behind, but Wrangler never discovers these filenames automatically.
+Each invocation has its own path, so it cannot overwrite or remove another
+invocation's config. The scaffold gitignores the copies.
+
+Atoms must not create `.wrangler/deploy/config.json`. That shared redirect can
+change the environment of a later, unrelated Wrangler invocation after an
+interrupted run. Explicit `--config` also bypasses existing redirects, including
+ones left by older Atoms versions. Existing redirects are left untouched because
+their format carries no ownership information and other build tools use it too.
 
 `dev` and `deploy` hold an exclusive lock on `.wrangler/deploy/atoms.lock`
-from before the build until cleanup. They remove only files they created.
+from before the build until cleanup, so another command cannot replace the
+shared bundle while Wrangler is using it. They remove only files they created.
 
-The redirect applies to `deploy`, `dev`, `versions upload` and
-`versions deploy` only. `atoms status`, `rollback` and the secrets commands
-run `wrangler versions list`, `wrangler rollback` and `wrangler secret ...`
+`atoms status`, `rollback` and the secrets commands run `wrangler versions list`,
+`wrangler rollback` and `wrangler secret ...`
 with `--name <worker_name>`, and read nothing from the generated file.
 
 A `wrangler.toml` is refused (**ATOMS-E076**, naming the conversion): the
@@ -272,7 +275,7 @@ that nobody could review after the fact, and it left the user's file as one
 file for every environment, so a hostname written there shipped with every
 deploy and had to be warned about. The generated config is the same
 conclusion Cloudflare states for build tools, one flat config per
-environment, reached through the channel Wrangler provides for it.
+environment, passed explicitly to the invocation that needs it.
 
 ### Routing is per environment, and measured
 
@@ -594,9 +597,9 @@ owned; shipped as `gitignore.scaffold` from this repository, distinct from
 the monorepo worker's own, which commits the conformance fixture's bundle)
 covers everything `deploy`, `dev` and `npm ci` write: `src/bundle.generated.js`,
 `node_modules/`, `.php-wasm/`, `.dev.vars`, `.wrangler/` (Wrangler's own
-state, and the generated `deploy/config.json` and `deploy/wrangler.json` for
-the duration of a run). A deploy never leaves the committed directory dirty;
-`test/runtime-package.mjs` asserts the list.
+state), and `/.wrangler.atoms-*.json` (the config for each CLI invocation).
+A deploy never leaves the committed directory dirty; `test/runtime-package.mjs`
+asserts the list.
 
 ### Credentials
 
@@ -1153,8 +1156,8 @@ atoms deploy --env production
    named), that its `atoms-runtime.json` names this CLI's release (E108), and
    that the file parses, by deriving the environment's generated config from
    it now. Before the build, acquire the Worker-directory lock and write
-   `.wrangler/deploy/wrangler.json` and `.wrangler/deploy/config.json`.
-   Refuse an existing owner or stale config with E076.
+   a unique `.wrangler.atoms-<random>.json` beside the user's config, then
+   print its path. Refuse an existing lock owner with E076.
 5. `atoms build` → `.atoms/build/bundle-{sha}.tar.gz` + `manifest.json`.
    Deterministic; executes no customer code. (`--bundle` skips this and deploys
    a prebuilt one.)
@@ -1162,10 +1165,10 @@ atoms deploy --env production
    inside the Worker directory. The translator refuses a manifest paired with
    the wrong bundle, and refuses a manifest naming a file the bundle does not
    contain. The output is gitignored there.
-7. Run `wrangler deploy` in that directory using the generated config,
-   with whatever credentials this process resolved in its environment — possibly none, in which case
+7. Run `wrangler deploy --config <path>` in that directory, with whatever credentials
+   this process resolved in its environment — possibly none, in which case
    Wrangler uses its own login session — and Wrangler's own output passed
-   through unedited. Both generated files are removed once Wrangler exits,
+   through unedited. The generated file is removed once Wrangler exits,
    whatever the outcome.
 8. Non-zero exit ⇒ **ATOMS-E074**, with Wrangler's diagnosis already printed;
    or **ATOMS-E072** when that diagnosis is that it had no credentials at all,

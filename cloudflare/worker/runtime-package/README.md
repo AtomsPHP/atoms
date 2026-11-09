@@ -37,10 +37,8 @@ at its root, which `init` and `upgrade` write:
 | Anything else you add | You. | Left alone. |
 
 `atoms deploy` and `atoms dev` do not hand `wrangler.jsonc` to Wrangler as it
-is. They write a copy for the selected `atoms.json` environment to
-`.wrangler/deploy/wrangler.json`, with a `config.json` beside it that points
-Wrangler there (Wrangler's generated-configuration redirect), and remove both
-once Wrangler exits. The copy takes `name` from the environment's
+is. They pass a copy for the selected `atoms.json` environment directly to
+Wrangler. The copy takes `name` from the environment's
 `worker_name`, builds `routes` from its `custom_domains`, merges
 the callback URL and debug-endpoints switch into `vars`, and drops any `env`
 blocks. Everything else in your file travels through unchanged, so put

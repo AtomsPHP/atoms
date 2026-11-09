@@ -26,7 +26,8 @@ with a signed WebSocket ticket, and checks that publishing delivers an update.
 
 `deploy-dry-run.test.mjs` packages a generated Worker project through `atoms deploy
 --dry-run`, using both a fresh build and a prebuilt bundle. It needs no
-Cloudflare credentials and checks packaged files and redirect cleanup.
+Cloudflare credentials and checks packaged files, explicit configuration, and cleanup.
+An existing configuration redirect is bypassed and preserved.
 
 To run one smoke test, pass its path to `node --test`.
 

@@ -9,64 +9,21 @@ use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 
 /**
- * The per-environment Wrangler config `atoms deploy` and `atoms dev` hand to
- * Wrangler, derived from the user's own `wrangler.jsonc` and the selected
- * atoms.json environment.
+ * Derives the selected environment's config from the user's Wrangler file.
+ * Each invocation writes a unique file beside the source and passes it with
+ * --config. No project-wide redirect is created: even if cleanup cannot run,
+ * the leftover file cannot affect Wrangler's configuration discovery.
  *
- * Wrangler looks for `.wrangler/deploy/config.json` beside the user's config
- * before `deploy`, `dev`, `versions upload` and `versions deploy`. When the file
- * is there it reads the config it points at instead of the user's, and says so
- * in its output. That is Cloudflare's documented channel for build tools that
- * already know which environment they are targeting, and it is what this class
- * writes:
- *
- *   <workerDir>/.wrangler/deploy/config.json    { "configPath": "wrangler.json" }
- *   <workerDir>/.wrangler/deploy/wrangler.json  the generated config
- *
- * The generated document is the user's, with the selected environment applied
- * on top: `name` is the environment's `worker_name`, `routes` is rebuilt from
- * its `custom_domains`, the runtime vars the CLI resolves are
- * merged into `vars` (winning over the file), any `env` blocks are dropped
- * because a generated config targets one environment by construction, and the
- * keys Wrangler resolves relative to the config file's own directory (`main`
- * and its kin) are rewritten to point back at the Worker directory. Everything
- * else copies through unchanged, so logging, placement, limits, bindings and
- * migrations remain the user's file's to set.
- *
- * `status`, `rollback` and the secrets commands are unaffected: Wrangler does
- * not consult the redirect for those, and they select the Worker with `--name`.
- *
- * Both files are removed after Wrangler exits, so a `wrangler deploy` run by
- * hand in the Worker directory sees the user's own config again rather than
- * whichever environment Atoms targeted last.
+ * Keeping the copy beside the source preserves relative paths, .dev.vars
+ * discovery and the existing local Durable Object storage directory.
  */
-class GeneratedWranglerConfig
+final class GeneratedWranglerConfig
 {
-    public const DIR = '.wrangler/deploy';
-    public const REDIRECT_FILE = 'config.json';
-    public const FILE = 'wrangler.json';
+    private readonly string $filename;
+    private bool $ownsFile = false;
 
-    /** @var resource|null The lock remains held until remove(), which leaves the lock file in place. */
+    /** @var resource|null Held until remove(); the lock file stays in place. */
     private $lock = null;
-
-    /** @var list<string> Files this instance created and must remove if a write fails. */
-    private array $ownedFiles = [];
-
-    /**
-     * Keys Wrangler resolves relative to the directory holding the config
-     * file that declares them. The generated file lives two levels below the
-     * Worker directory, so each relative value gains a `../../` prefix.
-     * Keys are given as paths into the document.
-     *
-     * @var list<list<string>>
-     */
-    private const RELATIVE_PATH_KEYS = [
-        ['main'],
-        ['tsconfig'],
-        ['$schema'],
-        ['assets', 'directory'],
-        ['site', 'bucket'],
-    ];
 
     /**
      * @param array<string, mixed> $document        The generated config
@@ -80,6 +37,7 @@ class GeneratedWranglerConfig
         public readonly string $source,
         public readonly bool $declaresRouting,
     ) {
+        $this->filename = '.wrangler.atoms-' . bin2hex(random_bytes(16)) . '.json';
     }
 
     /**
@@ -155,56 +113,32 @@ class GeneratedWranglerConfig
             unset($document['vars']);
         }
 
-        foreach (self::RELATIVE_PATH_KEYS as $path) {
-            self::rewriteRelativePath($document, $path);
-        }
-
         return new self($target->environment, $workerDir, $document, $source, $declaresRouting);
-    }
-
-    /**
-     * The generated config's path, relative to the Worker directory.
-     */
-    public static function relativePath(): string
-    {
-        return self::DIR . '/' . self::FILE;
     }
 
     public function path(): string
     {
-        return $this->workerDir . '/' . self::relativePath();
-    }
-
-    public function redirectPath(): string
-    {
-        return $this->workerDir . '/' . self::DIR . '/' . self::REDIRECT_FILE;
+        return $this->workerDir . '/' . $this->filename;
     }
 
     /**
-     * Write the generated config and its redirect before staging the bundle.
-     * Hold the directory lock until remove().
+     * Write this invocation's config before building or staging the bundle.
+     * Hold the Worker-directory lock until remove().
      *
      * @return string The generated config's absolute path
      *
-     * @throws AtomsError E076 when the directory is locked, contains an existing config or redirect, or cannot be written
+     * @throws AtomsError E076 when the directory is locked or the file cannot be written
      */
     public function write(): string
     {
-        $dir = $this->workerDir . '/' . self::DIR;
-        if (!is_dir($dir) && !@mkdir($dir, 0777, true) && !is_dir($dir)) {
-            throw new AtomsError(
-                ErrorCode::WorkerDirectoryInvalid,
-                ErrorCatalog::format(ErrorCode::WorkerDirectoryInvalid, [
-                    'environment' => $this->environment,
-                    'reason' => "could not create {$dir}",
-                ]),
-            );
-        }
-
         if ($this->lock !== null) {
             return $this->path();
         }
 
+        $dir = $this->workerDir . '/.wrangler/deploy';
+        if (!is_dir($dir) && !@mkdir($dir, 0777, true) && !is_dir($dir)) {
+            throw $this->writeError("could not create {$dir}");
+        }
         $lock = @fopen($dir . '/atoms.lock', 'c');
         if ($lock === false) {
             throw $this->writeError("could not open {$dir}/atoms.lock");
@@ -216,30 +150,19 @@ class GeneratedWranglerConfig
         $this->lock = $lock;
 
         try {
-            // Preserve configs and redirects left by interrupted runs or other tools.
-            foreach ([$this->path(), $this->redirectPath()] as $file) {
-                if (file_exists($file) || is_link($file)) {
-                    throw $this->writeError("{$file} already exists; stop any dev/deploy process, then move the stale generated config and redirect out of {$dir} before retrying; preserve .wrangler/state");
-                }
-            }
-
             $config = json_encode($this->document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
-            $redirect = json_encode(['configPath' => self::FILE], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n";
-            foreach ([$this->path() => $config, $this->redirectPath() => $redirect] as $file => $contents) {
-                // Exclusive creation fails if another tool created the file
-                // after the existence check, preserving that file.
-                $handle = @fopen($file, 'x');
-                if ($handle === false) {
-                    throw $this->writeError("could not create {$file}; check for an existing generated config and directory permissions");
+            // Exclusive creation preserves any existing file, even after an interrupted run.
+            $file = @fopen($this->path(), 'x');
+            if ($file === false) {
+                throw $this->writeError('could not create ' . $this->path());
+            }
+            $this->ownsFile = true;
+            try {
+                if (@fwrite($file, $config) !== \strlen($config)) {
+                    throw $this->writeError('could not write ' . $this->path());
                 }
-                $this->ownedFiles[] = $file;
-                try {
-                    if (fwrite($handle, $contents) !== strlen($contents)) {
-                        throw $this->writeError("could not write {$file}");
-                    }
-                } finally {
-                    fclose($handle);
-                }
+            } finally {
+                fclose($file);
             }
         } catch (\Throwable $e) {
             $this->remove();
@@ -249,16 +172,13 @@ class GeneratedWranglerConfig
         return $this->path();
     }
 
-    /**
-     * Remove the two generated files. Only those: `.wrangler/` is Wrangler's
-     * own state directory and the rest of it is left alone.
-     */
+    /** Remove only this invocation's config and release the Worker-directory lock. */
     public function remove(): void
     {
-        foreach (array_reverse($this->ownedFiles) as $file) {
-            @unlink($file);
+        if ($this->ownsFile && is_file($this->path())) {
+            @unlink($this->path());
         }
-        $this->ownedFiles = [];
+        $this->ownsFile = false;
         if ($this->lock !== null) {
             flock($this->lock, LOCK_UN);
             fclose($this->lock);
@@ -275,34 +195,6 @@ class GeneratedWranglerConfig
                 'reason' => $reason,
             ]),
         );
-    }
-
-    /**
-     * @param array<string, mixed> $document
-     * @param list<string>         $path
-     */
-    private static function rewriteRelativePath(array &$document, array $path): void
-    {
-        $key = array_shift($path);
-        if ($path === []) {
-            if (\is_string($document[$key] ?? null) && !self::isAbsoluteOrUrl($document[$key])) {
-                $document[$key] = '../../' . $document[$key];
-            }
-
-            return;
-        }
-
-        if (\is_array($document[$key] ?? null)) {
-            /** @var array<string, mixed> $child */
-            $child = $document[$key];
-            self::rewriteRelativePath($child, $path);
-            $document[$key] = $child;
-        }
-    }
-
-    private static function isAbsoluteOrUrl(string $value): bool
-    {
-        return str_starts_with($value, '/') || preg_match('#^[a-z][a-z0-9+.-]*://#i', $value) === 1;
     }
 
     private static function error(CloudflareTarget $target, string $reason): AtomsError

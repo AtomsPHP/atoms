@@ -105,19 +105,15 @@ To restore an earlier version, see [Rollback](/guides/rollback/).
 ## Upgrade the runtime
 
 When you update the Atoms PHP packages, upgrade `atoms-worker/` to the same
-release. For 0.9.1:
+release:
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.9.1 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare -- \
   atoms-runtime-cloudflare upgrade atoms-worker
 cd atoms-worker
 npm ci
 cd ..
 ```
-
-`atoms dev` and `atoms deploy` need the CLI and the Worker runtime to be the
-same version. `atoms init` and the version-mismatch error both print the
-version to use.
 
 | Files | What an upgrade does |
 |---|---|

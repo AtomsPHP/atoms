@@ -165,7 +165,7 @@ final class DeployCommand extends AbstractCommand
                     . 'or "${ATOMS_CALLBACK_URL}".'
                 );
             }
-            $wrangler = $this->wrangler->deploy($target, $dryRun, $outdir);
+            $wrangler = $this->wrangler->deploy($target, $generated->path(), $dryRun, $outdir);
 
             // Wrangler's own output is the deploy log — including the URL it
             // published to and any Cloudflare API rejection. Reprinting it is

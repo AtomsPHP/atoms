@@ -84,17 +84,12 @@ environment. Keep the keys marked `RUNTIME-REQUIRED`, which the Worker needs in
 order to load.
 
 Settings that differ between environments go in `atoms.json`. `atoms deploy`
-and `atoms dev` combine the two using Wrangler's [generated
-configuration](https://developers.cloudflare.com/workers/wrangler/configuration/#generated-wrangler-configuration)
-feature. They write a copy of this file with the selected environment's Worker
-name, custom domains, callback URL and debug setting filled in, to
-`atoms-worker/.wrangler/deploy/wrangler.json`, alongside a `config.json` that
-tells Wrangler to use the copy. Wrangler prints "Using redirected Wrangler
-configuration" when it does. Both files are removed when Wrangler exits.
+and `atoms dev` combine the two and run Wrangler with the selected environment's
+Worker name, custom domains, callback URL and debug setting.
 
 Define environments in `atoms.json` rather than in Wrangler's `env.<name>`
 sections, and declare hostnames under `custom_domains` rather than as routes
-here. The generated copy leaves out both, and `atoms deploy` prints a notice
+here. Atoms ignores both, and `atoms deploy` prints a notice
 when it finds routes in this file.
 
 ## `atoms-composer.json`

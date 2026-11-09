@@ -193,7 +193,7 @@ final class DevCommand extends AbstractCommand
                 );
             }
 
-            $result = $this->wrangler->dev($target, $port);
+            $result = $this->wrangler->dev($target, $port, $generated->path());
         } catch (AtomsError $e) {
             $output->writeln('<error>' . $e->getMessage() . '</error>');
 
