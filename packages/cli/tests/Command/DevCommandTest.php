@@ -63,16 +63,19 @@ final class DevCommandTest extends TestCase
         return $tester;
     }
 
-    public function testExistingRedirectIsRefusedBeforeCreatingSecrets(): void
+    public function testActiveOwnerIsRefusedBeforeCreatingSecrets(): void
     {
         $dir = $this->workerDir();
         mkdir($dir . '/.wrangler/deploy', 0777, true);
         file_put_contents($dir . '/.wrangler/deploy/config.json', 'existing');
+        $lock = fopen($dir . '/.wrangler/deploy/atoms.lock', 'c');
+        self::assertTrue(flock($lock, LOCK_EX | LOCK_NB));
         $wrangler = new FakeWrangler();
         $tester = $this->execute($dir, $wrangler);
         self::assertSame(1, $tester->getStatusCode());
         self::assertStringContainsString('ATOMS-E076', $tester->getDisplay());
         self::assertSame('existing', file_get_contents($dir . '/.wrangler/deploy/config.json'));
+        fclose($lock);
         self::assertFileDoesNotExist($dir . '/.dev.vars');
         self::assertSame([], $wrangler->calls);
     }
@@ -99,11 +102,28 @@ final class DevCommandTest extends TestCase
 
         $dev = $wrangler->lastCall('dev');
         self::assertNotNull($dev, 'wrangler dev must still run once the secret is guaranteed');
+        self::assertFileDoesNotExist($dev['args']['configPath']);
+        self::assertFileDoesNotExist($dir . '/.wrangler/deploy/config.json');
         self::assertArrayNotHasKey(
             'ATOMS_SHARED_SECRET',
             $dev['args']['vars'],
             'the secret must reach the Worker only via .dev.vars, never as a --var/argv value',
         );
+    }
+
+    public function testWranglerFailureRemovesOnlyTheInvocationConfig(): void
+    {
+        $dir = $this->workerDir();
+        $wrangler = new FakeWrangler();
+        $wrangler->devResult = FakeWrangler::failed(['dev'], 'Cannot start Worker');
+
+        $tester = $this->execute($dir, $wrangler);
+
+        self::assertSame(1, $tester->getStatusCode());
+        self::assertFileDoesNotExist($wrangler->lastCall('dev')['args']['configPath']);
+        self::assertFileExists($dir . '/.dev.vars');
+        self::assertFileExists($dir . '/wrangler.jsonc');
+        self::assertFileDoesNotExist($dir . '/.wrangler/deploy/config.json');
     }
 
     public function testNewDevVarsFileIsCreatedWithMode0600(): void

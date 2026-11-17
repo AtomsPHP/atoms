@@ -10,8 +10,7 @@ use Atoms\Cli\Process\SymfonyProcessRunner;
 /**
  * Drives a real, locally installed Wrangler as a subprocess.
  *
- * Unit tests capture command arguments through a fake ProcessRunner.
- * The local smoke test runs Wrangler with --dry-run and no credentials.
+ * Tests inject a ProcessRunner to inspect argv without contacting Cloudflare.
  */
 final class ProcessWrangler implements Wrangler
 {
@@ -25,13 +24,9 @@ final class ProcessWrangler implements Wrangler
         $this->runner = $runner ?? new SymfonyProcessRunner();
     }
 
-    public function deploy(CloudflareTarget $target, bool $dryRun = false, ?string $outdir = null): WranglerResult
+    public function deploy(CloudflareTarget $target, string $configPath, bool $dryRun = false, ?string $outdir = null): WranglerResult
     {
-        // No --name, --var, --route or --domain: the generated config in
-        // .wrangler/deploy/ carries all of them, and Wrangler reads it in
-        // place of the user's file. Passing any of them here would make the
-        // command line a second source for values the file already settles.
-        $argv = ['deploy'];
+        $argv = ['deploy', '--config', $configPath];
         if ($dryRun) {
             $argv[] = '--dry-run';
         }
@@ -84,10 +79,10 @@ final class ProcessWrangler implements Wrangler
         return $this->run($target, ['secret', 'delete', $key, '--name', $target->workerName]);
     }
 
-    public function dev(CloudflareTarget $target, string $port): WranglerResult
+    public function dev(CloudflareTarget $target, string $port, string $configPath): WranglerResult
     {
         $binary = WranglerBinary::resolve($this->runner, $target);
-        $command = [$binary, 'dev', '--port', $port];
+        $command = [$binary, 'dev', '--config', $configPath, '--port', $port];
 
         $result = $this->runner->runForeground($command, $target->workerDir, $this->childEnv($target));
 

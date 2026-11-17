@@ -6,7 +6,6 @@ namespace Atoms\Cli\Tests\Command;
 
 use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
-use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Cloudflare\ProcessWrangler;
 use Atoms\Cli\Command\DeployCommand;
@@ -105,6 +104,8 @@ final class DeployCommandTest extends TestCase
         self::assertSame(getcwd() . '/review output', $dryRun['args']['outdir']);
         self::assertEquals($deploy['target'], $dryRun['target']);
         self::assertSame($deploy['args']['config'], $dryRun['args']['config']);
+        self::assertFileDoesNotExist($deploy['args']['configPath']);
+        self::assertFileDoesNotExist($dryRun['args']['configPath']);
         self::assertSame('selected-account', $dryRun['target']->credentialEnv()['CLOUDFLARE_ACCOUNT_ID']);
         self::assertSame('acme-games', $dryRun['args']['config']['name']);
         self::assertSame([['pattern' => 'atoms.example.com', 'custom_domain' => true]], $dryRun['args']['config']['routes']);
@@ -135,9 +136,11 @@ final class DeployCommandTest extends TestCase
                 self::assertSame($status, $tester->execute($options), $tester->getDisplay());
                 self::assertCount(1, $runner->runs);
                 self::assertSame(
-                    ['/usr/bin/wrangler', 'deploy', '--dry-run', ...($outdir === null ? [] : ['--outdir', $outdir])],
+                    ['/usr/bin/wrangler', 'deploy', '--config', $runner->runs[0]['command'][3], '--dry-run', ...($outdir === null ? [] : ['--outdir', $outdir])],
                     $runner->runs[0]['command'],
                 );
+                self::assertSame($dir, \dirname($runner->runs[0]['command'][3]));
+                self::assertFileDoesNotExist($runner->runs[0]['command'][3]);
                 self::assertSame($dir, $runner->runs[0]['cwd']);
                 self::assertSame('cf-account-1234', $runner->runs[0]['env']['CLOUDFLARE_ACCOUNT_ID']);
                 self::assertFileDoesNotExist($dir . '/.wrangler/deploy/config.json');
@@ -150,13 +153,15 @@ final class DeployCommandTest extends TestCase
         }
     }
 
-    public function testExistingRedirectRefusesBeforeBuildingOrStagingAndPreservesState(): void
+    public function testActiveOwnerRefusesBeforeBuildingOrStagingAndPreservesState(): void
     {
         foreach ([false, true] as $dryRun) {
             $dir = $this->workerDir();
             mkdir($dir . '/.wrangler/deploy', 0777, true);
             file_put_contents($dir . '/.wrangler/deploy/config.json', '{"configPath":"existing.json"}');
             file_put_contents($dir . '/.wrangler/deploy/wrangler.json', 'existing config');
+            $lock = fopen($dir . '/.wrangler/deploy/atoms.lock', 'c');
+            self::assertTrue(flock($lock, LOCK_EX | LOCK_NB));
             mkdir($dir . '/.wrangler/state');
             file_put_contents($dir . '/.wrangler/state/local.sqlite', 'local state');
             $root = $this->tempCopy('sample-app');
@@ -167,13 +172,14 @@ final class DeployCommandTest extends TestCase
                 '--root' => $root, '--env' => 'production', '--worker-dir' => $dir, '--dry-run' => $dryRun,
             ]));
             self::assertStringContainsString('ATOMS-E076', $tester->getDisplay());
-            self::assertStringContainsString('stop any dev/deploy process', $tester->getDisplay());
+            self::assertStringContainsString('another atoms dev or deploy', $tester->getDisplay());
             self::assertSame([], $runner->runs);
             self::assertSame([], $wrangler->calls);
             self::assertDirectoryDoesNotExist($root . '/.atoms/build');
             self::assertSame('{"configPath":"existing.json"}', file_get_contents($dir . '/.wrangler/deploy/config.json'));
             self::assertSame('existing config', file_get_contents($dir . '/.wrangler/deploy/wrangler.json'));
             self::assertSame('local state', file_get_contents($dir . '/.wrangler/state/local.sqlite'));
+            fclose($lock);
         }
     }
 
@@ -216,11 +222,10 @@ final class DeployCommandTest extends TestCase
             [CloudflareTarget::CALLBACK_VAR => 'https://acme.example.com'],
             $deploy['args']['vars'],
         );
-        // Wrangler reads the environment's config through its redirect file,
-        // both present while it runs and gone once it has.
-        self::assertSame(['configPath' => GeneratedWranglerConfig::FILE], $deploy['args']['redirect']);
+        // The config is passed directly, and removed once Wrangler exits.
+        self::assertFileDoesNotExist($deploy['target']->workerDir . '/.wrangler/deploy/config.json');
         self::assertSame('acme-games', $deploy['args']['config']['name']);
-        self::assertFileDoesNotExist($deploy['target']->workerDir . '/' . GeneratedWranglerConfig::relativePath());
+        self::assertFileDoesNotExist($deploy['args']['configPath']);
         self::assertStringContainsString('Generated config: ', $tester->getDisplay());
         self::assertStringContainsString(
             'Callback:     https://acme.example.com',
@@ -510,6 +515,7 @@ final class DeployCommandTest extends TestCase
         self::assertSame(1, $exit);
         self::assertStringContainsString('ATOMS-E074', $display);
         self::assertStringContainsString('Script size too large', $display, "wrangler's own diagnosis must survive");
+        self::assertFileDoesNotExist($wrangler->lastCall('deploy')['args']['configPath']);
     }
 
     public function testStagingFailureMapsToE074AndNeverDeploys(): void
@@ -753,9 +759,9 @@ final class DeployCommandTest extends TestCase
         // The fixture environment declares no routing, so none ships — the
         // file's custom domain in particular does not.
         self::assertArrayNotHasKey('routes', $deploy['args']['config']);
-        // And the rest of the file travels through, with the entry point
-        // re-anchored to the Worker directory from where the generated file lives.
-        self::assertSame('../../src/index.js', $deploy['args']['config']['main']);
+        // The rest of the file travels through with paths relative to the
+        // same Worker directory as the original config.
+        self::assertSame('src/index.js', $deploy['args']['config']['main']);
         self::assertSame('2026-08-01', $deploy['args']['config']['compatibility_date']);
     }
 

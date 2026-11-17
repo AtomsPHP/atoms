@@ -43,6 +43,9 @@ and CI matrix from package constraints and `release/manifest.json`. After editin
 these inputs or the generator's prose, run `php scripts/release/release.php generate`
 from the repository root and commit the results.
 
+The docs deployment is separate from package publication. A package release does
+not update the published docs.
+
 ## JSON examples
 
 Use `json` fences for valid JSON without comments or trailing commas. Add

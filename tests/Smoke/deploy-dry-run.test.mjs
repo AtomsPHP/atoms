@@ -54,13 +54,16 @@ try {
     symlinkSync(join(workerSource, 'node_modules'), join(runtime, 'node_modules'), 'dir');
     run(process.execPath, ['scripts/prepare-runtime.mjs'], runtime);
     const originalConfig = readFileSync(join(runtime, 'wrangler.jsonc'), 'utf8');
+    mkdirSync(join(runtime, '.wrangler/deploy'), { recursive: true });
+    const redirect = join(runtime, '.wrangler/deploy/config.json');
+    writeFileSync(redirect, 'invalid stale redirect');
     const args = [
         join(repo, 'packages/cli/bin/atoms'), 'deploy', '--root', app, '--env', 'production',
         '--worker-dir', runtime, '--dry-run', '--outdir', 'review output',
     ];
     // Use a working directory that differs from both --root and --worker-dir.
     const output = run('php', args, temporary);
-    assert.match(output, /Using redirected Wrangler configuration/);
+    assert.doesNotMatch(output, /Using redirected Wrangler configuration/);
     assert.match(output, /dry-run-production/);
     assert.match(output, /--dry-run: exiting now\./);
     assert.match(output, /Dry run complete\. Nothing was deployed\./);
@@ -70,9 +73,9 @@ try {
     assert.ok(existsSync(join(app, '.atoms/build/manifest.json')));
     assert.ok(existsSync(join(runtime, 'src/bundle.generated.js')));
     assert.equal(readFileSync(join(runtime, 'wrangler.jsonc'), 'utf8'), originalConfig);
-    for (const file of ['config.json', 'wrangler.json']) {
-        assert.ok(!existsSync(join(runtime, '.wrangler/deploy', file)), `${file} must be cleaned up`);
-    }
+    assert.equal(readFileSync(redirect, 'utf8'), 'invalid stale redirect');
+    assert.ok(!existsSync(join(runtime, '.wrangler/deploy/wrangler.json')));
+    assert.ok(!readdirSync(runtime).some((file) => /^\.wrangler\.atoms-.*\.json$/.test(file)));
 
     // Package a prebuilt bundle without --outdir.
     const bundle = readdirSync(join(app, '.atoms/build')).find((file) => file.endsWith('.tar.gz'));
@@ -84,7 +87,8 @@ try {
     assert.match(prebuilt, /--dry-run: exiting now\./);
     assert.match(prebuilt, /Nothing was deployed/);
     assert.doesNotMatch(prebuilt, /Building bundle/);
-    assert.ok(!existsSync(join(runtime, '.wrangler/deploy/config.json')));
+    assert.equal(readFileSync(redirect, 'utf8'), 'invalid stale redirect');
+    assert.ok(!readdirSync(runtime).some((file) => /^\.wrangler\.atoms-.*\.json$/.test(file)));
     console.log('Deployment dry run: scaffold packaged through the CLI without credentials or upload.');
 } finally {
     rmSync(temporary, { recursive: true, force: true });

@@ -90,11 +90,16 @@ Run `npm ci` in the Worker directory to install its pinned Wrangler version.
 
 ## Credentials
 
-`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` pass directly into Wrangler's
-environment and are never written to a file or a log. Both resolve in the one
-order — the environment the command was started with, then
+Atoms passes `CLOUDFLARE_API_TOKEN` to Wrangler through the child-process
+environment, not command-line arguments. The deployment summary shows the
+token's source and masks its value. The summary may show
+`CLOUDFLARE_ACCOUNT_ID`, which identifies the Cloudflare account. Atoms does
+not control what other tools or applications write to their logs.
+
+Atoms reads both values from the command's environment first, then from
 [`.env.atoms.<env>`](/guides/configuration/#envatomsenvironment) beside
-`atoms.json`, then, for the account id only, `environments.<env>.account_id`.
+`atoms.json`. For the account ID, it also falls back to
+`environments.<env>.account_id`.
 There is no `--account-id` flag and no `--api-token`: a credential in argv is
 visible to every process on the machine. See
 [Authenticate with Cloudflare](/guides/deploy/#authenticate-with-cloudflare).

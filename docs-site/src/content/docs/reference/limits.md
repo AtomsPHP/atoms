@@ -48,7 +48,7 @@ Cloudflare resets the Atom for exceeding its CPU limit.
 Install the PHPStan rules:
 
 ```bash
-composer require --dev atoms/phpstan-rules:^0.9
+composer require --dev atoms/phpstan-rules
 ```
 
 ```text

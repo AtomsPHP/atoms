@@ -9,15 +9,46 @@ The maintained example lives at [`examples/laravel/`](https://github.com/AtomsPH
 The adapter accepts Laravel 11, 12 and 13. CI tests Laravel 12 and 13. See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).
 <!-- END generated Laravel compatibility -->
 
+## New Laravel application
+
+Run these commands in the directory where you want to create `atoms-demo`:
+
+```bash
+composer create-project laravel/laravel atoms-demo
+cd atoms-demo
+composer require atoms/laravel --with-all-dependencies
+composer require --dev atoms/cli atoms/testing atoms/phpstan-rules
+php artisan atoms:install
+npm exec --yes --package=@atomsphp/runtime-cloudflare -- \
+  atoms-runtime-cloudflare init atoms-worker
+(cd atoms-worker && npm ci)
+```
+
+Continue with [Configure callback replay protection](#configure-callback-replay-protection).
+For this quickstart, use Laravel's generated SQLite database with the database
+nonce driver and namespace `atoms-demo:local`, then run `php artisan migrate`.
+You can instead use your configured Laravel database connection or the Redis
+nonce driver, as described below.
+
+Next, [create the Atom](#create-an-atom), add its migration, and
+[configure PHPStan](#check-the-atom). Set the local endpoint and start Atoms
+before Laravel as shown in [Run it locally](#run-it-locally).
+
 ## Configure the adapter
 
-Initialize the Atoms project and publish the Laravel adapter configuration:
+For an existing Laravel application, install the packages from the
+[installation guide](/getting-started/install/#php), then initialize Atoms and
+publish the adapter configuration:
 
 ```bash
 php artisan atoms:install
 ```
 
-Set your deployed Worker endpoint:
+If you already ran `atoms init`, publish only the adapter configuration with
+`php artisan vendor:publish --tag=atoms-config` instead. Skip this section if
+you created a new application above.
+
+For a deployed Worker, set:
 
 ```dotenv
 ATOMS_ENDPOINT=https://your-atoms-worker.example.workers.dev
@@ -98,14 +129,17 @@ requests. Existing custom `NonceStore` bindings remain supported.
 ## Create an Atom
 
 ```bash
-php artisan make:atom GameRoom --with-migration
+php artisan make:atom GameRoom
 ```
 
-```php
+```php title="app/Atoms/GameRoom.php"
+<?php
+
 namespace App\Atoms;
 
 use Atoms\Atom;
 
+/** @extends Atom<\Atoms\AtomMethods> */
 class GameRoom extends Atom
 {
     public function join(string $playerId): int
@@ -126,9 +160,9 @@ class GameRoom extends Atom
 }
 ```
 
-Add an append-only migration beside the Atom using the layout produced by the generator:
+Create `app/Atoms/GameRoom/migrations/001_create_players.sql` with this SQL:
 
-```sql
+```sql title="app/Atoms/GameRoom/migrations/001_create_players.sql"
 CREATE TABLE players (
     player_id TEXT PRIMARY KEY,
     visits INTEGER NOT NULL DEFAULT 0
@@ -151,7 +185,7 @@ $count = Atoms::get(GameRoom::class, 'room-42')->join('ada');
 Use `atoms/testing` for fast local tests of Atom behavior, migrations, callbacks, broadcasts, and timers:
 
 ```bash
-composer require --dev atoms/testing:^0.9
+composer require --dev atoms/testing
 ```
 
 ```php
@@ -164,7 +198,31 @@ self::assertSame(1, $room->invoke('join', ['ada']));
 self::assertSame(2, $room->invoke('join', ['ada']));
 ```
 
-Before deploying, run PHPStan with `vendor/atoms/phpstan-rules/rules.neon` included. It catches values that cannot cross the boundary and the frozen-clock hazards described in [Limits](/reference/limits/#the-clock-does-not-advance-inside-a-turn).
+## Check the Atom
+
+Create `phpstan.neon` in the application root, or merge these settings into
+an existing configuration:
+
+```yaml title="phpstan.neon"
+includes:
+    - vendor/atoms/phpstan-rules/rules.neon
+
+parameters:
+    level: 8
+    paths:
+        - app/Atoms
+```
+
+Run validation and static analysis:
+
+```bash
+vendor/bin/atoms validate
+vendor/bin/phpstan analyse
+```
+
+The rules check which types can pass between Atoms and your application. They
+also detect uses of PHP time functions that are unsafe when
+[the clock does not advance inside a turn](/reference/limits/#the-clock-does-not-advance-inside-a-turn).
 
 ## Run it locally
 
@@ -193,6 +251,24 @@ Laravel needs at least two workers when an HTTP request invokes an Atom that cal
 `atoms dev` creates a shared secret in `.env` if needed and copies it to the Worker's `.dev.vars`. Start Laravel afterward so it reads that value. No Cloudflare account is needed.
 
 `--env` selects an environment from `atoms.json`; `--callback-url` overrides its callback address. See the [CLI reference](/reference/cli/) for other options and how settings are resolved.
+
+### Verify two calls
+
+With both servers running, open a third terminal in the application root:
+
+```bash
+php artisan tinker
+```
+
+Run these calls in Tinker:
+
+```php
+\Atoms\Laravel\Facades\Atoms::get(\App\Atoms\GameRoom::class, 'quickstart-1')->join('ada');
+\Atoms\Laravel\Facades\Atoms::get(\App\Atoms\GameRoom::class, 'quickstart-1')->join('ada');
+```
+
+A new identity returns `1`, then `2`. Repeating the calls increments the
+stored count. Use a new identity if you want to repeat the initial result.
 
 ## Build and deploy
 
