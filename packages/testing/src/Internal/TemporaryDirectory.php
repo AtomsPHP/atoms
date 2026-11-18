@@ -77,9 +77,4 @@ final class TemporaryDirectory
 
         @rmdir($dir);
     }
-
-    public function __destruct()
-    {
-        $this->delete();
-    }
 }

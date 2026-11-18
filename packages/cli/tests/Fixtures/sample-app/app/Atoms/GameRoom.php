@@ -8,6 +8,7 @@ use App\Atoms\GameRoom\Support\ScoreBoard;
 use App\Atoms\Jobs\RecordGameResult;
 use App\Atoms\Shared\PlayerSnapshot;
 use Atoms\Atom;
+use Atoms\Serialization\Serializer;
 use Atoms\Websocket\Connection;
 
 /**
@@ -25,7 +26,7 @@ final class GameRoom extends Atom
         $player = $this->app()->getPlayer($ref);
         $this->dispatch(RecordGameResult::class, ['ref' => $ref, 'seat' => $seat ?? 0]);
 
-        return $player;
+        return (new Serializer())->denormalize($player, PlayerSnapshot::class);
     }
 
     public function onConnect(Connection $conn, array $params): void
