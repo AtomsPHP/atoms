@@ -70,9 +70,8 @@ final class MakeAtomCommand extends AbstractCommand
         }
 
         if ($input->getOption('with-migration') === true) {
-            $snake = self::snake($nameArg);
-            $migrationPath = $atomsDir . '/' . $nameArg . '/migrations/001_create_' . $snake . '_events.sql';
-            $this->put($migrationPath, $this->migrationSource($snake));
+            $migrationPath = $atomsDir . '/' . $nameArg . '/migrations/001_initial.sql';
+            $this->put($migrationPath, "-- Add your schema here.\n");
             $written[] = $migrationPath;
         }
 
@@ -194,20 +193,6 @@ PHP;
         PHP;
     }
 
-    private function migrationSource(string $snake): string
-    {
-        return <<<SQL
-        -- Runs once, at Atom activation, under the single-writer guarantee.
-        -- Migrations are append-only after they ship: never edit this file.
-        CREATE TABLE {$snake}_events (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            payload    TEXT    NOT NULL,
-            created_at TEXT    NOT NULL DEFAULT (datetime('now'))
-        );
-
-        SQL;
-    }
-
     private function put(string $path, string $contents): void
     {
         $dir = \dirname($path);
@@ -215,12 +200,5 @@ PHP;
             throw new \RuntimeException("Could not create {$dir}");
         }
         file_put_contents($path, $contents);
-    }
-
-    private static function snake(string $name): string
-    {
-        $snake = preg_replace('/(?<!^)[A-Z]/', '_$0', $name) ?? $name;
-
-        return strtolower($snake);
     }
 }

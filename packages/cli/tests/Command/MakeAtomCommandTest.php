@@ -7,6 +7,9 @@ namespace Atoms\Cli\Tests\Command;
 use Atoms\Cli\Build\SourceParser;
 use Atoms\Cli\Command\MakeAtomCommand;
 use Atoms\Cli\Tests\TestCase;
+use Atoms\Migrations\MigrationSet;
+use Atoms\Migrations\Migrator;
+use Atoms\Sqlite\SqliteDatabase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Process\Process;
@@ -30,7 +33,7 @@ final class MakeAtomCommandTest extends TestCase
 
         $atomPath = $dir . '/app/Atoms/Lobby.php';
         $methodsPath = $dir . '/app/Atoms/Lobby/Methods.php';
-        $migrationPath = $dir . '/app/Atoms/Lobby/migrations/001_create_lobby_events.sql';
+        $migrationPath = $dir . '/app/Atoms/Lobby/migrations/001_initial.sql';
 
         self::assertFileExists($atomPath);
         self::assertFileExists($methodsPath);
@@ -49,6 +52,31 @@ final class MakeAtomCommandTest extends TestCase
         $parser->parse($methodsPath, 'Methods.php');
     }
 
+    public function testGeneratedMigrationAppliesWithoutCreatingTables(): void
+    {
+        $dir = $this->tempCopy('sample-app');
+        $tester = new CommandTester(new MakeAtomCommand());
+
+        self::assertSame(0, $tester->execute([
+            'name' => 'Lobby', '--root' => $dir, '--with-migration' => true,
+        ]));
+
+        $migrationDir = $dir . '/app/Atoms/Lobby/migrations';
+        $migrationPath = $migrationDir . '/001_initial.sql';
+        self::assertSame([$migrationPath], glob($migrationDir . '/*'));
+        self::assertSame("-- Add your schema here.\n", file_get_contents($migrationPath));
+
+        $set = MigrationSet::fromDirectory($migrationDir);
+        $db = SqliteDatabase::open(':memory:');
+        $migrator = new Migrator();
+
+        self::assertCount(1, $set);
+        self::assertSame(1, $migrator->apply($db, $set));
+        self::assertSame(1, (int) $db->pdo()->query('PRAGMA user_version')->fetchColumn());
+        self::assertSame([], $db->query("SELECT name FROM sqlite_schema WHERE type = 'table'"));
+        self::assertSame(0, $migrator->apply($db, $set));
+    }
+
     public function testWithoutMethodsDoesNotReferenceANonexistentClass(): void
     {
         $dir = $this->tempCopy('sample-app');
@@ -57,6 +85,7 @@ final class MakeAtomCommandTest extends TestCase
         self::assertSame(0, $tester->execute(['name' => 'Lobby', '--root' => $dir]));
         self::assertStringNotContainsString('@extends', (string) file_get_contents($dir . '/app/Atoms/Lobby.php'));
         self::assertFileDoesNotExist($dir . '/app/Atoms/Lobby/Methods.php');
+        self::assertDirectoryDoesNotExist($dir . '/app/Atoms/Lobby/migrations');
     }
 
     /** @return iterable<string, array{string, string, string, string}> */
