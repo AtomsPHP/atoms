@@ -1,11 +1,11 @@
 {
     "$schema": "./manifest.schema.json",
     "schema": 1,
-    "version": "0.9.1",
+    "version": "0.9.2",
     "status": "ready",
     "runtime": {
         "package": "@atomsphp/runtime-cloudflare",
-        "version": "0.9.1",
+        "version": "0.9.2",
         "node": "22",
         "wrangler": "4.118.0",
         "guest_php": "8.3"

@@ -130,7 +130,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms/action@v0.9.1
+      - uses: AtomsPHP/atoms/action@v0.9.2
         with:
           environment: production
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -140,7 +140,7 @@ jobs:
 
 Use the tag or commit SHA that matches your runtime, and set `worker-directory`
 if your Worker lives somewhere other than `atoms-worker/`. The [Action's
-README](https://github.com/AtomsPHP/atoms/blob/v0.9.1/action/README.md)
+README](https://github.com/AtomsPHP/atoms/blob/v0.9.2/action/README.md)
 documents every input and how to scope the API token.
 
 The `shared-secret` input sets the Worker's shared secret after the deploy

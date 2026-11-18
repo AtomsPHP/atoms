@@ -5,6 +5,19 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-11-17
+
+- **Added:** `atoms deploy --dry-run` validates the selected environment and
+  builds the Worker without deploying it.
+- **Added:** `atoms phpstan:install` creates an Atoms PHPStan configuration;
+  the Laravel installer runs it while preserving existing configuration.
+- **Fixed:** New Atoms receive a neutral initial migration, ready for the
+  application's schema.
+- **Fixed:** Generated Wrangler configuration is isolated between concurrent
+  CLI invocations.
+- **Changed:** Documentation clarifies migrations, Laravel setup, and local
+  recovery.
+
 ## [0.9.1] - 2026-10-31
 
 - **Added:** Host PHP support through 8.6 with Laravel 13; Laravel 12 supports
@@ -609,3 +622,5 @@ deploy workflow, and the Cloudflare Durable Object PHP runtime.
 [0.9.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.9.0
 
 [0.9.1]: https://github.com/AtomsPHP/atoms/releases/tag/v0.9.1
+
+[0.9.2]: https://github.com/AtomsPHP/atoms/releases/tag/v0.9.2
