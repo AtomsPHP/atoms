@@ -64,13 +64,17 @@ final class AtomHarness
 
     private readonly Serializer $serializer;
 
-    /** @var list<array{job: string, args: array<string, mixed>}> the wire shape */
-    private array $dispatched = [];
+    private ?Database $dispatchReader = null;
+
+    private int $dispatchSequence = 0;
+
+    /** @var list<array{job: string, args: string}> */
+    private array $dispatchesAtShutdown = [];
 
     /** @var list<array{channel: string, payload: array<string, mixed>}> */
     private array $broadcasts = [];
 
-    private readonly FakeTimers $timers;
+    private FakeTimers $timers;
 
     /**
      * @param class-string<TAtom> $atomClass
@@ -79,7 +83,6 @@ final class AtomHarness
     {
         $this->atomClass = $atomClass;
         $this->serializer = new Serializer();
-        $this->timers = new FakeTimers();
     }
 
     /**
@@ -163,20 +166,33 @@ final class AtomHarness
         $this->booting = true;
 
         $this->tempDir = TemporaryDirectory::create();
-        $this->database = SqliteDatabase::open($this->tempDir->path() . '/atom.sqlite');
+        $path = $this->tempDir->path() . '/atom.sqlite';
+        $database = SqliteDatabase::open($path);
+        $this->database = $database;
 
         $migrationsDir = $this->migrationsDir ?? $this->defaultMigrationsDir();
         $set = MigrationSet::fromDirectory($migrationsDir);
-        (new Migrator())->apply($this->database, $set);
+        (new Migrator())->apply($database, $set);
 
-        $appProxy = new FakeAppProxy($this->resolveMethodsInstance(), $this->serializer);
+        // Recorder inserts must preserve the Atom's PDO::lastInsertId().
+        $database->execute(
+            'CREATE TABLE __atoms_dispatches (seq INTEGER PRIMARY KEY, job TEXT NOT NULL, args TEXT NOT NULL) WITHOUT ROWID',
+        );
+        // The recorder reads committed jobs while the Atom can still have a transaction open.
+        $this->dispatchReader = SqliteDatabase::open($path);
+        $this->timers = new FakeTimers($database);
+        $appProxy = new FakeAppProxy($this->resolveMethodsInstance(), $this->serializer, $database->pdo());
 
         $context = new HarnessAtomContext(
-            $this->database,
+            $database,
             $appProxy,
             $this->config,
-            function (string $job, array $args): void {
-                $this->dispatched[] = ['job' => $job, 'args' => $args];
+            function (string $job, array $args) use ($database): void {
+                $json = json_encode($this->serializer->normalize($args), JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
+                $database->execute(
+                    'INSERT INTO main.__atoms_dispatches (seq, job, args) VALUES (?, ?, ?)',
+                    [++$this->dispatchSequence, $job, $json],
+                );
             },
             function (string $channel, array $payload): void {
                 $this->broadcasts[] = ['channel' => $channel, 'payload' => $payload];
@@ -303,7 +319,7 @@ final class AtomHarness
     {
         return array_map(
             fn (array $record): object => $this->reconstruct($record['job'], $record['args']),
-            $this->dispatched,
+            $this->dispatchRecords(),
         );
     }
 
@@ -339,7 +355,7 @@ final class AtomHarness
 
     public function assertNothingDispatched(): void
     {
-        Assert::assertSame([], $this->dispatched, 'Expected nothing to have been dispatched.');
+        Assert::assertSame([], $this->dispatchRecords(), 'Expected nothing to have been dispatched.');
     }
 
     /**
@@ -370,9 +386,8 @@ final class AtomHarness
      *
      * The harness is finished afterwards: anything needing a live Atom
      * (`boot()`, `invoke()`, `db()`, `atom()`, `connect()`...) throws rather
-     * than working over the deleted directory. The recorders — `dispatched()`,
-     * `broadcasts()` and their assertions — hold plain values and stay
-     * readable, so a test can still assert on what the Atom did.
+     * than working over the deleted directory. Tests can still inspect jobs
+     * and broadcasts after shutdown.
      */
     public function shutdown(): void
     {
@@ -382,11 +397,15 @@ final class AtomHarness
 
         $this->shutDown = true;
 
-        if ($this->atom !== null) {
-            LifecycleInvoker::deactivate($this->atom);
+        try {
+            if ($this->atom !== null) {
+                LifecycleInvoker::deactivate($this->atom);
+            }
+        } finally {
+            $this->dispatchesAtShutdown = $this->dispatchRecords();
+            $this->dispatchReader = null;
+            $this->tempDir?->delete();
         }
-
-        $this->tempDir?->delete();
     }
 
     public function __destruct()
@@ -446,10 +465,15 @@ final class AtomHarness
         return class_exists($default) ? new $default() : null;
     }
 
-    /**
-     * @param array<string, mixed> $args keyed by constructor parameter name
-     */
-    private function reconstruct(string $jobClass, array $args): object
+    /** @return list<array{job: string, args: string}> */
+    private function dispatchRecords(): array
+    {
+        /** @var list<array{job: string, args: string}> */
+        return $this->dispatchReader?->query('SELECT job, args FROM __atoms_dispatches ORDER BY seq')
+            ?? $this->dispatchesAtShutdown;
+    }
+
+    private function reconstruct(string $jobClass, string $args): object
     {
         if (!class_exists($jobClass)) {
             throw new \InvalidArgumentException(sprintf(
@@ -459,13 +483,7 @@ final class AtomHarness
             ));
         }
 
-        // The arguments cross the boundary as JSON before anything binds them,
-        // so round-trip them first — a value that is not wire-safe fails here,
-        // as it would in the runtime — and then let the core Serializer bind
-        // them to the constructor by name, the one implementation of that
-        // algebra the callback kernel and both adapters also use. A missing
-        // required argument is therefore ATOMS-E024, not a bespoke error.
-        $wireArgs = Boundary::roundTripNamedArgs($args, $this->serializer);
+        $wireArgs = json_decode($args, true, 512, JSON_THROW_ON_ERROR);
 
         $reflection = new \ReflectionClass($jobClass);
 

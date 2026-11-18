@@ -78,7 +78,7 @@ than at 3am.
 
 ## Shared/ — Pure Data Zone
 
-Developers will immediately want types that cross the boundary — `$this->app()->getPlayer()` returning a generic `array` is beneath the DX bar. `Shared/` is the sanctioned mechanism:
+Put DTOs that both the Atom and the application use in `Shared/`.
 
 ```php
 namespace App\Atoms\Shared;
@@ -95,7 +95,12 @@ class PlayerSnapshot implements Payload
 }
 ```
 
-Methods classes return these; Atoms receive them typed; the serializer hydrates on both sides. **Shared classes are subject to the strictest rules:**
+When a Methods callback returns a DTO, the Atom receives an array keyed by
+property name. To rebuild the DTO in the Atom, pass that array and the DTO's
+class name to `Serializer::denormalize()`. A typed Atom RPC return reaches the
+application as the declared DTO.
+
+Shared classes follow these rules.
 
 - `atoms/core` + stdlib only
 - No behavior beyond accessors/factories (no I/O, no side effects)

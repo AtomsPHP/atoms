@@ -455,18 +455,10 @@ the host manifest; that is follow-up work, not part of this channel.
 
 ### The result-hydration gap
 
-`app()->foo()` returns the **decoded wire tree** — `json_decode($responseBody,
-true)['result']` — not hydrated back into `Payload` DTOs, `\DateTimeImmutable`
-or `\BackedEnum` return values. This is a real fidelity gap against
-`Atoms\Testing\FakeAppProxy`, which round-trips the return value through
-reflection on the Methods class's declared return type. Scalars, arrays and
-string-keyed maps — the overwhelming majority of Methods return types — are
-unaffected; `\DateTimeImmutable` comes back as its RFC 3339 string and a
-backed enum as its backed value, both re-hydratable by the customer in one
-line. Closing this gap needs the manifest to carry `methods[].return` and the
-`shared` list (to decide which return types are hydratable in the guest
-bundle at all) into the host manifest — a design question, not part of this
-channel.
+`app()->foo()` returns `json_decode($responseBody, true)['result']`.
+The Atom receives a `Payload` as an associative array, a `\DateTimeImmutable`
+as an RFC 3339 string, and a backed enum as its backing value.
+`Atoms\Testing\AtomHarness` uses the same callback return format.
 
 ## The turn deadline
 

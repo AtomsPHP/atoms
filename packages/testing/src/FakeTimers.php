@@ -4,53 +4,71 @@ declare(strict_types=1);
 
 namespace Atoms\Testing;
 
+use Atoms\Database;
+use Atoms\Sqlite\SqliteDatabase;
 use Atoms\Timers\Timers;
 
-/**
- * In-memory {@see Timers} fake: `schedule()`/`cancel()`/`scheduledAt()` behave
- * exactly like the interface contract (schedule() replaces any existing timer
- * of the same name; cancel() is a no-op on an unknown name), plus an
- * inspection surface — `scheduled()` and `cancelled()` — for asserting on
- * what an Atom did, the same shape as {@see FakeConnection}'s `sent()`.
- */
 final class FakeTimers implements Timers
 {
-    /** @var array<string, \DateTimeImmutable> */
-    private array $scheduled = [];
+    private readonly Database $database;
+
+    private int $sequence = 0;
 
     /** @var list<string> */
     private array $cancelled = [];
 
+    public function __construct(?Database $database = null)
+    {
+        $this->database = $database ?? SqliteDatabase::open(':memory:');
+        $this->database->execute(
+            'CREATE TEMP TABLE __atoms_timers (
+                name TEXT PRIMARY KEY, seq INTEGER NOT NULL, due TEXT NOT NULL, timezone TEXT NOT NULL
+            ) WITHOUT ROWID',
+        );
+    }
+
     public function schedule(string $name, \DateTimeImmutable $at): void
     {
-        $this->scheduled[$name] = $at;
+        $this->database->execute(
+            'INSERT INTO temp.__atoms_timers (name, seq, due, timezone) VALUES (?, ?, ?, ?)
+             ON CONFLICT(name) DO UPDATE SET due = excluded.due, timezone = excluded.timezone',
+            [$name, ++$this->sequence, $at->format('Y-m-d\TH:i:s.uP'), $at->getTimezone()->getName()],
+        );
     }
 
     public function cancel(string $name): void
     {
-        unset($this->scheduled[$name]);
+        $this->database->execute('DELETE FROM temp.__atoms_timers WHERE name = ?', [$name]);
         $this->cancelled[] = $name;
     }
 
     public function scheduledAt(string $name): ?\DateTimeImmutable
     {
-        return $this->scheduled[$name] ?? null;
+        $rows = $this->database->query('SELECT due, timezone FROM temp.__atoms_timers WHERE name = ?', [$name]);
+
+        return $rows === [] ? null : $this->deadline($rows[0]);
     }
 
-    /**
-     * @return array<string, \DateTimeImmutable> every timer currently pending, by name
-     */
+    /** @return array<string, \DateTimeImmutable> Pending timers by name. */
     public function scheduled(): array
     {
-        return $this->scheduled;
+        $scheduled = [];
+        foreach ($this->database->query('SELECT name, due, timezone FROM temp.__atoms_timers ORDER BY seq') as $row) {
+            $scheduled[$row['name']] = $this->deadline($row);
+        }
+
+        return $scheduled;
     }
 
-    /**
-     * @return list<string> every name passed to cancel(), in order (including
-     *     names that were never scheduled)
-     */
+    /** @return list<string> Every name passed to cancel(), including calls inside rolled-back transactions. */
     public function cancelled(): array
     {
         return $this->cancelled;
+    }
+
+    /** @param array<string, mixed> $row */
+    private function deadline(array $row): \DateTimeImmutable
+    {
+        return (new \DateTimeImmutable($row['due']))->setTimezone(new \DateTimeZone($row['timezone']));
     }
 }

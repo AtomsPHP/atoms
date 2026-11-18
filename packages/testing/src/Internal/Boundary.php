@@ -7,13 +7,6 @@ namespace Atoms\Testing\Internal;
 use Atoms\Serialization\Serializer;
 
 /**
- * Shared boundary-round-trip helper used by {@see \Atoms\Testing\AtomHarness} and
- * {@see \Atoms\Testing\FakeAppProxy}. Every call across a simulated boundary
- * (Atom method invocation, app() proxy call, dispatched-job reconstruction) goes
- * through the exact same normalize → json → denormalize pipeline the production
- * runtime uses, so serialization violations throw exactly as they would in
- * production.
- *
  * @internal
  */
 final class Boundary
@@ -30,32 +23,17 @@ final class Boundary
      */
     public static function roundTripArgs(array $args, \ReflectionFunctionAbstract $fn, Serializer $serializer): array
     {
-        $normalized = $serializer->normalize(array_values($args));
-        $json = json_encode($normalized, JSON_THROW_ON_ERROR);
-
         /** @var list<mixed> $decoded */
-        $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        $decoded = self::wireValue(array_values($args), $serializer);
 
         return $serializer->denormalizeArguments($decoded, $fn);
     }
 
-    /**
-     * Round-trip a map of named arguments — the `args` half of a dispatched
-     * job's `{job, args}` wire shape — into the JSON-decoded form the runtime
-     * would hand a monolith, ready for
-     * {@see Serializer::denormalizeNamedArguments()} to bind by name.
-     *
-     * @param array<string, mixed> $args
-     * @return array<array-key, mixed>
-     */
-    public static function roundTripNamedArgs(array $args, Serializer $serializer): array
+    public static function wireValue(mixed $value, Serializer $serializer): mixed
     {
-        $json = json_encode($serializer->normalize($args), JSON_THROW_ON_ERROR);
+        $json = json_encode($serializer->normalize($value), JSON_THROW_ON_ERROR);
 
-        /** @var array<array-key, mixed> $decoded */
-        $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-
-        return $decoded;
+        return json_decode($json, true, 512, JSON_THROW_ON_ERROR);
     }
 
     /**
@@ -65,9 +43,7 @@ final class Boundary
      */
     public static function roundTripReturn(mixed $value, ?\ReflectionType $returnType, Serializer $serializer): mixed
     {
-        $normalized = $serializer->normalize($value);
-        $json = json_encode($normalized, JSON_THROW_ON_ERROR);
-        $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        $decoded = self::wireValue($value, $serializer);
 
         if (!$returnType instanceof \ReflectionNamedType || $returnType->isBuiltin()) {
             return $decoded;

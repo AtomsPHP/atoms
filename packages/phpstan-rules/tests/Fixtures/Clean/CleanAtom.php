@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\PHPStan\Tests\Fixtures\Clean;
 
 use Atoms\Atom;
+use Atoms\Serialization\Serializer;
 
 /**
  * A fully compliant ATOM_SIDE Atom exercising db(), a Payload DTO param/return,
@@ -25,7 +26,7 @@ final class CleanAtom extends Atom
 
         $this->broadcast('room', ['id' => $id]);
 
-        return $snapshot;
+        return (new Serializer())->denormalize($snapshot, PlayerSnapshot::class);
     }
 
     public function setStatus(Status $status): void
