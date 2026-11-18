@@ -1,11 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { targetManifest } from './php-target.mjs';
 import { compileTypePhp } from './typephp-compiler.mjs';
 import { typePhpSources } from './typephp-sources.mjs';
 import { writeBundleModule } from './bundle-module.mjs';
 
 /** Compile before publishing either of the Worker entry modules. */
 export function writeTypePhpBundle(generator, manifest, files, outputFile) {
+	manifest = targetManifest(manifest, 'typephp');
 	const { sources, compiledFiles } = typePhpSources({ manifest, files });
 	const parent = path.dirname(outputFile);
 	fs.mkdirSync(parent, { recursive: true });
@@ -39,7 +41,6 @@ export function writeTypePhpBundle(generator, manifest, files, outputFile) {
 			+ 'export { guestMemoryBytes };\n';
 		writeBundleModule(generator, {
 			...manifest,
-			abi: { ...manifest.abi, php: result.phpAbi },
 			compiler: {
 				name: 'typephp', version: result.compilerVersion,
 				source_hash: result.sourceHash, wasm_hash: result.componentHash,

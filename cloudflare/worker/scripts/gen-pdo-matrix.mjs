@@ -97,8 +97,24 @@ function escapePipes(s) {
  * @param {{cases?: Record<string, {class: string, why: string}>}} pins
  * @returns {string}
  */
-export function renderMatrixDoc(report, pins) {
+export function renderMatrixDoc(report, pins, backend = 'php-wasm') {
     const pinCases = (pins && pins.cases) || {};
+    const ids = new Set();
+    for (const c of report.cases) {
+        if (!Object.hasOwn(PUBLISHED_CLASS, c.class) || ids.has(c.id)) {
+            throw new Error(`Invalid or duplicate PDO case ${c.id}: ${c.class}`);
+        }
+        ids.add(c.id);
+        if (c.class === 'informational') {
+            informationalNote(c.id);
+        } else if ((c.class !== 'match' || pinCases[c.id])
+            && (pinCases[c.id]?.class !== c.class || !pinCases[c.id]?.why?.trim())) {
+            throw new Error(`No matching reviewed pin for ${c.id}: ${c.class}`);
+        }
+    }
+    for (const id of Object.keys(pinCases)) {
+        if (!report.cases.some(c => c.id === id)) throw new Error(`Reviewed pin ${id} is missing from the report`);
+    }
 
     // Group order: the order groups first appear in report.cases, which is
     // the order check 28 assembled them in (Cases::groups() declaration
@@ -122,7 +138,7 @@ export function renderMatrixDoc(report, pins) {
         '**Generated — do not edit by hand.** Produced by ' +
             '`cloudflare/worker/scripts/gen-pdo-matrix.mjs` from a conformance run\'s differential ' +
             'report; conformance check 30 fails if this file and a fresh run disagree. Measured on ' +
-            `php-wasm PHP ${report.php}, against \`ctx.storage.sql\`, with a native in-guest ` +
+            `${backend} PHP ${report.php}, against \`ctx.storage.sql\`, with a native in-guest ` +
             '`pdo_sqlite` connection as the comparator.'
     );
     lines.push('');
@@ -169,20 +185,23 @@ const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}
 if (isMain) {
     const __dirname = dirname(fileURLToPath(import.meta.url));
     const workerRoot = join(__dirname, '..');
-    const reportPath = join(workerRoot, 'test', 'results', 'pdo-matrix.json');
-    const pinPath = join(workerRoot, 'test', 'pdo-expected.json');
+    const { phpContract } = await import('../test/php-contract.mjs');
+    const contract = phpContract(process.env.ATOMS_CONFORMANCE_BACKEND || 'php-wasm');
+    const reportPath = join(workerRoot, 'test', 'results', contract.report);
+    const pinPath = join(workerRoot, 'test', contract.pins);
 
     const report = JSON.parse(readFileSync(reportPath, 'utf8'));
     const pins = JSON.parse(readFileSync(pinPath, 'utf8'));
 
-    const doc = renderMatrixDoc(report, pins);
+    if (report.php !== contract.php_version) throw new Error(`Expected a PHP ${contract.php_version} report; found ${report.php}`);
+    const doc = renderMatrixDoc(report, pins, contract.backend);
 
     // Default: print to stdout (`node scripts/gen-pdo-matrix.mjs >
     // ../docs/pdo-compatibility.md`, the regeneration command check 30's
     // failure message names). `--write` writes the file directly, for
     // convenience.
     if (process.argv.includes('--write')) {
-        const outPath = join(workerRoot, '..', 'docs', 'pdo-compatibility.md');
+        const outPath = join(workerRoot, '..', 'docs', contract.doc);
         writeFileSync(outPath, doc);
         console.error(`Wrote ${outPath}`);
     } else {

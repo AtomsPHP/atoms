@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Cli\Build;
 
 use Atoms\Cli\Config\AtomsJson;
+use Atoms\Cli\Config\PhpTarget;
 use Atoms\Cli\Release\RuntimeVersion;
 use PhpParser\Node;
 
@@ -42,6 +43,7 @@ final class ManifestGenerator
             'toolchain' => [
                 'core_version' => RuntimeVersion::CORE_VERSION,
                 'php' => $this->config->php,
+                'php_version' => PhpTarget::forPhp($this->config->php)->version,
                 'extensions' => $extensions,
                 'scoper_prefix' => $scoperPrefix,
             ],

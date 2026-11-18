@@ -388,3 +388,23 @@ node scripts/gen-pdo-matrix.mjs > ../docs/pdo-compatibility.md
 `scripts/gen-pdo-matrix.mjs` also exports `renderMatrixDoc(report, pins)` as a
 pure function (no filesystem, no clock) — this is what check 30 imports to
 byte-compare in-process, rather than shelling out to the CLI above.
+
+## Explicit PHP contracts
+
+The default profile is `ATOMS_CONFORMANCE_BACKEND=php-wasm`, targeting PHP
+8.3.32. Set `ATOMS_CONFORMANCE_BACKEND=typephp` for the pinned PHP 8.5.9 SDK.
+Profiles select reviewed expectations before the run; observed output never
+selects or updates them. All existing checks still run.
+
+Checks 26, 28, and 30 use separate 8.5 constant pins, `pdo-expected-php85.json`,
+`results/pdo-matrix-php85.json`, and `../../docs/pdo-compatibility-php85.md`.
+The PHP 8.3 pins and report retain their existing filenames and assertions.
+Check 26 also refuses the native `PDO::connect()` factory on the adapter.
+Check 28 verifies every group's exact guest version. The report generator
+requires reviewed pins for every non-matching case and rejects stale pins.
+
+Run `php test/pdo-native-php85.php` from the Worker directory with native
+PHP 8.5.9 to check the independent PDO reference. This does not exercise the
+adapter; the full in-guest differential suite does that. See
+[TypePHP findings](../../docs/typephp.md#current-conformance-differences) for
+the remaining failures and their causes.

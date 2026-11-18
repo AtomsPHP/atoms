@@ -274,35 +274,10 @@ class AtomsPDO extends \PDO
     }
 
     /**
-     * SQLite escaping, implemented here rather than delegated to the carrier
-     * connection, so that nothing about this object depends on the carrier.
+     * Escape strings without using the native carrier connection. Like SQLite,
+     * ignore $type. Reject NUL bytes: PHP 8.3 truncates them, while PHP 8.5
+     * rejects them too. TypePHP also enforces scalar types on weak call sites.
      *
-     * Measured: real pdo_sqlite IGNORES `$type` entirely
-     * — `quote(null, PARAM_NULL)` is `"''"` (not the string `NULL`),
-     * `quote(true, PARAM_BOOL)` is `"'1'"` (quoted, not bare `1`),
-     * `quote('42', PARAM_INT)` is `"'42'"` (quoted, not bare `42`), and an
-     * unrecognized `$type` is not refused. Every branch the old
-     * type-dispatching implementation had was a divergence. One exception,
-     * deliberately NOT matched: real pdo_sqlite silently TRUNCATES a value at
-     * its first NUL byte; this runtime refuses instead, because silently
-     * truncating a value is the one thing this surface must not do (pinned
-     * deviation `pdo.quote.nul_byte`).
-     *
-     * The parameter list declares the same types as the real
-     * `\PDO::quote()` — `string $string, int $type = \PDO::PARAM_STR`.
-     * Under Cases.php's `declare(strict_types=1)`, calling
-     * `quote(null, PARAM_NULL)` / `quote(true, PARAM_BOOL)` against real
-     * PDO throws a `TypeError` at the argument boundary (measured) —
-     * before real's own $type-ignoring quote logic ever runs — where a
-     * looser signature would silently coerce the argument via
-     * `(string) $string` inside the body instead of refusing.
-     * Declaring the SAME parameter type here means the SAME call throws
-     * the SAME TypeError on our side too, at the same boundary, for the
-     * same reason: `pdo.quote.param_bool`/`pdo.quote.param_null` reclassify
-     * from `refused_by_comparator` to `refused_by_both`.
-     *
-     * @param string $string
-     * @param int $type
      * @return string
      */
     #[\ReturnTypeWillChange]
@@ -312,9 +287,8 @@ class AtomsPDO extends \PDO
 
         if (strpos($s, "\0") !== false) {
             throw new \PDOException(
-                'Atoms: PDO::quote() refuses a value containing a NUL byte. Real pdo_sqlite silently '
-                . 'truncates the value at the NUL instead, which this runtime will not reproduce — encode '
-                . 'binary or NUL-bearing data (e.g. base64) before quoting it.'
+                'Atoms: PDO::quote() refuses a value containing a NUL byte. '
+                . 'Encode binary data (e.g. base64) before quoting it.'
             );
         }
 
@@ -491,6 +465,15 @@ class AtomsPDO extends \PDO
     public static function getAvailableDrivers(): array
     {
         return \PDO::getAvailableDrivers();
+    }
+
+    /** PDO::connect() cannot create a connection to Durable Object storage. */
+    public static function connect(string $dsn, ?string $username = null, ?string $password = null, ?array $options = null): static
+    {
+        throw new AtomsNotSupported(
+            'PDO::connect()',
+            'Use $this->db()->pdo() to access the Atom database. Opening a native PDO connection bypasses Durable Object storage.'
+        );
     }
 
     // ---------------------------------------------------------------------

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { phpTarget } from '../scripts/lib/php-target.mjs';
 
 /** Local process fixtures that do not compile or execute customer PHP. */
 export function fakeTypePhpTools(scratch) {
@@ -9,6 +10,10 @@ export function fakeTypePhpTools(scratch) {
 	fs.mkdirSync(bin);
 	fs.mkdirSync(path.join(sdk, 'lib'), { recursive: true });
 	fs.writeFileSync(path.join(sdk, '.typephp-wasi-sdk-abi'), 'typephp-wasip2-sdk-abi-v4\n');
+	const target = phpTarget('typephp');
+	fs.writeFileSync(path.join(sdk, 'manifest.json'), JSON.stringify({ php_version: target.php_version, phpx_revision: target.phpx_revision, target: 'wasm32-wasip2', package: `phpx-wasi-sdk_v${target.phpx_version}_php${target.php_version}_wasm32-wasip2` }));
+	fs.mkdirSync(path.join(sdk, 'include/php/main'), { recursive: true });
+	fs.writeFileSync(path.join(sdk, 'include/php/main/php_version.h'), '#define PHP_VERSION "8.5.9"\n#define PHP_VERSION_ID 80509\n');
 	for (const name of ['php', 'phpx', 'gmp', 'gmpxx', 'mpfr', 'mpdec', 'mpdec++']) fs.writeFileSync(path.join(sdk, 'lib', `lib${name}.a`), name);
 	for (const name of ['php/main/php.h', 'php/main/php_config.h', 'php/Zend/zend_config.h', 'php/TSRM/TSRM.h', 'phpx/phpx.h', 'phpx/phpx_exception_policy.h', 'phpx/phpx_cast_policy.h', 'phpx/typephp_runtime.h', 'phpx/typephp_opcode_table.h', 'phpx/typephp_helper.h']) {
 		fs.mkdirSync(path.dirname(path.join(sdk, 'include', name)), { recursive: true });

@@ -58,9 +58,9 @@ final class Probe extends Atom
      *     allowlist: list<array{id: string, asserted: bool}>
      * }
      */
-    public function surfaceAudit(): array
+    public function surfaceAudit(string $php = '8.3'): array
     {
-        return SurfaceAudit::run($this->db()->pdo());
+        return SurfaceAudit::run($this->db()->pdo(), $php);
     }
 
     /**

@@ -1,0 +1,21 @@
+{
+  "php-wasm": {
+    "php": "8.3",
+    "php_version": "8.3.32",
+    "package": "@php-wasm/web-8-3",
+    "package_version": "3.1.48",
+    "wasmSha256": "eca478d2bad4cae984cd5b5ec39ce42311fcc4d31cf48fce7293e9a5034f1c98",
+    "wasmBytes": 18309089,
+    "glueSha256": "719346ea1827cc48c8dd298974649503b7a227a7c0e5c12827db1c993dccf3ac",
+    "glueBytes": 268881
+  },
+  "typephp": {
+    "php": "8.5",
+    "php_version": "8.5.9",
+    "compiler_version": "0.9.5",
+    "phpx_version": "2.9.4",
+    "sdk_abi": "typephp-wasip2-sdk-abi-v4",
+    "compiler_php": ">=8.4 <8.6",
+    "phpx_revision": "f6a2555e14694e8888d2f40ff2838ffb22bc04f2"
+  }
+}

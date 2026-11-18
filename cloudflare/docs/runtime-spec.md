@@ -36,6 +36,39 @@ requires synchronous guest re-entry, which only Asyncify provides. Boot uses
 (a) hands Wrangler's precompiled wasm module to Emscripten and (b) replaces the
 `env.__asyncjs__js_module_onMessage` import with the tagged dispatcher below.
 
+### Backend PHP targets
+
+The default backend targets PHP **8.3.32**. TypePHP 0.9.5 with PHPX 2.9.4
+targets PHP **8.5.9**, including PHP 8.5 library behavior. It is not required
+to reproduce PHP 8.3 behavior. The authority is
+`packages/cli/resources/php-targets.json`, copied verbatim into the Worker
+package at `scripts/lib/php-targets.json`. Runtime pins and conformance
+expectations must be reviewed together when upgrading either backend.
+
+The source manifest's `toolchain.php` and optional `php_version` must match
+the selected backend. The translator records both in `manifest.abi` and
+refuses mismatches before compilation. At activation the actual guest must
+match that ABI and, when present, the exact patch version. Default artifact
+size/hash checks remain mandatory. TypePHP preflight validates the pinned
+compiler and SDK metadata, headers, and required library symbols. Host PHP
+versions used by the CLI, monolith, and compiler are separate requirements;
+see [the CLI contract](../../docs/cloudflare-toolchain.md#php-target-contract).
+
+Conformance selects its contract explicitly with
+`ATOMS_CONFORMANCE_BACKEND=php-wasm` (default) or `typephp`. It must not select
+expectations from observed output. Checks 26, 28, and 30 use separate reviewed
+PHP 8.5 constants, differential pins, and
+[compatibility report](pdo-compatibility-php85.md). The existing PHP 8.3
+assertions and [report](pdo-compatibility.md) remain the default. Unknown
+profiles, unexpected differences, missing cases, and stale pins fail.
+Report generation also refuses unreviewed classifications.
+
+The adapter explicitly refuses `PDO::connect()` (added in PHP 8.4) because a
+native factory would bypass Durable Object storage. Use `$this->db()->pdo()`.
+TypePHP's strict argument counts and scalar types are intentional language
+rules, recorded separately from PHP-version changes. The remaining failing
+checks are listed in [TypePHP setup](typephp.md#current-conformance-differences).
+
 ## PHP↔JS protocol
 
 ### Experimental TypePHP transport
@@ -73,10 +106,10 @@ across Durable Object events without sharing stream or filesystem state.
 This measurement does not establish complete PHP or PDO compatibility. The
 [TypePHP conformance differences](typephp.md#current-conformance-differences)
 record the failing checks against the full compiled fixture. This backend is
-experimental and does not satisfy the complete default runtime contract.
+experimental and still has compatibility failures under its own PHP 8.5 contract.
 TypePHP's AOT language restrictions and PHP 8.5 SDK are distinct from the
 default PHP 8.3 interpreter. Staging requires a successful native build.
-The portable source archive remains unchanged.
+The source archive format remains portable; its manifest records the target.
 
 ### Doors
 
