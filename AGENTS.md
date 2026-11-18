@@ -134,6 +134,13 @@ convenient it looks.
 
 ## Cross-cutting rules
 
+- **Ordinary releases use one release PR.** Prepare the next coordinated
+  version directly as `ready` with `php scripts/release/release.php set
+  <version> ready`, update the release notes and version references, and merge
+  that PR. Once CI passes on the merged commit, tag it to trigger package
+  publication; deploy the docs separately. Do not open a second PR solely to
+  mark the release ready. Use `candidate` only when a version must land before
+  a manual preflight is complete, as described in `release/README.md`.
 - **PR descriptions are for reviewer context, not CI/CD output.** Do not add
   test commands, pass/fail counts, CI status, deployment or preview status,
   generated-artifact freshness, or contract/layering results that GitHub
