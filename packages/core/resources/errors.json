@@ -544,6 +544,14 @@
             "fix": "Check the nonce backend connection, permissions, schema, and capacity. Keep existing nonce records and restore the shared store before retrying; do not fall back to memory.",
             "severity": "error",
             "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E113",
+            "title": "PHPStan configuration could not be created",
+            "message": "Could not create the Atoms PHPStan configuration: {reason}.",
+            "fix": "Check that the project directory is writable and phpstan.atoms.neon is not a directory or a broken symlink, then run `atoms phpstan:install` again. Existing configuration files are preserved; edit them directly to change analysis settings.",
+            "severity": "error",
+            "phase": "cli"
         }
     ]
 }

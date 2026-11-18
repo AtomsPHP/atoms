@@ -13,6 +13,7 @@ use Atoms\Cli\Command\DevCommand;
 use Atoms\Cli\Command\DiffCommand;
 use Atoms\Cli\Command\InitCommand;
 use Atoms\Cli\Command\MakeAtomCommand;
+use Atoms\Cli\Command\PhpstanInstallCommand;
 use Atoms\Cli\Command\RollbackCommand;
 use Atoms\Cli\Command\SecretsListCommand;
 use Atoms\Cli\Command\SharedSecretSetCommand;
@@ -42,6 +43,7 @@ final class Application extends ConsoleApplication
 
         $this->addCommands([
             new InitCommand(),
+            new PhpstanInstallCommand(),
             new MakeAtomCommand(),
             new ValidateCommand(),
             new BuildCommand(),
