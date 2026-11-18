@@ -37,8 +37,10 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 
 import { runtimeFiles, sortedFiles, writeBundleModule } from './lib/bundle-module.mjs';
+import { writeTypePhpBundle } from './lib/typephp-bundle.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -256,7 +258,14 @@ function hostManifest(cli) {
 }
 
 function main() {
-	const [bundleArg, manifestArg, outputArg] = process.argv.slice(2);
+	const { values, positionals } = parseArgs({
+		allowPositionals: true,
+		options: { compiler: { type: 'string', default: 'php-wasm' } },
+	});
+	if (!['php-wasm', 'typephp'].includes(values.compiler)) {
+		throw new Error('Unknown compiler; use --compiler php-wasm or --compiler typephp');
+	}
+	const [bundleArg, manifestArg, outputArg] = positionals;
 	if (!bundleArg || !manifestArg) {
 		console.error('Usage: node bundle-from-cli.mjs <bundle.tar.gz> <manifest.json> [output-file]');
 		process.exit(2);
@@ -325,7 +334,17 @@ function main() {
 	const all = { ...appFiles, ...runtimeFiles(PROJECT_ROOT) };
 	const files = sortedFiles(all);
 
-	writeBundleModule('bundle-from-cli.mjs', manifest, files, outputFile);
+	if (values.compiler === 'typephp') {
+		try {
+			writeTypePhpBundle('bundle-from-cli.mjs', manifest, files, outputFile);
+		} catch (error) {
+			const catalog = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, 'php/atoms-core/resources/errors.json'), 'utf8'));
+			const entry = catalog.errors.find((item) => item.code === 'ATOMS-E113');
+			throw new Error(`ATOMS-E113: ${entry.message.replace('{reason}', error.message)} Fix: ${entry.fix}`, { cause: error });
+		}
+	} else {
+		writeBundleModule('bundle-from-cli.mjs', manifest, files, outputFile);
+	}
 
 	console.error('Bundle generated successfully');
 	console.error(`Files included: ${Object.keys(files).length}`);

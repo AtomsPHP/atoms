@@ -283,7 +283,7 @@ jobs:
       # artifact it never checked.
       - name: The committed bundle is not stale
         run: |
-          if ! git diff --exit-code -- src/bundle.generated.js; then
+          if ! git diff --exit-code -- src/bundle.generated.js src/runtime.generated.js; then
             echo "::error::src/bundle.generated.js is out of date."
             echo "Run 'npm run bundle' in cloudflare/worker and commit the result."
             exit 1

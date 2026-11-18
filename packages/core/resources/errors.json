@@ -544,6 +544,14 @@
             "fix": "Check the nonce backend connection, permissions, schema, and capacity. Keep existing nonce records and restore the shared store before retrying; do not fall back to memory.",
             "severity": "error",
             "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E113",
+            "title": "WebAssembly compilation failed",
+            "message": "The selected WebAssembly compiler could not produce a bundle: {reason}.",
+            "fix": "Use php-wasm, or install the pinned TypePHP toolchain described in cloudflare/docs/typephp.md and correct the reported source or SDK error. Compilation does not install tools or fall back to another compiler.",
+            "severity": "error",
+            "phase": "build"
         }
     ]
 }

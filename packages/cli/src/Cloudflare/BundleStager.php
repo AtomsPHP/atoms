@@ -35,14 +35,25 @@ final class BundleStager
         $this->runner = $runner ?? new SymfonyProcessRunner();
     }
 
+    public static function assertCompiler(string $compiler): void
+    {
+        if (!in_array($compiler, ['php-wasm', 'typephp'], true)) {
+            throw new AtomsError(
+                ErrorCode::WasmCompilationFailed,
+                ErrorCatalog::format(ErrorCode::WasmCompilationFailed, ['reason' => 'unknown compiler ' . $compiler]),
+            );
+        }
+    }
+
     /**
      * @return string the absolute path of the generated Worker bundle module
      *
      * @throws AtomsError E076 when the Worker project cannot stage a bundle,
-     *                    E074 when the staging script itself fails
+     *                    E074 when the staging script itself fails, E113 for compiler failures
      */
-    public function stage(CloudflareTarget $target, string $bundlePath, string $manifestPath): string
+    public function stage(CloudflareTarget $target, string $bundlePath, string $manifestPath, string $compiler = 'php-wasm'): string
     {
+        self::assertCompiler($compiler);
         $target->assertWorkerDir();
 
         $script = $target->workerDir . '/' . self::SCRIPT;
@@ -67,15 +78,23 @@ final class BundleStager
             );
         }
 
+        $command = [$node, $script, $bundlePath, $manifestPath, self::OUTPUT];
+        if ($compiler !== 'php-wasm') {
+            $command[] = '--compiler';
+            $command[] = $compiler;
+        }
         $result = $this->runner->run(
-            [$node, $script, $bundlePath, $manifestPath, self::OUTPUT],
+            $command,
             $target->workerDir,
             [],
-            self::TIMEOUT_SECONDS,
+            $compiler === 'typephp' ? null : self::TIMEOUT_SECONDS,
         );
 
         if (!$result->ok()) {
             $diagnostic = trim($result->stderr . "\n" . $result->stdout);
+            if (str_contains($diagnostic, 'ATOMS-E113:')) {
+                throw new AtomsError(ErrorCode::WasmCompilationFailed, $diagnostic);
+            }
             if (preg_match(
                 '/ATOMS-E043: Bundle was built against atoms\/core (?<built>[^,\s]+), but this runtime supports (?<supported>\^\d+\.\d+(?:\.\d+)?)\./',
                 $diagnostic,

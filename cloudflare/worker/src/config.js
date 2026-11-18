@@ -43,6 +43,7 @@ import { AtomsError } from './errors.js';
  * @property {number}   parkWaitTimeoutMs     Budget for waiting on a park that has not arrived synchronously.
  * @property {number}   maxParkStepsPerTurn   Park ops serviced in one turn before the turn is declared runaway.
  * @property {number}   maxTxParkSteps        Park ops serviced inside one open transaction before it is declared runaway.
+ * @property {number}   typephpBridgeMaxBytes Maximum bytes in one TypePHP bridge frame or reply.
  * @property {'error'|'tag'|'float'} sqlUnsafeInteger What to do when DO SQL returns an integral double wider than 2^53-1, which may be a lossy INTEGER or an exact REAL.
  * @property {number}   sqlMaxRows            Row cap for a single `sql.exec` in `rows` mode.
  * @property {number}   sqlMaxResultBytes     Byte cap for the rows of a single `sql.exec` in `rows` mode.
@@ -418,6 +419,7 @@ export function loadConfig(env) {
 		parkWaitTimeoutMs: int(env, 'ATOMS_PARK_WAIT_TIMEOUT_MS', 20000),
 		maxParkStepsPerTurn: int(env, 'ATOMS_MAX_PARK_STEPS_PER_TURN', 100000),
 		maxTxParkSteps: int(env, 'ATOMS_MAX_TX_PARK_STEPS', 1000),
+		typephpBridgeMaxBytes: posInt(env, 'ATOMS_TYPEPHP_BRIDGE_MAX_BYTES', 16 * 1024 * 1024),
 
 		sqlUnsafeInteger: unsafeIntegerPolicy(str(env, 'ATOMS_SQL_UNSAFE_INTEGER', 'error')),
 		sqlMaxRows: int(env, 'ATOMS_SQL_MAX_ROWS', 100000),
