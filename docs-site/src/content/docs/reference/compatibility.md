@@ -34,8 +34,8 @@ so application and Worker installs are repeatable.
 | Component | Dependency constraint | Supported versions, tested in CI |
 |---|---|---|
 | Host PHP | `^8.3` | PHP 8.3, PHP 8.4, PHP 8.5 and PHP 8.6 |
-| Node.js | `>=22` | Node.js 22 |
-| Wrangler | `4.118.0` | Wrangler 4.118.0 |
+| Node.js | `>=22.12.0` | Node.js 22 |
+| Wrangler | `4.165.0` | Wrangler 4.165.0 |
 
 Use the supported versions above. Dependency constraints may allow newer
 versions that Atoms has not tested.

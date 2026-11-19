@@ -37,6 +37,23 @@ try {
     expect(str_contains($toolchainPage, '| Wrangler | `5.2.1` | Wrangler 5.2.1 |'), 'Wrangler pin must come from the manifest');
     expect(str_contains($toolchainPage, 'PHP 9.0 interpreter compiled to WebAssembly'), 'Guest interpreter version must come from the manifest');
 
+    $patchFloorNode = $manifest;
+    $patchFloorNode['runtime']['node'] = '22.12.0';
+    expect(validateManifest($patchFloorNode) === [], 'Exact minimum Node.js versions must pass manifest validation');
+    $patchFloorPage = renderCompatibility($temp, $patchFloorNode);
+    expect(str_contains($patchFloorPage, '| Node.js | `>=22.12.0` | Node.js 22 |'), 'Node constraint must keep the exact floor while CI support lists the tested major');
+
+    foreach (['^22.12.0', '22.12', ''] as $invalidNode) {
+        $invalidManifest = $manifest;
+        $invalidManifest['runtime']['node'] = $invalidNode;
+        expect(validateManifest($invalidManifest) !== [], "Invalid runtime.node must fail validation: {$invalidNode}");
+    }
+    foreach (['^4.165.0', '4.165', 'latest'] as $invalidWrangler) {
+        $invalidManifest = $manifest;
+        $invalidManifest['runtime']['wrangler'] = $invalidWrangler;
+        expect(validateManifest($invalidManifest) !== [], "Invalid runtime.wrangler must fail validation: {$invalidWrangler}");
+    }
+
     $expandedPhp = $manifest;
     $expandedPhp['php']['tested'] = ['8.3', '8.4', '8.5', '8.6'];
     expect(validateManifest($expandedPhp) === [], 'Host PHP coverage must be configurable without changing the guest target');

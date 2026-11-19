@@ -174,6 +174,15 @@ function checkRelease(string $root): void
         }
     }
 
+    $runtimeLockPath = "{$root}/cloudflare/worker/package-lock.json";
+    if (is_file($runtimeLockPath)) {
+        $runtimeLock = readJson($runtimeLockPath);
+        $lockedWrangler = $runtimeLock['packages']['node_modules/wrangler']['version'] ?? null;
+        if ($lockedWrangler !== ($runtime['wrangler'] ?? null)) {
+            $errors[] = 'cloudflare/worker/package-lock.json Wrangler version does not match runtime.wrangler';
+        }
+    }
+
     $supportedCoreStamp = "{$root}/cloudflare/worker/release/supported-core";
     if (!is_file($supportedCoreStamp)
         || trim((string) file_get_contents($supportedCoreStamp)) !== ($core['supported'] ?? '')) {
@@ -532,11 +541,13 @@ function validateManifest(array $manifest): array
     if (($manifest['runtime']['package'] ?? null) !== '@atomsphp/runtime-cloudflare') {
         $errors[] = 'runtime.package must be @atomsphp/runtime-cloudflare';
     }
-    if (($manifest['runtime']['node'] ?? null) !== '22') {
-        $errors[] = 'runtime.node must be 22 for the 0.1 line';
+    $nodeVersion = $manifest['runtime']['node'] ?? null;
+    if (!is_string($nodeVersion) || preg_match('/^[1-9][0-9]*(?:\.[0-9]+\.[0-9]+)?$/', $nodeVersion) !== 1) {
+        $errors[] = 'runtime.node must be a Node.js major or exact minimum version (e.g. 22 or 22.12.0)';
     }
-    if (($manifest['runtime']['wrangler'] ?? null) !== '4.118.0') {
-        $errors[] = 'runtime.wrangler must match the pinned Worker lockfile';
+    $wranglerVersion = $manifest['runtime']['wrangler'] ?? null;
+    if (!is_string($wranglerVersion) || preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/', $wranglerVersion) !== 1) {
+        $errors[] = 'runtime.wrangler must be an exact semver version matching the pinned Worker lockfile';
     }
     if (($manifest['runtime']['guest_php'] ?? null) !== '8.3') {
         $errors[] = 'runtime.guest_php must be 8.3, the frozen core API\'s PHP target';
@@ -613,6 +624,7 @@ function renderCompatibility(string $root, array $manifest): string
     $untestedNote = $untested === [] ? '' : 'Laravel ' . formatMajors($untested) . " has no current CI coverage.\n";
     [$major, $minor] = explode('.', $version, 3);
     $releaseLine = "{$major}.{$minor}";
+    $nodeMajor = explode('.', (string) $runtime['node'], 2)[0];
 
     return <<<MARKDOWN
 ---
@@ -651,7 +663,7 @@ so application and Worker installs are repeatable.
 | Component | Dependency constraint | Supported versions, tested in CI |
 |---|---|---|
 | Host PHP | `{$php['constraint']}` | {$testedPhp} |
-| Node.js | `>={$runtime['node']}` | Node.js {$runtime['node']} |
+| Node.js | `>={$runtime['node']}` | Node.js {$nodeMajor} |
 | Wrangler | `{$runtime['wrangler']}` | Wrangler {$runtime['wrangler']} |
 
 Use the supported versions above. Dependency constraints may allow newer
