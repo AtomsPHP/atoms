@@ -10,7 +10,7 @@
 		"@php-wasm/web-8-3": "3.1.48"
 	},
 	"devDependencies": {
-		"wrangler": "4.118.0"
+		"wrangler": "4.165.0"
 	},
 	"scripts": {
 		"prepare": "node scripts/prepare-runtime.mjs --if-installed",

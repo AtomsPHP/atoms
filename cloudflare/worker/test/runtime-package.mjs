@@ -37,6 +37,8 @@ try {
 	assert.equal(packageManifest.version, release.runtime.version);
 	assert.equal(packageManifest.license, 'MIT');
 	assert.equal(templateManifest.license, 'MIT');
+	assert.equal(packageManifest.engines.node, `>=${release.runtime.node}`);
+	assert.equal(templateManifest.engines.node, `>=${release.runtime.node}`);
 	assert.equal(templateManifest.devDependencies.wrangler, release.runtime.wrangler);
 	assert.ok(existsSync(join(stage, 'template', 'package-lock.json')));
 	assert.ok(!existsSync(join(stage, 'template', 'src', 'bundle.generated.js')));
