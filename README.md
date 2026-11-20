@@ -1,14 +1,10 @@
 # Atoms
 
-Put an **Atom** — a persistent PHP object with its own SQLite database — into
-the PHP application you already have.
+Atoms lets you deploy PHP objects as persistent, hibernatable servers. Each Atom has its own SQLite database and can communicate with clients over WebSockets.
 
-You write an ordinary PHP class. Your Laravel or Symfony monolith calls it like
-a local object. It runs somewhere else: inside a Cloudflare Durable Object on
-your own Cloudflare account, as PHP 8.3 compiled to WebAssembly, with its
-SQLite database living beside it. One Atom per entity — a game room, a
-document, a chat thread, a tenant — each single-threaded, each durable, each
-addressable by id.
+Atoms bundles your Atom classes and their dependencies with a WebAssembly-based PHP runtime. Each Atom instance runs in its own Cloudflare Durable Object.
+
+While your Atoms objects are running inside of Cloudflare, your monolith treats them just like ordinary PHP objects. Think any entity in your app that could use its own database and its own direct channel of communication with your end users - a game room, a document, a chat thread - and it could become an Atom.
 
 ```php
 namespace App\Atoms;
