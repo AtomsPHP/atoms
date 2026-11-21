@@ -79,6 +79,31 @@ final class ConsoleCommandsTest extends TestCase
         );
     }
 
+    public function testDeployForwardsDryRunAndOutdir(): void
+    {
+        $this->artisan('atoms:deploy', [
+            '--env' => 'production',
+            '--dry-run' => true,
+            '--outdir' => 'review output',
+        ])->assertExitCode(0);
+
+        $this->artisan('atoms:deploy', [
+            '--env' => 'production',
+            '--dry-run' => true,
+        ])->assertExitCode(0);
+
+        $this->artisan('atoms:deploy', [
+            '--env' => 'production',
+            '--outdir' => '/tmp/wrangler-out',
+        ])->assertExitCode(0);
+
+        self::assertSame([
+            ['deploy', '--env', 'production', '--outdir', 'review output', '--dry-run'],
+            ['deploy', '--env', 'production', '--dry-run'],
+            ['deploy', '--env', 'production', '--outdir', '/tmp/wrangler-out'],
+        ], $this->runner->calls);
+    }
+
     public function testRollbackBuildsArgvWithEnvAndVersion(): void
     {
         $this->artisan('atoms:rollback', ['version' => 'abc123', '--env' => 'production'])
