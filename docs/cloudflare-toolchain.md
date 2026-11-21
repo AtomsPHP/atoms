@@ -1084,12 +1084,14 @@ them:
 `atoms validate` runs no vendor stage, so its manifest (and manifest hash)
 describes the customer tree only; `atoms build`'s manifest is the one with
 the `vendor` key. The content hash always covers everything in the tar,
-vendor included. For function availability, validation can read the matching
-cached tree. It verifies direct calls against the pinned Worker's builtin
-inventory, declarations in loaded project files, and the Atom dependency
-autoloader's eager function files. A cold offline check reports ATOMS-E004 for
-a call whose provider it cannot verify. A full build resolves its own
-dependencies before making that decision.
+vendor included.
+
+For each direct function call, `atoms validate` checks the pinned Worker's
+built-ins and the functions defined in project files the Worker loads before
+the call. If the dependency cache matches, it also checks files loaded through
+Composer's `autoload.files`. If it cannot find the function, it reports
+ATOMS-E004. On a cache miss, `atoms build` can run Composer and check the
+resulting files.
 
 ### Three additive manifest fields
 

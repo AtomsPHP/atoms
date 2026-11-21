@@ -11,10 +11,6 @@ use Atoms\Cli\Process\SymfonyProcessRunner;
 use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCode;
 
-/**
- * Shared static checks for validate and build. Standalone validation can
- * inspect a cached dependency tree. Only build can resolve a new tree.
- */
 final class Validator
 {
     public function __construct(
@@ -23,8 +19,8 @@ final class Validator
     }
 
     /**
-     * Standalone validation uses only the current on-disk Atom dependency cache.
-     * Build supplies the tree it will archive, resolving dependencies on a cache miss.
+     * `atoms validate` reads the local dependency cache. `atoms build` passes
+     * a resolver so it can check the vendor files it will bundle.
      *
      * @param (\Closure(AtomsComposerJson): VendorTree)|null $resolveVendor
      */
@@ -91,9 +87,8 @@ final class Validator
         array $violations,
     ): ?VendorTree {
         if ($resolveVendor !== null) {
-            // Discover local errors before running Composer. Only an unresolved
-            // function can acquire a provider at this stage. Attribute extensions
-            // to the final resolution, where namespace fallback may differ.
+            // A dependency may define a missing function. Check other errors before
+            // running Composer. Use a copy so only the final pass records extensions.
             $preflight = (new ClosureWalker($discovered, clone $classifier))->walk();
             $blocking = array_filter([...$violations, ...$preflight], static fn (Violation $v): bool =>
                 $v->isError() && $v->code !== ErrorCode::UnavailableWorkerFunction);

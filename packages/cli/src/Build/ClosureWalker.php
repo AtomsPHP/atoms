@@ -79,12 +79,11 @@ final class ClosureWalker
     }
 
     /**
-     * Check top-level code in loaded project files (including PHP migrations).
-     * Named functions in these files are checked as well; class bodies are
-     * handled by the class closure walk.
+     * Check top-level code, functions and any classes walk() skipped.
+     * PHP migrations can declare classes of their own.
      *
      * @param list<string> $files project-relative paths already in the index
-     * @param array<string, true> $walked classes handled by the class walk
+     * @param array<string, true> $walked classes already checked by walk()
      * @return list<Violation>
      */
     public function walkFiles(array $files, array $walked = []): array

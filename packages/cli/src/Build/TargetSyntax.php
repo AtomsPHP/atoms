@@ -14,7 +14,7 @@ use PhpParser\ParserFactory;
 use PhpParser\PhpVersion;
 use PhpParser\Token;
 
-/** Checks source against the pinned php-wasm Worker without running it. */
+/** Checks syntax against the Worker's PHP version without executing the source. */
 final class TargetSyntax
 {
     public const PHP_SERIES = '8.3';
@@ -43,8 +43,7 @@ final class TargetSyntax
             return self::parseFailure($file, $error);
         }
 
-        // PHP-Parser's version selection emulates tokenization and certain
-        // grammar changes, but can still accept forms from a later version.
+        // PHP-Parser accepts some newer syntax in PHP 8.3 mode, including property hooks.
         $tokens = $this->parser->getTokens();
         $newer = (new NodeFinder())->findFirst($ast, static fn (Node $node): bool => self::requiresNewerPhp($node, $tokens));
         if ($newer !== null) {
@@ -76,8 +75,6 @@ final class TargetSyntax
         }
 
         if ($node instanceof Node\Stmt\Property || $node instanceof Node\Param) {
-            // These flags are available on the minimum supported PHP-Parser
-            // version. Set visibility modifiers were added later.
             $php83Flags = Modifiers::PUBLIC | Modifiers::PROTECTED | Modifiers::PRIVATE
                 | Modifiers::STATIC | Modifiers::READONLY;
             if (($node->flags & ~$php83Flags) !== 0) {
@@ -85,8 +82,8 @@ final class TargetSyntax
             }
         }
 
-        // Earlier operator forms have dedicated nodes. Qualified names are
-        // ordinary calls, whose availability is checked separately.
+        // PHP-Parser gives the PHP 8.3 forms of clone, exit and die their own
+        // nodes. SymbolClassifier checks qualified names as function calls.
         if ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name && $node->name->isUnqualified()
             && \in_array(strtolower($node->name->toString()), ['clone', 'exit', 'die'], true)) {
             return true;
@@ -122,7 +119,7 @@ final class TargetSyntax
         };
 
         // Casts, closures and first-class callables in constant expressions
-        // need PHP 8.5. Ordinary expressions already support these forms.
+        // need PHP 8.5.
         return $constant !== null && (new NodeFinder())->findFirst($constant, static fn (Node $value): bool =>
             $value instanceof Node\Expr\Cast
             || $value instanceof Node\Expr\Closure

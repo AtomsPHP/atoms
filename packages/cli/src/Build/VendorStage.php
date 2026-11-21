@@ -351,9 +351,8 @@ final class VendorStage
     }
 
     /**
-     * Read the eager paths from the generated loader itself. The loader is
-     * covered by the cache digest, including in caches made by older builds.
-     * Its only foreach iterates the literal list of files it requires.
+     * The generated loader lists its startup files in a single foreach loop.
+     * Even older caches include the loader in their digest.
      *
      * @param list<array{name: string, contents: string}> $entries
      * @return list<string>

@@ -1,9 +1,9 @@
-// Run after prepare-runtime. The CLI consumes this snapshot offline, including
-// a builtin's owning extension so the existing extension allowlist still applies.
+// Run after npm run prepare-runtime. The CLI uses this list to check built-in
+// functions and their extensions offline.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire, registerHooks } from 'node:module';
 
-// Match Wrangler's compiled Wasm module imports when booting the guest in Node.
+// Wrangler imports .wasm files as compiled WebAssembly modules.
 registerHooks({
 	load(url, context, nextLoad) {
 		if (url.endsWith('.wasm')) {

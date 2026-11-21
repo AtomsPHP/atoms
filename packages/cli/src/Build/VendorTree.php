@@ -23,8 +23,7 @@ final class VendorTree
      *        LICENSE only) — surfaced so a package that reads one at runtime
      *        fails with a named cause at build output, not a bare guest error
      * @param list<string>                                $autoloadFiles
-     *        bundle-relative paths of shipped files loaded eagerly, in
-     *        Composer's autoload order
+     *        paths relative to the bundle, in the order Composer loads them at startup
      */
     public function __construct(
         public readonly array $entries,

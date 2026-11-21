@@ -120,7 +120,7 @@ if (!function_exists('array_find')) {
     }
 }
 SOURCE;
-        // Both the host and the archive contain a declaration. Neither loads it in the guest.
+        // The Worker never loads host-polyfill.php or the dependency's optional.php.
         file_put_contents($root . '/host-polyfill.php', $polyfill);
         $validate = new CommandTester(new ValidateCommand());
         self::assertSame(1, $validate->execute(['--root' => $root]));
@@ -135,7 +135,7 @@ SOURCE;
         self::assertSame([], $this->artifacts($out));
         self::assertSame(1, $validate->execute(['--root' => $root]));
 
-        // Resolve a different dependency tree which requires the function file at activation.
+        // The new dependency version puts the polyfill in functions.php, which the Worker loads.
         $dependency = $root . '/atoms-composer.json';
         file_put_contents($dependency, str_replace('^4.7', '^4.8', (string) file_get_contents($dependency)));
         $build = new CommandTester(new BuildCommand(new Builder(runner: CannedComposer::runner([

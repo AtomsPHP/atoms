@@ -39,9 +39,9 @@ final class FunctionIndex
     }
 
     /**
-     * Parse without executing source.
+     * Index function declarations without loading the file.
      *
-     * @return list<string>|Violation proven include paths, or the source diagnostic
+     * @return list<string>|Violation paths the file includes at load time, or a syntax error
      */
     public function addSource(string $contents, string $path, bool $eager = false): array|Violation
     {
@@ -130,8 +130,8 @@ final class FunctionIndex
     }
 
     /**
-     * Top-level declarations are registered at compile time, even after a
-     * return or in a later namespace block. Conditional declarations are not.
+     * PHP registers unconditional top-level functions when it compiles a file,
+     * even after a return or in a later namespace block.
      *
      * @param list<Node> $statements
      */
@@ -196,8 +196,8 @@ final class FunctionIndex
             if ($value === true) {
                 return $this->scan($body, $path, $eager, $includes, true);
             }
-            // A matching polyfill is provided whether the guard runs or finds
-            // an existing function. Do not claim declarations after a return.
+            // If the function already exists, PHP skips its polyfill. Otherwise
+            // the branch must reach the declaration before any return.
             if ($condition === $statement->cond && $this->isFunctionExistsGuard($statement)) {
                 foreach ($body as $guarded) {
                     if ($this->containsReturn([$guarded])) {

@@ -136,7 +136,7 @@ final class SymbolClassifier
 
     private function classifyFunction(string $name, string $file, int $line, ?string $fallback, ?int $offset): ?Violation
     {
-        // Unqualified calls in a namespace try that namespace first, then global.
+        // PHP looks for an unqualified function in the current namespace, then in the global namespace.
         if ($fallback !== null && $this->functions->has($name, $file, $offset)) {
             return null;
         }
@@ -163,7 +163,7 @@ final class SymbolClassifier
 
         if (str_contains($name, '\\')) {
             $violation = $this->classifyNamespaced($name, $file, $line, SymbolKind::FunctionCall, false, '');
-            // An approved namespace alone does not make a function autoloadable.
+            // A function in an approved namespace still needs a loaded definition.
             if ($violation !== null && $violation->code !== ErrorCode::MonolithClassInAtom) {
                 return $violation;
             }

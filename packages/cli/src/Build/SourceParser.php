@@ -15,8 +15,7 @@ use PhpParser\ParserFactory;
 use PhpParser\PhpVersion;
 
 /**
- * Discovers classes in both monolith and Worker source. Resolves every class
- * name to its fully qualified name without executing the file.
+ * Finds classes and resolves their names without executing host or Worker code.
  */
 final class SourceParser
 {
@@ -43,8 +42,7 @@ final class SourceParser
         try {
             $ast = $this->parser->parse($code) ?? [];
         } catch (Error) {
-            // Newer grammars can reserve tokens that the Worker still permits
-            // as identifiers, such as __PROPERTY__.
+            // PHP 8.3 accepts __PROPERTY__ as an identifier. Newer versions reserve it.
             $ast = $this->workerParser->parse($code) ?? [];
         }
 
