@@ -9,6 +9,11 @@ use Atoms\Cli\Process\ProcessRunner;
 use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
+use PhpParser\Node\Expr\Array_;
+use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt\Foreach_;
+use PhpParser\NodeFinder;
+use PhpParser\ParserFactory;
 
 /**
  * Stage 8: resolve `atoms-composer.json` and turn the result into bundle
@@ -71,6 +76,25 @@ final class VendorStage
     {
     }
 
+    /** Read the current cached tree without running Composer or writing any files. */
+    public function cached(string $rootDir): ?VendorTree
+    {
+        $rootDir = rtrim($rootDir, '/');
+        $jsonPath = $rootDir . '/atoms-composer.json';
+        $lockPath = $rootDir . '/atoms-composer.lock';
+        if (!is_file($jsonPath) || !is_file($lockPath)) {
+            return null;
+        }
+
+        $jsonBytes = @file_get_contents($jsonPath);
+        $lockBytes = @file_get_contents($lockPath);
+        if ($jsonBytes === false || $lockBytes === false) {
+            return null;
+        }
+
+        return $this->readCache($rootDir, self::cacheKey($jsonBytes, $lockBytes));
+    }
+
     /**
      * @throws AtomsError ATOMS-E079 when resolution fails
      */
@@ -127,7 +151,7 @@ final class VendorStage
             sort($pruned, SORT_STRING);
             $packages = $this->installedPackages($work . '/vendor');
 
-            $tree = new VendorTree($entries, $packages, $wroteLock, $pruned);
+            $tree = new VendorTree($entries, $packages, $wroteLock, $pruned, self::autoloadFiles($entries));
 
             if ($lockBytes !== null) {
                 $this->writeCache($rootDir, self::cacheKey($jsonBytes, $lockBytes), $tree);
@@ -327,6 +351,38 @@ final class VendorStage
     }
 
     /**
+     * Read the eager paths from the generated loader itself. The loader is
+     * covered by the cache digest, including in caches made by older builds.
+     * Its only foreach iterates the literal list of files it requires.
+     *
+     * @param list<array{name: string, contents: string}> $entries
+     * @return list<string>
+     */
+    private static function autoloadFiles(array $entries): array
+    {
+        $contents = array_column($entries, 'contents', 'name');
+        $autoload = $contents[self::AUTOLOAD_PATH] ?? '';
+        $parser = (new ParserFactory())->createForNewestSupportedVersion();
+        $loop = (new NodeFinder())->findFirstInstanceOf($parser->parse($autoload) ?? [], Foreach_::class);
+        if (!$loop instanceof Foreach_ || !$loop->expr instanceof Array_) {
+            throw self::failure('the generated vendor autoloader has no eager file list');
+        }
+
+        $files = [];
+        foreach ($loop->expr->items as $item) {
+            if (!$item->value instanceof String_ || !str_starts_with($item->value->value, '/')) {
+                throw self::failure('the generated vendor autoloader has an invalid eager file path');
+            }
+            $path = 'vendor' . $item->value->value;
+            if (isset($contents[$path])) {
+                $files[] = $path;
+            }
+        }
+
+        return $files;
+    }
+
+    /**
      * @return array<string, string> package => version, sorted by name
      */
     private function installedPackages(string $vendorDir): array
@@ -452,7 +508,7 @@ final class VendorStage
             ? array_values(array_map('strval', $meta['pruned_data_files']))
             : [];
 
-        return new VendorTree($entries, $packages, false, $prunedDataFiles);
+        return new VendorTree($entries, $packages, false, $prunedDataFiles, self::autoloadFiles($entries));
     }
 
     private function writeCache(string $rootDir, string $key, VendorTree $tree): void
