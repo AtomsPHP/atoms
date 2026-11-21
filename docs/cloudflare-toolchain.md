@@ -1087,11 +1087,10 @@ the `vendor` key. The content hash always covers everything in the tar,
 vendor included.
 
 For each direct function call, `atoms validate` checks the pinned Worker's
-built-ins and the functions defined in project files the Worker loads before
-the call. If the dependency cache matches, it also checks files loaded through
-Composer's `autoload.files`. If it cannot find the function, it reports
-ATOMS-E004. On a cache miss, `atoms build` can run Composer and check the
-resulting files.
+built-ins and functions declared in bundled project files. If the dependency
+cache matches, it also checks files loaded through Composer's `autoload.files`.
+If it cannot find the function, it reports ATOMS-E004. On a cache miss,
+`atoms build` can run Composer and check the resulting files.
 
 ### Three additive manifest fields
 

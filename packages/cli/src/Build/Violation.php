@@ -40,11 +40,6 @@ final class Violation
         return ErrorCatalog::format($this->code, $this->context);
     }
 
-    public function locatedMessage(): string
-    {
-        return sprintf('%s:%d  %s', $this->file, $this->line, $this->message());
-    }
-
     /** De-duplication key: (code, symbol, file). */
     public function dedupeKey(): string
     {

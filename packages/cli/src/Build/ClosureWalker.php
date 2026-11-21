@@ -10,15 +10,20 @@ use PhpParser\NodeVisitorAbstract;
 
 /**
  * Stages 2+3: compute the transitive symbol closure of every bundled class
- * (Atom, Shared DTO, Support), classify each referenced symbol, and collect
- * the boundary violations. Recursion follows only bundled classes — Methods
- * and AtomJob code stays in the monolith and is never walked.
+ * (Atom, Shared DTO, Support) and top-level/migration PHP code, classify each
+ * referenced symbol, and collect boundary violations. Recursion follows only
+ * bundled classes — Methods and AtomJob code stays in the monolith and is never
+ * walked.
  */
 final class ClosureWalker
 {
+    /**
+     * @param array<string, list<Node>> $fileAsts bundled PHP files (relative path => resolved AST)
+     */
     public function __construct(
         private readonly DiscoveryResult $discovery,
         private readonly SymbolClassifier $classifier,
+        private readonly array $fileAsts = [],
     ) {
     }
 
@@ -64,7 +69,6 @@ final class ClosureWalker
                     $shared,
                     $class->fqcn,
                     $ref['fallback'] ?? null,
-                    $ref['offset'] ?? null,
                 );
                 if ($violation !== null) {
                     $violations[$violation->dedupeKey()] = $violations[$violation->dedupeKey()] ?? $violation;
@@ -72,27 +76,11 @@ final class ClosureWalker
             }
         }
 
-        foreach ($this->walkFiles($this->classifier->projectFiles(), $visited) as $violation) {
-            $violations[$violation->dedupeKey()] = $violations[$violation->dedupeKey()] ?? $violation;
-        }
-        return array_values($violations);
-    }
-
-    /**
-     * Check top-level code, functions and any classes walk() skipped.
-     * PHP migrations can declare classes of their own.
-     *
-     * @param list<string> $files project-relative paths already in the index
-     * @param array<string, true> $walked classes already checked by walk()
-     * @return list<Violation>
-     */
-    public function walkFiles(array $files, array $walked = []): array
-    {
-        $violations = [];
-        foreach (array_unique($files) as $file) {
+        // Check top-level code, functions, and migration classes not walked above.
+        foreach ($this->fileAsts as $file => $ast) {
             $collector = new ReferenceCollector();
             $traverser = new NodeTraverser();
-            $traverser->addVisitor(new class($walked) extends NodeVisitorAbstract {
+            $traverser->addVisitor(new class($visited) extends NodeVisitorAbstract {
                 /** @param array<string, true> $walked */
                 public function __construct(private readonly array $walked) {}
 
@@ -102,25 +90,34 @@ final class ClosureWalker
                         && isset($this->walked[$node->namespacedName->toString()])) {
                         return NodeTraverser::DONT_TRAVERSE_CHILDREN;
                     }
+
                     return null;
                 }
             });
             $traverser->addVisitor($collector);
-            $traverser->traverse($this->classifier->sourceInFile($file));
+            $traverser->traverse($ast);
+
             foreach ($collector->references() as $ref) {
                 $violation = $this->classifier->classify(
-                    $ref['name'], $ref['kind'], $file, $ref['line'], false, '', $ref['fallback'] ?? null, $ref['offset'] ?? null,
+                    $ref['name'],
+                    $ref['kind'],
+                    $file,
+                    $ref['line'],
+                    false,
+                    '',
+                    $ref['fallback'] ?? null,
                 );
                 if ($violation !== null) {
-                    $violations[$violation->dedupeKey()] = $violation;
+                    $violations[$violation->dedupeKey()] = $violations[$violation->dedupeKey()] ?? $violation;
                 }
             }
         }
+
         return array_values($violations);
     }
 
     /**
-     * @return list<array{name: string, kind: SymbolKind, line: int, fallback?: ?string, offset?: ?int}>
+     * @return list<array{name: string, kind: SymbolKind, line: int, fallback?: ?string}>
      */
     private function collectReferences(DiscoveredClass $class): array
     {
