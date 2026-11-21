@@ -39,9 +39,9 @@ bundled PHP code, including PHP migrations, against the Worker's PHP 8.3
 runtime. Methods and Jobs run on your application's PHP version.
 
 For a direct function call, the CLI looks for a Worker built-in or a
-definition in a file the Worker loads before the call. On PHP 8.3,
-`array_find()` needs a polyfill. If an Atom dependency supplies it, run
-`vendor/bin/atoms build` to cache the dependency. Then `validate` can check
+declaration in a bundled project file or eager vendor `autoload.files` entry.
+On PHP 8.3, `array_find()` needs a polyfill. If an Atom dependency supplies it,
+run `vendor/bin/atoms build` to cache the dependency. Then `validate` can check
 the call offline as long as `atoms-composer.json` and `atoms-composer.lock`
 match the cache.
 

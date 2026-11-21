@@ -50,7 +50,10 @@ final class Builder
         };
         $validation = $this->validator->validate($config, $resolveVendor);
         if (!$validation->ok()) {
-            $messages = array_map(static fn (Violation $error): string => $error->locatedMessage(), $validation->errors);
+            $messages = array_map(
+                static fn (Violation $error): string => sprintf('%s:%d  %s', $error->file, $error->line, $error->message()),
+                $validation->errors,
+            );
             throw new AtomsError(ErrorCode::BundleRejected, implode("\n", $messages));
         }
 

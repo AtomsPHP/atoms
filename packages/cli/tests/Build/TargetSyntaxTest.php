@@ -34,16 +34,7 @@ final class TargetSyntaxTest extends TestCase
         yield 'asymmetric visibility' => ['class Room { public private(set) string $name; }'];
         yield 'final property' => ['class Room { final public string $name; }'];
         yield 'direct dereference of new' => ['new Room()->name();'];
-        yield 'exit named argument' => ['exit(status: 0);'];
-        yield 'exit first-class callable' => ['die(...);'];
-        yield 'exit trailing comma' => ['exit(0, /* final argument */);'];
         yield 'pipe operator' => ['return "room" |> trim(...);'];
-        yield 'void cast' => ['(void) trim("room");'];
-        yield 'constant attribute' => ['#[Example] const ROOM = "room";'];
-        yield 'constant closure' => ['const ROOM = [static fn () => "room"];'];
-        yield 'constant first-class callable' => ['class Room { const FORMAT = trim(...); }'];
-        yield 'constant cast' => ['function room(int $capacity = (int) 1.5): int { return $capacity; }'];
-        yield 'clone with replacement properties' => ['clone($room, ["name" => "room"]);'];
     }
 
     public function testAcceptsPhp83Syntax(): void

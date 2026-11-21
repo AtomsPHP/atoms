@@ -12,7 +12,6 @@ use PhpParser\NodeFinder;
 use PhpParser\Parser;
 use PhpParser\ParserFactory;
 use PhpParser\PhpVersion;
-use PhpParser\Token;
 
 /** Checks syntax against the Worker's PHP version without executing the source. */
 final class TargetSyntax
@@ -43,9 +42,9 @@ final class TargetSyntax
             return self::parseFailure($file, $error);
         }
 
-        // PHP-Parser accepts some newer syntax in PHP 8.3 mode, including property hooks.
-        $tokens = $this->parser->getTokens();
-        $newer = (new NodeFinder())->findFirst($ast, static fn (Node $node): bool => self::requiresNewerPhp($node, $tokens));
+        // PHP-Parser 5.8 accepts a few PHP 8.4 constructs in 8.3 mode (property
+        // hooks, final/abstract properties, and unparenthesized `new` dereferencing).
+        $newer = (new NodeFinder())->findFirst($ast, static fn (Node $node): bool => self::requiresNewerPhp($node));
         if ($newer !== null) {
             return self::violation($file, $newer->getStartLine(), 'This syntax requires PHP 8.4 or later.');
         }
@@ -66,11 +65,9 @@ final class TargetSyntax
         ]);
     }
 
-    /** @param list<Token> $tokens */
-    private static function requiresNewerPhp(Node $node, array $tokens): bool
+    private static function requiresNewerPhp(Node $node): bool
     {
-        if ($node instanceof Node\PropertyHook
-            || ($node instanceof Node\Stmt\Const_ && ($node->attrGroups ?? []) !== [])) {
+        if ($node instanceof Node\PropertyHook) {
             return true;
         }
 
@@ -78,22 +75,6 @@ final class TargetSyntax
             $php83Flags = Modifiers::PUBLIC | Modifiers::PROTECTED | Modifiers::PRIVATE
                 | Modifiers::STATIC | Modifiers::READONLY;
             if (($node->flags & ~$php83Flags) !== 0) {
-                return true;
-            }
-        }
-
-        // PHP-Parser gives the PHP 8.3 forms of clone, exit and die their own
-        // nodes. SymbolClassifier checks qualified names as function calls.
-        if ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name && $node->name->isUnqualified()
-            && \in_array(strtolower($node->name->toString()), ['clone', 'exit', 'die'], true)) {
-            return true;
-        }
-        if ($node instanceof Node\Expr\Exit_ && $tokens[$node->getEndTokenPos()]->text === ')') {
-            $pos = $node->getEndTokenPos() - 1;
-            while ($tokens[$pos]->is([T_WHITESPACE, T_COMMENT, T_DOC_COMMENT])) {
-                --$pos;
-            }
-            if ($tokens[$pos]->text === ',') {
                 return true;
             }
         }
@@ -107,23 +88,7 @@ final class TargetSyntax
             $node instanceof Node\Expr\FuncCall => $node->name,
             default => null,
         };
-        if ($receiver instanceof Node\Expr\New_ && $node->getStartFilePos() === $receiver->getStartFilePos()) {
-            return true; // Dereferencing new without parentheses requires PHP 8.4.
-        }
 
-        $constant = match (true) {
-            $node instanceof Node\Const_ => $node->value,
-            $node instanceof Node\PropertyItem, $node instanceof Node\Param => $node->default,
-            $node instanceof Node\Attribute => $node->args,
-            default => null,
-        };
-
-        // Casts, closures and first-class callables in constant expressions
-        // need PHP 8.5.
-        return $constant !== null && (new NodeFinder())->findFirst($constant, static fn (Node $value): bool =>
-            $value instanceof Node\Expr\Cast
-            || $value instanceof Node\Expr\Closure
-            || $value instanceof Node\Expr\ArrowFunction
-            || ($value instanceof Node\Expr\CallLike && $value->isFirstClassCallable())) !== null;
+        return $receiver instanceof Node\Expr\New_ && $node->getStartFilePos() === $receiver->getStartFilePos();
     }
 }

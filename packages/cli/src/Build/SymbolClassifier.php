@@ -93,18 +93,6 @@ final class SymbolClassifier
         return $names;
     }
 
-    /** @return list<string> */
-    public function projectFiles(): array
-    {
-        return $this->functions->projectFiles();
-    }
-
-    /** @return list<\PhpParser\Node> */
-    public function sourceInFile(string $file): array
-    {
-        return $this->functions->projectSource($file);
-    }
-
     /**
      * Classify a reference. Returns a Violation for boundary breaks, or null when
      * the symbol is legal in Atom code.
@@ -119,7 +107,6 @@ final class SymbolClassifier
         bool $shared = false,
         string $owner = '',
         ?string $fallback = null,
-        ?int $offset = null,
     ): ?Violation {
         $name = ltrim($name, '\\');
 
@@ -128,16 +115,16 @@ final class SymbolClassifier
         }
 
         if ($kind === SymbolKind::FunctionCall) {
-            return $this->classifyFunction($name, $file, $line, $fallback, $offset);
+            return $this->classifyFunction($name, $file, $line, $fallback);
         }
 
         return $this->classifyClass($name, $file, $line, $shared, $owner);
     }
 
-    private function classifyFunction(string $name, string $file, int $line, ?string $fallback, ?int $offset): ?Violation
+    private function classifyFunction(string $name, string $file, int $line, ?string $fallback): ?Violation
     {
         // PHP looks for an unqualified function in the current namespace, then in the global namespace.
-        if ($fallback !== null && $this->functions->has($name, $file, $offset)) {
+        if ($fallback !== null && $this->functions->has($name)) {
             return null;
         }
         if ($fallback !== null) {
@@ -157,7 +144,7 @@ final class SymbolClassifier
         if (isset($this->runtimeFunctions[$lower])) {
             return $this->checkExtension($this->runtimeFunctions[$lower], $name, $file, $line);
         }
-        if ($this->functions->has($name, $file, $offset)) {
+        if ($this->functions->has($name)) {
             return null;
         }
 
