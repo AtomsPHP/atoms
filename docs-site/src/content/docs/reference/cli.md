@@ -34,8 +34,16 @@ vendor/bin/atoms make:atom GameRoom --with-methods --with-migration
 vendor/bin/atoms dev --env staging --callback-url http://127.0.0.1:8000/atoms/callback
 ```
 
-`dev` builds the bundle and starts the Worker. `validate` checks your Atom
-code; `build` produces a bundle.
+`dev` builds the bundle and starts the Worker. Both `validate` and `build`
+check bundled PHP source and PHP migrations against the Worker's PHP 8.3
+target. Methods and Jobs can use the host application's PHP version.
+
+For a direct function call, the CLI checks the Worker's builtin functions
+and looks for a definition in the files the guest loads. For example,
+`array_find()` needs a bundled polyfill on PHP 8.3. If an Atom dependency
+supplies the function, run `vendor/bin/atoms build` once to resolve that
+dependency. Subsequent offline `validate` runs use the dependency cache
+matching `atoms-composer.json` and `atoms-composer.lock`.
 
 ## Deployment
 

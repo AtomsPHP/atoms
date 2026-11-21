@@ -24,6 +24,7 @@ final class ValidationResult
         public readonly array $manifest,
         public readonly BundleFileSet $bundleFiles,
         array $violations,
+        public readonly ?VendorTree $vendor = null,
     ) {
         $errors = [];
         $warnings = [];

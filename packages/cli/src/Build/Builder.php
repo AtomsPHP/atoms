@@ -30,17 +30,7 @@ final class Builder
 
     public function build(AtomsJson $config, string $outDir, bool $fast = false): BuildResult
     {
-        $validation = $this->validator->validate($config);
-        if (!$validation->ok()) {
-            throw new AtomsError(
-                ErrorCode::BundleRejected,
-                'Build aborted: validation found ' . \count($validation->errors) . ' error(s). Run `atoms validate`.',
-            );
-        }
-
-        $composer = AtomsComposerJson::locate($config->rootDir);
-        $vendor = null;
-        if ($composer->requiredPackages() !== []) {
+        $resolveVendor = function (AtomsComposerJson $composer) use ($config, $fast): VendorTree {
             // A --fast bundle with declared dependencies would deploy cleanly
             // and fatal in the guest on the first vendor class an Atom
             // touches — a runtime failure for a fact known right here. Refuse
@@ -55,9 +45,16 @@ final class Builder
             }
 
             $stage = new VendorStage($this->runner ?? new SymfonyProcessRunner());
-            $vendor = $stage->resolve($config->rootDir);
+
+            return $stage->resolve($config->rootDir);
+        };
+        $validation = $this->validator->validate($config, $resolveVendor);
+        if (!$validation->ok()) {
+            $messages = array_map(static fn (Violation $error): string => $error->locatedMessage(), $validation->errors);
+            throw new AtomsError(ErrorCode::BundleRejected, implode("\n", $messages));
         }
 
+        $vendor = $validation->vendor;
         $manifest = $validation->manifest;
         if ($vendor !== null) {
             // Additive schema-1 field: where the bundled vendor autoloader

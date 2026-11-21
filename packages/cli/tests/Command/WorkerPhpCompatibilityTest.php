@@ -98,6 +98,53 @@ SOURCE);
         self::assertSame(0, $build->execute(['--root' => $root, '--out' => $this->freshDir()]), $build->getDisplay());
     }
 
+    public function testOnlyAnEagerAtomDependencyCanSupplyTheMissingBuiltin(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        file_put_contents($root . '/' . self::ATOM, <<<'SOURCE'
+<?php
+namespace App\Atoms;
+final class GameRoom extends \Atoms\Atom {
+    public function find(): mixed { return \array_find([3], static fn (int $n): bool => $n > 0); }
+}
+SOURCE);
+        $polyfill = <<<'SOURCE'
+<?php
+if (PHP_VERSION_ID >= 80400) { return; }
+if (!function_exists('array_find')) {
+    function array_find(array $items, callable $match): mixed {
+        foreach ($items as $key => $item) {
+            if ($match($item, $key)) { return $item; }
+        }
+        return null;
+    }
+}
+SOURCE;
+        // Both the host and the archive contain a declaration. Neither loads it in the guest.
+        file_put_contents($root . '/host-polyfill.php', $polyfill);
+        $validate = new CommandTester(new ValidateCommand());
+        self::assertSame(1, $validate->execute(['--root' => $root]));
+        self::assertStringContainsString('ATOMS-E004', $validate->getDisplay());
+        self::assertFileDoesNotExist($root . '/atoms-composer.lock');
+        $build = new CommandTester(new BuildCommand(new Builder(runner: CannedComposer::runner([
+            'acme/lib/optional.php' => $polyfill,
+        ]))));
+        $out = $this->freshDir();
+        self::assertSame(1, $build->execute(['--root' => $root, '--out' => $out]));
+        self::assertStringContainsString(self::ATOM . ':4', $build->getDisplay());
+        self::assertSame([], $this->artifacts($out));
+        self::assertSame(1, $validate->execute(['--root' => $root]));
+
+        // Resolve a different dependency tree which requires the function file at activation.
+        $dependency = $root . '/atoms-composer.json';
+        file_put_contents($dependency, str_replace('^4.7', '^4.8', (string) file_get_contents($dependency)));
+        $build = new CommandTester(new BuildCommand(new Builder(runner: CannedComposer::runner([
+            'acme/lib/functions.php' => $polyfill,
+        ]))));
+        self::assertSame(0, $build->execute(['--root' => $root, '--out' => $out]), $build->getDisplay());
+        self::assertSame(0, $validate->execute(['--root' => $root]), $validate->getDisplay());
+    }
+
     /** @return array<string, string|false> */
     private function artifacts(string $directory): array
     {
