@@ -273,6 +273,9 @@ jobs:
       - name: Stage the pinned php-wasm runtime
         run: npm run prepare-runtime
 
+      - name: Check CLI function inventory against the Worker
+        run: node scripts/gen-runtime-functions.mjs --check
+
       - name: Bundle the fixture app
         run: npm run bundle
 
