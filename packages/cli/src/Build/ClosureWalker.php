@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Build;
 
+use PhpParser\Node;
 use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitorAbstract;
 
 /**
  * Stages 2+3: compute the transitive symbol closure of every bundled class
@@ -61,6 +63,8 @@ final class ClosureWalker
                     $ref['line'],
                     $shared,
                     $class->fqcn,
+                    $ref['fallback'] ?? null,
+                    $ref['offset'] ?? null,
                 );
                 if ($violation !== null) {
                     $violations[$violation->dedupeKey()] = $violations[$violation->dedupeKey()] ?? $violation;
@@ -68,11 +72,56 @@ final class ClosureWalker
             }
         }
 
+        foreach ($this->walkFiles($this->classifier->projectFiles(), $visited) as $violation) {
+            $violations[$violation->dedupeKey()] = $violations[$violation->dedupeKey()] ?? $violation;
+        }
         return array_values($violations);
     }
 
     /**
-     * @return list<array{name: string, kind: SymbolKind, line: int}>
+     * Check top-level code in loaded project files (including PHP migrations).
+     * Named functions in these files are checked as well; class bodies are
+     * handled by the class closure walk.
+     *
+     * @param list<string> $files project-relative paths already in the index
+     * @param array<string, true> $walked classes handled by the class walk
+     * @return list<Violation>
+     */
+    public function walkFiles(array $files, array $walked = []): array
+    {
+        $violations = [];
+        foreach (array_unique($files) as $file) {
+            $collector = new ReferenceCollector();
+            $traverser = new NodeTraverser();
+            $traverser->addVisitor(new class($walked) extends NodeVisitorAbstract {
+                /** @param array<string, true> $walked */
+                public function __construct(private readonly array $walked) {}
+
+                public function enterNode(Node $node): ?int
+                {
+                    if ($node instanceof Node\Stmt\ClassLike && $node->namespacedName !== null
+                        && isset($this->walked[$node->namespacedName->toString()])) {
+                        return NodeTraverser::DONT_TRAVERSE_CHILDREN;
+                    }
+                    return null;
+                }
+            });
+            $traverser->addVisitor($collector);
+            $traverser->traverse($this->classifier->sourceInFile($file));
+            foreach ($collector->references() as $ref) {
+                $violation = $this->classifier->classify(
+                    $ref['name'], $ref['kind'], $file, $ref['line'], false, '', $ref['fallback'] ?? null, $ref['offset'] ?? null,
+                );
+                if ($violation !== null) {
+                    $violations[$violation->dedupeKey()] = $violation;
+                }
+            }
+        }
+        return array_values($violations);
+    }
+
+    /**
+     * @return list<array{name: string, kind: SymbolKind, line: int, fallback?: ?string, offset?: ?int}>
      */
     private function collectReferences(DiscoveredClass $class): array
     {

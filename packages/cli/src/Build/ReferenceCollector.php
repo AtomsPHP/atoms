@@ -22,10 +22,12 @@ use PhpParser\NodeVisitorAbstract;
  * attributes, `new`/static/`instanceof` targets, catch types, function calls,
  * and typed signatures — with file:line, for the closure walk (§3.1 stage 2).
  *
- * @phpstan-type Reference array{name: string, kind: SymbolKind, line: int}
+ * @phpstan-type Reference array{name: string, kind: SymbolKind, line: int, fallback?: ?string, offset?: ?int}
  */
 final class ReferenceCollector extends NodeVisitorAbstract
 {
+    private int $functionDepth = 0;
+
     /** @var list<Reference> */
     private array $references = [];
 
@@ -39,13 +41,16 @@ final class ReferenceCollector extends NodeVisitorAbstract
 
     public function enterNode(Node $node): null
     {
+        if ($node instanceof Node\FunctionLike) {
+            ++$this->functionDepth;
+        }
         match (true) {
             $node instanceof Expr\New_ => $this->addClassName($node->class, $node->getStartLine()),
             $node instanceof Expr\StaticCall => $this->addClassName($node->class, $node->getStartLine()),
             $node instanceof Expr\ClassConstFetch => $this->addClassName($node->class, $node->getStartLine()),
             $node instanceof Expr\StaticPropertyFetch => $this->addClassName($node->class, $node->getStartLine()),
             $node instanceof Expr\Instanceof_ => $this->addClassName($node->class, $node->getStartLine()),
-            $node instanceof Expr\FuncCall => $this->addFunctionName($node->name, $node->getStartLine()),
+            $node instanceof Expr\FuncCall => $this->addFunctionName($node->name, $node->getStartLine(), $node->getStartFilePos()),
             $node instanceof Attribute => $this->addName($node->name, $node->getStartLine()),
             $node instanceof Stmt\Catch_ => $this->addNames($node->types, $node->getStartLine()),
             $node instanceof Param => $this->addType($node->type, $node->getStartLine()),
@@ -59,6 +64,14 @@ final class ReferenceCollector extends NodeVisitorAbstract
         return null;
     }
 
+    public function leaveNode(Node $node): null
+    {
+        if ($node instanceof Node\FunctionLike) {
+            --$this->functionDepth;
+        }
+        return null;
+    }
+
     /**
      * @param Node\Expr|Name $class
      */
@@ -69,10 +82,17 @@ final class ReferenceCollector extends NodeVisitorAbstract
         }
     }
 
-    private function addFunctionName(Node $name, int $line): void
+    private function addFunctionName(Node $name, int $line, int $offset): void
     {
         if ($name instanceof Name) {
-            $this->references[] = ['name' => $name->toString(), 'kind' => SymbolKind::FunctionCall, 'line' => $line];
+            $namespaced = $name->getAttribute('namespacedName');
+            $this->references[] = [
+                'name' => $namespaced instanceof Name ? $namespaced->toString() : $name->toString(),
+                'kind' => SymbolKind::FunctionCall,
+                'line' => $line,
+                'fallback' => $namespaced instanceof Name ? $name->toString() : null,
+                'offset' => $this->functionDepth === 0 ? $offset : null,
+            ];
         }
     }
 

@@ -33,6 +33,11 @@ final class SymbolClassifier
     /** @var array<string, true> extensions actually referenced by Atom/Shared code */
     private array $usedExtensions = [];
 
+    /** @var array<string, string> */
+    private array $runtimeFunctions;
+
+    private readonly FunctionIndex $functions;
+
     /**
      * @param list<string> $approvedNamespaces
      */
@@ -41,9 +46,19 @@ final class SymbolClassifier
         private readonly AllowedPackages $allowedPackages,
         array $approvedNamespaces,
         ?string $extensionsResource = null,
+        ?FunctionIndex $functions = null,
     ) {
         $this->approvedNamespaces = $approvedNamespaces;
         $this->runtimeExtensions = self::loadExtensions($extensionsResource);
+        $this->functions = $functions ?? new FunctionIndex();
+        $path = __DIR__ . '/../../resources/runtime-functions.json';
+        $raw = @file_get_contents($path);
+        if ($raw === false) {
+            throw new \RuntimeException("Could not read runtime-functions.json at {$path}");
+        }
+        /** @var array<string, string> $functionsByExtension */
+        $functionsByExtension = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        $this->runtimeFunctions = $functionsByExtension;
     }
 
     /**
@@ -78,6 +93,18 @@ final class SymbolClassifier
         return $names;
     }
 
+    /** @return list<string> */
+    public function projectFiles(): array
+    {
+        return $this->functions->projectFiles();
+    }
+
+    /** @return list<\PhpParser\Node> */
+    public function sourceInFile(string $file): array
+    {
+        return $this->functions->projectSource($file);
+    }
+
     /**
      * Classify a reference. Returns a Violation for boundary breaks, or null when
      * the symbol is legal in Atom code.
@@ -91,6 +118,8 @@ final class SymbolClassifier
         int $line,
         bool $shared = false,
         string $owner = '',
+        ?string $fallback = null,
+        ?int $offset = null,
     ): ?Violation {
         $name = ltrim($name, '\\');
 
@@ -99,16 +128,23 @@ final class SymbolClassifier
         }
 
         if ($kind === SymbolKind::FunctionCall) {
-            return $this->classifyFunction($name, $file, $line);
+            return $this->classifyFunction($name, $file, $line, $fallback, $offset);
         }
 
         return $this->classifyClass($name, $file, $line, $shared, $owner);
     }
 
-    private function classifyFunction(string $name, string $file, int $line): ?Violation
+    private function classifyFunction(string $name, string $file, int $line, ?string $fallback, ?int $offset): ?Violation
     {
-        $lower = strtolower($name);
+        // Unqualified calls in a namespace try that namespace first, then global.
+        if ($fallback !== null && $this->functions->has($name, $file, $offset)) {
+            return null;
+        }
+        if ($fallback !== null) {
+            $name = $fallback;
+        }
 
+        $lower = strtolower($name);
         if ($lower === 'env') {
             return new Violation(ErrorCode::EnvInAtom, $file, $line, [], $name);
         }
@@ -118,24 +154,25 @@ final class SymbolClassifier
         if (!str_contains($name, '\\') && \in_array($lower, self::GLOBAL_HELPERS, true)) {
             return new Violation(ErrorCode::FrameworkHelperInAtom, $file, $line, ['symbol' => $name], $name);
         }
+        if (isset($this->runtimeFunctions[$lower])) {
+            return $this->checkExtension($this->runtimeFunctions[$lower], $name, $file, $line);
+        }
+        if ($this->functions->has($name, $file, $offset)) {
+            return null;
+        }
 
-        // Namespaced function: treat like a namespaced symbol.
         if (str_contains($name, '\\')) {
-            return $this->classifyNamespaced($name, $file, $line, SymbolKind::FunctionCall, false, '');
+            $violation = $this->classifyNamespaced($name, $file, $line, SymbolKind::FunctionCall, false, '');
+            // An approved namespace alone does not make a function autoloadable.
+            if ($violation !== null && $violation->code !== ErrorCode::MonolithClassInAtom) {
+                return $violation;
+            }
         }
 
-        // Global, unqualified: allowed if it is a runtime-provided builtin.
-        if (\function_exists($name)) {
-            return $this->checkExtension(
-                (new \ReflectionFunction($name))->getExtensionName(),
-                $name,
-                $file,
-                $line,
-            );
-        }
-
-        // Unknown global function — assume a user global helper; do not flag.
-        return null;
+        return new Violation(ErrorCode::UnavailableWorkerFunction, $file, $line, [
+            'symbol' => $name,
+            'target' => TargetSyntax::PHP_VERSION,
+        ], $name);
     }
 
     private function classifyClass(string $name, string $file, int $line, bool $shared, string $owner): ?Violation
