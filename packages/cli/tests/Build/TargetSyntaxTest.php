@@ -97,6 +97,23 @@ PHP;
         self::assertSame(3, $result->errors[0]->line);
     }
 
+    public function testDiscoveryAcceptsPhp83IdentifiersReservedByNewerPhp(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $file = 'app/Atoms/GameRoom/Support/Legacy.php';
+        file_put_contents($root . '/' . $file, <<<'PHP'
+<?php
+namespace App\Atoms\GameRoom\Support;
+const __PROPERTY__ = 1;
+final class Legacy {}
+PHP);
+
+        $result = (new Validator())->validate(AtomsJson::load($root . '/atoms.json'));
+
+        self::assertSame([], $result->errors);
+        self::assertContains($file, array_column($result->bundleFiles->files, 'relative'));
+    }
+
     public function testUnsupportedTargetCannotSetTheManifestPhpVersion(): void
     {
         $root = $this->tempCopy('sample-app');

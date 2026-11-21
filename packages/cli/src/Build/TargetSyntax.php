@@ -29,6 +29,14 @@ final class TargetSyntax
 
     public function check(string $source, string $file): ?Violation
     {
+        $parsed = $this->parse($source, $file);
+
+        return $parsed instanceof Violation ? $parsed : null;
+    }
+
+    /** @return list<Node\Stmt>|Violation */
+    public function parse(string $source, string $file): array|Violation
+    {
         try {
             $ast = $this->parser->parse($source) ?? [];
         } catch (Error $error) {
@@ -43,7 +51,7 @@ final class TargetSyntax
             return self::violation($file, $newer->getStartLine(), 'This syntax requires PHP 8.4 or later.');
         }
 
-        return null;
+        return $ast;
     }
 
     public static function parseFailure(string $file, Error $error): Violation

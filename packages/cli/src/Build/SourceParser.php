@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Build;
 
+use PhpParser\Error;
 use PhpParser\Node;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\NodeFinder;
@@ -11,19 +12,22 @@ use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor\NameResolver;
 use PhpParser\Parser;
 use PhpParser\ParserFactory;
+use PhpParser\PhpVersion;
 
 /**
- * Wraps nikic/php-parser: parses a source file for the newest supported PHP
- * version and runs the NameResolver so every class-name reference is fully
- * qualified. Never includes or executes the file — pure static analysis.
+ * Discovers classes in both monolith and Worker source. Resolves every class
+ * name to its fully qualified name without executing the file.
  */
 final class SourceParser
 {
     private readonly Parser $parser;
+    private readonly Parser $workerParser;
 
     public function __construct()
     {
-        $this->parser = (new ParserFactory())->createForNewestSupportedVersion();
+        $factory = new ParserFactory();
+        $this->parser = $factory->createForNewestSupportedVersion();
+        $this->workerParser = $factory->createForVersion(PhpVersion::fromString(TargetSyntax::PHP_SERIES));
     }
 
     /**
@@ -36,7 +40,13 @@ final class SourceParser
             throw new \RuntimeException("Could not read {$absolutePath}");
         }
 
-        $ast = $this->parser->parse($code) ?? [];
+        try {
+            $ast = $this->parser->parse($code) ?? [];
+        } catch (Error) {
+            // Newer grammars can reserve tokens that the Worker still permits
+            // as identifiers, such as __PROPERTY__.
+            $ast = $this->workerParser->parse($code) ?? [];
+        }
 
         $traverser = new NodeTraverser();
         $traverser->addVisitor(new NameResolver(null, [
