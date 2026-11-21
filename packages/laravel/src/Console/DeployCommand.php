@@ -29,7 +29,9 @@ final class DeployCommand extends AtomsBinaryCommand
         {--bundle= : Path to a prebuilt bundle instead of building one}
         {--manifest= : Manifest for --bundle (default: manifest.json beside it)}
         {--worker-dir= : Worker project directory (else atoms-worker/ beside atoms.json)}
-        {--callback-url= : Callback URL for this deployment (beats ATOMS_CALLBACK_URL and atoms.json callback_url)}';
+        {--callback-url= : Callback URL for this deployment (beats ATOMS_CALLBACK_URL and atoms.json callback_url)}
+        {--dry-run : Package the selected environment without uploading or deploying}
+        {--outdir= : Retain Wrangler output in this directory (relative to the current directory)}';
 
     protected $description = 'Deploy the current build to your Atoms Worker';
 
@@ -37,11 +39,15 @@ final class DeployCommand extends AtomsBinaryCommand
     {
         $args = ['deploy'];
 
-        foreach (['env', 'bundle', 'manifest', 'worker-dir', 'callback-url'] as $option) {
+        foreach (['env', 'bundle', 'manifest', 'worker-dir', 'callback-url', 'outdir'] as $option) {
             if (($value = $this->option($option)) !== null) {
                 $args[] = '--' . $option;
                 $args[] = (string) $value;
             }
+        }
+
+        if ($this->option('dry-run')) {
+            $args[] = '--dry-run';
         }
 
         return $this->runBinary($args);
