@@ -214,6 +214,131 @@ SOURCE);
         self::assertSame(0, $validate->execute(['--root' => $root]), $validate->getDisplay());
     }
 
+    public function testVersionSwitchingVendorBootstrapPassesAndIndexesPhp83Helper(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        file_put_contents($root . '/' . self::ATOM, <<<'SOURCE'
+<?php
+namespace App\Atoms;
+final class GameRoom extends \Atoms\Atom {
+    public function label(): string {
+        return \acme_php83_helper();
+    }
+}
+SOURCE);
+
+        $runner = CannedComposer::runner([
+            'acme/lib/functions.php' => <<<'PHP'
+                <?php
+                if (PHP_VERSION_ID >= 80400) {
+                    require __DIR__ . '/php84.php';
+                } else {
+                    require __DIR__ . '/php83.php';
+                }
+                PHP,
+            'acme/lib/php84.php' => <<<'PHP'
+                <?php
+                final class Hooked {
+                    public string $label { get => 'php84'; }
+                }
+                PHP,
+            'acme/lib/php83.php' => <<<'PHP'
+                <?php
+                if (!function_exists('acme_php83_helper')) {
+                    function acme_php83_helper(): string { return 'php83'; }
+                }
+                PHP,
+        ]);
+
+        $build = new CommandTester(new BuildCommand(new Builder(runner: $runner)));
+        self::assertSame(0, $build->execute(['--root' => $root, '--out' => $this->freshDir()]), $build->getDisplay());
+
+        $validate = new CommandTester(new ValidateCommand());
+        self::assertSame(0, $validate->execute(['--root' => $root]), $validate->getDisplay());
+    }
+
+    public function testEarlyReturnGuardedVendorIncludePassesWithoutE003(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        file_put_contents($root . '/' . self::ATOM, <<<'SOURCE'
+<?php
+namespace App\Atoms;
+final class GameRoom extends \Atoms\Atom {
+    public function answer(): int {
+        return 42;
+    }
+}
+SOURCE);
+
+        $runner = CannedComposer::runner([
+            'acme/lib/functions.php' => <<<'PHP'
+                <?php
+                if (PHP_VERSION_ID < 80400) {
+                    return;
+                }
+                require __DIR__ . '/php84.php';
+                PHP,
+            'acme/lib/php84.php' => <<<'PHP'
+                <?php
+                final class Hooked {
+                    public string $label { get => 'php84'; }
+                }
+                PHP,
+        ]);
+
+        $build = new CommandTester(new BuildCommand(new Builder(runner: $runner)));
+        self::assertSame(0, $build->execute(['--root' => $root, '--out' => $this->freshDir()]), $build->getDisplay());
+
+        $validate = new CommandTester(new ValidateCommand());
+        self::assertSame(0, $validate->execute(['--root' => $root]), $validate->getDisplay());
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function unconditionalForwardingVendorBootstraps(): iterable
+    {
+        yield 'require' => ["<?php\nrequire __DIR__ . '/php84.php';\n"];
+        yield 'return require_once' => ["<?php\nreturn require_once __DIR__ . '/php84.php';\n"];
+    }
+
+    #[DataProvider('unconditionalForwardingVendorBootstraps')]
+    public function testUnconditionalForwardingVendorBootstrapFailsWithE003(string $bootstrap): void
+    {
+        $root = $this->tempCopy('sample-app');
+        file_put_contents($root . '/' . self::ATOM, <<<'SOURCE'
+<?php
+namespace App\Atoms;
+final class GameRoom extends \Atoms\Atom {
+    public function answer(): int {
+        return 42;
+    }
+}
+SOURCE);
+
+        $runner = CannedComposer::runner([
+            'acme/lib/functions.php' => $bootstrap,
+            'acme/lib/php84.php' => <<<'PHP'
+                <?php
+                final class Hooked {
+                    public string $label { get => 'php84'; }
+                }
+                PHP,
+        ]);
+
+        $out = $this->freshDir();
+        $build = new CommandTester(new BuildCommand(new Builder(runner: $runner)));
+        self::assertSame(1, $build->execute(['--root' => $root, '--out' => $out]));
+        self::assertStringContainsString('ATOMS-E003', $build->getDisplay());
+        self::assertStringContainsString('vendor/acme/lib/php84.php', $build->getDisplay());
+        self::assertSame([], $this->artifacts($out));
+
+        $validate = new CommandTester(new ValidateCommand());
+        self::assertSame(1, $validate->execute(['--root' => $root, '--json' => true]));
+        $result = json_decode($validate->getDisplay(), true, 512, JSON_THROW_ON_ERROR);
+        $matches = array_values(array_filter($result['errors'], static fn (array $error): bool =>
+            $error['code'] === 'ATOMS-E003' && $error['file'] === 'vendor/acme/lib/php84.php'));
+        self::assertCount(1, $matches, $validate->getDisplay());
+    }
+
     /** @return array<string, string|false> */
     private function artifacts(string $directory): array
     {

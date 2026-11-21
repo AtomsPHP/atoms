@@ -17,6 +17,7 @@ use Atoms\Errors\ErrorCode;
 use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor\NameResolver;
 use PhpParser\ParserFactory;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 final class FunctionIndexTest extends TestCase
 {
@@ -78,6 +79,116 @@ final class FunctionIndexTest extends TestCase
 
         self::assertCount(1, $findings);
         self::assertSame('vendor/p/invalid.php', $findings[0]->file);
+        self::assertSame(ErrorCode::IncompatibleWorkerSyntax, $findings[0]->code);
+    }
+
+    public function testVersionSwitchingVendorBootstrapSkipsPhp84BranchAndIndexesPhp83Helper(): void
+    {
+        $index = new FunctionIndex();
+        $findings = $index->addVendorEntries([
+            [
+                'name' => 'vendor/acme/polyfill/bootstrap.php',
+                'contents' => <<<'PHP'
+                    <?php
+                    if (PHP_VERSION_ID >= 80400) {
+                        require __DIR__ . '/php84.php';
+                    } else {
+                        require __DIR__ . '/php83.php';
+                    }
+                    PHP,
+            ],
+            [
+                'name' => 'vendor/acme/polyfill/php84.php',
+                'contents' => "<?php\nfinal class Hooked { public string \$label { get => 'php84'; } }\n",
+            ],
+            [
+                'name' => 'vendor/acme/polyfill/php83.php',
+                'contents' => "<?php\nif (!function_exists('acme_php83_helper')) {\n    function acme_php83_helper(): string { return 'php83'; }\n}\n",
+            ],
+        ], ['vendor/acme/polyfill/bootstrap.php']);
+
+        self::assertSame([], $findings);
+        self::assertTrue($index->has('acme_php83_helper'));
+    }
+
+    public function testEarlyReturnGuardedVendorIncludeSkipsUnparseableTarget(): void
+    {
+        $index = new FunctionIndex();
+        $findings = $index->addVendorEntries([
+            [
+                'name' => 'vendor/acme/polyfill/bootstrap.php',
+                'contents' => <<<'PHP'
+                    <?php
+                    if (PHP_VERSION_ID < 80400) {
+                        return;
+                    }
+                    require __DIR__ . '/php84.php';
+                    PHP,
+            ],
+            [
+                'name' => 'vendor/acme/polyfill/php84.php',
+                'contents' => "<?php\nfinal class Hooked { public string \$label { get => 'php84'; } }\n",
+            ],
+        ], ['vendor/acme/polyfill/bootstrap.php']);
+
+        self::assertSame([], $findings);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function unconditionalForwardingBootstraps(): iterable
+    {
+        yield 'require' => ["<?php\nrequire __DIR__ . '/php84.php';\n"];
+        yield 'return require_once' => [<<<'PHP'
+            <?php
+            declare(strict_types=1);
+            namespace Acme\Polyfill;
+            use stdClass;
+            // forward to implementation
+            return require_once __DIR__ . '/php84.php';
+            PHP];
+    }
+
+    #[DataProvider('unconditionalForwardingBootstraps')]
+    public function testUnconditionalForwardingVendorBootstrapReportsUnparseableTarget(string $bootstrap): void
+    {
+        $index = new FunctionIndex();
+        $findings = $index->addVendorEntries([
+            ['name' => 'vendor/acme/polyfill/bootstrap.php', 'contents' => $bootstrap],
+            [
+                'name' => 'vendor/acme/polyfill/php84.php',
+                'contents' => "<?php\nfinal class Hooked { public string \$label { get => 'php84'; } }\n",
+            ],
+        ], ['vendor/acme/polyfill/bootstrap.php']);
+
+        self::assertCount(1, $findings);
+        self::assertSame('vendor/acme/polyfill/php84.php', $findings[0]->file);
+        self::assertSame(ErrorCode::IncompatibleWorkerSyntax, $findings[0]->code);
+    }
+
+    public function testConditionalIncludeReCheckedWhenAlsoReachedAsMandatory(): void
+    {
+        $index = new FunctionIndex();
+        $findings = $index->addVendorEntries([
+            [
+                'name' => 'vendor/acme/polyfill/conditional.php',
+                'contents' => "<?php\nif (PHP_VERSION_ID >= 80400) {\n    require __DIR__ . '/php84.php';\n}\n",
+            ],
+            [
+                'name' => 'vendor/acme/polyfill/eager.php',
+                'contents' => "<?php\nrequire __DIR__ . '/hop.php';\n",
+            ],
+            [
+                'name' => 'vendor/acme/polyfill/hop.php',
+                'contents' => "<?php\nrequire __DIR__ . '/php84.php';\n",
+            ],
+            [
+                'name' => 'vendor/acme/polyfill/php84.php',
+                'contents' => "<?php\nfinal class Hooked { public string \$label { get => 'php84'; } }\n",
+            ],
+        ], ['vendor/acme/polyfill/conditional.php', 'vendor/acme/polyfill/eager.php']);
+
+        self::assertCount(1, $findings);
+        self::assertSame('vendor/acme/polyfill/php84.php', $findings[0]->file);
         self::assertSame(ErrorCode::IncompatibleWorkerSyntax, $findings[0]->code);
     }
 
