@@ -18,6 +18,22 @@
             "phase": "build"
         },
         {
+            "code": "ATOMS-E003",
+            "title": "Incompatible Worker PHP syntax",
+            "message": "PHP {target} cannot compile this file. {reason}",
+            "fix": "Use syntax supported by the Worker PHP version shown in the error.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
+            "code": "ATOMS-E004",
+            "title": "Function unavailable in the Worker",
+            "message": "Worker PHP {target} does not provide {symbol}(), and validation could not verify a bundled implementation.",
+            "fix": "Use a Worker builtin or supply a function that loads before the call. If an Atom dependency supplies it, run atoms build to resolve its files for offline validation.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
             "code": "ATOMS-E010",
             "title": "Framework symbol referenced inside Atom code",
             "message": "{symbol} belongs to a web framework and cannot be used inside Atom code — the Atoms runtime has no framework loaded.",

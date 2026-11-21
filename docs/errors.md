@@ -12,6 +12,8 @@ previous versions.
 |------|-------|----------|-------|-----|
 | ATOMS-E001 | Unclassifiable file under the Atoms path | warning | build | Move non-Atoms code out of the Atoms path, make the class extend the appropriate atoms/core base class, or move an Atom-side helper into the Atom's Support/ directory (e.g. app/Atoms/GameRoom/Support/). |
 | ATOMS-E002 | Two files declare the same class | error | build | Rename one of the two declarations, or move it to its own namespace. A bundle carries both files, so the guest would fatal at class-declaration time on whichever one loads second. |
+| ATOMS-E003 | Incompatible Worker PHP syntax | error | build | Use syntax supported by the Worker PHP version shown in the error. |
+| ATOMS-E004 | Function unavailable in the Worker | error | build | Use a Worker builtin or supply a function that loads before the call. If an Atom dependency supplies it, run atoms build to resolve its files for offline validation. |
 | ATOMS-E010 | Framework symbol referenced inside Atom code | error | build | Move the behavior into a Methods class (runs in your app via $this->app()) or use the atoms/core equivalent. |
 | ATOMS-E011 | Global framework helper called inside Atom code | error | build | Use $this->config() for configuration, new \DateTimeImmutable() for time, or move the call into a Methods class. |
 | ATOMS-E012 | Monolith class referenced inside Atom code | error | build | Pass data across the boundary as a Shared DTO (implement Atoms\Serialization\Payload), call it via $this->app(), or move an Atom-side helper into the Atom's Support/ directory. |

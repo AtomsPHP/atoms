@@ -44,6 +44,42 @@ Move non-Atoms code out of the Atoms path, make the class extend the appropriate
 Rename one declaration or move it to another namespace. Loading both declarations causes a PHP fatal error.
 
 
+<a id="atoms-e003"></a>
+
+## ATOMS-E003: Incompatible Worker PHP syntax
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `build` |
+
+**Message**
+
+PHP {target} cannot compile this file. {reason}
+
+**Fix**
+
+Use syntax supported by the Worker PHP version shown in the error.
+
+
+<a id="atoms-e004"></a>
+
+## ATOMS-E004: Function unavailable in the Worker
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `build` |
+
+**Message**
+
+Worker PHP {target} does not provide {symbol}(), and validation could not verify a bundled implementation.
+
+**Fix**
+
+Use a Worker builtin or supply a function that loads before the call. If an Atom dependency supplies it, run atoms build to resolve its files for offline validation.
+
+
 <a id="atoms-e010"></a>
 
 ## ATOMS-E010: Framework symbol referenced inside Atom code
