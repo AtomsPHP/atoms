@@ -8,7 +8,6 @@ use Atoms\Cli\Config\AllowedPackages;
 use Atoms\Cli\Config\AtomsComposerJson;
 use Atoms\Cli\Config\AtomsJson;
 use Atoms\Cli\Process\SymfonyProcessRunner;
-use Atoms\Errors\ErrorCode;
 
 final class Validator
 {
@@ -61,9 +60,13 @@ final class Validator
         }
 
         $vendor = null;
-        $needsVendor = $composer->requiredPackages() !== [];
-        if ($needsVendor) {
-            $vendor = (new VendorStage(new SymfonyProcessRunner()))->cached($config->rootDir);
+        if ($composer->requiredPackages() !== []) {
+            $hasEarlierErrors = array_filter($violations, static fn (Violation $v): bool => $v->isError()) !== [];
+            if ($resolveVendor !== null && !$hasEarlierErrors) {
+                $vendor = $resolveVendor($composer);
+            } else {
+                $vendor = (new VendorStage(new SymfonyProcessRunner()))->cached($config->rootDir);
+            }
             if ($vendor !== null) {
                 $violations = [...$violations, ...$functions->addVendorEntries($vendor->entries, $vendor->autoloadFiles)];
             }
@@ -71,28 +74,7 @@ final class Validator
 
         // Stages 2–3: closure walk + symbol classification.
         $classifier = new SymbolClassifier($discovered, $allowed, $composer->approvedNamespaces($allowed), functions: $functions);
-        $walkViolations = (new ClosureWalker($discovered, $classifier, $fileAsts))->walk();
-
-        if ($needsVendor && $vendor === null && $resolveVendor !== null) {
-            // Only invoke Composer when no other blocking errors exist; a vendor
-            // polyfill can satisfy UnavailableWorkerFunction findings.
-            $blocking = array_filter(
-                [...$violations, ...$walkViolations],
-                static fn (Violation $v): bool => $v->isError() && $v->code !== ErrorCode::UnavailableWorkerFunction,
-            );
-            if ($blocking === []) {
-                $vendor = $resolveVendor($composer);
-                $violations = [...$violations, ...$functions->addVendorEntries($vendor->entries, $vendor->autoloadFiles)];
-                $walkViolations = array_values(array_filter(
-                    $walkViolations,
-                    static fn (Violation $v): bool => $v->code !== ErrorCode::UnavailableWorkerFunction
-                        || $v->symbol === null
-                        || !$functions->has($v->symbol),
-                ));
-            }
-        }
-
-        $violations = [...$violations, ...$walkViolations];
+        $violations = [...$violations, ...(new ClosureWalker($discovered, $classifier, $fileAsts))->walk()];
 
         // Stage 6: manifest.
         $manifest = (new ManifestGenerator($config, $discovered, $methodsResolver, $migrations))

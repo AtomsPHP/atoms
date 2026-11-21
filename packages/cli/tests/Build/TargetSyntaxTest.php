@@ -35,6 +35,17 @@ final class TargetSyntaxTest extends TestCase
         yield 'final property' => ['class Room { final public string $name; }'];
         yield 'direct dereference of new' => ['new Room()->name();'];
         yield 'pipe operator' => ['return "room" |> trim(...);'];
+        yield 'first-class callable in constant' => ['class Room { public const FORMAT = \strlen(...); }'];
+        yield 'closure in constant' => ['class Room { public const FN = static function () {}; }'];
+        yield 'arrow function in constant' => ['class Room { public const FN = static fn () => 1; }'];
+        yield 'cast in parameter default' => ['function room(int $id = (int) "1"): int { return $id; }'];
+        yield 'cast in constant' => ['const ROOM_ID = (int) "1";'];
+        yield 'cast in enum case' => ['enum RoomKind: int { case Main = (int) "1"; }'];
+        yield 'trailing comma in exit' => ['exit(0,);'];
+        yield 'trailing comma in die' => ['die(0, /* comment */);'];
+        yield 'exit first-class callable' => ['$fn = exit(...);'];
+        yield 'clone with' => ['$copy = clone($room, ["name" => "lobby"]);'];
+        yield 'attribute on non-class const' => ['#[\Deprecated] const ROOM = "lobby";'];
     }
 
     public function testAcceptsPhp83Syntax(): void
@@ -43,9 +54,19 @@ final class TargetSyntaxTest extends TestCase
 <?php
 class Room
 {
+    #[\Deprecated]
     const string NAME = 'room';
 
     public function __construct(public readonly string $name = self::NAME) {}
+}
+enum RoomKind: int
+{
+    case Main = 1;
+}
+function nextId(): int
+{
+    static $id = (int) '1';
+    return $id;
 }
 $name = (new Room())->name;
 $format = trim(...);

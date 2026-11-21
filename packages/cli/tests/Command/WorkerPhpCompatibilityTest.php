@@ -145,6 +145,75 @@ SOURCE;
         self::assertSame(0, $validate->execute(['--root' => $root]), $validate->getDisplay());
     }
 
+    public function testColdAndWarmBuildsAgreeOnNamespacedVendorHelpersAndPolyfillIncludes(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        file_put_contents($root . '/atoms-composer.json', json_encode([
+            'require' => [
+                'ramsey/uuid' => '^4.7',
+                'nesbot/carbon' => '^3.0',
+            ],
+        ], JSON_THROW_ON_ERROR));
+        file_put_contents($root . '/' . self::ATOM, <<<'SOURCE'
+<?php
+namespace App\Atoms;
+final class GameRoom extends \Atoms\Atom {
+    public function summary(): string {
+        return mb_trim(room_helper() . ' ' . \Symfony\Component\Clock\now());
+    }
+}
+SOURCE);
+
+        $runner = CannedComposer::runner([
+            'symfony/clock/Resources/now.php' => <<<'PHP'
+                <?php
+                namespace Symfony\Component\Clock;
+                if (!function_exists(now::class)) {
+                    function now(): string { return '2026-01-01T00:00:00Z'; }
+                }
+                PHP,
+            'acme/lib/helpers.php' => <<<'PHP'
+                <?php
+                namespace App\Atoms;
+                function room_helper(): string { return ' sample '; }
+                PHP,
+            'symfony/polyfill-mbstring/bootstrap.php' => <<<'PHP'
+                <?php
+                if (\PHP_VERSION_ID >= 80000) {
+                    return require __DIR__ . '/bootstrap80.php';
+                }
+                PHP,
+            'symfony/polyfill-mbstring/bootstrap80.php' => <<<'PHP'
+                <?php
+                if (!function_exists('mb_trim')) {
+                    function mb_trim(string $s): string { return trim($s); }
+                }
+                PHP,
+            'composer/autoload_files.php' => <<<'PHP'
+                <?php
+                $vendorDir = dirname(__DIR__);
+                return [
+                    'clock' => $vendorDir . '/symfony/clock/Resources/now.php',
+                    'helpers' => $vendorDir . '/acme/lib/helpers.php',
+                    'mbstring' => $vendorDir . '/symfony/polyfill-mbstring/bootstrap.php',
+                ];
+                PHP,
+        ]);
+
+        $build = new CommandTester(new BuildCommand(new Builder(runner: $runner)));
+        $coldOut = $this->freshDir();
+        self::assertSame(0, $build->execute(['--root' => $root, '--out' => $coldOut]), $build->getDisplay());
+        $composerRunsAfterCold = \count($runner->runs);
+
+        $warmOut = $this->freshDir();
+        self::assertSame(0, $build->execute(['--root' => $root, '--out' => $warmOut]), $build->getDisplay());
+        self::assertSame($composerRunsAfterCold, \count($runner->runs), 'warm build uses cached vendor tree');
+        self::assertSame($this->artifacts($coldOut), $this->artifacts($warmOut));
+
+        $validate = new CommandTester(new ValidateCommand());
+        self::assertSame(0, $validate->execute(['--root' => $root]), $validate->getDisplay());
+    }
+
     /** @return array<string, string|false> */
     private function artifacts(string $directory): array
     {

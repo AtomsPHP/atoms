@@ -45,6 +45,29 @@ final class FunctionIndexTest extends TestCase
         self::assertFalse($index->has('unloaded_helper'));
     }
 
+    public function testFollowsLiteralDirIncludesFromEagerVendorFilesAndHandlesCycles(): void
+    {
+        $index = new FunctionIndex();
+        $findings = $index->addVendorEntries([
+            [
+                'name' => 'vendor/symfony/polyfill-mbstring/bootstrap.php',
+                'contents' => "<?php\nif (\\PHP_VERSION_ID >= 80000) {\n    return require __DIR__ . '/bootstrap80.php';\n}\nreturn require __DIR__ . '/bootstrap72.php';\n",
+            ],
+            [
+                'name' => 'vendor/symfony/polyfill-mbstring/bootstrap80.php',
+                'contents' => "<?php\nrequire_once __DIR__ . '/bootstrap.php';\nif (!function_exists('mb_trim')) {\n    function mb_trim(string \$string): string { return trim(\$string); }\n}\n",
+            ],
+            [
+                'name' => 'vendor/symfony/polyfill-mbstring/unused.php',
+                'contents' => '<?php function mb_unused(): void {}',
+            ],
+        ], ['vendor/symfony/polyfill-mbstring/bootstrap.php']);
+
+        self::assertSame([], $findings);
+        self::assertTrue($index->has('mb_trim'));
+        self::assertFalse($index->has('mb_unused'));
+    }
+
     public function testEagerVendorSyntaxFailuresAreReported(): void
     {
         $index = new FunctionIndex();

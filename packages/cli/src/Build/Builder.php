@@ -30,20 +30,7 @@ final class Builder
 
     public function build(AtomsJson $config, string $outDir, bool $fast = false): BuildResult
     {
-        $resolveVendor = function (AtomsComposerJson $composer) use ($config, $fast): VendorTree {
-            // A --fast bundle with declared dependencies would deploy cleanly
-            // and fatal in the guest on the first vendor class an Atom
-            // touches — a runtime failure for a fact known right here. Refuse
-            // instead; the vendor cache makes the full build cheap anyway.
-            if ($fast) {
-                throw new AtomsError(
-                    ErrorCode::FastBuildWithDependencies,
-                    ErrorCatalog::format(ErrorCode::FastBuildWithDependencies, [
-                        'count' => (string) \count($composer->requiredPackages()),
-                    ]),
-                );
-            }
-
+        $resolveVendor = $fast ? null : function (AtomsComposerJson $composer) use ($config): VendorTree {
             $stage = new VendorStage($this->runner ?? new SymfonyProcessRunner());
 
             return $stage->resolve($config->rootDir);
@@ -55,6 +42,22 @@ final class Builder
                 $validation->errors,
             );
             throw new AtomsError(ErrorCode::BundleRejected, implode("\n", $messages));
+        }
+
+        if ($fast) {
+            $required = AtomsComposerJson::locate($config->rootDir)->requiredPackages();
+            if ($required !== []) {
+                // A --fast bundle with declared dependencies would deploy cleanly
+                // and fatal in the guest on the first vendor class an Atom
+                // touches — a runtime failure for a fact known right here. Refuse
+                // instead; the vendor cache makes the full build cheap anyway.
+                throw new AtomsError(
+                    ErrorCode::FastBuildWithDependencies,
+                    ErrorCatalog::format(ErrorCode::FastBuildWithDependencies, [
+                        'count' => (string) \count($required),
+                    ]),
+                );
+            }
         }
 
         $vendor = $validation->vendor;
