@@ -69,6 +69,54 @@ final class BuilderVendorTest extends TestCase
         self::assertSame([], $runner->runs, 'the refusal happens before any subprocess');
     }
 
+    public function testAFastBuildWithDeclaredDependenciesStillRefusesWhenVendorCacheIsWarm(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $config = AtomsJson::load($root . '/atoms.json');
+        $runner = CannedComposer::runner();
+        $builder = new Builder(runner: $runner);
+
+        $builder->build($config, $this->freshDir());
+        $runsAfterFull = \count($runner->runs);
+        $fastOut = $this->freshDir();
+
+        try {
+            $builder->build($config, $fastOut, fast: true);
+            self::fail('--fast with declared dependencies must refuse even when vendor cache is warm');
+        } catch (AtomsError $e) {
+            self::assertSame(ErrorCode::FastBuildWithDependencies, $e->errorCode);
+            self::assertStringContainsString('ATOMS-E107', $e->getMessage());
+            self::assertStringContainsString('1 package(s)', $e->getMessage());
+        }
+
+        self::assertSame($runsAfterFull, \count($runner->runs), 'no extra composer run on --fast refusal');
+        self::assertSame([], glob($fastOut . '/*') ?: []);
+    }
+
+    public function testValidationErrorsTakePrecedenceOverFastBuildDependencyRefusal(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        file_put_contents($root . '/app/Atoms/GameRoom.php', <<<'PHP'
+<?php
+namespace App\Atoms;
+final class GameRoom extends \Atoms\Atom {
+    public function bad(): mixed { return new \App\Models\User(); }
+}
+PHP);
+        $config = AtomsJson::load($root . '/atoms.json');
+        $runner = CannedComposer::runner();
+
+        try {
+            (new Builder(runner: $runner))->build($config, $this->freshDir(), fast: true);
+            self::fail('validation errors must take precedence over ATOMS-E107');
+        } catch (AtomsError $e) {
+            self::assertSame(ErrorCode::BundleRejected, $e->errorCode);
+            self::assertStringContainsString('ATOMS-E012', $e->getMessage());
+        }
+
+        self::assertSame([], $runner->runs);
+    }
+
     public function testAFastBuildWithNoDependenciesStillWorksAndShipsNoVendor(): void
     {
         $config = AtomsJson::load($this->fixtureDir('ws-app') . '/atoms.json');

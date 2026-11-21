@@ -71,6 +71,25 @@ final class VendorStage
     {
     }
 
+    /** Read the current cached tree without running Composer or writing any files. */
+    public function cached(string $rootDir): ?VendorTree
+    {
+        $rootDir = rtrim($rootDir, '/');
+        $jsonPath = $rootDir . '/atoms-composer.json';
+        $lockPath = $rootDir . '/atoms-composer.lock';
+        if (!is_file($jsonPath) || !is_file($lockPath)) {
+            return null;
+        }
+
+        $jsonBytes = @file_get_contents($jsonPath);
+        $lockBytes = @file_get_contents($lockPath);
+        if ($jsonBytes === false || $lockBytes === false) {
+            return null;
+        }
+
+        return $this->readCache($rootDir, self::cacheKey($jsonBytes, $lockBytes));
+    }
+
     /**
      * @throws AtomsError ATOMS-E079 when resolution fails
      */
@@ -123,11 +142,12 @@ final class VendorStage
             }
 
             $pruned = [];
-            $entries = $this->collectEntries($work . '/vendor', $pruned);
+            $autoloadFiles = [];
+            $entries = $this->collectEntries($work . '/vendor', $pruned, $autoloadFiles);
             sort($pruned, SORT_STRING);
             $packages = $this->installedPackages($work . '/vendor');
 
-            $tree = new VendorTree($entries, $packages, $wroteLock, $pruned);
+            $tree = new VendorTree($entries, $packages, $wroteLock, $pruned, $autoloadFiles);
 
             if ($lockBytes !== null) {
                 $this->writeCache($rootDir, self::cacheKey($jsonBytes, $lockBytes), $tree);
@@ -201,18 +221,22 @@ final class VendorStage
     /**
      * Every .php file plus package LICENSE files, and the generated autoload
      * file, as sorted bundle entries. Pruned files that look like runtime
-     * data ({@see self::DATA_EXTENSIONS}) are collected into $pruned.
+     * data ({@see self::DATA_EXTENSIONS}) are collected into $pruned, and
+     * shipped eager autoload files into $autoloadFiles in Composer order.
      *
      * @param list<string> $pruned
+     * @param list<string> $autoloadFiles
      * @return list<array{name: string, contents: string}>
      */
-    private function collectEntries(string $vendorDir, array &$pruned = []): array
+    private function collectEntries(string $vendorDir, array &$pruned = [], array &$autoloadFiles = []): array
     {
         if (!is_dir($vendorDir)) {
             throw self::failure("composer install produced no vendor directory at {$vendorDir}");
         }
 
         $entries = [];
+        /** @var array<string, true> $shipped */
+        $shipped = [];
         $iterator = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($vendorDir, \FilesystemIterator::SKIP_DOTS),
         );
@@ -249,15 +273,17 @@ final class VendorStage
             if (!mb_check_encoding($contents, 'UTF-8')) {
                 throw self::failure("vendor/{$relative} is not valid UTF-8; every bundle entry must be, because the deploy translator decodes entries as UTF-8");
             }
+            $entryName = 'vendor/' . $relative;
+            $shipped[$entryName] = true;
             $entries[] = [
-                'name' => 'vendor/' . $relative,
+                'name' => $entryName,
                 'contents' => $contents,
             ];
         }
 
         $entries[] = [
             'name' => self::AUTOLOAD_PATH,
-            'contents' => $this->generateAutoload($vendorDir),
+            'contents' => $this->generateAutoload($vendorDir, $shipped, $autoloadFiles),
         ];
 
         usort($entries, static fn (array $a, array $b): int => strcmp($a['name'], $b['name']));
@@ -269,8 +295,11 @@ final class VendorStage
      * One plain PHP file from Composer's optimized autoload output: an exact
      * classmap plus the ordered function-file requires, all __DIR__-relative
      * so the same file works at any guest mount point.
+     *
+     * @param array<string, true> $shipped
+     * @param list<string>        $autoloadFiles
      */
-    private function generateAutoload(string $vendorDir): string
+    private function generateAutoload(string $vendorDir, array $shipped, array &$autoloadFiles): string
     {
         $classmapPath = $vendorDir . '/composer/autoload_classmap.php';
         if (!is_file($classmapPath)) {
@@ -301,6 +330,10 @@ final class VendorStage
                 continue;
             }
             $fileLines[] = sprintf('        %s,', var_export('/' . $relative, true));
+            $entryName = 'vendor/' . $relative;
+            if (isset($shipped[$entryName])) {
+                $autoloadFiles[] = $entryName;
+            }
         }
 
         return "<?php\n\n"
@@ -417,7 +450,8 @@ final class VendorStage
         } catch (\JsonException) {
             return null; // a corrupt cache is a miss, not a failure
         }
-        if (!\is_array($meta) || !\is_array($meta['packages'] ?? null) || !\is_string($meta['entries_hash'] ?? null)) {
+        if (!\is_array($meta) || !\is_array($meta['packages'] ?? null)
+            || !\is_array($meta['autoload_files'] ?? null) || !\is_string($meta['entries_hash'] ?? null)) {
             return null;
         }
 
@@ -451,8 +485,10 @@ final class VendorStage
         $prunedDataFiles = \is_array($meta['pruned_data_files'] ?? null)
             ? array_values(array_map('strval', $meta['pruned_data_files']))
             : [];
+        /** @var list<string> $autoloadFiles */
+        $autoloadFiles = array_values(array_map('strval', $meta['autoload_files']));
 
-        return new VendorTree($entries, $packages, false, $prunedDataFiles);
+        return new VendorTree($entries, $packages, false, $prunedDataFiles, $autoloadFiles);
     }
 
     private function writeCache(string $rootDir, string $key, VendorTree $tree): void
@@ -481,6 +517,7 @@ final class VendorStage
             [
                 'packages' => $tree->packages,
                 'pruned_data_files' => $tree->prunedDataFiles,
+                'autoload_files' => $tree->autoloadFiles,
                 'entries_hash' => self::entriesDigest($tree->entries),
             ],
             JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,

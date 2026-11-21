@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Build;
 
+use PhpParser\Error;
 use PhpParser\Node;
 use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\NodeFinder;
@@ -11,19 +12,21 @@ use PhpParser\NodeTraverser;
 use PhpParser\NodeVisitor\NameResolver;
 use PhpParser\Parser;
 use PhpParser\ParserFactory;
+use PhpParser\PhpVersion;
 
 /**
- * Wraps nikic/php-parser: parses a source file for the newest supported PHP
- * version and runs the NameResolver so every class-name reference is fully
- * qualified. Never includes or executes the file — pure static analysis.
+ * Finds classes and resolves their names without executing host or Worker code.
  */
 final class SourceParser
 {
     private readonly Parser $parser;
+    private readonly Parser $workerParser;
 
     public function __construct()
     {
-        $this->parser = (new ParserFactory())->createForNewestSupportedVersion();
+        $factory = new ParserFactory();
+        $this->parser = $factory->createForNewestSupportedVersion();
+        $this->workerParser = $factory->createForVersion(PhpVersion::fromString(TargetSyntax::PHP_SERIES));
     }
 
     /**
@@ -36,7 +39,12 @@ final class SourceParser
             throw new \RuntimeException("Could not read {$absolutePath}");
         }
 
-        $ast = $this->parser->parse($code) ?? [];
+        try {
+            $ast = $this->parser->parse($code) ?? [];
+        } catch (Error) {
+            // PHP 8.3 accepts __PROPERTY__ as an identifier. Newer versions reserve it.
+            $ast = $this->workerParser->parse($code) ?? [];
+        }
 
         $traverser = new NodeTraverser();
         $traverser->addVisitor(new NameResolver(null, [

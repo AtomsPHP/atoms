@@ -1086,6 +1086,12 @@ describes the customer tree only; `atoms build`'s manifest is the one with
 the `vendor` key. The content hash always covers everything in the tar,
 vendor included.
 
+For each direct function call, `atoms validate` checks the pinned Worker's
+built-ins and functions declared in bundled project files. If the dependency
+cache matches, it also checks files loaded through Composer's `autoload.files`.
+If it cannot find the function, it reports ATOMS-E004. On a cache miss,
+`atoms build` can run Composer and check the resulting files.
+
 ### Three additive manifest fields
 
 The Worker needs three things the schema-1 manifest did not record. All are

@@ -22,12 +22,15 @@ final class VendorTree
      *        (.json/.txt/.csv/…) but were pruned by the ship rule (.php +
      *        LICENSE only) — surfaced so a package that reads one at runtime
      *        fails with a named cause at build output, not a bare guest error
+     * @param list<string>                                $autoloadFiles
+     *        paths relative to the bundle, in the order Composer loads them at startup
      */
     public function __construct(
         public readonly array $entries,
         public readonly array $packages,
         public readonly bool $wroteLock,
         public readonly array $prunedDataFiles = [],
+        public readonly array $autoloadFiles = [],
     ) {
     }
 }

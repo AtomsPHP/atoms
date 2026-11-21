@@ -30,34 +30,37 @@ final class Builder
 
     public function build(AtomsJson $config, string $outDir, bool $fast = false): BuildResult
     {
-        $validation = $this->validator->validate($config);
+        $resolveVendor = $fast ? null : function (AtomsComposerJson $composer) use ($config): VendorTree {
+            $stage = new VendorStage($this->runner ?? new SymfonyProcessRunner());
+
+            return $stage->resolve($config->rootDir);
+        };
+        $validation = $this->validator->validate($config, $resolveVendor);
         if (!$validation->ok()) {
-            throw new AtomsError(
-                ErrorCode::BundleRejected,
-                'Build aborted: validation found ' . \count($validation->errors) . ' error(s). Run `atoms validate`.',
+            $messages = array_map(
+                static fn (Violation $error): string => sprintf('%s:%d  %s', $error->file, $error->line, $error->message()),
+                $validation->errors,
             );
+            throw new AtomsError(ErrorCode::BundleRejected, implode("\n", $messages));
         }
 
-        $composer = AtomsComposerJson::locate($config->rootDir);
-        $vendor = null;
-        if ($composer->requiredPackages() !== []) {
-            // A --fast bundle with declared dependencies would deploy cleanly
-            // and fatal in the guest on the first vendor class an Atom
-            // touches — a runtime failure for a fact known right here. Refuse
-            // instead; the vendor cache makes the full build cheap anyway.
-            if ($fast) {
+        if ($fast) {
+            $required = AtomsComposerJson::locate($config->rootDir)->requiredPackages();
+            if ($required !== []) {
+                // A --fast bundle with declared dependencies would deploy cleanly
+                // and fatal in the guest on the first vendor class an Atom
+                // touches — a runtime failure for a fact known right here. Refuse
+                // instead; the vendor cache makes the full build cheap anyway.
                 throw new AtomsError(
                     ErrorCode::FastBuildWithDependencies,
                     ErrorCatalog::format(ErrorCode::FastBuildWithDependencies, [
-                        'count' => (string) \count($composer->requiredPackages()),
+                        'count' => (string) \count($required),
                     ]),
                 );
             }
-
-            $stage = new VendorStage($this->runner ?? new SymfonyProcessRunner());
-            $vendor = $stage->resolve($config->rootDir);
         }
 
+        $vendor = $validation->vendor;
         $manifest = $validation->manifest;
         if ($vendor !== null) {
             // Additive schema-1 field: where the bundled vendor autoloader

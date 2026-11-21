@@ -4,19 +4,26 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Build;
 
+use PhpParser\Node;
 use PhpParser\NodeTraverser;
+use PhpParser\NodeVisitorAbstract;
 
 /**
  * Stages 2+3: compute the transitive symbol closure of every bundled class
- * (Atom, Shared DTO, Support), classify each referenced symbol, and collect
- * the boundary violations. Recursion follows only bundled classes — Methods
- * and AtomJob code stays in the monolith and is never walked.
+ * (Atom, Shared DTO, Support) and top-level/migration PHP code, classify each
+ * referenced symbol, and collect boundary violations. Recursion follows only
+ * bundled classes — Methods and AtomJob code stays in the monolith and is never
+ * walked.
  */
 final class ClosureWalker
 {
+    /**
+     * @param array<string, list<Node>> $fileAsts bundled PHP files (relative path => resolved AST)
+     */
     public function __construct(
         private readonly DiscoveryResult $discovery,
         private readonly SymbolClassifier $classifier,
+        private readonly array $fileAsts = [],
     ) {
     }
 
@@ -61,6 +68,44 @@ final class ClosureWalker
                     $ref['line'],
                     $shared,
                     $class->fqcn,
+                    $ref['fallback'] ?? null,
+                );
+                if ($violation !== null) {
+                    $violations[$violation->dedupeKey()] = $violations[$violation->dedupeKey()] ?? $violation;
+                }
+            }
+        }
+
+        // Check top-level code, functions, and migration classes not walked above.
+        foreach ($this->fileAsts as $file => $ast) {
+            $collector = new ReferenceCollector();
+            $traverser = new NodeTraverser();
+            $traverser->addVisitor(new class($visited) extends NodeVisitorAbstract {
+                /** @param array<string, true> $walked */
+                public function __construct(private readonly array $walked) {}
+
+                public function enterNode(Node $node): ?int
+                {
+                    if ($node instanceof Node\Stmt\ClassLike && $node->namespacedName !== null
+                        && isset($this->walked[$node->namespacedName->toString()])) {
+                        return NodeTraverser::DONT_TRAVERSE_CHILDREN;
+                    }
+
+                    return null;
+                }
+            });
+            $traverser->addVisitor($collector);
+            $traverser->traverse($ast);
+
+            foreach ($collector->references() as $ref) {
+                $violation = $this->classifier->classify(
+                    $ref['name'],
+                    $ref['kind'],
+                    $file,
+                    $ref['line'],
+                    false,
+                    '',
+                    $ref['fallback'] ?? null,
                 );
                 if ($violation !== null) {
                     $violations[$violation->dedupeKey()] = $violations[$violation->dedupeKey()] ?? $violation;
@@ -72,7 +117,7 @@ final class ClosureWalker
     }
 
     /**
-     * @return list<array{name: string, kind: SymbolKind, line: int}>
+     * @return list<array{name: string, kind: SymbolKind, line: int, fallback?: ?string}>
      */
     private function collectReferences(DiscoveredClass $class): array
     {

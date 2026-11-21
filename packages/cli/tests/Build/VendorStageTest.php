@@ -34,6 +34,7 @@ final class VendorStageTest extends TestCase
         self::assertSame($sorted, $names, 'entries are sorted by name');
 
         self::assertSame(['acme/lib' => '1.2.3'], $tree->packages);
+        self::assertSame(['vendor/acme/lib/functions.php'], $tree->autoloadFiles);
         self::assertTrue($tree->wroteLock);
         self::assertSame("{\"canned\": true}\n", file_get_contents($root . '/atoms-composer.lock'));
     }
@@ -77,7 +78,45 @@ final class VendorStageTest extends TestCase
             array_column($second->entries, 'contents', 'name'),
         );
         self::assertSame($first->packages, $second->packages);
+        self::assertSame($first->autoloadFiles, $second->autoloadFiles);
         self::assertFalse($second->wroteLock);
+    }
+
+    public function testTheReadOnlyCacheReportsShippedEagerFilesInComposerOrder(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $runner = new FakeProcessRunner(onPath: []);
+        $cachedStage = new VendorStage($runner);
+
+        self::assertNull($cachedStage->cached($root));
+        self::assertFileDoesNotExist($root . '/atoms-composer.lock');
+        self::assertDirectoryDoesNotExist($root . '/.atoms/vendor-cache');
+
+        $stage = new VendorStage(CannedComposer::runner([
+            'acme/lib/z-functions.php' => '<?php throw new \RuntimeException("Eager file executed during analysis");',
+            'acme/lib/pruned.inc' => '<?php function pruned() {}',
+            'composer/autoload_files.php' => <<<'PHP'
+                <?php
+                $vendorDir = dirname(__DIR__);
+                return [
+                    'first' => $vendorDir . '/acme/lib/z-functions.php',
+                    'second' => $vendorDir . '/acme/lib/functions.php',
+                    'pruned' => $vendorDir . '/acme/lib/pruned.inc',
+                ];
+                PHP,
+        ]));
+        $tree = $stage->resolve($root);
+        self::assertSame(['vendor/acme/lib/z-functions.php', 'vendor/acme/lib/functions.php'], $tree->autoloadFiles);
+
+        $cached = $cachedStage->cached($root);
+        self::assertNotNull($cached);
+        self::assertSame($tree->autoloadFiles, $cached->autoloadFiles);
+        self::assertSame($tree->entries, $cached->entries);
+        self::assertFalse($cached->wroteLock);
+
+        file_put_contents($root . '/atoms-composer.lock', "{\"changed\": true}\n");
+        self::assertNull($cachedStage->cached($root));
+        self::assertSame([], $runner->runs);
     }
 
     public function testComposerRuntimeFilesReferencedByRealClassmapsAreKept(): void
@@ -159,6 +198,9 @@ final class VendorStageTest extends TestCase
         $victim = $caches[0] . '/files/vendor/acme/lib/src/Greeter.php';
         self::assertFileExists($victim);
         file_put_contents($victim, "<?php // poisoned\n");
+
+        self::assertNull($stage->cached($root));
+        self::assertSame($runsAfterFirst, \count($runner->runs), 'reading a corrupt cache runs no subprocess');
 
         $tree = $stage->resolve($root);
 

@@ -22,7 +22,7 @@ use PhpParser\NodeVisitorAbstract;
  * attributes, `new`/static/`instanceof` targets, catch types, function calls,
  * and typed signatures — with file:line, for the closure walk (§3.1 stage 2).
  *
- * @phpstan-type Reference array{name: string, kind: SymbolKind, line: int}
+ * @phpstan-type Reference array{name: string, kind: SymbolKind, line: int, fallback?: ?string}
  */
 final class ReferenceCollector extends NodeVisitorAbstract
 {
@@ -72,7 +72,13 @@ final class ReferenceCollector extends NodeVisitorAbstract
     private function addFunctionName(Node $name, int $line): void
     {
         if ($name instanceof Name) {
-            $this->references[] = ['name' => $name->toString(), 'kind' => SymbolKind::FunctionCall, 'line' => $line];
+            $namespaced = $name->getAttribute('namespacedName');
+            $this->references[] = [
+                'name' => $namespaced instanceof Name ? $namespaced->toString() : $name->toString(),
+                'kind' => SymbolKind::FunctionCall,
+                'line' => $line,
+                'fallback' => $namespaced instanceof Name ? $name->toString() : null,
+            ];
         }
     }
 
