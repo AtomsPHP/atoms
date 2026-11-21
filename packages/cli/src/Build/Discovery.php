@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Cli\Build;
 
 use Atoms\Cli\Config\AtomsJson;
+use PhpParser\Error;
 use PhpParser\Node;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassLike;
@@ -39,12 +40,17 @@ final class Discovery
         $parsed = [];
         /** @var array<string, DiscoveredClass> $raw the FQCN index, last declaration wins */
         $raw = [];
-        /** @var list<Violation> $duplicates */
-        $duplicates = [];
+        /** @var list<Violation> $violations */
+        $violations = [];
 
         foreach ($this->phpFiles($atomsDir) as $absolute) {
             $relative = self::relativePath($rootDir, $absolute);
-            $file = $this->parser->parse($absolute, $relative);
+            try {
+                $file = $this->parser->parse($absolute, $relative);
+            } catch (Error $error) {
+                $violations[] = TargetSyntax::parseFailure($relative, $error);
+                continue;
+            }
             $fileClasses = [];
             foreach ($file->classes as $node) {
                 $discovered = $this->toDiscovered($node, $absolute, $relative);
@@ -54,7 +60,7 @@ final class Discovery
                 // carries both files and the guest fatals on the second.
                 $first = $raw[$discovered->fqcn] ?? null;
                 if ($first !== null) {
-                    $duplicates[] = new Violation(
+                    $violations[] = new Violation(
                         \Atoms\Errors\ErrorCode::DuplicateClassDeclaration,
                         $discovered->relativePath,
                         $discovered->line,
@@ -87,7 +93,6 @@ final class Discovery
         // Deterministic ordering by FQCN for stable manifests.
         ksort($raw, SORT_STRING);
 
-        $violations = $duplicates;
         foreach ($parsed as $entry) {
             $file = $entry['file'];
             if ($entry['classes'] === []) {

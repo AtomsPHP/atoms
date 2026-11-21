@@ -50,8 +50,19 @@ final class Validator
         $migrations = (new MigrationScanner())->scan($discovered);
         $violations = [...$violations, ...$migrations->violations()];
 
-        // Stage 6: manifest.
         $bundleFiles = BundleFileSet::collect($config, $discovered);
+        $syntax = new TargetSyntax();
+        foreach ($bundleFiles->files as $file) {
+            if (!str_ends_with($file['relative'], '.php')) {
+                continue;
+            }
+            $violation = $syntax->check($bundleFiles->contentsOf($file), $file['relative']);
+            if ($violation !== null) {
+                $violations[] = $violation;
+            }
+        }
+
+        // Stage 6: manifest.
         $manifest = (new ManifestGenerator($config, $discovered, $methodsResolver, $migrations))
             ->generate($bundleFiles->scoperPrefix(), $classifier->usedExtensions());
 

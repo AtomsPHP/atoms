@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Config;
 
+use Atoms\Cli\Build\TargetSyntax;
 use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
@@ -147,7 +148,11 @@ final class AtomsJson
             ? self::requireString($paths, 'paths.shared', 'shared')
             : rtrim($atomsPath, '/') . '/Shared';
 
-        $php = isset($decoded['php']) ? self::requireString($decoded, 'php') : '8.3';
+        $php = isset($decoded['php']) ? self::requireString($decoded, 'php') : TargetSyntax::PHP_SERIES;
+        if ($php !== TargetSyntax::PHP_SERIES) {
+            throw self::invalid('"php" must be "' . TargetSyntax::PHP_SERIES
+                . '" for the current Worker (PHP ' . TargetSyntax::PHP_VERSION . ')');
+        }
 
         $environments = self::parseEnvironments($decoded['environments'] ?? null);
 
