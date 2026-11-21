@@ -231,6 +231,261 @@ final class VendorStageTest extends TestCase
         self::assertFalse($decoded['repositories'][0]['options']['symlink']);
         self::assertFalse($decoded['repositories'][1]['options']['symlink']);
         self::assertArrayNotHasKey('options', $decoded['repositories'][2]);
+        self::assertSame(VendorStage::workerPlatform(), $decoded['config']['platform'] ?? null);
+    }
+
+    public function testComposerCommandEnforcesPlatformRequirements(): void
+    {
+        $command = VendorStage::composerCommand();
+
+        self::assertNotContains('--ignore-platform-reqs', $command);
+        self::assertContains('--no-dev', $command);
+        self::assertContains('--no-scripts', $command);
+        self::assertContains('--no-plugins', $command);
+        self::assertContains('--optimize-autoloader', $command);
+    }
+
+    public function testStagedComposerJsonInjectsWorkerPlatformEvenWithoutRepositories(): void
+    {
+        $staged = VendorStage::stagedComposerJson('/home/me/app', json_encode([
+            'require' => ['ramsey/uuid' => '^4.7'],
+        ], JSON_THROW_ON_ERROR));
+
+        $decoded = json_decode($staged, true, 16, JSON_THROW_ON_ERROR);
+        $platform = $decoded['config']['platform'] ?? null;
+        self::assertIsArray($platform);
+        self::assertSame(VendorStage::WORKER_PHP_VERSION, $platform['php'] ?? null);
+
+        $extensionsFile = \dirname(__DIR__, 2) . '/resources/runtime-extensions.json';
+        /** @var array{extensions: list<string>} $rawExtensions */
+        $rawExtensions = json_decode((string) file_get_contents($extensionsFile), true, 16, JSON_THROW_ON_ERROR);
+        foreach ($rawExtensions['extensions'] as $ext) {
+            $lower = strtolower($ext);
+            if ($lower === 'core' || $lower === 'standard') {
+                self::assertArrayNotHasKey('ext-' . $lower, $platform);
+                continue;
+            }
+            self::assertSame(VendorStage::WORKER_PHP_VERSION, $platform['ext-' . $lower] ?? null);
+        }
+    }
+
+    public function testStagedComposerLockInjectsWorkerPlatformOverridesWithoutCorruptingEmptyObjects(): void
+    {
+        $rawLock = json_encode([
+            'content-hash' => 'abc123',
+            'packages' => [],
+            'packages-dev' => [],
+            'platform' => new \stdClass(),
+            'platform-dev' => new \stdClass(),
+            'platform-overrides' => ['php' => '8.5.0'],
+        ], JSON_THROW_ON_ERROR);
+
+        $staged = VendorStage::stagedComposerLock($rawLock);
+
+        self::assertStringContainsString('"platform": {}', $staged);
+        self::assertStringContainsString('"platform-dev": {}', $staged);
+        self::assertStringContainsString('"packages-dev": []', $staged);
+
+        $decoded = json_decode($staged, true, 16, JSON_THROW_ON_ERROR);
+        self::assertSame(VendorStage::workerPlatform(), $decoded['platform-overrides'] ?? null);
+    }
+
+    public function testCacheKeyIncludesWorkerPhpVersion(): void
+    {
+        $json = "{\"require\":{\"acme/lib\":\"^1.0\"}}\n";
+        $lock = "{\"canned\": true}\n";
+
+        self::assertNotSame(
+            VendorStage::cacheKey($json, $lock, '8.3.32'),
+            VendorStage::cacheKey($json, $lock, '8.4.0'),
+        );
+        self::assertNotSame(
+            hash('sha256', $json . "\0" . $lock),
+            VendorStage::cacheKey($json, $lock),
+            'legacy caches created before platform pinning must miss',
+        );
+
+        $root = $this->tempCopy('sample-app');
+        $runner = CannedComposer::runner();
+        (new VendorStage($runner, '8.3.32'))->resolve($root);
+        $runsAfterFirst = \count($runner->runs);
+
+        (new VendorStage($runner, '8.4.0'))->resolve($root);
+        self::assertGreaterThan(
+            $runsAfterFirst,
+            \count($runner->runs),
+            'changing the Worker PHP version must invalidate the vendor cache',
+        );
+    }
+
+    public function testRealComposerResolvesVersionCompatibleWithWorkerPhpInsteadOfHostPhp(): void
+    {
+        $this->requireRealComposer();
+
+        $root = $this->freshDir();
+        $this->writePathPackage($root . '/packages/widget-v1', 'acme/widget', '1.0.0', ['php' => '^8.3']);
+        $this->writePathPackage($root . '/packages/widget-v2', 'acme/widget', '2.0.0', ['php' => '>=8.4.1']);
+        file_put_contents($root . '/atoms-composer.json', json_encode([
+            'require' => ['acme/widget' => '*'],
+            'repositories' => [
+                ['type' => 'path', 'url' => 'packages/widget-v1'],
+                ['type' => 'path', 'url' => 'packages/widget-v2'],
+                ['packagist.org' => false],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $stage = new VendorStage(new \Atoms\Cli\Process\SymfonyProcessRunner());
+        $tree = $stage->resolve($root);
+
+        self::assertSame(['acme/widget' => '1.0.0'], $tree->packages);
+        self::assertTrue($tree->wroteLock);
+
+        /** @var array<string, mixed> $lock */
+        $lock = json_decode((string) file_get_contents($root . '/atoms-composer.lock'), true, 64, JSON_THROW_ON_ERROR);
+        self::assertSame(VendorStage::WORKER_PHP_VERSION, $lock['platform-overrides']['php'] ?? null);
+
+        // Clear cache and re-run from the written lockfile to prove repeat
+        // verification passes cleanly against the Worker platform.
+        $this->removeDir($root . '/.atoms');
+        $reinstalled = $stage->resolve($root);
+        self::assertSame(['acme/widget' => '1.0.0'], $reinstalled->packages);
+        self::assertFalse($reinstalled->wroteLock);
+    }
+
+    public function testRealComposerRejectsFreshSolveWhenPackageRequiresNewerPhpThanWorker(): void
+    {
+        $this->requireRealComposer();
+
+        $root = $this->freshDir();
+        $this->writePathPackage($root . '/packages/php84-only', 'acme/php84-only', '1.0.0', ['php' => '>=8.4.1']);
+        file_put_contents($root . '/atoms-composer.json', json_encode([
+            'require' => ['acme/php84-only' => '*'],
+            'repositories' => [
+                ['type' => 'path', 'url' => 'packages/php84-only'],
+                ['packagist.org' => false],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        try {
+            (new VendorStage(new \Atoms\Cli\Process\SymfonyProcessRunner()))->resolve($root);
+            self::fail('a package requiring PHP >= 8.4.1 must fail against the PHP 8.3.32 Worker');
+        } catch (AtomsError $e) {
+            self::assertSame(ErrorCode::VendorResolutionFailed, $e->errorCode);
+            self::assertStringContainsString('acme/php84-only', $e->getMessage());
+            self::assertStringContainsString('php >=8.4.1', $e->getMessage());
+            self::assertStringContainsString(VendorStage::WORKER_PHP_VERSION, $e->getMessage());
+        }
+
+        self::assertFileDoesNotExist($root . '/atoms-composer.lock');
+    }
+
+    public function testRealComposerRejectsExistingLockfileWithIncompatiblePhpRequirement(): void
+    {
+        $this->requireRealComposer();
+
+        $root = $this->freshDir();
+        $pkgDir = $root . '/packages/php84-only';
+        $this->writePathPackage($pkgDir, 'acme/php84-only', '1.0.0', ['php' => '>=8.4.1']);
+        file_put_contents($root . '/atoms-composer.json', json_encode([
+            'require' => ['acme/php84-only' => '*'],
+            'repositories' => [
+                ['type' => 'path', 'url' => 'packages/php84-only'],
+                ['packagist.org' => false],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        // Legacy lockfile generated before platform pinning (no platform-overrides),
+        // locking a package whose requirement exceeds the Worker's PHP 8.3.32.
+        $lockJson = json_encode([
+            '_readme' => ['Locked before platform pinning'],
+            'content-hash' => '00000000000000000000000000000000',
+            'packages' => [
+                [
+                    'name' => 'acme/php84-only',
+                    'version' => '1.0.0',
+                    'dist' => [
+                        'type' => 'path',
+                        'url' => $pkgDir,
+                        'reference' => 'deadbeef',
+                    ],
+                    'require' => ['php' => '>=8.4.1'],
+                    'type' => 'library',
+                    'autoload' => ['psr-4' => ['Acme\\Php84Only\\' => 'src/']],
+                    'transport-options' => ['symlink' => false],
+                ],
+            ],
+            'packages-dev' => [],
+            'aliases' => [],
+            'minimum-stability' => 'stable',
+            'stability-flags' => new \stdClass(),
+            'prefer-stable' => false,
+            'prefer-lowest' => false,
+            'platform' => new \stdClass(),
+            'platform-dev' => new \stdClass(),
+            'plugin-api-version' => '2.6.0',
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+        file_put_contents($root . '/atoms-composer.lock', $lockJson);
+
+        try {
+            (new VendorStage(new \Atoms\Cli\Process\SymfonyProcessRunner()))->resolve($root);
+            self::fail('an existing lockfile with PHP >= 8.4.1 must fail against the PHP 8.3.32 Worker');
+        } catch (AtomsError $e) {
+            self::assertSame(ErrorCode::VendorResolutionFailed, $e->errorCode);
+            self::assertStringContainsString('acme/php84-only', $e->getMessage());
+            self::assertStringContainsString('php >=8.4.1', $e->getMessage());
+            self::assertStringContainsString(VendorStage::WORKER_PHP_VERSION, $e->getMessage());
+        }
+
+        self::assertSame($lockJson, file_get_contents($root . '/atoms-composer.lock'));
+    }
+
+    public function testRealComposerSatisfiesBundledWorkerExtensionsAndRejectsMissingOnes(): void
+    {
+        $this->requireRealComposer();
+
+        // Bundled extensions from runtime-extensions.json (including ext-uv,
+        // which is rarely present on host PHP) must resolve cleanly.
+        $okRoot = $this->freshDir();
+        $this->writePathPackage($okRoot . '/packages/worker-exts', 'acme/worker-exts', '1.0.0', [
+            'php' => '^8.3',
+            'ext-pdo' => '*',
+            'ext-pdo_sqlite' => '*',
+            'ext-mbstring' => '*',
+            'ext-uv' => '*',
+        ]);
+        file_put_contents($okRoot . '/atoms-composer.json', json_encode([
+            'require' => ['acme/worker-exts' => '*'],
+            'repositories' => [
+                ['type' => 'path', 'url' => 'packages/worker-exts'],
+                ['packagist.org' => false],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $tree = (new VendorStage(new \Atoms\Cli\Process\SymfonyProcessRunner()))->resolve($okRoot);
+        self::assertSame(['acme/worker-exts' => '1.0.0'], $tree->packages);
+
+        // An unavailable extension must fail with the offending package and requirement.
+        $badRoot = $this->freshDir();
+        $this->writePathPackage($badRoot . '/packages/missing-ext', 'acme/missing-ext', '1.0.0', [
+            'php' => '^8.3',
+            'ext-atoms_nonexistent' => '*',
+        ]);
+        file_put_contents($badRoot . '/atoms-composer.json', json_encode([
+            'require' => ['acme/missing-ext' => '*'],
+            'repositories' => [
+                ['type' => 'path', 'url' => 'packages/missing-ext'],
+                ['packagist.org' => false],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        try {
+            (new VendorStage(new \Atoms\Cli\Process\SymfonyProcessRunner()))->resolve($badRoot);
+            self::fail('a package requiring an unavailable extension must fail');
+        } catch (AtomsError $e) {
+            self::assertSame(ErrorCode::VendorResolutionFailed, $e->errorCode);
+            self::assertStringContainsString('acme/missing-ext', $e->getMessage());
+            self::assertStringContainsString('ext-atoms_nonexistent', $e->getMessage());
+        }
     }
 
     /**
@@ -352,5 +607,51 @@ final class VendorStageTest extends TestCase
         $this->expectExceptionMessageMatches('/ATOMS-E079.*not on PATH/s');
 
         (new VendorStage($runner))->resolve($root);
+    }
+
+    private function requireRealComposer(): void
+    {
+        $composer = (new \Symfony\Component\Process\ExecutableFinder())->find('composer');
+        if ($composer === null) {
+            self::markTestSkipped('composer is not on PATH; this leg drives the real binary (offline: path repo + packagist disabled).');
+        }
+    }
+
+    /**
+     * @param array<string, string> $require
+     */
+    private function writePathPackage(string $dir, string $name, string $version, array $require): void
+    {
+        $parts = explode('/', $name);
+        $className = str_replace('-', '', ucwords($parts[1] ?? 'Pkg', '-'));
+        $namespace = ucfirst($parts[0]) . '\\' . $className;
+
+        mkdir($dir . '/src', 0777, true);
+        file_put_contents($dir . '/composer.json', json_encode([
+            'name' => $name,
+            'version' => $version,
+            'require' => $require,
+            'autoload' => ['psr-4' => [$namespace . '\\' => 'src/']],
+        ], JSON_THROW_ON_ERROR));
+        file_put_contents(
+            $dir . '/src/Stub.php',
+            "<?php\n\nnamespace {$namespace};\n\nfinal class Stub\n{\n}\n",
+        );
+    }
+
+    private function removeDir(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        $items = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST,
+        );
+        /** @var \SplFileInfo $item */
+        foreach ($items as $item) {
+            $item->isDir() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
+        }
+        @rmdir($dir);
     }
 }

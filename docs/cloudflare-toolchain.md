@@ -1046,16 +1046,20 @@ guest**. The build's vendor stage (`Atoms\Cli\Build\VendorStage`) supplies
 them:
 
 - `composer install --no-dev --no-scripts --no-plugins` runs in an isolated
-  temp directory — a build never executes customer or dependency code. A
-  missing composer, an unresolvable constraint, or any other failure refuses
-  loudly with **ATOMS-E079**; there is no silent fallback to an
+  temp directory — a build never executes customer or dependency code — with
+  `config.platform` (and staged `composer.lock` `platform-overrides`) set to
+  the Worker's PHP version (`8.3.32`) and its bundled extensions from
+  `packages/cli/resources/runtime-extensions.json`. A missing composer, an
+  unresolvable or platform-incompatible constraint, or any other failure
+  refuses loudly with **ATOMS-E079**; there is no silent fallback to an
   unshippable bundle.
 - **Determinism**: the first successful resolution writes
   `atoms-composer.lock` (Composer's own lock format) back next to
   `atoms-composer.json`; committed, it pins every later resolution. The
   resolved tree is cached under `.atoms/vendor-cache/<key>` (key = sha256 of
-  atoms-composer.json + lock), so repeat builds — `atoms dev`'s rebuild loop
-  included — are offline and composer-free until the lock changes.
+  the Worker PHP version + atoms-composer.json + lock), so repeat builds —
+  `atoms dev`'s rebuild loop included — are offline and composer-free until
+  the lock or Worker PHP target changes.
 - **What ships**: every vendor `.php` file (data files like Carbon's locale
   tables are `.php` too) plus package LICENSE files, under `vendor/…` in the
   tar, and one generated `vendor/atoms-vendor-autoload.php` — a classmap +

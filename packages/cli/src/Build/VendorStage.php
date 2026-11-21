@@ -25,9 +25,10 @@ use Atoms\Errors\ErrorCode;
  *    bytes. The generated autoload file is sorted, and the entry list is
  *    sorted, so identical resolutions produce identical bundles.
  *  - **Offline after the first resolution**: the pruned tree is cached under
- *    `.atoms/vendor-cache/<key>` keyed by the sha256 of atoms-composer.json +
- *    lock, so `atoms dev`'s rebuild loop and a clean `atoms build` with an
- *    unchanged lock never touch the network (or composer) again.
+ *    `.atoms/vendor-cache/<key>` keyed by the sha256 of the Worker PHP
+ *    version + atoms-composer.json + lock, so `atoms dev`'s rebuild loop and a
+ *    clean `atoms build` with an unchanged lock never touch the network (or
+ *    composer) again.
  *
  * What ships: every `.php` file under vendor/ (data files like Carbon's
  * locale tables are `.php` too) plus each package's LICENSE* files, and one
@@ -50,6 +51,13 @@ final class VendorStage
     public const AUTOLOAD_PATH = 'vendor/atoms-vendor-autoload.php';
 
     /**
+     * Exact PHP version of the bundled Cloudflare Worker runtime
+     * (`@php-wasm/web-8-3`, `8_3_32`). Composer resolves and verifies Atom
+     * dependencies against this target instead of the host PHP version.
+     */
+    public const WORKER_PHP_VERSION = '8.3.32';
+
+    /**
      * Pruned files with one of these extensions look like runtime data a
      * package might file_get_contents() in the guest (where they will not
      * exist), so the build surfaces them by name. Docs and metadata
@@ -67,8 +75,11 @@ final class VendorStage
      */
     private const COMPOSER_RUNTIME_KEEP = ['composer/InstalledVersions.php', 'composer/installed.php'];
 
-    public function __construct(private readonly ProcessRunner $runner)
-    {
+    public function __construct(
+        private readonly ProcessRunner $runner,
+        private readonly string $workerPhpVersion = self::WORKER_PHP_VERSION,
+        private readonly ?string $extensionsResource = null,
+    ) {
     }
 
     /** Read the current cached tree without running Composer or writing any files. */
@@ -103,7 +114,7 @@ final class VendorStage
         $lockBytes = is_file($lockPath) ? $this->readOrFail($lockPath) : null;
 
         if ($lockBytes !== null) {
-            $cached = $this->readCache($rootDir, self::cacheKey($jsonBytes, $lockBytes));
+            $cached = $this->readCache($rootDir, self::cacheKey($jsonBytes, $lockBytes, $this->workerPhpVersion));
             if ($cached !== null) {
                 return $cached;
             }
@@ -119,9 +130,15 @@ final class VendorStage
         }
 
         try {
-            $this->writeOrFail($work . '/composer.json', self::stagedComposerJson($rootDir, $jsonBytes));
+            $this->writeOrFail(
+                $work . '/composer.json',
+                self::stagedComposerJson($rootDir, $jsonBytes, $this->workerPhpVersion, $this->extensionsResource),
+            );
             if ($lockBytes !== null) {
-                $this->writeOrFail($work . '/composer.lock', $lockBytes);
+                $this->writeOrFail(
+                    $work . '/composer.lock',
+                    self::stagedComposerLock($lockBytes, $this->workerPhpVersion, $this->extensionsResource),
+                );
             }
 
             $install = $this->runner->run(
@@ -131,7 +148,12 @@ final class VendorStage
                 self::composerTimeout(),
             );
             if (!$install->ok()) {
-                throw self::failure("`composer install` exited with status {$install->exitCode}: " . trim($install->stderr));
+                $detail = trim($install->stderr);
+                if ($detail === '') {
+                    $detail = trim($install->stdout);
+                }
+
+                throw self::failure("`composer install` exited with status {$install->exitCode}: " . $detail);
             }
 
             $wroteLock = false;
@@ -150,7 +172,7 @@ final class VendorStage
             $tree = new VendorTree($entries, $packages, $wroteLock, $pruned, $autoloadFiles);
 
             if ($lockBytes !== null) {
-                $this->writeCache($rootDir, self::cacheKey($jsonBytes, $lockBytes), $tree);
+                $this->writeCache($rootDir, self::cacheKey($jsonBytes, $lockBytes, $this->workerPhpVersion), $tree);
             }
 
             return $tree;
@@ -160,36 +182,120 @@ final class VendorStage
     }
 
     /**
+     * Composer `config.platform` / lockfile `platform-overrides` map for the
+     * Worker runtime: its exact PHP version plus its bundled extensions from
+     * `resources/runtime-extensions.json` (skipping `core` and `standard`,
+     * which Composer treats as part of `php` rather than `ext-*` packages).
+     *
+     * @return array<string, string>
+     */
+    public static function workerPlatform(
+        string $workerPhpVersion = self::WORKER_PHP_VERSION,
+        ?string $extensionsResource = null,
+    ): array {
+        $path = $extensionsResource ?? __DIR__ . '/../../resources/runtime-extensions.json';
+        $raw = @file_get_contents($path);
+        if ($raw === false) {
+            throw self::failure("could not read runtime-extensions.json at {$path}");
+        }
+
+        try {
+            /** @var mixed $decoded */
+            $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw self::failure("runtime-extensions.json at {$path} is not valid JSON: " . $e->getMessage());
+        }
+
+        $extensions = [];
+        if (\is_array($decoded) && \is_array($decoded['extensions'] ?? null)) {
+            foreach ($decoded['extensions'] as $ext) {
+                if (!\is_string($ext)) {
+                    continue;
+                }
+                $lower = strtolower(trim($ext));
+                if ($lower === '' || $lower === 'core' || $lower === 'standard') {
+                    continue;
+                }
+                $extensions['ext-' . $lower] = $workerPhpVersion;
+            }
+        }
+        ksort($extensions, SORT_STRING);
+
+        return ['php' => $workerPhpVersion] + $extensions;
+    }
+
+    /**
      * The composer.json staged into the work directory. Path repositories
      * need two rewrites to survive the move: a relative `url` is resolved
      * against the project root (composer runs in a temp dir), and
      * `options.symlink: false` is forced — a symlinked package install is
-     * invisible to the tree walk, so nothing would ship.
+     * invisible to the tree walk, so nothing would ship. `config.platform` is
+     * always injected with the Worker's PHP version and bundled extensions so
+     * Composer resolves against the Worker instead of the host PHP.
      */
-    public static function stagedComposerJson(string $rootDir, string $jsonBytes): string
-    {
+    public static function stagedComposerJson(
+        string $rootDir,
+        string $jsonBytes,
+        string $workerPhpVersion = self::WORKER_PHP_VERSION,
+        ?string $extensionsResource = null,
+    ): string {
         try {
-            $decoded = json_decode($jsonBytes, true, 16, JSON_THROW_ON_ERROR);
+            $decoded = json_decode($jsonBytes, false, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return $jsonBytes; // AtomsComposerJson already validated/refused upstream
         }
-        if (!\is_array($decoded) || !\is_array($decoded['repositories'] ?? null)) {
+        if (!$decoded instanceof \stdClass) {
             return $jsonBytes;
         }
 
-        foreach ($decoded['repositories'] as $i => $repo) {
-            if (!\is_array($repo) || ($repo['type'] ?? null) !== 'path' || !\is_string($repo['url'] ?? null)) {
-                continue;
+        $repositories = $decoded->repositories ?? null;
+        if (\is_array($repositories) || $repositories instanceof \stdClass) {
+            foreach ($repositories as $repo) {
+                if (!$repo instanceof \stdClass || ($repo->type ?? null) !== 'path' || !\is_string($repo->url ?? null)) {
+                    continue;
+                }
+                $url = $repo->url;
+                if (!str_starts_with($url, '/')) {
+                    $url = $rootDir . '/' . $url;
+                }
+                $repo->url = $url;
+                $options = ($repo->options ?? null) instanceof \stdClass ? $repo->options : new \stdClass();
+                $options->symlink = false;
+                $repo->options = $options;
             }
-            $url = $repo['url'];
-            if (!str_starts_with($url, '/')) {
-                $url = $rootDir . '/' . $url;
-            }
-            $decoded['repositories'][$i]['url'] = $url;
-            $options = \is_array($repo['options'] ?? null) ? $repo['options'] : [];
-            $options['symlink'] = false;
-            $decoded['repositories'][$i]['options'] = $options;
         }
+
+        $config = ($decoded->config ?? null) instanceof \stdClass ? $decoded->config : new \stdClass();
+        $config->platform = self::workerPlatform($workerPhpVersion, $extensionsResource);
+        $decoded->config = $config;
+
+        return json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+    }
+
+    /**
+     * The composer.lock staged into the work directory. When installing from
+     * an existing lockfile, Composer reads `platform-overrides` from
+     * `composer.lock` rather than `composer.json`'s `config.platform`, so
+     * staging the Worker's platform here ensures lockfiles created before
+     * platform pinning (or against another PHP version) are still verified
+     * against the Worker. The project's `atoms-composer.lock` is never
+     * rewritten on this path.
+     */
+    public static function stagedComposerLock(
+        string $lockBytes,
+        string $workerPhpVersion = self::WORKER_PHP_VERSION,
+        ?string $extensionsResource = null,
+    ): string {
+        try {
+            $decoded = json_decode($lockBytes, false, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return $lockBytes;
+        }
+        if (!$decoded instanceof \stdClass) {
+            return $lockBytes;
+        }
+
+        $decoded->{'platform-overrides'} = self::workerPlatform($workerPhpVersion, $extensionsResource);
 
         return json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
     }
@@ -211,10 +317,12 @@ final class VendorStage
         // --no-scripts/--no-plugins: a build must never execute customer (or
         // dependency) code. Without a composer.lock in the work dir this
         // resolves against the constraints; the lock it leaves behind is what
-        // gets written back as atoms-composer.lock.
+        // gets written back as atoms-composer.lock. Platform requirements are
+        // enforced against the Worker platform staged into composer.json /
+        // composer.lock.
         return [
             'composer', 'install', '--no-dev', '--no-interaction', '--no-progress',
-            '--no-scripts', '--no-plugins', '--ignore-platform-reqs', '--optimize-autoloader',
+            '--no-scripts', '--no-plugins', '--optimize-autoloader',
         ];
     }
 
@@ -397,9 +505,12 @@ final class VendorStage
         return substr($real, \strlen($vendorReal) + 1);
     }
 
-    private static function cacheKey(string $jsonBytes, string $lockBytes): string
-    {
-        return hash('sha256', $jsonBytes . "\0" . $lockBytes);
+    public static function cacheKey(
+        string $jsonBytes,
+        string $lockBytes,
+        string $workerPhpVersion = self::WORKER_PHP_VERSION,
+    ): string {
+        return hash('sha256', $workerPhpVersion . "\0" . $jsonBytes . "\0" . $lockBytes);
     }
 
     private function cacheDir(string $rootDir, string $key): string
