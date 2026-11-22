@@ -137,6 +137,7 @@ final class DevCommand extends AbstractCommand
             // this machine do not match, and the confusion would surface as
             // a guest error rather than as the skew it is.
             $target->assertRuntimeVersion();
+            $target->assertValidCallbackUrl($this->processRunner);
 
             // Before the dev secret is generated and before the build, for the
             // same reason deploy prints it before staging: the first thing to

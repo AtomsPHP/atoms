@@ -10,6 +10,8 @@ use Atoms\Cli\Cloudflare\CloudflareTarget;
 use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\Wrangler;
 use Atoms\Cli\Config\AtomsDotenv;
+use Atoms\Cli\Process\ProcessRunner;
+use Atoms\Cli\Process\SymfonyProcessRunner;
 use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
@@ -48,6 +50,7 @@ final class DeployCommand extends AbstractCommand
         private readonly Wrangler $wrangler,
         private readonly BundleStager $stager = new BundleStager(),
         private readonly Builder $builder = new Builder(),
+        private readonly ProcessRunner $processRunner = new SymfonyProcessRunner(),
     ) {
         parent::__construct();
     }
@@ -104,11 +107,13 @@ final class DeployCommand extends AbstractCommand
             );
 
             // Before the build, not after it: a Worker directory that is
-            // missing (E076) or scaffolded by another release (E108) fails
-            // here, in seconds, rather than after a build and a vendor
-            // resolution that were never going to ship.
+            // missing (E076) or scaffolded by another release (E108), or a
+            // callback URL the Worker would reject (E070), fails here rather
+            // than after a build and a vendor resolution that were never going
+            // to ship.
             $target->assertWorkerDir();
             $target->assertRuntimeVersion();
+            $target->assertValidCallbackUrl($this->processRunner);
 
             // Before any side effect — before the build writes .atoms/build,
             // before a byte is staged or uploaded — say what this deployment

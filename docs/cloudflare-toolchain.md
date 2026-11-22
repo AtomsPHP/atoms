@@ -153,13 +153,14 @@ inspected otherwise. A well-formed reference that resolves to nothing is
 warning, because the variable may belong to CI. An empty or whitespace-only
 file value declares no callback at all.
 
-The CLI and the deployed Worker both validate resolved callback URLs with the
-same rules: an absolute URL using HTTPS, with HTTP allowed only for loopback
-hosts (`127.0.0.1`, `localhost`, `[::1]`). An invalid URL fails resolution with
-**ATOMS-E070** before building or packaging. They are used by the Worker for `app()` and
-`dispatch()` callbacks; the monolith's `ATOMS_ENDPOINT` remains the independent
-URL for ordinary Atom RPC. The file entry is optional: with no source at all,
-deploy warns that callbacks are unavailable and forwards no callback variable.
+During `deploy` and `dev` preflight, the CLI validates any resolved callback URL
+with the Worker's own `validateCallbackUrl()` (`src/config.js`): an absolute URL
+using HTTPS, with HTTP allowed only for loopback hosts (`127.0.0.1`, `localhost`,
+`[::1]`). An invalid URL fails with **ATOMS-E070** before building or packaging.
+They are used by the Worker for `app()` and `dispatch()` callbacks; the
+monolith's `ATOMS_ENDPOINT` remains the independent URL for ordinary Atom RPC.
+The file entry is optional: with no source at all, deploy warns that callbacks
+are unavailable and forwards no callback variable.
 
 For a deployment whose callback host comes from CI, either set
 `ATOMS_CALLBACK_URL` as a job variable, or make the reference explicit in the

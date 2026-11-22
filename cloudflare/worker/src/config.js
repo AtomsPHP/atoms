@@ -327,7 +327,7 @@ function loadSecret(raw, name, required) {
  * @param {string} raw
  * @returns {string|null} a human-readable reason, or null when valid
  */
-function validateCallbackUrl(raw) {
+export function validateCallbackUrl(raw) {
 	/** @type {URL} */
 	let url;
 	try {

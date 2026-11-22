@@ -78,11 +78,13 @@ try {
     assert.ok(!readdirSync(runtime).some((file) => /^\.wrangler\.atoms-.*\.json$/.test(file)));
 
     // Package a prebuilt bundle without --outdir, using a path relative to cwd (not --root or --worker-dir)
-    // and letting --manifest default beside --bundle.
+    // and letting --manifest default beside --bundle. Also accept an IDN callback URL just as the Worker does.
     const bundle = readdirSync(join(app, '.atoms/build')).find((file) => file.endsWith('.tar.gz'));
     assert.ok(bundle);
     const prebuilt = run('php', [
-        ...args.slice(0, -2), '--bundle', join('app/.atoms/build', bundle),
+        ...args.slice(0, -2),
+        '--bundle', join('app/.atoms/build', bundle),
+        '--callback-url', 'https://münchen.example/callback',
     ], temporary);
     assert.match(prebuilt, /--dry-run: exiting now\./);
     assert.match(prebuilt, /Nothing was deployed/);
@@ -97,11 +99,13 @@ try {
     assert.notEqual(standaloneManifest.status, 0);
     assert.match(standaloneManifest.stdout + standaloneManifest.stderr, /ATOMS-E114.*Fix:/s);
 
-    const badCallback = spawnSync('php', [
-        ...args.slice(0, -2), '--callback-url', 'missing-scheme',
-    ], { cwd: temporary, env, encoding: 'utf8', timeout });
-    assert.notEqual(badCallback.status, 0);
-    assert.match(badCallback.stdout + badCallback.stderr, /ATOMS-E070/);
+    for (const invalidCallbackUrl of ['missing-scheme', 'https://service.123/callback']) {
+        const badCallback = spawnSync('php', [
+            ...args.slice(0, -2), '--callback-url', invalidCallbackUrl,
+        ], { cwd: temporary, env, encoding: 'utf8', timeout });
+        assert.notEqual(badCallback.status, 0);
+        assert.match(badCallback.stdout + badCallback.stderr, /ATOMS-E070/);
+    }
     console.log('Deployment dry run: scaffold packaged through the CLI without credentials or upload.');
 } finally {
     rmSync(temporary, { recursive: true, force: true });

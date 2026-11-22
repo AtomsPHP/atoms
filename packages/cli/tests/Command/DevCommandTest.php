@@ -32,6 +32,8 @@ final class DevCommandTest extends TestCase
     {
         $dir = $this->freshDir();
         file_put_contents($dir . '/wrangler.jsonc', json_encode(['name' => 'w'], JSON_THROW_ON_ERROR));
+        mkdir($dir . '/src', 0777, true);
+        file_put_contents($dir . '/src/config.js', '');
         self::stamp($dir);
 
         return $dir;
@@ -177,7 +179,10 @@ final class DevCommandTest extends TestCase
     public function testProceedsWhenGitItselfFails(): void
     {
         $dir = $this->workerDir();
-        $runner = new FakeProcessRunner(new ProcessResult(127, '', 'git: command not found'));
+        $runner = new FakeProcessRunner();
+        $runner->resultFor = static fn (array $command): ?ProcessResult => ($command[0] ?? null) === 'git'
+            ? new ProcessResult(127, '', 'git: command not found')
+            : null;
 
         $tester = $this->execute($dir, new FakeWrangler(), $runner);
 
@@ -255,7 +260,7 @@ final class DevCommandTest extends TestCase
         self::assertSame([], $wrangler->calls, 'the refusal comes before Wrangler is invoked');
         // The refusal also comes before the dev secret is provisioned: the
         // directory holds exactly what the test put there.
-        self::assertSame(['atoms-runtime.json', 'wrangler.jsonc'], array_values(array_diff(scandir($dir), ['.', '..'])));
+        self::assertSame(['atoms-runtime.json', 'src', 'wrangler.jsonc'], array_values(array_diff(scandir($dir), ['.', '..'])));
     }
 
     /**
@@ -447,6 +452,9 @@ final class DevCommandTest extends TestCase
     {
         $dir = $this->workerDir();
         $runner = new FakeProcessRunner();
+        $runner->resultFor = static fn (array $command): ?ProcessResult => ($command[0] ?? null) === '/usr/bin/node'
+            ? new ProcessResult(2, '', 'ATOMS_CALLBACK_URL "missing-scheme" is not a valid absolute URL')
+            : null;
         $wrangler = new FakeWrangler();
         $tester = new CommandTester(new DevCommand($wrangler, processRunner: $runner));
 
@@ -460,8 +468,10 @@ final class DevCommandTest extends TestCase
 
         self::assertSame(1, $exit);
         self::assertStringContainsString('ATOMS-E070', $tester->getDisplay());
+        self::assertStringContainsString('--callback-url', $tester->getDisplay());
         self::assertFileDoesNotExist($dir . '/.dev.vars');
-        self::assertSame([], $runner->runs);
+        self::assertCount(1, $runner->runs);
+        self::assertSame('missing-scheme', $runner->runs[0]['env']['ATOMS_VALIDATE_CALLBACK_URL']);
         self::assertSame([], $wrangler->calls);
     }
 }

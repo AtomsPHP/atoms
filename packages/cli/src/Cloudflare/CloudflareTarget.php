@@ -7,6 +7,7 @@ namespace Atoms\Cli\Cloudflare;
 use Atoms\Cli\Config\AtomsJson;
 use Atoms\Cli\Config\ConfiguredValue;
 use Atoms\Cli\Config\TargetEnvironment;
+use Atoms\Cli\Process\ProcessRunner;
 use Atoms\Cli\Release\RuntimeVersion;
 use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCatalog;
@@ -80,6 +81,13 @@ final class CloudflareTarget
      * answered. An empty or whitespace-only value is "unset" from every source
      * alike.
      */
+    /**
+     * Worker runtime module owning `validateCallbackUrl()`. Invoked during
+     * deploy/dev preflight so the CLI enforces the exact WHATWG URL rules the
+     * Worker itself enforces at runtime.
+     */
+    public const WORKER_CONFIG_MODULE = 'src/config.js';
+
     public const CALLBACK_VAR = 'ATOMS_CALLBACK_URL';
 
     /**
@@ -144,9 +152,8 @@ final class CloudflareTarget
      * @param bool $local Whether this invocation runs a local Worker. Only softens an unresolvable `${VAR}` file reference into "no callback".
      * @param bool $resolveCallback Whether this command configures runtime vars.
      *
-     * @throws AtomsError E070 (unknown environment; an invalid resolved
-     *                    callback URL; or, only when the file entry is the
-     *                    source that wins, a malformed `${VAR}` callback
+     * @throws AtomsError E070 (unknown environment; or, only when the file entry
+     *                    is the source that wins, a malformed `${VAR}` callback
      *                    reference, or one that resolves to nothing outside
      *                    local mode), E076 (unusable Worker directory),
      *                    E109 (an unreadable or malformed .env.atoms.<env>)
@@ -199,7 +206,6 @@ final class CloudflareTarget
             ? self::resolveCallback($env['callback_url'], $values, $environment, $callbackUrl, $local)
             : null;
         if ($callback !== null) {
-            self::assertValidCallbackUrl($callback);
             $sources['callback_url'] = $callback->source;
         }
 
@@ -427,77 +433,70 @@ final class CloudflareTarget
     }
 
     /**
-     * Validate a resolved callback URL with the same rules the Worker enforces
-     * (`cloudflare/worker/src/config.js` → `validateCallbackUrl()`): absolute
-     * URL using `https:`, or `http:` only for a loopback host (`127.0.0.1`,
-     * `localhost`, `[::1]`). Catching a bad URL here prevents packaging or
-     * deploying a Worker that would only fail later as misconfigured.
+     * Validate the resolved callback URL with the Worker's own WHATWG-based
+     * `validateCallbackUrl()` (`src/config.js`), so CLI preflight and runtime
+     * configuration never disagree on URL parsing or loopback normalization.
      *
-     * @throws AtomsError E070
+     * An omitted callback URL (`null`) is valid and needs no subprocess.
+     *
+     * @throws AtomsError E070 when the Worker validator rejects the URL,
+     *                    E076 when `src/config.js` or `node` is unusable
      */
-    private static function assertValidCallbackUrl(ConfiguredValue $callback): void
+    public function assertValidCallbackUrl(ProcessRunner $runner): void
     {
-        $raw = $callback->value;
-        $quoted = json_encode($raw, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        $display = \is_string($quoted) ? $quoted : '"' . $raw . '"';
-
-        $parts = filter_var($raw, FILTER_VALIDATE_URL) !== false ? parse_url($raw) : false;
-        if (!\is_array($parts) || !isset($parts['scheme']) || $parts['scheme'] === '') {
-            throw self::invalid(sprintf(
-                'callback URL from %s (%s) is not a valid absolute URL',
-                $callback->source,
-                $display,
-            ));
-        }
-
-        $scheme = strtolower($parts['scheme']);
-        $host = isset($parts['host']) ? strtolower($parts['host']) : '';
-
-        if ($host === '' && ($scheme === 'https' || $scheme === 'http')) {
-            throw self::invalid(sprintf(
-                'callback URL from %s (%s) is not a valid absolute URL',
-                $callback->source,
-                $display,
-            ));
-        }
-
-        if (str_starts_with($host, '[') && str_ends_with($host, ']')) {
-            $packed = @inet_pton(substr($host, 1, -1));
-            $normalized = $packed !== false && \strlen($packed) === 16 ? inet_ntop($packed) : false;
-            if ($normalized === false) {
-                throw self::invalid(sprintf(
-                    'callback URL from %s (%s) is not a valid absolute URL',
-                    $callback->source,
-                    $display,
-                ));
-            }
-            $host = '[' . $normalized . ']';
-        } elseif (
-            preg_match('/^\d+(?:\.\d+){3}$/', $host) === 1
-            && filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false
-        ) {
-            throw self::invalid(sprintf(
-                'callback URL from %s (%s) is not a valid absolute URL',
-                $callback->source,
-                $display,
-            ));
-        }
-
-        if ($scheme === 'https') {
+        if ($this->callbackUrl === null) {
             return;
         }
 
-        $loopback = $host === '127.0.0.1' || $host === 'localhost' || $host === '[::1]';
-        if ($scheme === 'http' && $loopback) {
+        $configModule = $this->workerDir . '/' . self::WORKER_CONFIG_MODULE;
+        if (!is_file($configModule)) {
+            throw $this->workerDirError(
+                "{$this->workerDir} has no " . self::WORKER_CONFIG_MODULE . ' to validate the callback URL',
+            );
+        }
+
+        $node = $runner->which('node');
+        if ($node === null) {
+            throw $this->workerDirError(
+                '`node` was not found on PATH; the Worker runtime requires Node.js to validate callback URLs',
+            );
+        }
+
+        $script = "import { validateCallbackUrl } from './" . self::WORKER_CONFIG_MODULE . "';\n"
+            . "const error = validateCallbackUrl(process.env.ATOMS_VALIDATE_CALLBACK_URL ?? '');\n"
+            . "if (error) {\n"
+            . "    process.stderr.write(String(error));\n"
+            . "    process.exit(2);\n"
+            . "}\n";
+
+        $result = $runner->run(
+            [$node, '--input-type=module', '-e', $script],
+            $this->workerDir,
+            ['ATOMS_VALIDATE_CALLBACK_URL' => $this->callbackUrl],
+        );
+
+        if ($result->ok()) {
             return;
         }
 
-        throw self::invalid(sprintf(
-            'callback URL from %s must use "https:", or "http:" only for a loopback host '
-            . '(127.0.0.1, localhost, [::1]); got "%s://%s"',
-            $callback->source,
-            $scheme,
-            $host,
+        if ($result->exitCode === 2) {
+            $source = $this->sources['callback_url'] ?? 'callback_url';
+            $detail = trim($result->stderr);
+
+            throw self::invalid(sprintf(
+                'invalid callback URL from %s: %s',
+                $source,
+                $detail !== '' ? $detail : 'rejected by Worker validator',
+            ));
+        }
+
+        $output = trim($result->stderr !== '' ? $result->stderr : $result->stdout);
+
+        throw $this->workerDirError(sprintf(
+            'could not validate callback URL with %s (exit %d)%s',
+            self::WORKER_CONFIG_MODULE,
+            $result->exitCode,
+            $output !== '' ? ': ' . $output : '',
         ));
     }
 
