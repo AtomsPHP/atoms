@@ -19,10 +19,12 @@ cd atoms-demo
 composer require atoms/laravel --with-all-dependencies
 composer require --dev atoms/cli atoms/testing atoms/phpstan-rules
 php artisan atoms:install
-npm exec --yes --package=@atomsphp/runtime-cloudflare -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.9.2 -- \
   atoms-runtime-cloudflare init atoms-worker
 (cd atoms-worker && npm ci)
 ```
+
+Pin `@atomsphp/runtime-cloudflare` to your installed `atoms/cli` version (`php artisan atoms:install` prints the matching `atoms init` command).
 
 Continue with [Configure callback replay protection](#configure-callback-replay-protection).
 For this quickstart, use Laravel's generated SQLite database with the database

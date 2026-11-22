@@ -70,12 +70,12 @@ includes:
 vendor/bin/atoms init
 ```
 
-The `init` command creates `atoms.json` and `atoms-composer.json`, and appends `/.atoms/` and `/.env.atoms.*` to your `.gitignore`.
+The `init` command creates `atoms.json` and `atoms-composer.json`, appends `/.atoms/` and `/.env.atoms.*` to your `.gitignore`, and prints the version-pinned scaffold command for your installed CLI.
 
-Create the Cloudflare Worker runtime:
+Create the Cloudflare Worker runtime matching your CLI release (use the command `atoms init` printed if you are on another version):
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.9.2 -- \
   atoms-runtime-cloudflare init atoms-worker
 cd atoms-worker
 npm ci
