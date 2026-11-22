@@ -21,13 +21,13 @@ final class JsonFrame
      * @param array<string, mixed> $payload
      *
      * @throws \Atoms\Serialization\SerializationException if a value is outside the type algebra
-     * @throws \JsonException                              if the normalized tree cannot be encoded
+     * @throws \JsonException                              if the normalized tree cannot be encoded as a JSON object
      */
     public static function encode(array $payload, ?Serializer $serializer = null): string
     {
         $serializer ??= new Serializer();
 
-        /** @var array<string, mixed> $normalized */
+        /** @var array<array-key, mixed> $normalized */
         $normalized = $serializer->normalize($payload);
 
         // An empty array would encode as `[]`; force `{}` so an empty map round-trips
@@ -35,6 +35,10 @@ final class JsonFrame
         // corrupt every nested list.
         if ($normalized === []) {
             return '{}';
+        }
+
+        if (array_is_list($normalized)) {
+            throw new \JsonException('A structured WebSocket frame must be a JSON object, got list.');
         }
 
         return json_encode($normalized, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);

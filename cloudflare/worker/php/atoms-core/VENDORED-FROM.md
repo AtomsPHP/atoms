@@ -46,6 +46,7 @@ reason the Cloudflare runtime can claim the real API runs inside the guest.
 | Re-verified | 2026-11-05, `Errors/ErrorCode.php` and `resources/errors.json` copied after adding ATOMS-E113 for PHPStan configuration creation failures. The other digests are unchanged. |
 | Re-verified | 2026-11-20, copied the error enum and catalog for Worker PHP syntax and function diagnostics (ATOMS-E003 and ATOMS-E004). |
 | Re-verified | 2026-11-21, `Errors/ErrorCode.php` and `resources/errors.json` copied after adding ATOMS-E114 for standalone `--manifest` without `--bundle`. The other digests are unchanged. |
+| Re-verified | 2026-11-22, `Websocket/JsonFrame.php` and `Websocket/Connection.php` copied after rejecting non-empty top-level lists in `JsonFrame::encode()` with `\JsonException`. The other digests are unchanged. |
 | Licence | MIT — Atoms' own code, same as `packages/core` itself |
 
 Upstream used to be a different repository, which is why this copy exists at
@@ -139,8 +140,8 @@ b765f073ca2b9e9c62834a2316a78ffe4a19bf5a2c97a6528449f13442584629  Serialization/
 1486ab89bf416b88929159b6014b2a268b081f2efd1d46a314fe4d86948d8bc8  Serialization/SerializationException.php
 7e293792487fcd78e1d36ef6ea5c85665e39882313ddee58d610d390698c4655  Serialization/Serializer.php
 1fde1d8fa58f1bf741d746d8f82fd3dc847fb0ae44b04baa4c2eccd033df3295  Timers/Timers.php
-7a95c9a1ba00a17fe37787b7fece3fb8ec9bdb82460d664f1808d6a430cc6bb0  Websocket/Connection.php
-a0ff473e1d8f326269f0e67f2406dc9923151cf5915e7e06bb11bf205aa84bea  Websocket/JsonFrame.php
+c7951598db27d1ba914eec5229c8e1a40d4f4167546a12698c2bb70a6eb00b14  Websocket/Connection.php
+085a4a83b663aa149ad9d39f8c4614f7fed30453022f79e49656e31816212332  Websocket/JsonFrame.php
 b98dace805bbbce5d06072c80f4153c5ed2d9a7847dadcf098642a7a70174880  Websocket/Message.php
 2f0622fee90d8e858f007634d92619d5f27afa91d4a68210f4c40be5561936f6  resources/errors.json
 ```

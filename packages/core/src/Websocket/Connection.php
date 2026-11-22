@@ -22,7 +22,7 @@ interface Connection
      * @param array<string, mixed> $payload
      *
      * @throws \Atoms\Serialization\SerializationException if a value is outside the type algebra
-     * @throws \JsonException                              if the normalized tree cannot be encoded
+     * @throws \JsonException                              if the normalized tree cannot be encoded as a JSON object
      */
     public function sendJson(array $payload): void;
 
