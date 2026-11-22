@@ -255,12 +255,6 @@ export class Bridge {
 		if (!Array.isArray(rawBindings)) {
 			throw new AtomsError('invalid_request', 'sql.exec "bindings" must be an array (positional)');
 		}
-		if (rawBindings.length > this.config.sqlMaxBindings) {
-			throw new AtomsError(
-				'invalid_request',
-				`sql.exec received ${rawBindings.length} bindings, limit is ${this.config.sqlMaxBindings}`
-			);
-		}
 
 		// Checked on the WHOLE request text, before anything else looks at it:
 		// `sql.exec` runs every statement in the string (the fixture's
@@ -276,10 +270,17 @@ export class Bridge {
 			// else: fall through and let the DO answer it (e.g. foreign_keys).
 		}
 
-		// Workerd rejects bigint bindings, so integers wider than 2^53-1 are
-		// folded into the statement text as validated decimal literals.
+		// Workerd rejects bigint bindings (and binds plain JS numbers as REAL),
+		// so integer bindings are folded into the statement text as validated
+		// decimal literals and do not consume bound-parameter slots.
 		const decoded = rawBindings.map((v) => toSqlBinding(decodeInt64Deep(v)));
 		const prepared = inlineWideIntegers(sql, decoded);
+		if (prepared.bindings.length > this.config.sqlMaxBindings) {
+			throw new AtomsError(
+				'invalid_request',
+				`sql.exec received ${prepared.bindings.length} bindings, limit is ${this.config.sqlMaxBindings}`
+			);
+		}
 
 		this.sqlCalls++;
 		let cursor;

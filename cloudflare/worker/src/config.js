@@ -46,7 +46,7 @@ import { AtomsError } from './errors.js';
  * @property {'error'|'tag'|'float'} sqlUnsafeInteger What to do when DO SQL returns an integral double wider than 2^53-1, which may be a lossy INTEGER or an exact REAL.
  * @property {number}   sqlMaxRows            Row cap for a single `sql.exec` in `rows` mode.
  * @property {number}   sqlMaxResultBytes     Byte cap for the rows of a single `sql.exec` in `rows` mode.
- * @property {number}   sqlMaxBindings        Binding cap for a single `sql.exec`.
+ * @property {number}   sqlMaxBindings        Binding cap for a single `sql.exec` (after integer inlining).
  * @property {number}   logMaxFieldBytes      Truncation cap for a single logged field.
  * @property {string}   logLevel              Minimum level emitted by the `log` op.
  * @property {string}   configEnvPrefix       Env prefix that forms the `config.get` allowlist.
@@ -426,7 +426,11 @@ export function loadConfig(env) {
 		// rows trips it, low enough that a runaway SELECT * fails as a typed
 		// error instead of an OOM that kills the residency.
 		sqlMaxResultBytes: posInt(env, 'ATOMS_SQL_MAX_RESULT_BYTES', 8388608),
-		sqlMaxBindings: int(env, 'ATOMS_SQL_MAX_BINDINGS', 1000),
+		// Matches Cloudflare Durable Objects SQLite's cap of 100 bound
+		// parameters per query. Enforced in bridge.js after
+		// inlineWideIntegers(), so inlined integer literals do not consume a
+		// bound-parameter slot.
+		sqlMaxBindings: int(env, 'ATOMS_SQL_MAX_BINDINGS', 100),
 
 		logMaxFieldBytes: int(env, 'ATOMS_LOG_MAX_FIELD_BYTES', 4096),
 		logLevel: LOG_LEVELS.includes(level) ? level : 'info',
