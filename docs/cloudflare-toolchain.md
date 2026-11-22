@@ -1170,7 +1170,9 @@ atoms deploy --env production
    print its path. Refuse an existing lock owner with E076.
 5. `atoms build` → `.atoms/build/bundle-{sha}.tar.gz` + `manifest.json`.
    Deterministic; executes no customer code. (`--bundle` skips this and deploys
-   a prebuilt one.)
+   a prebuilt one, resolving `--bundle` and `--manifest` relative to the current
+   directory, defaulting `--manifest` beside `--bundle`, and rejecting
+   `--manifest` without `--bundle`.)
 6. Run `node scripts/bundle-from-cli.mjs <bundle> <manifest> src/bundle.generated.js`
    inside the Worker directory. The translator refuses a manifest paired with
    the wrong bundle, and refuses a manifest naming a file the bundle does not

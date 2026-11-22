@@ -801,4 +801,102 @@ final class DeployCommandTest extends TestCase
 
         self::assertStringNotContainsString('top level', $tester->getDisplay());
     }
+
+    public function testRelativeBundlePathResolvesAgainstCurrentDirectoryAndDefaultsManifestBesideIt(): void
+    {
+        $callerDir = $this->freshDir();
+        mkdir($callerDir . '/dist/nested', 0777, true);
+        file_put_contents($callerDir . '/dist/nested/bundle.tar.gz', (string) gzencode('dummy'));
+        file_put_contents($callerDir . '/dist/nested/manifest.json', '{"schema":1,"atoms":[]}');
+        file_put_contents($callerDir . '/bundle.tar.gz', (string) gzencode('dummy'));
+        file_put_contents($callerDir . '/manifest.json', '{"schema":1,"atoms":[]}');
+
+        $previousCwd = getcwd();
+        self::assertIsString($previousCwd);
+        chdir($callerDir);
+        try {
+            $resolvedCallerDir = (string) getcwd();
+            $dir = $this->workerDir();
+
+            foreach ([
+                ['dist/nested/bundle.tar.gz', $resolvedCallerDir . '/dist/nested/bundle.tar.gz', $resolvedCallerDir . '/dist/nested/manifest.json'],
+                ['bundle.tar.gz', $resolvedCallerDir . '/bundle.tar.gz', $resolvedCallerDir . '/manifest.json'],
+            ] as [$relativeBundle, $expectedBundle, $expectedManifest]) {
+                $runner = new FakeProcessRunner();
+                $wrangler = new FakeWrangler();
+                $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+
+                $exit = $tester->execute([
+                    '--root' => $this->fixtureDir('sample-app'),
+                    '--env' => 'production',
+                    '--worker-dir' => $dir,
+                    '--bundle' => $relativeBundle,
+                ]);
+
+                self::assertSame(0, $exit, $tester->getDisplay());
+                self::assertCount(1, $runner->runs);
+                self::assertSame($dir, $runner->runs[0]['cwd']);
+                self::assertSame($expectedBundle, $runner->runs[0]['command'][2]);
+                self::assertSame($expectedManifest, $runner->runs[0]['command'][3]);
+            }
+        } finally {
+            chdir($previousCwd);
+        }
+    }
+
+    public function testRelativeManifestPathResolvesAgainstCurrentDirectory(): void
+    {
+        $callerDir = $this->freshDir();
+        mkdir($callerDir . '/bundles', 0777, true);
+        mkdir($callerDir . '/manifests', 0777, true);
+        file_put_contents($callerDir . '/bundles/bundle.tar.gz', (string) gzencode('dummy'));
+        file_put_contents($callerDir . '/manifests/custom.json', '{"schema":1,"atoms":[]}');
+
+        $previousCwd = getcwd();
+        self::assertIsString($previousCwd);
+        chdir($callerDir);
+        try {
+            $resolvedCallerDir = (string) getcwd();
+            $runner = new FakeProcessRunner();
+            $wrangler = new FakeWrangler();
+            $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+
+            $exit = $tester->execute([
+                '--root' => $this->fixtureDir('sample-app'),
+                '--env' => 'production',
+                '--worker-dir' => $this->workerDir(),
+                '--bundle' => 'bundles/bundle.tar.gz',
+                '--manifest' => 'manifests/custom.json',
+            ]);
+
+            self::assertSame(0, $exit, $tester->getDisplay());
+            self::assertCount(1, $runner->runs);
+            self::assertSame($resolvedCallerDir . '/bundles/bundle.tar.gz', $runner->runs[0]['command'][2]);
+            self::assertSame($resolvedCallerDir . '/manifests/custom.json', $runner->runs[0]['command'][3]);
+        } finally {
+            chdir($previousCwd);
+        }
+    }
+
+    public function testManifestWithoutBundleIsRejectedBeforeBuildingOrStaging(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $runner = new FakeProcessRunner();
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--manifest' => '.atoms/build/manifest.json',
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('--manifest requires --bundle', $tester->getDisplay());
+        self::assertDirectoryDoesNotExist($root . '/.atoms/build');
+        self::assertSame([], $runner->runs);
+        self::assertSame([], $wrangler->calls);
+    }
+
 }
