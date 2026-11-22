@@ -893,7 +893,9 @@ final class DeployCommandTest extends TestCase
         ]);
 
         self::assertSame(1, $exit);
-        self::assertStringContainsString('--manifest requires --bundle', $tester->getDisplay());
+        self::assertStringContainsString('ATOMS-E114', $tester->getDisplay());
+        self::assertStringContainsString('--manifest cannot be used without --bundle.', $tester->getDisplay());
+        self::assertStringContainsString('Fix: Pass --bundle <path> together with --manifest <path>', $tester->getDisplay());
         self::assertDirectoryDoesNotExist($root . '/.atoms/build');
         self::assertSame([], $runner->runs);
         self::assertSame([], $wrangler->calls);

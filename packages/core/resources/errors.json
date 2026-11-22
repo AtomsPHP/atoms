@@ -568,6 +568,14 @@
             "fix": "Check that the project directory is writable and phpstan.atoms.neon is not a directory or a broken symlink, then run `atoms phpstan:install` again. Existing configuration files are preserved; edit them directly to change analysis settings.",
             "severity": "error",
             "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E114",
+            "title": "--manifest requires --bundle",
+            "message": "--manifest cannot be used without --bundle.",
+            "fix": "Pass --bundle <path> together with --manifest <path>, or omit --manifest to let `atoms deploy` build a fresh bundle and manifest.",
+            "severity": "error",
+            "phase": "cli"
         }
     ]
 }

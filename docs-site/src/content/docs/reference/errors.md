@@ -1284,3 +1284,21 @@ Could not create the Atoms PHPStan configuration: {reason}.
 **Fix**
 
 Check that the project directory is writable and phpstan.atoms.neon is not a directory or a broken symlink, then run `atoms phpstan:install` again. Existing configuration files are preserved; edit them directly to change analysis settings.
+
+
+<a id="atoms-e114"></a>
+
+## ATOMS-E114: --manifest requires --bundle
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `cli` |
+
+**Message**
+
+--manifest cannot be used without --bundle.
+
+**Fix**
+
+Pass --bundle <path> together with --manifest <path>, or omit --manifest to let `atoms deploy` build a fresh bundle and manifest.

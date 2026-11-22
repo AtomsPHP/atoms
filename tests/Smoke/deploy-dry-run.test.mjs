@@ -95,7 +95,7 @@ try {
         ...args.slice(0, -2), '--manifest', 'app/.atoms/build/manifest.json',
     ], { cwd: temporary, env, encoding: 'utf8', timeout });
     assert.notEqual(standaloneManifest.status, 0);
-    assert.match(standaloneManifest.stdout + standaloneManifest.stderr, /--manifest requires --bundle/);
+    assert.match(standaloneManifest.stdout + standaloneManifest.stderr, /ATOMS-E114.*Fix:/s);
 
     const badCallback = spawnSync('php', [
         ...args.slice(0, -2), '--callback-url', 'missing-scheme',

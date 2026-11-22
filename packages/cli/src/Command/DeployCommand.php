@@ -11,6 +11,8 @@ use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\Wrangler;
 use Atoms\Cli\Config\AtomsDotenv;
 use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCatalog;
+use Atoms\Errors\ErrorCode;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -74,7 +76,7 @@ final class DeployCommand extends AbstractCommand
         $bundleOpt = self::stringOption($input, 'bundle');
         $manifestOpt = self::stringOption($input, 'manifest');
         if ($bundleOpt === null && $manifestOpt !== null) {
-            $output->writeln('<error>--manifest requires --bundle</error>');
+            $output->writeln('<error>' . ErrorCatalog::format(ErrorCode::ManifestWithoutBundle) . '</error>');
 
             return self::FAILURE;
         }
