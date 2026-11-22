@@ -8,6 +8,10 @@ one deploys to its own Worker. `atoms init` creates `production` and `staging`,
 and you can rename them or add more. [Configuration](/guides/configuration/#atomsjson)
 lists every key an environment accepts.
 
+Give each environment in the same Cloudflare account its own `worker_name`. The
+CLI inspects only the selected environment, so two environments with the same
+`worker_name` and account target the same Worker without warning.
+
 ## Selecting an environment
 
 Pass `--env <name>` to each command that talks to Cloudflare: `deploy`, `dev`,
