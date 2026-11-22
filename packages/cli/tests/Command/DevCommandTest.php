@@ -442,4 +442,26 @@ final class DevCommandTest extends TestCase
         self::assertStringContainsString('--env is required', $tester->getDisplay());
         self::assertNull($wrangler->lastCall('dev'), 'nothing may start without a named environment');
     }
+
+    public function testInvalidCallbackUrlFailsBeforeDevSecretProvisioning(): void
+    {
+        $dir = $this->workerDir();
+        $runner = new FakeProcessRunner();
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester(new DevCommand($wrangler, processRunner: $runner));
+
+        $exit = $tester->execute([
+            '--root' => $this->fixtureDir('sample-app'),
+            '--env' => 'production',
+            '--worker-dir' => $dir,
+            '--no-build' => true,
+            '--callback-url' => 'missing-scheme',
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E070', $tester->getDisplay());
+        self::assertFileDoesNotExist($dir . '/.dev.vars');
+        self::assertSame([], $runner->runs);
+        self::assertSame([], $wrangler->calls);
+    }
 }

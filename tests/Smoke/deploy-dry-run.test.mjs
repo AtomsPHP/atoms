@@ -90,13 +90,18 @@ try {
     assert.equal(readFileSync(redirect, 'utf8'), 'invalid stale redirect');
     assert.ok(!readdirSync(runtime).some((file) => /^\.wrangler\.atoms-.*\.json$/.test(file)));
 
-    // Reject standalone --manifest before packaging.
+    // Reject standalone --manifest and invalid --callback-url before packaging.
     const standaloneManifest = spawnSync('php', [
         ...args.slice(0, -2), '--manifest', 'app/.atoms/build/manifest.json',
     ], { cwd: temporary, env, encoding: 'utf8', timeout });
     assert.notEqual(standaloneManifest.status, 0);
     assert.match(standaloneManifest.stdout + standaloneManifest.stderr, /--manifest requires --bundle/);
 
+    const badCallback = spawnSync('php', [
+        ...args.slice(0, -2), '--callback-url', 'missing-scheme',
+    ], { cwd: temporary, env, encoding: 'utf8', timeout });
+    assert.notEqual(badCallback.status, 0);
+    assert.match(badCallback.stdout + badCallback.stderr, /ATOMS-E070/);
     console.log('Deployment dry run: scaffold packaged through the CLI without credentials or upload.');
 } finally {
     rmSync(temporary, { recursive: true, force: true });

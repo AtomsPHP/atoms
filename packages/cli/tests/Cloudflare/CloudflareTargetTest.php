@@ -614,4 +614,107 @@ final class CloudflareTargetTest extends TestCase
         $this->expectExceptionMessageMatches('/ATOMS-E073/');
         WranglerBinary::resolve($runner, $target);
     }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function validCallbackUrlProvider(): iterable
+    {
+        yield 'https' => ['https://app.example.com/atoms/callback'];
+        yield 'https uppercase with port and query' => ['HTTPS://APP.EXAMPLE.COM:8443/atoms/callback?v=1'];
+        yield 'https ipv6' => ['https://[2001:db8::1]:8443/atoms/callback'];
+        yield 'http 127.0.0.1' => ['http://127.0.0.1:8000/atoms/callback'];
+        yield 'http localhost' => ['http://localhost:8000/atoms/callback'];
+        yield 'http uppercase localhost' => ['HTTP://LOCALHOST/atoms/callback'];
+        yield 'http ipv6 loopback' => ['http://[::1]:8000/atoms/callback'];
+        yield 'http expanded ipv6 loopback' => ['http://[0:0:0:0:0:0:0:1]:8000/atoms/callback'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('validCallbackUrlProvider')]
+    public function testValidResolvedCallbackUrlsAreAccepted(string $url): void
+    {
+        $target = CloudflareTarget::resolve($this->sampleApp(), 'production', callbackUrl: $url);
+
+        self::assertSame($url, $target->callbackUrl);
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function invalidCallbackUrlProvider(): iterable
+    {
+        yield 'missing scheme' => ['missing-scheme', 'not a valid absolute URL'];
+        yield 'relative path' => ['/atoms/callback', 'not a valid absolute URL'];
+        yield 'protocol relative' => ['//example.com/atoms/callback', 'not a valid absolute URL'];
+        yield 'host and port without scheme' => ['localhost:8000/atoms/callback', 'not a valid absolute URL'];
+        yield 'empty host' => ['https://', 'not a valid absolute URL'];
+        yield 'port out of range' => ['https://example.com:99999/atoms/callback', 'not a valid absolute URL'];
+        yield 'invalid ipv4' => ['https://256.256.256.256/atoms/callback', 'not a valid absolute URL'];
+        yield 'invalid ipv6' => ['https://[invalid]/atoms/callback', 'not a valid absolute URL'];
+        yield 'non-loopback http' => ['http://example.com/atoms/callback', 'must use "https:"'];
+        yield 'non-127.0.0.1 loopback subnet' => ['http://127.0.0.2:8000/atoms/callback', 'must use "https:"'];
+        yield '0.0.0.0 http' => ['http://0.0.0.0:8000/atoms/callback', 'must use "https:"'];
+        yield 'localhost trailing dot http' => ['http://localhost./atoms/callback', 'must use "https:"'];
+        yield 'localhost subdomain http' => ['http://sub.localhost/atoms/callback', 'must use "https:"'];
+        yield 'ipv4-mapped ipv6 loopback http' => ['http://[::ffff:127.0.0.1]/atoms/callback', 'must use "https:"'];
+        yield 'ftp scheme' => ['ftp://example.com/atoms/callback', 'must use "https:"'];
+        yield 'ws scheme on loopback' => ['ws://localhost:8000/atoms/callback', 'must use "https:"'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidCallbackUrlProvider')]
+    public function testInvalidCallbackUrlFlagIsRejectedWithE070(string $url, string $expectedFragment): void
+    {
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*--callback-url.*' . preg_quote($expectedFragment, '/') . '/s');
+
+        CloudflareTarget::resolve($this->sampleApp(), 'production', callbackUrl: $url);
+    }
+
+    public function testInvalidCallbackUrlFromEnvDotenvAndAtomsJsonAreAllRejected(): void
+    {
+        // Caller environment.
+        putenv(CloudflareTarget::CALLBACK_VAR . '=http://example.com/cb');
+        try {
+            CloudflareTarget::resolve($this->sampleApp(), 'production');
+            self::fail('expected ATOMS-E070 for caller environment');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E070', $e->getMessage());
+            self::assertStringContainsString('caller environment: ATOMS_CALLBACK_URL', $e->getMessage());
+        } finally {
+            putenv(CloudflareTarget::CALLBACK_VAR);
+        }
+
+        // .env.atoms.<env>.
+        $root = $this->tempCopy('sample-app');
+        file_put_contents($root . '/.env.atoms.production', "ATOMS_CALLBACK_URL=missing-scheme\n");
+        try {
+            CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production');
+            self::fail('expected ATOMS-E070 for dotenv');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E070', $e->getMessage());
+            self::assertStringContainsString('.env.atoms.production: ATOMS_CALLBACK_URL', $e->getMessage());
+        }
+        unlink($root . '/.env.atoms.production');
+
+        // atoms.json literal.
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['environments']['production']['callback_url'] = 'http://public.example.com/cb';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+        $config = AtomsJson::load($root . '/atoms.json');
+        try {
+            CloudflareTarget::resolve($config, 'production');
+            self::fail('expected ATOMS-E070 for atoms.json literal');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E070', $e->getMessage());
+            self::assertStringContainsString('environments.production.callback_url', $e->getMessage());
+        }
+
+        // Nearer valid override still wins without tripping on the invalid file entry,
+        // and operational commands with resolveCallback: false still ignore it.
+        self::assertSame(
+            'https://override.example.com/cb',
+            CloudflareTarget::resolve($config, 'production', callbackUrl: 'https://override.example.com/cb')->callbackUrl,
+        );
+        self::assertNull(CloudflareTarget::resolve($config, 'production', resolveCallback: false)->callbackUrl);
+    }
 }

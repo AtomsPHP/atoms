@@ -899,4 +899,29 @@ final class DeployCommandTest extends TestCase
         self::assertSame([], $wrangler->calls);
     }
 
+    public function testInvalidCallbackUrlFailsBeforeBuildingStagingOrPackaging(): void
+    {
+        foreach (['missing-scheme', 'http://example.com/atoms/callback'] as $badUrl) {
+            foreach ([false, true] as $dryRun) {
+                $root = $this->tempCopy('sample-app');
+                $runner = new FakeProcessRunner();
+                $wrangler = new FakeWrangler();
+                $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+
+                $exit = $tester->execute([
+                    '--root' => $root,
+                    '--env' => 'production',
+                    '--worker-dir' => $this->workerDir(),
+                    '--callback-url' => $badUrl,
+                    '--dry-run' => $dryRun,
+                ]);
+
+                self::assertSame(1, $exit);
+                self::assertStringContainsString('ATOMS-E070', $tester->getDisplay());
+                self::assertDirectoryDoesNotExist($root . '/.atoms/build');
+                self::assertSame([], $runner->runs);
+                self::assertSame([], $wrangler->calls);
+            }
+        }
+    }
 }

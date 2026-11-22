@@ -153,8 +153,10 @@ inspected otherwise. A well-formed reference that resolves to nothing is
 warning, because the variable may belong to CI. An empty or whitespace-only
 file value declares no callback at all.
 
-The deployed Worker validates callback URLs: HTTPS is required, with HTTP
-allowed only for loopback hosts. They are used by the Worker for `app()` and
+The CLI and the deployed Worker both validate resolved callback URLs with the
+same rules: an absolute URL using HTTPS, with HTTP allowed only for loopback
+hosts (`127.0.0.1`, `localhost`, `[::1]`). An invalid URL fails resolution with
+**ATOMS-E070** before building or packaging. They are used by the Worker for `app()` and
 `dispatch()` callbacks; the monolith's `ATOMS_ENDPOINT` remains the independent
 URL for ordinary Atom RPC. The file entry is optional: with no source at all,
 deploy warns that callbacks are unavailable and forwards no callback variable.
@@ -753,8 +755,9 @@ travel to the Worker by two different, deliberately asymmetric paths
   goes to Wrangler as an ordinary `ATOMS_CALLBACK_URL` entry in the generated
   config's `vars`. When no source supplies one, deploy warns that
   `app()`/`dispatch()` are unavailable and writes no callback variable. All
-  values are validated by the Worker as HTTPS or an HTTP
-  loopback URL. Resolution happens only for the selected environment when the
+  resolved values are validated by both the CLI (`CloudflareTarget`) and the
+  Worker as absolute HTTPS or loopback HTTP URLs. Resolution happens only for
+  the selected environment when the
   target command runs, never during build. A file `${ENV_VAR}` reference is
   expanded only when the two nearer sources supplied nothing; on deploy a
   missing or empty expansion is **ATOMS-E070**, on `dev` it is no callback and
@@ -1198,7 +1201,8 @@ Nothing in this sequence contacts a service operated by Atoms.
 
 - **The callback URL is configuration, not a verified endpoint.** Both commands
   resolve it the same way — `--callback-url`, then `ATOMS_CALLBACK_URL`, then
-  the selected environment's `callback_url` — and pass whatever they get to
+  the selected environment's `callback_url` — validate that it is an absolute
+  HTTPS or loopback HTTP URL, and pass it to
   the Worker as an `ATOMS_CALLBACK_URL` var. With no source, deploy warns and
   sends no callback var. Nothing here checks that the URL answers. The Worker half is
   real: `Atom::app()`/`dispatch()` call back through it

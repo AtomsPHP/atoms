@@ -144,10 +144,11 @@ final class CloudflareTarget
      * @param bool $local Whether this invocation runs a local Worker. Only softens an unresolvable `${VAR}` file reference into "no callback".
      * @param bool $resolveCallback Whether this command configures runtime vars.
      *
-     * @throws AtomsError E070 (unknown environment; or, only when the file
-     *                    entry is the source that wins, a malformed `${VAR}`
-     *                    callback reference, or one that resolves to nothing
-     *                    outside local mode), E076 (unusable Worker directory),
+     * @throws AtomsError E070 (unknown environment; an invalid resolved
+     *                    callback URL; or, only when the file entry is the
+     *                    source that wins, a malformed `${VAR}` callback
+     *                    reference, or one that resolves to nothing outside
+     *                    local mode), E076 (unusable Worker directory),
      *                    E109 (an unreadable or malformed .env.atoms.<env>)
      */
     public static function resolve(
@@ -198,6 +199,7 @@ final class CloudflareTarget
             ? self::resolveCallback($env['callback_url'], $values, $environment, $callbackUrl, $local)
             : null;
         if ($callback !== null) {
+            self::assertValidCallbackUrl($callback);
             $sources['callback_url'] = $callback->source;
         }
 
@@ -422,6 +424,81 @@ final class CloudflareTarget
         // needs one only for $this->app()/dispatch(), warns when it has
         // none, and must not require a variable that belongs to CI.
         return null;
+    }
+
+    /**
+     * Validate a resolved callback URL with the same rules the Worker enforces
+     * (`cloudflare/worker/src/config.js` → `validateCallbackUrl()`): absolute
+     * URL using `https:`, or `http:` only for a loopback host (`127.0.0.1`,
+     * `localhost`, `[::1]`). Catching a bad URL here prevents packaging or
+     * deploying a Worker that would only fail later as misconfigured.
+     *
+     * @throws AtomsError E070
+     */
+    private static function assertValidCallbackUrl(ConfiguredValue $callback): void
+    {
+        $raw = $callback->value;
+        $quoted = json_encode($raw, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $display = \is_string($quoted) ? $quoted : '"' . $raw . '"';
+
+        $parts = filter_var($raw, FILTER_VALIDATE_URL) !== false ? parse_url($raw) : false;
+        if (!\is_array($parts) || !isset($parts['scheme']) || $parts['scheme'] === '') {
+            throw self::invalid(sprintf(
+                'callback URL from %s (%s) is not a valid absolute URL',
+                $callback->source,
+                $display,
+            ));
+        }
+
+        $scheme = strtolower($parts['scheme']);
+        $host = isset($parts['host']) ? strtolower($parts['host']) : '';
+
+        if ($host === '' && ($scheme === 'https' || $scheme === 'http')) {
+            throw self::invalid(sprintf(
+                'callback URL from %s (%s) is not a valid absolute URL',
+                $callback->source,
+                $display,
+            ));
+        }
+
+        if (str_starts_with($host, '[') && str_ends_with($host, ']')) {
+            $packed = @inet_pton(substr($host, 1, -1));
+            $normalized = $packed !== false && \strlen($packed) === 16 ? inet_ntop($packed) : false;
+            if ($normalized === false) {
+                throw self::invalid(sprintf(
+                    'callback URL from %s (%s) is not a valid absolute URL',
+                    $callback->source,
+                    $display,
+                ));
+            }
+            $host = '[' . $normalized . ']';
+        } elseif (
+            preg_match('/^\d+(?:\.\d+){3}$/', $host) === 1
+            && filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false
+        ) {
+            throw self::invalid(sprintf(
+                'callback URL from %s (%s) is not a valid absolute URL',
+                $callback->source,
+                $display,
+            ));
+        }
+
+        if ($scheme === 'https') {
+            return;
+        }
+
+        $loopback = $host === '127.0.0.1' || $host === 'localhost' || $host === '[::1]';
+        if ($scheme === 'http' && $loopback) {
+            return;
+        }
+
+        throw self::invalid(sprintf(
+            'callback URL from %s must use "https:", or "http:" only for a loopback host '
+            . '(127.0.0.1, localhost, [::1]); got "%s://%s"',
+            $callback->source,
+            $scheme,
+            $host,
+        ));
     }
 
     private static function invalid(string $reason): AtomsError
