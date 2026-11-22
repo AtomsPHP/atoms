@@ -93,6 +93,18 @@ separate connection for nonce writes so application transactions cannot undo
 them. Schedule `php artisan atoms:nonces:prune` through Laravel's scheduler to
 remove expired records.
 
+:::note[SQLite write locks]
+SQLite enforces a single file-level write lock across all connections to the
+same `.sqlite` file, including the separate connection Atoms opens for nonce
+writes (or another Laravel connection pointing at the same file). If your
+application holds an open SQLite write transaction while calling an Atom that
+triggers a callback, the callback's nonce insert blocks or fails. Commit open
+write transactions before calling the Atom, or point
+`ATOMS_CALLBACK_NONCE_DB_CONNECTION` at a separate SQLite file (or use Redis).
+If the callback handler itself writes to the application database, only
+committing beforehand avoids the lock.
+:::
+
 ### Redis
 
 Configure a named Redis connection in Laravel's `config/database.php`, then
