@@ -48,9 +48,10 @@ final class FakeConnection implements Connection
     public function sendJson(array $payload): void
     {
         $encoded = JsonFrame::encode($payload);
+        $decoded = JsonFrame::decode($encoded);
 
         $this->sent[] = $encoded;
-        $this->sentJson[] = JsonFrame::decode($encoded);
+        $this->sentJson[] = $decoded;
     }
 
     public function close(int $code = 1000, string $reason = ''): void
