@@ -9,7 +9,6 @@ use Atoms\Cli\Process\SymfonyProcessRunner;
 use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
-use Symfony\Component\Filesystem\Path;
 
 /**
  * Stage an `atoms build` bundle into the Worker project, ready for
@@ -66,14 +65,6 @@ final class BundleStager
                     'reason' => 'node was not found on PATH, and the Worker bundle is built by a Node script',
                 ]),
             );
-        }
-
-        // The translator runs with $target->workerDir as its working directory,
-        // so resolve any caller-relative paths against the caller's cwd first.
-        $cwd = getcwd();
-        if (\is_string($cwd)) {
-            $bundlePath = Path::makeAbsolute($bundlePath, $cwd);
-            $manifestPath = Path::makeAbsolute($manifestPath, $cwd);
         }
 
         $result = $this->runner->run(
