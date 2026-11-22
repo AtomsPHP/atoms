@@ -35,7 +35,40 @@ final class ConsoleCommandsTest extends TestCase
         $this->artisan('atoms:deploy', ['--env' => 'staging', '--bundle' => '/tmp/bundle.tar.gz'])
             ->assertExitCode(0);
 
-        self::assertSame([['deploy', '--env', 'staging', '--bundle', '/tmp/bundle.tar.gz']], $this->runner->calls);
+        self::assertSame(
+            [['deploy', '--root', $this->app->basePath(), '--env', 'staging', '--bundle', '/tmp/bundle.tar.gz']],
+            $this->runner->calls,
+        );
+    }
+
+    public function testDeployPreservesCallerWorkingDirectoryAndPassesApplicationRoot(): void
+    {
+        $callerDir = sys_get_temp_dir() . '/atoms-deploy-cwd-' . bin2hex(random_bytes(6));
+        mkdir($callerDir . '/releases', 0777, true);
+        $previousCwd = getcwd();
+        self::assertIsString($previousCwd);
+
+        try {
+            chdir($callerDir . '/releases');
+            $resolvedCallerDir = getcwd();
+            self::assertIsString($resolvedCallerDir);
+            self::assertNotSame($this->app->basePath(), $resolvedCallerDir);
+
+            $this->artisan('atoms:deploy', [
+                '--env' => 'production',
+                '--bundle' => 'bundle.tar.gz',
+            ])->assertExitCode(0);
+
+            self::assertSame(
+                [['deploy', '--root', $this->app->basePath(), '--env', 'production', '--bundle', 'bundle.tar.gz']],
+                $this->runner->calls,
+            );
+            self::assertSame([$resolvedCallerDir], $this->runner->cwds);
+        } finally {
+            chdir($previousCwd);
+            rmdir($callerDir . '/releases');
+            rmdir($callerDir);
+        }
     }
 
     public function testDeployForwardsManifestAndWorkerDir(): void
@@ -49,6 +82,7 @@ final class ConsoleCommandsTest extends TestCase
 
         self::assertSame([[
             'deploy',
+            '--root', $this->app->basePath(),
             '--env', 'production',
             '--bundle', '/tmp/bundle.tar.gz',
             '--manifest', '/tmp/manifest.json',
@@ -74,7 +108,7 @@ final class ConsoleCommandsTest extends TestCase
         ])->assertExitCode(0);
 
         self::assertSame(
-            [['deploy', '--env', 'production', '--callback-url', 'https://app.example.test/atoms/callback']],
+            [['deploy', '--root', $this->app->basePath(), '--env', 'production', '--callback-url', 'https://app.example.test/atoms/callback']],
             $this->runner->calls,
         );
     }
@@ -98,9 +132,9 @@ final class ConsoleCommandsTest extends TestCase
         ])->assertExitCode(0);
 
         self::assertSame([
-            ['deploy', '--env', 'production', '--outdir', 'review output', '--dry-run'],
-            ['deploy', '--env', 'production', '--dry-run'],
-            ['deploy', '--env', 'production', '--outdir', '/tmp/wrangler-out'],
+            ['deploy', '--root', $this->app->basePath(), '--env', 'production', '--outdir', 'review output', '--dry-run'],
+            ['deploy', '--root', $this->app->basePath(), '--env', 'production', '--dry-run'],
+            ['deploy', '--root', $this->app->basePath(), '--env', 'production', '--outdir', '/tmp/wrangler-out'],
         ], $this->runner->calls);
     }
 

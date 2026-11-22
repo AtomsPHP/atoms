@@ -21,10 +21,10 @@ abstract class AtomsBinaryCommand extends Command
     /**
      * @param list<string> $args
      */
-    protected function runBinary(array $args): int
+    protected function runBinary(array $args, ?string $cwd = null): int
     {
         return $this->runner->run($args, function (string $buffer): void {
             $this->output->write($buffer);
-        });
+        }, $cwd);
     }
 }
