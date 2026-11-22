@@ -10,7 +10,11 @@ use Atoms\Cli\Cloudflare\CloudflareTarget;
 use Atoms\Cli\Cloudflare\GeneratedWranglerConfig;
 use Atoms\Cli\Cloudflare\Wrangler;
 use Atoms\Cli\Config\AtomsDotenv;
+use Atoms\Cli\Process\ProcessRunner;
+use Atoms\Cli\Process\SymfonyProcessRunner;
 use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCatalog;
+use Atoms\Errors\ErrorCode;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -46,6 +50,7 @@ final class DeployCommand extends AbstractCommand
         private readonly Wrangler $wrangler,
         private readonly BundleStager $stager = new BundleStager(),
         private readonly Builder $builder = new Builder(),
+        private readonly ProcessRunner $processRunner = new SymfonyProcessRunner(),
     ) {
         parent::__construct();
     }
@@ -71,11 +76,24 @@ final class DeployCommand extends AbstractCommand
             return self::FAILURE;
         }
 
+        $bundleOpt = self::stringOption($input, 'bundle');
+        $manifestOpt = self::stringOption($input, 'manifest');
+        if ($bundleOpt === null && $manifestOpt !== null) {
+            $output->writeln('<error>' . ErrorCatalog::format(ErrorCode::ManifestWithoutBundle) . '</error>');
+
+            return self::FAILURE;
+        }
+
+        $cwd = getcwd() ?: '.';
         $dryRun = $input->getOption('dry-run') === true;
         $outdir = self::stringOption($input, 'outdir');
         if ($outdir !== null) {
-            $outdir = Path::makeAbsolute($outdir, getcwd() ?: '.');
+            $outdir = Path::makeAbsolute($outdir, $cwd);
         }
+        $bundlePath = $bundleOpt !== null ? Path::makeAbsolute($bundleOpt, $cwd) : null;
+        $manifestPath = $bundlePath !== null
+            ? ($manifestOpt !== null ? Path::makeAbsolute($manifestOpt, $cwd) : Path::join(\dirname($bundlePath), 'manifest.json'))
+            : null;
         $generated = null;
 
         try {
@@ -89,11 +107,13 @@ final class DeployCommand extends AbstractCommand
             );
 
             // Before the build, not after it: a Worker directory that is
-            // missing (E076) or scaffolded by another release (E108) fails
-            // here, in seconds, rather than after a build and a vendor
-            // resolution that were never going to ship.
+            // missing (E076) or scaffolded by another release (E108), or a
+            // callback URL the Worker would reject (E070), fails here rather
+            // than after a build and a vendor resolution that were never going
+            // to ship.
             $target->assertWorkerDir();
             $target->assertRuntimeVersion();
+            $target->assertValidCallbackUrl($this->processRunner);
 
             // Before any side effect — before the build writes .atoms/build,
             // before a byte is staged or uploaded — say what this deployment
@@ -122,11 +142,7 @@ final class DeployCommand extends AbstractCommand
             // cannot replace the bundle while a dev process is using it.
             $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
 
-            $bundleOpt = self::stringOption($input, 'bundle');
-            if ($bundleOpt !== null) {
-                $bundlePath = $bundleOpt;
-                $manifestPath = self::stringOption($input, 'manifest') ?? \dirname($bundlePath) . '/manifest.json';
-            } else {
+            if ($bundlePath === null || $manifestPath === null) {
                 $output->writeln('Building bundle…');
                 $result = $this->builder->build($config, $config->rootDir . '/.atoms/build');
                 $bundlePath = $result->bundlePath;

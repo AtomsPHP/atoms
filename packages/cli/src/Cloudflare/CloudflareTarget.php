@@ -7,6 +7,7 @@ namespace Atoms\Cli\Cloudflare;
 use Atoms\Cli\Config\AtomsJson;
 use Atoms\Cli\Config\ConfiguredValue;
 use Atoms\Cli\Config\TargetEnvironment;
+use Atoms\Cli\Process\ProcessRunner;
 use Atoms\Cli\Release\RuntimeVersion;
 use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCatalog;
@@ -80,6 +81,13 @@ final class CloudflareTarget
      * answered. An empty or whitespace-only value is "unset" from every source
      * alike.
      */
+    /**
+     * Worker runtime module owning `validateCallbackUrl()`. Invoked during
+     * deploy/dev preflight so the CLI enforces the exact WHATWG URL rules the
+     * Worker itself enforces at runtime.
+     */
+    public const WORKER_CONFIG_MODULE = 'src/config.js';
+
     public const CALLBACK_VAR = 'ATOMS_CALLBACK_URL';
 
     /**
@@ -144,10 +152,10 @@ final class CloudflareTarget
      * @param bool $local Whether this invocation runs a local Worker. Only softens an unresolvable `${VAR}` file reference into "no callback".
      * @param bool $resolveCallback Whether this command configures runtime vars.
      *
-     * @throws AtomsError E070 (unknown environment; or, only when the file
-     *                    entry is the source that wins, a malformed `${VAR}`
-     *                    callback reference, or one that resolves to nothing
-     *                    outside local mode), E076 (unusable Worker directory),
+     * @throws AtomsError E070 (unknown environment; or, only when the file entry
+     *                    is the source that wins, a malformed `${VAR}` callback
+     *                    reference, or one that resolves to nothing outside
+     *                    local mode), E076 (unusable Worker directory),
      *                    E109 (an unreadable or malformed .env.atoms.<env>)
      */
     public static function resolve(
@@ -422,6 +430,74 @@ final class CloudflareTarget
         // needs one only for $this->app()/dispatch(), warns when it has
         // none, and must not require a variable that belongs to CI.
         return null;
+    }
+
+    /**
+     * Validate the resolved callback URL with the Worker's own WHATWG-based
+     * `validateCallbackUrl()` (`src/config.js`), so CLI preflight and runtime
+     * configuration never disagree on URL parsing or loopback normalization.
+     *
+     * An omitted callback URL (`null`) is valid and needs no subprocess.
+     *
+     * @throws AtomsError E070 when the Worker validator rejects the URL,
+     *                    E076 when `src/config.js` or `node` is unusable
+     */
+    public function assertValidCallbackUrl(ProcessRunner $runner): void
+    {
+        if ($this->callbackUrl === null) {
+            return;
+        }
+
+        $configModule = $this->workerDir . '/' . self::WORKER_CONFIG_MODULE;
+        if (!is_file($configModule)) {
+            throw $this->workerDirError(
+                "{$this->workerDir} has no " . self::WORKER_CONFIG_MODULE . ' to validate the callback URL',
+            );
+        }
+
+        $node = $runner->which('node');
+        if ($node === null) {
+            throw $this->workerDirError(
+                '`node` was not found on PATH; the Worker runtime requires Node.js to validate callback URLs',
+            );
+        }
+
+        $script = "import { validateCallbackUrl } from './" . self::WORKER_CONFIG_MODULE . "';\n"
+            . "const error = validateCallbackUrl(process.env.ATOMS_VALIDATE_CALLBACK_URL ?? '');\n"
+            . "if (error) {\n"
+            . "    process.stderr.write(String(error));\n"
+            . "    process.exit(2);\n"
+            . "}\n";
+
+        $result = $runner->run(
+            [$node, '--input-type=module', '-e', $script],
+            $this->workerDir,
+            ['ATOMS_VALIDATE_CALLBACK_URL' => $this->callbackUrl],
+        );
+
+        if ($result->ok()) {
+            return;
+        }
+
+        if ($result->exitCode === 2) {
+            $source = $this->sources['callback_url'] ?? 'callback_url';
+            $detail = trim($result->stderr);
+
+            throw self::invalid(sprintf(
+                'invalid callback URL from %s: %s',
+                $source,
+                $detail !== '' ? $detail : 'rejected by Worker validator',
+            ));
+        }
+
+        $output = trim($result->stderr !== '' ? $result->stderr : $result->stdout);
+
+        throw $this->workerDirError(sprintf(
+            'could not validate callback URL with %s (exit %d)%s',
+            self::WORKER_CONFIG_MODULE,
+            $result->exitCode,
+            $output !== '' ? ': ' . $output : '',
+        ));
     }
 
     private static function invalid(string $reason): AtomsError

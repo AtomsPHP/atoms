@@ -37,7 +37,11 @@ final class DeployCommand extends AtomsBinaryCommand
 
     public function handle(): int
     {
-        $args = ['deploy'];
+        // Pass the application root explicitly and keep the caller's working
+        // directory so relative --bundle, --manifest, and --outdir paths
+        // resolve from where `php .../artisan` was invoked rather than from
+        // the application root.
+        $args = ['deploy', '--root', $this->laravel->basePath()];
 
         foreach (['env', 'bundle', 'manifest', 'worker-dir', 'callback-url', 'outdir'] as $option) {
             if (($value = $this->option($option)) !== null) {
@@ -50,6 +54,8 @@ final class DeployCommand extends AtomsBinaryCommand
             $args[] = '--dry-run';
         }
 
-        return $this->runBinary($args);
+        $cwd = getcwd();
+
+        return $this->runBinary($args, is_string($cwd) ? $cwd : null);
     }
 }

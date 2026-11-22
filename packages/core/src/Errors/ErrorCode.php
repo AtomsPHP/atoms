@@ -84,4 +84,5 @@ enum ErrorCode: string
     case CallbackNonceStoreConfiguration = 'ATOMS-E111';
     case CallbackNonceStoreUnavailable = 'ATOMS-E112';
     case PhpstanConfigurationFailed = 'ATOMS-E113';
+    case ManifestWithoutBundle = 'ATOMS-E114';
 }

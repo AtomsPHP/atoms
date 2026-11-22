@@ -8,6 +8,8 @@ use Atoms\Cli\Cloudflare\CloudflareTarget;
 use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Cloudflare\WranglerBinary;
 use Atoms\Cli\Config\AtomsJson;
+use Atoms\Cli\Process\ProcessResult;
+use Atoms\Cli\Process\SymfonyProcessRunner;
 use Atoms\Cli\Release\RuntimeVersion;
 use Atoms\Cli\Tests\Support\FakeProcessRunner;
 use Atoms\Cli\Tests\TestCase;
@@ -613,5 +615,203 @@ final class CloudflareTargetTest extends TestCase
         $this->expectException(AtomsError::class);
         $this->expectExceptionMessageMatches('/ATOMS-E073/');
         WranglerBinary::resolve($runner, $target);
+    }
+
+    private function realWorkerDir(): string
+    {
+        $workerDir = \dirname(__DIR__, 4) . '/cloudflare/worker';
+        if (!is_file($workerDir . '/' . CloudflareTarget::WORKER_CONFIG_MODULE)) {
+            self::markTestSkipped('cloudflare/worker/src/config.js is not present in this checkout.');
+        }
+        if ((new SymfonyProcessRunner())->which('node') === null) {
+            self::markTestSkipped('node is not on PATH; callback URL validation delegates to the Worker runtime.');
+        }
+
+        return $workerDir;
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function validCallbackUrlProvider(): iterable
+    {
+        yield 'https' => ['https://app.example.com/atoms/callback'];
+        yield 'https uppercase with port and query' => ['HTTPS://APP.EXAMPLE.COM:8443/atoms/callback?v=1'];
+        yield 'https idn host' => ['https://münchen.example/callback'];
+        yield 'https ipv6' => ['https://[2001:db8::1]:8443/atoms/callback'];
+        yield 'http 127.0.0.1' => ['http://127.0.0.1:8000/atoms/callback'];
+        yield 'http localhost' => ['http://localhost:8000/atoms/callback'];
+        yield 'http uppercase localhost' => ['HTTP://LOCALHOST/atoms/callback'];
+        yield 'http ipv6 loopback' => ['http://[::1]:8000/atoms/callback'];
+        yield 'http expanded ipv6 loopback' => ['http://[0:0:0:0:0:0:0:1]:8000/atoms/callback'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('validCallbackUrlProvider')]
+    public function testValidResolvedCallbackUrlsAreAcceptedByWorkerValidator(string $url): void
+    {
+        $target = CloudflareTarget::resolve(
+            $this->sampleApp(),
+            'production',
+            workerDir: $this->realWorkerDir(),
+            callbackUrl: $url,
+        );
+
+        $target->assertValidCallbackUrl(new SymfonyProcessRunner());
+
+        self::assertSame($url, $target->callbackUrl);
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function invalidCallbackUrlProvider(): iterable
+    {
+        yield 'missing scheme' => ['missing-scheme', 'not a valid absolute URL'];
+        yield 'relative path' => ['/atoms/callback', 'not a valid absolute URL'];
+        yield 'protocol relative' => ['//example.com/atoms/callback', 'not a valid absolute URL'];
+        yield 'numeric tld' => ['https://service.123/callback', 'not a valid absolute URL'];
+        yield 'host and port without scheme' => ['localhost:8000/atoms/callback', 'must use "https:"'];
+        yield 'empty host' => ['https://', 'not a valid absolute URL'];
+        yield 'port out of range' => ['https://example.com:99999/atoms/callback', 'not a valid absolute URL'];
+        yield 'invalid ipv4' => ['https://256.256.256.256/atoms/callback', 'not a valid absolute URL'];
+        yield 'invalid ipv6' => ['https://[invalid]/atoms/callback', 'not a valid absolute URL'];
+        yield 'non-loopback http' => ['http://example.com/atoms/callback', 'must use "https:"'];
+        yield 'non-127.0.0.1 loopback subnet' => ['http://127.0.0.2:8000/atoms/callback', 'must use "https:"'];
+        yield '0.0.0.0 http' => ['http://0.0.0.0:8000/atoms/callback', 'must use "https:"'];
+        yield 'localhost trailing dot http' => ['http://localhost./atoms/callback', 'must use "https:"'];
+        yield 'localhost subdomain http' => ['http://sub.localhost/atoms/callback', 'must use "https:"'];
+        yield 'ipv4-mapped ipv6 loopback http' => ['http://[::ffff:127.0.0.1]/atoms/callback', 'must use "https:"'];
+        yield 'ftp scheme' => ['ftp://example.com/atoms/callback', 'must use "https:"'];
+        yield 'ws scheme on loopback' => ['ws://localhost:8000/atoms/callback', 'must use "https:"'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidCallbackUrlProvider')]
+    public function testInvalidCallbackUrlFlagIsRejectedWithE070ByWorkerValidator(string $url, string $expectedFragment): void
+    {
+        $target = CloudflareTarget::resolve(
+            $this->sampleApp(),
+            'production',
+            workerDir: $this->realWorkerDir(),
+            callbackUrl: $url,
+        );
+
+        $this->expectException(AtomsError::class);
+        $this->expectExceptionMessageMatches('/ATOMS-E070.*--callback-url.*' . preg_quote($expectedFragment, '/') . '/s');
+
+        $target->assertValidCallbackUrl(new SymfonyProcessRunner());
+    }
+
+    public function testInvalidCallbackUrlFromEnvDotenvAndAtomsJsonAreAllRejected(): void
+    {
+        $workerDir = $this->realWorkerDir();
+        $runner = new SymfonyProcessRunner();
+
+        // Caller environment.
+        putenv(CloudflareTarget::CALLBACK_VAR . '=http://example.com/cb');
+        try {
+            CloudflareTarget::resolve($this->sampleApp(), 'production', workerDir: $workerDir)
+                ->assertValidCallbackUrl($runner);
+            self::fail('expected ATOMS-E070 for caller environment');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E070', $e->getMessage());
+            self::assertStringContainsString('caller environment: ATOMS_CALLBACK_URL', $e->getMessage());
+        } finally {
+            putenv(CloudflareTarget::CALLBACK_VAR);
+        }
+
+        // .env.atoms.<env>.
+        $root = $this->tempCopy('sample-app');
+        file_put_contents($root . '/.env.atoms.production', "ATOMS_CALLBACK_URL=https://service.123/callback\n");
+        try {
+            CloudflareTarget::resolve(AtomsJson::load($root . '/atoms.json'), 'production', workerDir: $workerDir)
+                ->assertValidCallbackUrl($runner);
+            self::fail('expected ATOMS-E070 for dotenv');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E070', $e->getMessage());
+            self::assertStringContainsString('.env.atoms.production: ATOMS_CALLBACK_URL', $e->getMessage());
+        }
+        unlink($root . '/.env.atoms.production');
+
+        // atoms.json literal.
+        $json = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $json['environments']['production']['callback_url'] = 'http://public.example.com/cb';
+        file_put_contents($root . '/atoms.json', json_encode($json, JSON_THROW_ON_ERROR));
+        $config = AtomsJson::load($root . '/atoms.json');
+        try {
+            CloudflareTarget::resolve($config, 'production', workerDir: $workerDir)
+                ->assertValidCallbackUrl($runner);
+            self::fail('expected ATOMS-E070 for atoms.json literal');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E070', $e->getMessage());
+            self::assertStringContainsString('environments.production.callback_url', $e->getMessage());
+        }
+
+        // Nearer valid override still wins without tripping on the invalid file entry,
+        // and operational commands with resolveCallback: false still ignore it.
+        $overridden = CloudflareTarget::resolve(
+            $config,
+            'production',
+            workerDir: $workerDir,
+            callbackUrl: 'https://münchen.example/callback',
+        );
+        $overridden->assertValidCallbackUrl($runner);
+        self::assertSame('https://münchen.example/callback', $overridden->callbackUrl);
+
+        $operational = CloudflareTarget::resolve($config, 'production', workerDir: $workerDir, resolveCallback: false);
+        $operational->assertValidCallbackUrl($runner);
+        self::assertNull($operational->callbackUrl);
+    }
+
+    public function testAssertValidCallbackUrlSkipsSubprocessWhenCallbackUrlIsOmitted(): void
+    {
+        $target = CloudflareTarget::resolve(
+            $this->sampleApp(),
+            'production',
+            workerDir: $this->freshDir(),
+            resolveCallback: false,
+        );
+        $runner = new FakeProcessRunner(onPath: []);
+
+        $target->assertValidCallbackUrl($runner);
+
+        self::assertSame([], $runner->runs);
+    }
+
+    public function testAssertValidCallbackUrlReportsMissingWorkerModuleMissingNodeAndUnexpectedFailureAsE076(): void
+    {
+        $emptyWorkerDir = $this->freshDir();
+        $target = CloudflareTarget::resolve(
+            $this->sampleApp(),
+            'production',
+            workerDir: $emptyWorkerDir,
+            callbackUrl: 'https://app.example.com/cb',
+        );
+
+        try {
+            $target->assertValidCallbackUrl(new FakeProcessRunner());
+            self::fail('expected ATOMS-E076 when src/config.js is missing');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E076', $e->getMessage());
+            self::assertStringContainsString(CloudflareTarget::WORKER_CONFIG_MODULE, $e->getMessage());
+        }
+
+        mkdir($emptyWorkerDir . '/src', 0777, true);
+        file_put_contents($emptyWorkerDir . '/src/config.js', '');
+
+        try {
+            $target->assertValidCallbackUrl(new FakeProcessRunner(onPath: []));
+            self::fail('expected ATOMS-E076 when node is missing');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E076', $e->getMessage());
+            self::assertStringContainsString('node', $e->getMessage());
+        }
+
+        try {
+            $target->assertValidCallbackUrl(new FakeProcessRunner(new ProcessResult(1, '', 'SyntaxError: boom')));
+            self::fail('expected ATOMS-E076 when validator exits with non-2 error');
+        } catch (AtomsError $e) {
+            self::assertStringContainsString('ATOMS-E076', $e->getMessage());
+            self::assertStringContainsString('SyntaxError: boom', $e->getMessage());
+        }
     }
 }

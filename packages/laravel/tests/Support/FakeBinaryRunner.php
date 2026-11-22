@@ -17,6 +17,9 @@ final class FakeBinaryRunner extends BinaryRunner
     /** @var list<list<string>> */
     public array $calls = [];
 
+    /** @var list<?string> */
+    public array $cwds = [];
+
     public int $exitCode = 0;
 
     public function __construct()
@@ -34,6 +37,7 @@ final class FakeBinaryRunner extends BinaryRunner
     public function run(array $args, ?callable $onOutput = null, ?string $cwd = null): int
     {
         $this->calls[] = $args;
+        $this->cwds[] = $cwd;
 
         return $this->exitCode;
     }

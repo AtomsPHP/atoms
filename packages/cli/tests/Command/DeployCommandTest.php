@@ -8,6 +8,7 @@ use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\CloudflareTarget;
 use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Cloudflare\ProcessWrangler;
+use Atoms\Cli\Cloudflare\Wrangler;
 use Atoms\Cli\Command\DeployCommand;
 use Atoms\Cli\Process\ProcessResult;
 use Atoms\Cli\Release\RuntimeVersion;
@@ -38,6 +39,8 @@ final class DeployCommandTest extends TestCase
         file_put_contents($dir . '/wrangler.jsonc', '{}');
         mkdir($dir . '/scripts', 0777, true);
         file_put_contents($dir . '/' . BundleStager::SCRIPT, '');
+        mkdir($dir . '/src', 0777, true);
+        file_put_contents($dir . '/' . CloudflareTarget::WORKER_CONFIG_MODULE, '');
         self::stamp($dir);
 
         return $dir;
@@ -59,6 +62,18 @@ final class DeployCommandTest extends TestCase
     private function stager(?FakeProcessRunner $runner = null): BundleStager
     {
         return new BundleStager($runner ?? new FakeProcessRunner());
+    }
+
+    private function deployCommand(
+        Wrangler $wrangler,
+        ?FakeProcessRunner $stagerRunner = null,
+        ?FakeProcessRunner $processRunner = null,
+    ): DeployCommand {
+        return new DeployCommand(
+            $wrangler,
+            $this->stager($stagerRunner),
+            processRunner: $processRunner ?? new FakeProcessRunner(),
+        );
     }
 
     protected function setUp(): void
@@ -90,7 +105,7 @@ final class DeployCommandTest extends TestCase
         file_put_contents($root . '/.env.atoms.production', "CLOUDFLARE_ACCOUNT_ID=selected-account\n");
         $dir = $this->workerDir();
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
         $options = [
             '--root' => $root, '--env' => 'production', '--worker-dir' => $dir,
             '--bundle' => $this->bundleFile(), '--callback-url' => 'https://override.example.com/callback',
@@ -125,7 +140,7 @@ final class DeployCommandTest extends TestCase
             foreach ([0, 1] as $status) {
                 $runner = new FakeProcessRunner(new ProcessResult($status, '', $status ? 'packaging failed' : ''), ['wrangler' => '/usr/bin/wrangler']);
                 $dir = $this->workerDir();
-                $tester = new CommandTester(new DeployCommand(new ProcessWrangler($runner), $this->stager()));
+                $tester = new CommandTester($this->deployCommand(new ProcessWrangler($runner)));
                 $options = [
                     '--root' => $this->fixtureDir('sample-app'), '--env' => 'production',
                     '--worker-dir' => $dir, '--bundle' => $this->bundleFile(), '--dry-run' => true,
@@ -167,7 +182,7 @@ final class DeployCommandTest extends TestCase
             $root = $this->tempCopy('sample-app');
             $runner = new FakeProcessRunner();
             $wrangler = new FakeWrangler();
-            $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+            $tester = new CommandTester($this->deployCommand($wrangler, $runner));
             self::assertSame(1, $tester->execute([
                 '--root' => $root, '--env' => 'production', '--worker-dir' => $dir, '--dry-run' => $dryRun,
             ]));
@@ -190,7 +205,7 @@ final class DeployCommandTest extends TestCase
         $runner = new FakeProcessRunner();
         $wrangler = new FakeWrangler();
         $wrangler->deployResult = FakeWrangler::ok(['deploy'], "Published https://live.example.workers.dev\n");
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+        $tester = new CommandTester($this->deployCommand($wrangler, $runner));
 
         $exit = $tester->execute([
             '--root' => $root,
@@ -243,7 +258,7 @@ final class DeployCommandTest extends TestCase
     {
         putenv(CloudflareTarget::CALLBACK_VAR . '=https://app.example.test/atoms/callback');
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager(new FakeProcessRunner())));
+        $tester = new CommandTester($this->deployCommand($wrangler));
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
@@ -271,7 +286,7 @@ final class DeployCommandTest extends TestCase
         putenv(CloudflareTarget::CALLBACK_VAR . '=https://ci.example.test/atoms/callback');
 
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
         $exit = $tester->execute([
             '--root' => $root,
             '--env' => 'production',
@@ -296,7 +311,7 @@ final class DeployCommandTest extends TestCase
 
         $runner = new FakeProcessRunner();
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+        $tester = new CommandTester($this->deployCommand($wrangler, $runner));
         $exit = $tester->execute([
             '--root' => $root,
             '--env' => 'production',
@@ -312,7 +327,7 @@ final class DeployCommandTest extends TestCase
 
     public function testDeployAcceptsCallbackUrlAsTheOperatorsFinalSay(): void
     {
-        $command = new DeployCommand(new FakeWrangler(), $this->stager());
+        $command = $this->deployCommand(new FakeWrangler());
 
         self::assertTrue($command->getDefinition()->hasOption('callback-url'));
     }
@@ -332,7 +347,7 @@ final class DeployCommandTest extends TestCase
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
 
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
         $exit = $tester->execute([
             '--root' => $root,
             '--env' => 'production',
@@ -367,7 +382,7 @@ final class DeployCommandTest extends TestCase
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
 
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
 
         $exit = $tester->execute([
             '--root' => $root,
@@ -400,7 +415,7 @@ final class DeployCommandTest extends TestCase
         self::stamp($dir, '0.0.1-other');
         $runner = new FakeProcessRunner();
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+        $tester = new CommandTester($this->deployCommand($wrangler, $runner));
 
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
@@ -429,7 +444,7 @@ final class DeployCommandTest extends TestCase
         $dir = $this->workerDir();
         unlink($dir . '/' . RuntimeStamp::FILE);
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
 
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
@@ -452,7 +467,7 @@ final class DeployCommandTest extends TestCase
      */
     public function testSuccessSaysThatPropagationIsNotInstant(): void
     {
-        $tester = new CommandTester(new DeployCommand(new FakeWrangler(), $this->stager()));
+        $tester = new CommandTester($this->deployCommand(new FakeWrangler()));
 
         $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
@@ -471,7 +486,7 @@ final class DeployCommandTest extends TestCase
     {
         putenv('CLOUDFLARE_API_TOKEN=cf-secret-token');
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
 
         $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
@@ -502,7 +517,7 @@ final class DeployCommandTest extends TestCase
             ['deploy'],
             "✘ [ERROR] A request to the Cloudflare API failed.\n  Script size too large [code: 10027]\n",
         );
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
 
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
@@ -522,7 +537,7 @@ final class DeployCommandTest extends TestCase
     {
         $runner = new FakeProcessRunner(new ProcessResult(1, '', 'Error: atom Counter declares /app/Counter.php, which is not in the bundle'));
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+        $tester = new CommandTester($this->deployCommand($wrangler, $runner));
 
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
@@ -546,7 +561,7 @@ final class DeployCommandTest extends TestCase
             'Error: ATOMS-E043: Bundle was built against atoms/core 0.2.0, but this runtime supports ^0.1.',
         ));
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+        $tester = new CommandTester($this->deployCommand($wrangler, $runner));
 
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
@@ -568,7 +583,7 @@ final class DeployCommandTest extends TestCase
     {
         putenv('CLOUDFLARE_API_TOKEN');
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
 
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
@@ -596,7 +611,7 @@ final class DeployCommandTest extends TestCase
             "✘ [ERROR] In a non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN "
             . "environment variable for wrangler to work.\n",
         );
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
 
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
@@ -616,7 +631,7 @@ final class DeployCommandTest extends TestCase
     public function testMissingAccountIdAlsoDefersToWrangler(): void
     {
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
 
         $exit = $tester->execute([
             '--root' => $this->rootWithoutAccountId(),
@@ -642,7 +657,7 @@ final class DeployCommandTest extends TestCase
             . "  Please set the appropriate `account_id` or assign it to the CLOUDFLARE_ACCOUNT_ID "
             . "environment variable.\n",
         );
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
 
         $exit = $tester->execute([
             '--root' => $this->rootWithoutAccountId(),
@@ -673,7 +688,7 @@ final class DeployCommandTest extends TestCase
     public function testUnusableWorkerDirectoryMapsToE076(): void
     {
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
 
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
@@ -701,7 +716,7 @@ final class DeployCommandTest extends TestCase
         file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
 
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
         $exit = $tester->execute([
             '--root' => $root,
             '--env' => 'production',
@@ -741,7 +756,7 @@ final class DeployCommandTest extends TestCase
         ], JSON_THROW_ON_ERROR));
 
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
@@ -773,7 +788,7 @@ final class DeployCommandTest extends TestCase
 
         $wrangler = new FakeWrangler();
         $runner = new FakeProcessRunner();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager($runner)));
+        $tester = new CommandTester($this->deployCommand($wrangler, $runner));
         $exit = $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
@@ -791,7 +806,7 @@ final class DeployCommandTest extends TestCase
     public function testAWorkerConfigWithoutRoutingSaysNothing(): void
     {
         $wrangler = new FakeWrangler();
-        $tester = new CommandTester(new DeployCommand($wrangler, $this->stager()));
+        $tester = new CommandTester($this->deployCommand($wrangler));
         $tester->execute([
             '--root' => $this->fixtureDir('sample-app'),
             '--env' => 'production',
@@ -800,5 +815,139 @@ final class DeployCommandTest extends TestCase
         ]);
 
         self::assertStringNotContainsString('top level', $tester->getDisplay());
+    }
+
+    public function testRelativeBundlePathResolvesAgainstCurrentDirectoryAndDefaultsManifestBesideIt(): void
+    {
+        $callerDir = $this->freshDir();
+        mkdir($callerDir . '/dist/nested', 0777, true);
+        file_put_contents($callerDir . '/dist/nested/bundle.tar.gz', (string) gzencode('dummy'));
+        file_put_contents($callerDir . '/dist/nested/manifest.json', '{"schema":1,"atoms":[]}');
+        file_put_contents($callerDir . '/bundle.tar.gz', (string) gzencode('dummy'));
+        file_put_contents($callerDir . '/manifest.json', '{"schema":1,"atoms":[]}');
+
+        $previousCwd = getcwd();
+        self::assertIsString($previousCwd);
+        chdir($callerDir);
+        try {
+            $resolvedCallerDir = (string) getcwd();
+            $dir = $this->workerDir();
+
+            foreach ([
+                ['dist/nested/bundle.tar.gz', $resolvedCallerDir . '/dist/nested/bundle.tar.gz', $resolvedCallerDir . '/dist/nested/manifest.json'],
+                ['bundle.tar.gz', $resolvedCallerDir . '/bundle.tar.gz', $resolvedCallerDir . '/manifest.json'],
+            ] as [$relativeBundle, $expectedBundle, $expectedManifest]) {
+                $runner = new FakeProcessRunner();
+                $wrangler = new FakeWrangler();
+                $tester = new CommandTester($this->deployCommand($wrangler, $runner));
+
+                $exit = $tester->execute([
+                    '--root' => $this->fixtureDir('sample-app'),
+                    '--env' => 'production',
+                    '--worker-dir' => $dir,
+                    '--bundle' => $relativeBundle,
+                ]);
+
+                self::assertSame(0, $exit, $tester->getDisplay());
+                self::assertCount(1, $runner->runs);
+                self::assertSame($dir, $runner->runs[0]['cwd']);
+                self::assertSame($expectedBundle, $runner->runs[0]['command'][2]);
+                self::assertSame($expectedManifest, $runner->runs[0]['command'][3]);
+            }
+        } finally {
+            chdir($previousCwd);
+        }
+    }
+
+    public function testRelativeManifestPathResolvesAgainstCurrentDirectory(): void
+    {
+        $callerDir = $this->freshDir();
+        mkdir($callerDir . '/bundles', 0777, true);
+        mkdir($callerDir . '/manifests', 0777, true);
+        file_put_contents($callerDir . '/bundles/bundle.tar.gz', (string) gzencode('dummy'));
+        file_put_contents($callerDir . '/manifests/custom.json', '{"schema":1,"atoms":[]}');
+
+        $previousCwd = getcwd();
+        self::assertIsString($previousCwd);
+        chdir($callerDir);
+        try {
+            $resolvedCallerDir = (string) getcwd();
+            $runner = new FakeProcessRunner();
+            $wrangler = new FakeWrangler();
+            $tester = new CommandTester($this->deployCommand($wrangler, $runner));
+
+            $exit = $tester->execute([
+                '--root' => $this->fixtureDir('sample-app'),
+                '--env' => 'production',
+                '--worker-dir' => $this->workerDir(),
+                '--bundle' => 'bundles/bundle.tar.gz',
+                '--manifest' => 'manifests/custom.json',
+            ]);
+
+            self::assertSame(0, $exit, $tester->getDisplay());
+            self::assertCount(1, $runner->runs);
+            self::assertSame($resolvedCallerDir . '/bundles/bundle.tar.gz', $runner->runs[0]['command'][2]);
+            self::assertSame($resolvedCallerDir . '/manifests/custom.json', $runner->runs[0]['command'][3]);
+        } finally {
+            chdir($previousCwd);
+        }
+    }
+
+    public function testManifestWithoutBundleIsRejectedBeforeBuildingOrStaging(): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $runner = new FakeProcessRunner();
+        $wrangler = new FakeWrangler();
+        $tester = new CommandTester($this->deployCommand($wrangler, $runner));
+
+        $exit = $tester->execute([
+            '--root' => $root,
+            '--env' => 'production',
+            '--worker-dir' => $this->workerDir(),
+            '--manifest' => '.atoms/build/manifest.json',
+        ]);
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString('ATOMS-E114', $tester->getDisplay());
+        self::assertStringContainsString('--manifest cannot be used without --bundle.', $tester->getDisplay());
+        self::assertStringContainsString('Fix: Pass --bundle <path> together with --manifest <path>', $tester->getDisplay());
+        self::assertDirectoryDoesNotExist($root . '/.atoms/build');
+        self::assertSame([], $runner->runs);
+        self::assertSame([], $wrangler->calls);
+    }
+
+    public function testInvalidCallbackUrlFailsBeforeBuildingStagingOrPackaging(): void
+    {
+        foreach ([
+            ['missing-scheme', 'ATOMS_CALLBACK_URL "missing-scheme" is not a valid absolute URL'],
+            ['https://service.123/callback', 'ATOMS_CALLBACK_URL "https://service.123/callback" is not a valid absolute URL'],
+            ['http://example.com/atoms/callback', 'ATOMS_CALLBACK_URL must use "https:", or "http:" only for a loopback host (127.0.0.1, localhost, [::1]); got "http://example.com"'],
+        ] as [$badUrl, $workerError]) {
+            foreach ([false, true] as $dryRun) {
+                $root = $this->tempCopy('sample-app');
+                $stagerRunner = new FakeProcessRunner();
+                $validatorRunner = new FakeProcessRunner(new ProcessResult(2, '', $workerError));
+                $wrangler = new FakeWrangler();
+                $tester = new CommandTester($this->deployCommand($wrangler, $stagerRunner, $validatorRunner));
+
+                $exit = $tester->execute([
+                    '--root' => $root,
+                    '--env' => 'production',
+                    '--worker-dir' => $this->workerDir(),
+                    '--callback-url' => $badUrl,
+                    '--dry-run' => $dryRun,
+                ]);
+
+                self::assertSame(1, $exit);
+                self::assertStringContainsString('ATOMS-E070', $tester->getDisplay());
+                self::assertStringContainsString('--callback-url', $tester->getDisplay());
+                self::assertStringContainsString($workerError, $tester->getDisplay());
+                self::assertCount(1, $validatorRunner->runs);
+                self::assertSame($badUrl, $validatorRunner->runs[0]['env']['ATOMS_VALIDATE_CALLBACK_URL']);
+                self::assertDirectoryDoesNotExist($root . '/.atoms/build');
+                self::assertSame([], $stagerRunner->runs);
+                self::assertSame([], $wrangler->calls);
+            }
+        }
     }
 }
