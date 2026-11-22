@@ -29,6 +29,9 @@ use Atoms\Websocket\Message;
  *                             ConnectionClosed and recording the outcome
  *   - "json:<text>"        -> `sendJson()` with a payload carrying a slash and
  *                             an int past 2^53-1, to pin the encoding rules
+ *   - "json-empty"         -> `sendJson([])`, pinning `{}` for an empty top-level map
+ *   - "json-list"          -> `sendJson([1, 2])`, catching \JsonException into a
+ *                             `jsonerr` reply and `stats().lastJsonError`
  *   - a frame starting `{` or `[` -> `sendJson(['echo' => $msg->json()])`,
  *                             catching \JsonException into a `jsonerr` reply
  *                             and `stats().lastJsonError`
@@ -112,6 +115,25 @@ final class Room extends Atom
                 'path' => 'a/b',
                 'n' => 9007199254740993,
             ]);
+            return;
+        }
+
+        if ($payload === 'json-empty') {
+            $conn->sendJson([]);
+            return;
+        }
+
+        if ($payload === 'json-list') {
+            // Deliberately violate the string-keyed map contract to prove
+            // sendJson() refuses a top-level list with \JsonException before
+            // putting any frame on the wire.
+            try {
+                $conn->sendJson([1, 2]);
+                $conn->send('json-list-ok');
+            } catch (\JsonException $e) {
+                $this->lastJsonError = 'JsonException';
+                $conn->send('jsonerr');
+            }
             return;
         }
 

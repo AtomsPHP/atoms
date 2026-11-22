@@ -4311,6 +4311,21 @@ check(43, 'ws structured frames: sendJson() is bare and exact, json() refuses no
             problems.push(`empty-object echo was ${JSON.stringify(empty)} (expected {"echo":[]})`);
         }
 
+        // Empty top-level map encodes as {} so it round-trips as an object.
+        sock.send('json-empty');
+        const emptyTop = await sock.next();
+        if (emptyTop !== '{}') {
+            problems.push(`sendJson([]) frame was ${JSON.stringify(emptyTop)} (expected "{}")`);
+        }
+
+        // A top-level list passed to sendJson() is rejected with \JsonException
+        // before any frame goes on the wire.
+        sock.send('json-list');
+        const listReply = await sock.next();
+        if (listReply !== 'jsonerr') {
+            problems.push(`sendJson([1, 2]): got ${JSON.stringify(listReply)} (expected "jsonerr")`);
+        }
+
         // A top-level list is refused exactly as malformed JSON is, so an Atom
         // needs a single catch (\JsonException) rather than a shape check.
         for (const [label, bad] of [['top-level list', '[1,2]'], ['malformed', '{oops']]) {

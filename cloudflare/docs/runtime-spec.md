@@ -1182,7 +1182,9 @@ silently round any integer past 2^53−1.
 `sendJson()` sits between the two and is **not** a one-connection `broadcast()`:
 it shares broadcast's *encoding* — one `Atoms\Websocket\JsonFrame::encode()`,
 `Serializer::normalize()` then `json_encode()` with `JSON_UNESCAPED_SLASHES`
-and default depth — but emits no envelope, because there is no channel to name.
+and default depth, encoding empty `[]` as `{}` and rejecting a non-empty
+top-level list with `\JsonException` — but emits no envelope, because there is
+no channel to name.
 A client therefore reads a `sendJson()` frame exactly as it reads whatever the
 Atom sent through `send()`, and reads `payload` out of a broadcast. The shared
 encoder is what keeps a structured frame's normalization identical whichever

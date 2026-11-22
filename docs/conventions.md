@@ -181,7 +181,8 @@ Supporting types in core (exact FQCNs — other packages reference these):
   all pass through it, which is what keeps their normalization identical. The
   rule: `Serializer::normalize()`, then `json_encode()` with
   `JSON_UNESCAPED_SLASHES` and the default depth; an empty top-level map
-  encodes as `{}` so it round-trips.
+  encodes as `{}` so it round-trips, and a non-empty top-level list is rejected
+  with `\JsonException`.
   What it does **not** decide is the envelope — `broadcast()` wraps its payload
   in `{"kind":"broadcast","channel":…,"payload":…}` because a socket on several
   channels must tell two broadcasts apart, while `sendJson()` has no channel and

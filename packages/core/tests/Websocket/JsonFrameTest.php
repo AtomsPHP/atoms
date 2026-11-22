@@ -38,6 +38,50 @@ final class JsonFrameTest extends TestCase
         self::assertSame('{"moves":[]}', JsonFrame::encode(['moves' => []]));
     }
 
+    public function testNestedListsRemainValid(): void
+    {
+        $encoded = JsonFrame::encode(['items' => [1, 2]]);
+
+        self::assertSame('{"items":[1,2]}', $encoded);
+        self::assertSame(['items' => [1, 2]], JsonFrame::decode($encoded));
+    }
+
+    /**
+     * @return iterable<string, array{list<mixed>}>
+     */
+    public static function topLevelLists(): iterable
+    {
+        yield 'int list' => [[1, 2]];
+        yield 'single string' => [['only']];
+        yield 'explicit zero key' => [[0 => 'a']];
+    }
+
+    /**
+     * @param list<mixed> $payload
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('topLevelLists')]
+    public function testRejectsATopLevelList(array $payload): void
+    {
+        $this->expectException(\JsonException::class);
+
+        JsonFrame::encode($payload);
+    }
+
+    public function testEncodesANonListIntKeyedMapAsAJsonObject(): void
+    {
+        $encoded = JsonFrame::encode([1 => 'a']);
+
+        self::assertSame('{"1":"a"}', $encoded);
+        self::assertSame([1 => 'a'], JsonFrame::decode($encoded));
+    }
+
+    public function testRejectsAValueOutsideTheAlgebraBeforeListCheck(): void
+    {
+        $this->expectException(SerializationException::class);
+
+        JsonFrame::encode([new \DateTime()]);
+    }
+
     public function testAppliesTheSerializationAlgebra(): void
     {
         $encoded = JsonFrame::encode([
