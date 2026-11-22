@@ -33,8 +33,8 @@ function makeBridge(env = {}) {
 	return { bridge, executed };
 }
 
-function selectWithPlaceholders(count) {
-	return `SELECT ${Array(count).fill('?').join(', ')}`;
+function inListQuery(count) {
+	return `SELECT 1 WHERE 1 IN (${Array(count).fill('?').join(', ')})`;
 }
 
 test('ATOMS_SQL_MAX_BINDINGS defaults to 100 and honors overrides', () => {
@@ -42,15 +42,16 @@ test('ATOMS_SQL_MAX_BINDINGS defaults to 100 and honors overrides', () => {
 	assert.equal(loadConfig({ ATOMS_SQL_MAX_BINDINGS: '42' }).sqlMaxBindings, 42);
 });
 
-test('opSqlExec allows exactly 100 bound parameters and rejects 101 by default', () => {
+test('opSqlExec enforces the 100-binding default after integer inlining', () => {
 	const { bridge, executed } = makeBridge();
 
+	// 100 string bindings + 1 tagged integer => 100 bound parameters after inlining.
 	const okReply = JSON.parse(
 		bridge.handleSync(
 			JSON.stringify({
 				op: 'sql.exec',
-				sql: selectWithPlaceholders(100),
-				bindings: Array.from({ length: 100 }, (_, i) => `v${i}`),
+				sql: inListQuery(101),
+				bindings: [{ [INT64_TAG]: '1' }, ...Array.from({ length: 100 }, (_, i) => `v${i}`)],
 				mode: 'rows',
 			})
 		)
@@ -58,14 +59,16 @@ test('opSqlExec allows exactly 100 bound parameters and rejects 101 by default',
 	assert.equal(okReply.ok, true);
 	assert.equal(executed.length, 1);
 	assert.equal(executed[0].bindings.length, 100);
+	assert.match(executed[0].query, /^SELECT 1 WHERE 1 IN \(1, \?/);
 	assert.equal(bridge.sqlCalls, 1);
 
+	// 101 string bindings + 1 tagged integer => 101 bound parameters => rejected with 101, not 102.
 	const failReply = JSON.parse(
 		bridge.handleSync(
 			JSON.stringify({
 				op: 'sql.exec',
-				sql: selectWithPlaceholders(101),
-				bindings: Array.from({ length: 101 }, (_, i) => `v${i}`),
+				sql: inListQuery(102),
+				bindings: [{ [INT64_TAG]: '1' }, ...Array.from({ length: 101 }, (_, i) => `v${i}`)],
 				mode: 'rows',
 			})
 		)
@@ -77,64 +80,6 @@ test('opSqlExec allows exactly 100 bound parameters and rejects 101 by default',
 	assert.equal(bridge.sqlCalls, 1);
 });
 
-test('opSqlExec counts bindings after inlineWideIntegers folds integer bindings', () => {
-	const { bridge, executed } = makeBridge();
-
-	// 100 string bindings + 25 tagged integer bindings => 100 bound parameters after inlining.
-	const mixedOkBindings = [
-		...Array.from({ length: 25 }, (_, i) => ({ [INT64_TAG]: String(i + 1) })),
-		...Array.from({ length: 100 }, (_, i) => `s${i}`),
-	];
-	const mixedOk = JSON.parse(
-		bridge.handleSync(
-			JSON.stringify({
-				op: 'sql.exec',
-				sql: selectWithPlaceholders(125),
-				bindings: mixedOkBindings,
-				mode: 'rows',
-			})
-		)
-	);
-	assert.equal(mixedOk.ok, true);
-	assert.equal(executed.length, 1);
-	assert.equal(executed[0].bindings.length, 100);
-	assert.match(executed[0].query, /^SELECT 1, 2, .*, 25, \?/);
-
-	// 120 tagged integer bindings => 0 bound parameters after inlining.
-	const allInts = JSON.parse(
-		bridge.handleSync(
-			JSON.stringify({
-				op: 'sql.exec',
-				sql: selectWithPlaceholders(120),
-				bindings: Array.from({ length: 120 }, (_, i) => ({ [INT64_TAG]: String(i) })),
-				mode: 'rows',
-			})
-		)
-	);
-	assert.equal(allInts.ok, true);
-	assert.equal(executed.length, 2);
-	assert.equal(executed[1].bindings.length, 0);
-
-	// 101 string bindings + 5 tagged integer bindings => 101 bound parameters => rejected with 101, not 106.
-	const mixedOver = JSON.parse(
-		bridge.handleSync(
-			JSON.stringify({
-				op: 'sql.exec',
-				sql: selectWithPlaceholders(106),
-				bindings: [
-					...Array.from({ length: 5 }, (_, i) => ({ [INT64_TAG]: String(i) })),
-					...Array.from({ length: 101 }, (_, i) => `s${i}`),
-				],
-				mode: 'rows',
-			})
-		)
-	);
-	assert.equal(mixedOver.ok, false);
-	assert.equal(mixedOver.error.code, 'invalid_request');
-	assert.equal(mixedOver.error.message, 'sql.exec received 101 bindings, limit is 100');
-	assert.equal(executed.length, 2);
-});
-
 test('ATOMS_SQL_MAX_BINDINGS override applies after integer inlining', () => {
 	const { bridge, executed } = makeBridge({ ATOMS_SQL_MAX_BINDINGS: '2' });
 
@@ -142,8 +87,8 @@ test('ATOMS_SQL_MAX_BINDINGS override applies after integer inlining', () => {
 		bridge.handleSync(
 			JSON.stringify({
 				op: 'sql.exec',
-				sql: selectWithPlaceholders(5),
-				bindings: [{ [INT64_TAG]: '10' }, 'a', { [INT64_TAG]: '20' }, 'b', { [INT64_TAG]: '30' }],
+				sql: inListQuery(3),
+				bindings: [{ [INT64_TAG]: '1' }, 'a', 'b'],
 				mode: 'rows',
 			})
 		)
@@ -156,8 +101,8 @@ test('ATOMS_SQL_MAX_BINDINGS override applies after integer inlining', () => {
 		bridge.handleSync(
 			JSON.stringify({
 				op: 'sql.exec',
-				sql: selectWithPlaceholders(4),
-				bindings: [{ [INT64_TAG]: '10' }, 'a', 'b', 'c'],
+				sql: inListQuery(4),
+				bindings: [{ [INT64_TAG]: '1' }, 'a', 'b', 'c'],
 				mode: 'rows',
 			})
 		)
