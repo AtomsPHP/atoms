@@ -26,7 +26,7 @@ return $this->db()->transaction(function (): int {
     $this->db()->execute('UPDATE inventory SET stock = stock - 1 WHERE sku = ?', ['book']);
     $this->db()->execute('INSERT INTO orders (sku) VALUES (?)', ['book']);
 
-    return (int) $this->db()->lastInsertId();
+    return (int) $this->db()->pdo()->lastInsertId();
 });
 ```
 
