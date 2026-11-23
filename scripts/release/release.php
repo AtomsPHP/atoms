@@ -628,6 +628,7 @@ function renderCompatibility(string $root, array $manifest): string
     ));
     $untested = array_values(array_diff($compatibility['adapter'], array_column($compatibility['ci'], 'version')));
     $untestedNote = $untested === [] ? '' : 'Laravel ' . formatMajors($untested) . " has no current CI coverage.\n";
+    $workerExtensionsList = formatWorkerExtensions(workerPhpExtensions($root));
     [$major, $minor] = explode('.', $version, 3);
     $releaseLine = "{$major}.{$minor}";
     $nodeMajor = explode('.', (string) $runtime['node'], 2)[0];
@@ -681,6 +682,32 @@ Atom classes, Support code, shared code included in the bundle, migrations,
 and bundled dependencies must use PHP {$runtime['guest_php']}-compatible syntax,
 even when the application host uses a newer PHP version.
 
+## Worker PHP extensions
+
+The bundled PHP {$runtime['guest_php']} WebAssembly runtime loads these PHP extensions.
+`atoms validate` and `atoms build` check Atom code against this list
+([ATOMS-E019](/reference/errors/#atoms-e019)), and `atoms build` supplies them
+to Composer when resolving `atoms-composer.json` dependencies:
+
+{$workerExtensionsList}.
+
+`core` and `standard` are provided as part of `php` in Composer rather than as
+separate `ext-*` platform packages.
+
+Some extensions compiled into upstream `php-wasm` behave differently inside the
+Cloudflare Workers WebAssembly sandbox:
+
+- **SQLite (`pdo`, `pdo_sqlite`, `sqlite3`)**: Use `\$this->db()` or `\$this->db()->pdo()`
+  for persistent storage backed by Durable Object SQLite (see
+  [PDO compatibility](/reference/pdo/)). Standalone `sqlite3` or `pdo_sqlite`
+  connections write only to the ephemeral in-memory filesystem and do not
+  survive eviction.
+- **Networking (`curl`, `soap`)**: The WebAssembly guest has no direct outbound
+  network sockets. Move outbound HTTP calls to a [Methods class](/guides/methods/)
+  via `\$this->app()` or an [AtomJob](/guides/jobs/) via `\$this->dispatch()`.
+- **Sessions (`session`)**: PHP session files live in ephemeral guest memory;
+  store persistent Atom state in SQLite via `\$this->db()`.
+
 ## Laravel and Illuminate
 
 `atoms/laravel` accepts Laravel {$adapterMajors}. CI tests these combinations:
@@ -694,6 +721,44 @@ The optional `atoms/database-illuminate` bridge runs inside an Atom and allows
 Illuminate Database {$bridgeMajors}, independently of your application's Laravel version.
 
 MARKDOWN;
+}
+
+/** @return list<string> */
+function workerPhpExtensions(string $root): array
+{
+    $data = readJson("{$root}/packages/cli/resources/runtime-extensions.json");
+    $extensions = $data['extensions'] ?? null;
+    if (!is_array($extensions) || !array_is_list($extensions) || $extensions === []) {
+        throw new RuntimeException('runtime-extensions.json must contain a non-empty extensions list');
+    }
+
+    $normalized = [];
+    foreach ($extensions as $extension) {
+        if (!is_string($extension) || trim($extension) === '') {
+            throw new RuntimeException('runtime-extensions.json entries must be non-empty strings');
+        }
+        $normalized[] = strtolower(trim($extension));
+    }
+    if (count($normalized) !== count(array_unique($normalized))) {
+        throw new RuntimeException('runtime-extensions.json must not contain duplicate extensions');
+    }
+    sort($normalized, SORT_STRING);
+
+    return $normalized;
+}
+
+/** @param list<string> $extensions */
+function formatWorkerExtensions(array $extensions): string
+{
+    return implode(', ', array_map(static function (string $extension): string {
+        if (str_contains($extension, ' ')) {
+            $composerName = 'ext-' . str_replace(' ', '-', $extension);
+
+            return "`{$extension}` (Composer: `{$composerName}`)";
+        }
+
+        return "`{$extension}`";
+    }, $extensions));
 }
 
 /** @return list<string> */

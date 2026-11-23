@@ -8,10 +8,15 @@ $source = dirname(__DIR__, 2);
 $temp = sys_get_temp_dir() . '/atoms-compatibility-' . bin2hex(random_bytes(8));
 mkdir($temp . '/packages/laravel', 0700, true);
 mkdir($temp . '/packages/database-illuminate', 0700, true);
+mkdir($temp . '/packages/cli/resources', 0700, true);
 $paths = ['laravel', 'database-illuminate'];
 foreach ($paths as $path) {
     copy("{$source}/packages/{$path}/composer.json", "{$temp}/packages/{$path}/composer.json");
 }
+copy(
+    "{$source}/packages/cli/resources/runtime-extensions.json",
+    "{$temp}/packages/cli/resources/runtime-extensions.json",
+);
 $manifest = readJson("{$source}/release/manifest.json");
 
 function expect(bool $condition, string $message): void
@@ -154,6 +159,23 @@ try {
     expect(renderCompatibility($temp, $manifest) !== $originalPage, 'CI metadata change must stale the compatibility page');
     expect(compatibilityBlocks($temp, $manifest)['.github/workflows/ci.yml'][2] !== $originalBlocks['.github/workflows/ci.yml'][2], 'CI metadata change must stale the CI matrix');
 
+    $extensionsPath = "{$temp}/packages/cli/resources/runtime-extensions.json";
+    expect(str_contains($originalPage, '## Worker PHP extensions'), 'Compatibility page must publish Worker PHP extensions');
+    expect(str_contains($originalPage, '`bcmath`'), 'Worker PHP extensions section must include bundled extensions');
+    expect(str_contains($originalPage, '`zend opcache` (Composer: `ext-zend-opcache`)'), 'Worker PHP extensions section must document Composer name normalization');
+    $changedExtensions = readJson($extensionsPath);
+    $changedExtensions['extensions'][] = 'intl';
+    writeJsonAtomically($extensionsPath, $changedExtensions);
+    expect(renderCompatibility($temp, $manifest) !== $originalPage, 'Worker extension inventory change must stale the compatibility page');
+    writeJsonAtomically($extensionsPath, ['extensions' => []]);
+    try {
+        renderCompatibility($temp, $manifest);
+        throw new RuntimeException('Empty runtime-extensions.json was accepted');
+    } catch (RuntimeException $error) {
+        expect(str_contains($error->getMessage(), 'non-empty extensions list'), 'Expected empty extension inventory to fail');
+    }
+    copy("{$source}/packages/cli/resources/runtime-extensions.json", $extensionsPath);
+
     $block = replaceTaggedBlock("before\nSTART\nold\nEND\nafter", 'START', 'END', 'new');
     expect($block === "before\nSTART\nnew\nEND\nafter", 'Block replacement must preserve surrounding content');
     try {
@@ -188,6 +210,9 @@ MD;
         unlink("{$temp}/packages/{$path}/composer.json");
         rmdir("{$temp}/packages/{$path}");
     }
+    unlink("{$temp}/packages/cli/resources/runtime-extensions.json");
+    rmdir("{$temp}/packages/cli/resources");
+    rmdir("{$temp}/packages/cli");
     rmdir("{$temp}/packages");
     rmdir($temp);
 }

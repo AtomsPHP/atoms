@@ -62,6 +62,16 @@ final class ErrorCatalogTest extends TestCase
         self::assertStringContainsString('Fix:', $message);
     }
 
+    public function testExtensionUnavailableFixLinksToWorkerExtensionsDoc(): void
+    {
+        $entry = ErrorCatalog::get(ErrorCode::ExtensionUnavailable);
+
+        self::assertStringContainsString(
+            'https://docs.atomsphp.dev/reference/compatibility/#worker-php-extensions',
+            $entry->fix,
+        );
+    }
+
     public function testAtomsErrorDefaultsMessageToCatalogTitle(): void
     {
         $error = new AtomsError(ErrorCode::TurnDeadlineExceeded);
