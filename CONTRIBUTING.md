@@ -23,10 +23,11 @@ The repository is two halves that meet at the frozen `atoms/core` API.
 | `tests/Integration/` | Cross-package tests that no single package owns. |
 | `cloudflare/` | The Worker runtime: a PHP 8.3 WebAssembly interpreter parked inside a SQLite-backed Durable Object, its binding spec in `cloudflare/docs/runtime-spec.md`, and the conformance suite. Atoms-authored source here is MIT; upstream components retain their own licenses. |
 
-The two halves have separate toolchains and separate test commands. A change
-to the API usually touches both — `cloudflare/worker/php/atoms-core/` is a
-verbatim, hash-recorded copy of `packages/core/src`. Never edit it in place:
-fix `packages/core/` and re-vendor.
+The two halves have separate toolchains and separate test commands.
+`packages/core/` is the single source of truth for the runtime API: inside the
+monorepo, the Worker bundle scripts read `packages/core/` directly (and
+`scripts/pack-runtime.mjs` stages `php/atoms-core/` only when packing the
+published `@atomsphp/runtime-cloudflare` scaffold).
 
 Read `cloudflare/docs/runtime-spec.md` before changing the Worker, in particular
 its appendix of *measured* platform deviations. `app()`, `dispatch()`,

@@ -254,8 +254,9 @@ more row in this table and turned out to be a possible blocker.
 
 ## What is *not* third-party
 
-`worker/php/atoms-core/` is not covered by this file. Those are verbatim
-copies of the `atoms/core` package from `packages/core`, which is
-Atoms' own MIT-licensed code; see `worker/php/atoms-core/VENDORED-FROM.md`.
+The `atoms/core` PHP sources (`packages/core` in the monorepo, staged into
+`php/atoms-core/` inside published `@atomsphp/runtime-cloudflare` scaffolds)
+are not covered by this file. Those are verbatim copies of Atoms' own
+MIT-licensed `atoms/core` package (omitting `Sqlite/SqliteDatabase.php`).
 They are carried into the guest as interpreted data and are not linked into
 the WebAssembly binary.

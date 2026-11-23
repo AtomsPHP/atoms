@@ -89,6 +89,11 @@ final class BundleBridgeTest extends TestCase
         // from /atoms/core/src/Errors, so this exact path is load-bearing.
         self::assertStringContainsString('"/atoms/core/resources/errors.json"', $module);
 
+        // SqliteDatabase opens a local PDO file and is deliberately omitted
+        // from the guest in favour of Atoms\Cf\BridgeDatabase.
+        self::assertFileExists($repo . '/packages/core/src/Sqlite/SqliteDatabase.php');
+        self::assertStringNotContainsString('SqliteDatabase.php', $module);
+
         // Provenance: a deployed Worker can be traced back to its bundle.
         self::assertStringContainsString('"content_hash": "' . $built->contentHash . '"', $module);
 

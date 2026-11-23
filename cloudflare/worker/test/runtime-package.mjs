@@ -9,8 +9,10 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { RUNTIME_STAMP, USER_OWNED_FILES, stageRuntimePackage } from '../scripts/pack-runtime.mjs';
+import { coreSourceEntries } from '../scripts/lib/bundle-module.mjs';
 
 const workerRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const packagesCoreRoot = resolve(workerRoot, '../../packages/core');
 const release = JSON.parse(readFileSync(resolve(workerRoot, '../../release/manifest.json'), 'utf8'));
 
 function run(command, args, options = {}) {
@@ -53,10 +55,29 @@ try {
 	assert.equal(stamp.package, '@atomsphp/runtime-cloudflare');
 	assert.deepEqual(stamp.user_owned, ['wrangler.jsonc']);
 	assert.deepEqual(USER_OWNED_FILES, ['wrangler.jsonc']);
-	for (const required of ['.gitignore', 'package.json', 'package-lock.json', 'src/index.js', 'scripts/bundle-from-cli.mjs', 'php/runtime/bootstrap.php', 'release/supported-core', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md']) {
+	for (const required of ['.gitignore', 'package.json', 'package-lock.json', 'src/index.js', 'scripts/bundle-from-cli.mjs', 'php/runtime/bootstrap.php', 'php/atoms-core/Atom.php', 'php/atoms-core/resources/errors.json', 'release/supported-core', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md']) {
 		assert.ok(stamp.runtime_owned.includes(required), `${required} must be runtime-owned in the stamp`);
 	}
 	assert.deepEqual(stamp.runtime_owned, [...stamp.runtime_owned].sort(), 'the stamp is deterministic: sorted');
+
+	// The packed template stages atoms/core directly from packages/core/ so
+	// customer scaffolds stay self-contained, omitting Sqlite/SqliteDatabase.php.
+	assert.ok(
+		existsSync(join(packagesCoreRoot, 'src', 'Sqlite', 'SqliteDatabase.php')),
+		'anti-vacuous: packages/core/src/Sqlite/SqliteDatabase.php must exist in the monorepo',
+	);
+	assert.ok(!existsSync(join(stage, 'template', 'php', 'atoms-core', 'Sqlite', 'SqliteDatabase.php')));
+	assert.ok(!existsSync(join(stage, 'template', 'php', 'atoms-core', 'Sqlite')));
+	assert.ok(!existsSync(join(stage, 'template', 'php', 'atoms-core', 'VENDORED-FROM.md')));
+	for (const { rel, sourcePath } of coreSourceEntries(packagesCoreRoot)) {
+		const stagedCoreFile = join(stage, 'template', 'php', 'atoms-core', ...rel.split('/'));
+		assert.ok(existsSync(stagedCoreFile), `staged template must include php/atoms-core/${rel}`);
+		assert.equal(
+			readFileSync(stagedCoreFile, 'utf8'),
+			readFileSync(sourcePath, 'utf8'),
+			`staged php/atoms-core/${rel} must be verbatim from packages/core`,
+		);
+	}
 	// runtime_owned and user_owned partition the template exactly: every file
 	// the scaffold receives is in one list, the stamp itself in neither.
 	const templateFiles = (dir, prefix = '') => readdirSync(join(dir, prefix), { withFileTypes: true }).flatMap((entry) => {
@@ -120,12 +141,16 @@ try {
 		'/bundle.generated.js',
 		'/pdo-matrix.json',
 		'/remote.json',
+		'/SqliteDatabase.php',
+		'/VENDORED-FROM.md',
 	];
 	for (const fragment of forbidden) {
 		assert.ok(!listing.some((file) => file.includes(fragment)), `tarball contains forbidden ${fragment}`);
 	}
 	for (const required of [
 		'package/template/package-lock.json',
+		'package/template/php/atoms-core/Atom.php',
+		'package/template/php/atoms-core/resources/errors.json',
 		'package/template/release/supported-core',
 		'package/template/scripts/prepare-runtime.mjs',
 		'package/template/scripts/bundle-from-cli.mjs',
@@ -184,6 +209,10 @@ try {
 	writeFileSync(manifestPath, `${JSON.stringify(baseManifest)}\n`);
 	run('node', [join(target, 'scripts', 'bundle-from-cli.mjs'), bundle, manifestPath, workerBundle]);
 	assert.ok(existsSync(workerBundle), 'a release-matched bundle should stage');
+	const emittedBundle = readFileSync(workerBundle, 'utf8');
+	assert.ok(emittedBundle.includes('"/atoms/core/src/Atom.php"'), 'scaffolded bundle must embed atoms/core from template php/atoms-core/');
+	assert.ok(emittedBundle.includes('"/atoms/core/resources/errors.json"'), 'scaffolded bundle must embed errors.json from template php/atoms-core/');
+	assert.ok(!emittedBundle.includes('SqliteDatabase.php'), 'scaffolded bundle must omit Sqlite/SqliteDatabase.php');
 
 	// The scaffolded worker must actually build. Asserting that a list of paths
 	// exists cannot catch a module that is imported by shipped code but was

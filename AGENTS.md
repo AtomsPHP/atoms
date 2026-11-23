@@ -123,12 +123,16 @@ convenient it looks.
 - **No capacity numbers in code.** Every TTL, cap, deadline, limit and poll
   interval comes from an environment variable with a default, resolved in
   `worker/src/config.js` and nowhere else.
-- `worker/php/atoms-core/` is a **verbatim** copy of `packages/core/src`,
-  hash-recorded in its `VENDORED-FROM.md`. Never edit it in place — fix
-  `packages/core/` and re-vendor.
+- **`packages/core/` is the single source of truth for guest `atoms/core`.**
+  There is no committed copy under `cloudflare/worker/php/`. Inside the
+  monorepo, `worker/scripts/lib/bundle-module.mjs` reads `packages/core/`
+  (`src/` minus `CORE_GUEST_OMISSIONS`, plus `resources/errors.json`) directly;
+  `scripts/pack-runtime.mjs` stages that same filtered set into
+  `template/php/atoms-core/` when packing `@atomsphp/runtime-cloudflare` so
+  customer scaffolds stay self-contained.
 - **The committed bundle embeds its inputs.** Any change under
-  `cloudflare/worker/php/` or `cloudflare/worker/fixtures/counter/` —
-  comment-only edits and re-vendors included — requires regenerating and
+  `cloudflare/worker/php/`, `packages/core/`, or `cloudflare/worker/fixtures/counter/` —
+  comment-only edits included — requires regenerating and
   committing `src/bundle.generated.js` (`npm run bundle`). CI's staleness
   gate enforces it; `npm run check:fresh` runs the same check locally.
 
