@@ -409,6 +409,29 @@ final class AtomsBundleExtensionTest extends TestCase
         self::assertInstanceOf(NullLogger::class, (new \ReflectionProperty(CallbackKernel::class, 'logger'))->getValue($kernel));
     }
 
+    public function testAtomsClientLoggerIsNullWithoutAnAppLoggerService(): void
+    {
+        $container = $this->buildContainer(['http_client' => 'test.psr18_client']);
+        $container->register('test.psr18_client', FakePsr18Client::class)->setPublic(true);
+        $container->compile();
+
+        $client = $container->get('atoms.client');
+        self::assertInstanceOf(AtomsClient::class, $client);
+        self::assertNull((new \ReflectionProperty(AtomsClient::class, 'logger'))->getValue($client));
+    }
+
+    public function testAtomsClientLoggerResolvesToAnAppLoggerServiceWhenOneExists(): void
+    {
+        $container = $this->buildContainer(['http_client' => 'test.psr18_client']);
+        $container->register('test.psr18_client', FakePsr18Client::class)->setPublic(true);
+        $container->register('logger', NullLogger::class)->setPublic(false);
+        $container->compile();
+
+        $client = $container->get('atoms.client');
+        self::assertInstanceOf(AtomsClient::class, $client);
+        self::assertInstanceOf(NullLogger::class, (new \ReflectionProperty(AtomsClient::class, 'logger'))->getValue($client));
+    }
+
     public function testMethodsClassesServiceLocatorResolvesAnAutowiredEntry(): void
     {
         $container = $this->buildContainer(['methods_classes' => [CustomOtherRoomMethods::class]]);

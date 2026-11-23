@@ -151,9 +151,10 @@ for replay guarantees and failure responses.
   that `CallbackKernel` consults first — so a listed Methods class can itself
   take app services as constructor dependencies. Anything not listed is
   instantiated with `new $class()`.
-- A logger: `CallbackKernel` takes the app's `logger` service if one exists
-  (Monolog via FrameworkBundle, or anything else bound to that id) and `null`
-  otherwise — never a hard dependency on `psr/log`'s presence being wired up.
+- A logger: both `AtomsClient` and `CallbackKernel` take the app's `logger`
+  service if one exists (Monolog via FrameworkBundle, or anything else bound to
+  that id) and `null` otherwise — never a hard dependency on `psr/log`'s
+  presence being wired up.
 - `atoms:deploy`, `atoms:rollback`, `atoms:list` — thin console wrappers that
   shell out to the real `atoms` binary (discovered via `vendor/bin/atoms`,
   then `$PATH`, then `packages/cli/bin/atoms`); registered only when

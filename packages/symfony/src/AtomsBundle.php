@@ -229,6 +229,9 @@ final class AtomsBundle extends AbstractBundle
                 new Reference('atoms.http_client'),
                 new Reference('atoms.psr17_factory'),
                 new Reference('atoms.psr17_factory'),
+                // Apps with monolog (or any 'logger' service) get it wired in;
+                // apps without get null, matching CallbackKernel below.
+                new Reference('logger', ContainerInterface::IGNORE_ON_INVALID_REFERENCE),
             ])
             ->setPublic(false);
 

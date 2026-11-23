@@ -558,6 +558,38 @@ abstract class AdapterConformanceTestCase extends TestCase
         self::assertSame($expectedBase . '/ws/GameRoom/g-1?channels=lobby%2Cchat&ticket=v1.a.b', $url);
     }
 
+    /**
+     * S10: docs/adapters.md specifies that every host passes its optional PSR-3
+     * logger into both AtomsClient and CallbackKernel. S5 covers CallbackKernel;
+     * this exercises AtomsClient's retry logging through the same host logger.
+     */
+    public function testS10ClientLogsRetriesThroughHostLogger(): void
+    {
+        $this->skipUnlessSupports('client', 'S10');
+        $this->skipUnlessSupports('logging', 'S10');
+
+        $this->host->httpFake()
+            ->queueJson(503, ['error' => ['code' => 'machine_unavailable', 'message' => 'transient']])
+            ->queueJson(200, ['result' => 5]);
+
+        /** @var AtomsClient $client */
+        $client = $this->host->service(AtomsClient::class);
+        $result = $client->get(GameRoom::class, 'g-1')->add(2, 3);
+
+        self::assertSame(5, $result);
+
+        $infoRecords = array_values(array_filter(
+            $this->host->logRecords(),
+            static fn (array $record): bool => $record['level'] === 'info'
+                && $record['message'] === 'Retrying Atoms invocation',
+        ));
+
+        self::assertCount(1, $infoRecords);
+        self::assertSame(1, $infoRecords[0]['context']['attempt'] ?? null);
+        self::assertSame(503, $infoRecords[0]['context']['status'] ?? null);
+        self::assertSame('machine_unavailable', $infoRecords[0]['context']['code'] ?? null);
+    }
+
     /** The ticket signing key: HKDF-SHA256(sharedSecret, info 'atoms/ws-ticket/v1', 32 bytes), raw. */
     private function derivedTicketKey(string $sharedSecretBase64): string
     {
