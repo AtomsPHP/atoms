@@ -34,6 +34,7 @@ atoms:
     http_client: null                # service id, or null to auto-detect / fall back to Guzzle
     psr17_factory: null              # service id, or null to fall back to Guzzle (no auto-detection — see "What's wired")
     methods_classes: []              # optional: only needed for AtomMethods classes not registered as Symfony services
+    job_classes: []                  # optional: only needed for AtomJob classes not registered as Symfony services
 ```
 
 `shared_secret` is the root of the app ↔ Worker boundary: the same base64 of
@@ -142,8 +143,12 @@ for replay guarantees and failure responses.
   when `symfony/messenger` is installed and the app has a message bus
   service, wrapping dispatched `AtomJob`s as `AtomJobMessage` (normalized,
   JSON-safe constructor args only) and handling them back via
-  `AtomJobHandler`; otherwise `Atoms\Client\Callback\NullQueueBridge`, which
-  throws a clear "configure a QueueBridge" exception on first use.
+  `AtomJobHandler`; `AtomJobPass` inspects `AtomJob` classes registered in the
+  container (or listed under `job_classes`) and compiles per-job argument
+  locators so `handle()` receives autowired Symfony services (including private
+  services and `#[Autowire]`/`#[Target]` attributes); otherwise
+  `Atoms\Client\Callback\NullQueueBridge`, which throws a clear "configure a
+  QueueBridge" exception on first use.
 - Methods resolution: `MethodsPass` automatically collects every container
   service extending `Atoms\AtomMethods` (autoconfigured via
   `registerForAutoconfiguration(AtomMethods::class)` or defined directly in the
@@ -188,6 +193,10 @@ Every auto-detected collaborator has an explicit override point:
   `#[MethodsFor]` resolution; list classes under `methods_classes` only when
   they live outside your Symfony service definitions. Anything not in the
   container resolves by naming convention with `new $class()`.
+- **Job classes** — any `AtomJob` subclass registered as a Symfony service
+  automatically gets container dependency injection on `handle()`; list classes
+  under `job_classes` only if they are excluded from `services.yaml` or live
+  outside your Symfony service paths.
 - **Logger** — register any service under the id `logger` (FrameworkBundle
   does this for you when Monolog is installed).
 

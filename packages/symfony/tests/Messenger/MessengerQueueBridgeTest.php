@@ -10,10 +10,15 @@ use Atoms\Serialization\SerializationException;
 use Atoms\Symfony\Messenger\AtomJobHandler;
 use Atoms\Symfony\Messenger\AtomJobMessage;
 use Atoms\Symfony\Messenger\MessengerQueueBridge;
+use Atoms\Symfony\Tests\Fixtures\InjectedScoreJob;
 use Atoms\Symfony\Tests\Fixtures\NotifyJob;
 use Atoms\Symfony\Tests\Fixtures\RecordingJob;
+use Atoms\Symfony\Tests\Fixtures\ScoreFormatter;
 use Atoms\Symfony\Tests\Support\RecordingMessageBus;
 use PHPUnit\Framework\TestCase;
+use Psr\Container\ContainerInterface;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 final class MessengerQueueBridgeTest extends TestCase
 {
@@ -21,6 +26,7 @@ final class MessengerQueueBridgeTest extends TestCase
     {
         RecordingJob::$handled = [];
         NotifyJob::$handled = [];
+        InjectedScoreJob::$handled = [];
     }
 
     public function testEnqueueDispatchesAnAtomJobMessageWithNormalizedArgs(): void
@@ -88,5 +94,45 @@ final class MessengerQueueBridgeTest extends TestCase
         $handler($bus->dispatched[0]);
 
         self::assertSame([['playerId' => 'p-42', 'roomSize' => 8]], RecordingJob::$handled);
+    }
+
+    public function testAtomJobHandlerResolvesHandleDependenciesFromAFlatPsr11Container(): void
+    {
+        $services = [
+            ScoreFormatter::class => new ScoreFormatter('Points'),
+            LoggerInterface::class => new NullLogger(),
+        ];
+        $container = new class ($services) implements ContainerInterface {
+            /** @param array<string, object> $services */
+            public function __construct(private readonly array $services) {}
+
+            public function get(string $id): mixed
+            {
+                return $this->services[$id];
+            }
+
+            public function has(string $id): bool
+            {
+                return array_key_exists($id, $this->services);
+            }
+        };
+
+        $handler = new AtomJobHandler(container: $container);
+        $handler(new AtomJobMessage(InjectedScoreJob::class, ['playerId' => 'p-9', 'score' => 15]));
+
+        self::assertSame(
+            [['playerId' => 'p-9', 'formatted' => 'Points: 15', 'logged' => true]],
+            InjectedScoreJob::$handled,
+        );
+    }
+
+    public function testAtomJobHandlerThrowsClearExceptionWhenRequiredHandleDependencyIsMissing(): void
+    {
+        $handler = new AtomJobHandler();
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/\$formatter.*InjectedScoreJob::handle\(\)/');
+
+        $handler(new AtomJobMessage(InjectedScoreJob::class, ['playerId' => 'p-9', 'score' => 15]));
     }
 }

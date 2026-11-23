@@ -28,6 +28,7 @@ atoms:
     http_client: null
     psr17_factory: null
     methods_classes: []
+    job_classes: []
 ```
 
 - `shared_secret` is `ATOMS_SHARED_SECRET`: required, and identical on this application and the Worker. Set it on the Worker with `vendor/bin/atoms shared-secret:set`, never through `secrets:set`. An optional `shared_secret_previous` (`ATOMS_SHARED_SECRET_PREVIOUS`) widens acceptance during a rotation window without changing what this application sends. See [Secrets and authentication](/guides/secrets/).
@@ -36,6 +37,7 @@ atoms:
 - `callback_timestamp_window` is the permitted clock skew in seconds.
 - `psr17_factory` names a service implementing the PSR-17 request, response, server-request, and stream factory interfaces. Leave it `null` to use the bundled Guzzle factory.
 - `methods_classes` is optional: `AtomMethods` classes registered as Symfony services (for example via standard `services.yaml` autowiring) are collected automatically for constructor injection and `#[MethodsFor]` resolution. List a class here only if it is not registered as a service.
+- `job_classes` is optional: `AtomJob` classes registered as Symfony services automatically get container dependency injection on `handle()`. List a class here only if it is excluded from `services.yaml` or lives outside your service paths.
 
 ## Mount the callback route
 
@@ -200,7 +202,7 @@ The public service id is `atoms.client`. The bundle resolves a PSR-18 client, PS
 
 ## Dispatch through Messenger
 
-When `symfony/messenger` and a message bus are present, the bundle wires `MessengerQueueBridge`. Otherwise it wires `NullQueueBridge`, which raises [ATOMS-E103](/reference/errors/#atoms-e103) when an Atom dispatches a job. Bind your own `QueueBridge` if Messenger is not your queue.
+When `symfony/messenger` and a message bus are present, the bundle wires `MessengerQueueBridge` and `AtomJobHandler`. `AtomJobHandler` reconstructs each dispatched `AtomJob` and injects container dependencies declared on `handle()` automatically for `AtomJob` classes registered as Symfony services (or listed under `atoms.job_classes`). Otherwise it wires `NullQueueBridge`, which raises [ATOMS-E103](/reference/errors/#atoms-e103) when an Atom dispatches a job. Bind your own `QueueBridge` if Messenger is not your queue.
 
 ## Test it without Cloudflare
 

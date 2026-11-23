@@ -35,7 +35,11 @@ class RecordGameResult extends AtomJob
 
 Only promoted constructor properties reach the job; any other state is lost.
 `handle()` is resolved through your framework's container, so it can take
-injected dependencies.
+injected dependencies. In Symfony, `handle()` dependencies are autowired at
+compile time for `AtomJob` classes loaded as Symfony services (for example via
+standard `services.yaml` resource loading); if your `Atoms/` directory is
+excluded from `services.yaml`, list those jobs under `atoms.job_classes` in
+`config/packages/atoms.yaml`.
 
 ## Dispatch it
 

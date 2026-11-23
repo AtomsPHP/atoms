@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Symfony;
 
+use Atoms\AtomJob;
 use Atoms\AtomMethods;
 use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
@@ -19,6 +20,7 @@ use Atoms\Symfony\Command\AtomsDeployCommand;
 use Atoms\Symfony\Command\AtomsListCommand;
 use Atoms\Symfony\Command\AtomsRollbackCommand;
 use Atoms\Symfony\Controller\CallbackController;
+use Atoms\Symfony\DependencyInjection\AtomJobPass;
 use Atoms\Symfony\DependencyInjection\CallbackVerifierFactory;
 use Atoms\Symfony\DependencyInjection\GuzzleFactory;
 use Atoms\Symfony\DependencyInjection\HttpClientPass;
@@ -62,6 +64,7 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
  *     http_client: string|null,
  *     psr17_factory: string|null,
  *     methods_classes: list<class-string>,
+ *     job_classes: list<class-string>,
  * }
  */
 final class AtomsBundle extends AbstractBundle
@@ -84,7 +87,12 @@ final class AtomsBundle extends AbstractBundle
         $container->addCompilerPass(new HttpClientPass());
         $container->addCompilerPass(new Psr17FactoryPass());
         $container->addCompilerPass(new MethodsPass());
-        $container->addCompilerPass(new MessengerBridgePass());
+        // MessengerBridgePass must run before FrameworkBundle's MessengerPass
+        // (priority 0) so MessengerPass discovers the messenger.message_handler
+        // tag on AtomJobHandler; AtomJobPass runs right after MessengerBridgePass
+        // to wire compiled per-job handle() argument locators into AtomJobHandler.
+        $container->addCompilerPass(new MessengerBridgePass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
+        $container->addCompilerPass(new AtomJobPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 5);
         $container->addCompilerPass(new NonceStorePass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
     }
 
@@ -140,6 +148,11 @@ final class AtomsBundle extends AbstractBundle
                     ->scalarPrototype()->end()
                     ->defaultValue([])
                 ->end()
+                ->arrayNode('job_classes')
+                    ->info('FQCNs of AtomJob classes whose handle() dependencies should be autowired from the container (container services extending Atoms\AtomJob are collected automatically; list a class here only if it is not registered as a service).')
+                    ->scalarPrototype()->end()
+                    ->defaultValue([])
+                ->end()
             ->end();
     }
 
@@ -150,6 +163,7 @@ final class AtomsBundle extends AbstractBundle
     {
         $container->setParameter('atoms.callback_path', $config['callback_path']);
         $container->registerForAutoconfiguration(AtomMethods::class)->addTag(MethodsPass::TAG);
+        $container->registerForAutoconfiguration(AtomJob::class)->addTag(AtomJobPass::TAG);
 
         $this->registerConfig($container, $config);
         $this->registerHttpClient($container, $config);
@@ -157,7 +171,7 @@ final class AtomsBundle extends AbstractBundle
         $this->registerTicketIssuer($container);
         $this->registerCallbackStack($container, $config);
         $this->registerRouteLoader($container);
-        $this->registerMessenger($container);
+        $this->registerMessenger($container, $config);
         $this->registerConsole($container);
     }
 
@@ -312,8 +326,13 @@ final class AtomsBundle extends AbstractBundle
             ->setPublic(false);
     }
 
-    private function registerMessenger(ContainerBuilder $container): void
+    /**
+     * @param AtomsBundleConfig $config
+     */
+    private function registerMessenger(ContainerBuilder $container, array $config): void
     {
+        $container->setParameter(AtomJobPass::CONFIGURED_CLASSES_PARAMETER, $config['job_classes']);
+
         $container->register(NullQueueBridge::class, NullQueueBridge::class)
             ->setArguments([
                 'Install symfony/messenger and register a message bus so '
