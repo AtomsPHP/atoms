@@ -16,19 +16,21 @@ SQLite** database (migrations applied) and wires a **fake `app()` proxy that
 executes your real Methods class in-process**. That gives full Atom↔Methods
 integration coverage without a running platform.
 
+In a PHPUnit test method, configure the harness before its first use.
+`invoke()` boots it automatically, applying migrations and running the Atom's
+activation hook. Call `boot()` explicitly to test activation on its own.
+
 ```php
-$harness = AtomHarness::for(GameRoom::class, 'g-1');   // temp sqlite, migrations run
-$harness->onActivation();
+$harness = \Atoms\Testing\AtomHarness::for(ChatRoom::class, 'room-1')
+    ->withMethods(new ChatRoom\Methods());
 
-$result = $harness->call('startRound', [3]);           // invoke a public Atom method
-self::assertSame(3, $result->round);
-
-// Methods calls run the REAL Methods class in-process:
-$harness->withMethods(new GameRoom\Methods(/* test doubles for App-side deps */));
-
-// dispatch()/broadcast() are recorded, not sent:
-$harness->assertDispatched(RecordGameResult::class, fn ($j) => $j->score === 100);
+self::assertSame('HELLO', $harness->invoke('screenAndPost', ['hello']));
 $harness->assertBroadcast('room');
+
+$harness->invoke('recordScore', [
+    'alice', 10, new Score(10, 'bronze'), new \DateTimeImmutable('2026-02-02'),
+]);
+$harness->assertDispatched(RecordResult::class, static fn (RecordResult $job): bool => $job->points === 10);
 ```
 
 Turn semantics are simulated: in-process calls are sequential by construction, so
@@ -36,21 +38,27 @@ you exercise real turn ordering without a scheduler.
 
 ## Layer 2 — `Atoms::fake()` (monolith / controller tests)
 
-For code that *calls* Atoms (controllers, jobs), swap the client with
-`Atoms::fake()`: stub the return per `(type, id, method)` and assert invocations,
-without any Atom actually running.
+In Laravel tests for code that calls Atoms, import the `Atoms\Laravel\Facades\Atoms`
+facade. Stubs match by Atom type and method. Call `Atoms::fake()` once per test
+so the same fake holds the stubs and records the invocations.
 
 ```php
-Atoms::fake()->for(GameRoom::class, 'g-1')->returns('score', 42);
-// ... hit the controller ...
-Atoms::fake()->assertInvoked(GameRoom::class, 'g-1', 'score');
+$fake = Atoms::fake();
+$fake->stub(GameRoom::class, 'ping', 'stubbed');
+self::assertSame('stubbed', Atoms::get(GameRoom::class, 'g-1')->ping());
+
+$fake->assertInvoked(GameRoom::class, 'ping');
+self::assertSame('g-1', $fake->invocations()[0]['id']);
 ```
 
-## Layer 3 — integration against `atoms dev`
+`assertInvoked()` accepts an optional filter over method arguments. To match a
+specific Atom ID, inspect `invocations()` as shown above.
 
-Use sparingly (lifecycle, hibernation). Runs the real Worker locally under
-`wrangler dev`; needs Node and a Worker project directory, not Docker, and no
-Cloudflare account. Not for the default CI path.
+## Layer 3 — local Worker integration
+
+For lifecycle and hibernation tests, run `atoms dev --env X` with an environment
+name from `atoms.json`. This starts the local Worker using Node and the project's
+installed Wrangler. It requires no Cloudflare account.
 
 ## What NOT to mock
 

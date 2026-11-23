@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Atoms\Cli\Tests\Command;
 
 use Atoms\Cli\Ai\SkillInstaller;
+use Atoms\Cli\Build\Validator;
 use Atoms\Cli\Command\AiInstallCommand;
+use Atoms\Cli\Config\AtomsJson;
 use Atoms\Cli\Tests\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
 
@@ -34,6 +36,23 @@ final class AiInstallCommandTest extends TestCase
         self::assertStringContainsString('ATOMS-E012', $authoring);
         self::assertStringContainsString('| Code | Title | Fix |', $authoring);
         self::assertStringContainsString(SkillInstaller::MARKER_START, $authoring);
+    }
+
+    public function testAuthoringExampleValidatesAgainstTheSampleJob(): void
+    {
+        $dir = $this->tempCopy('sample-app');
+        $tester = new CommandTester(new AiInstallCommand());
+        self::assertSame(0, $tester->execute(['--root' => $dir]), $tester->getDisplay());
+
+        $skill = (string) file_get_contents($dir . '/.claude/skills/atoms-authoring/SKILL.md');
+        self::assertSame(1, preg_match('/^```php\R(.*?)^```\r?$/ms', $skill, $example));
+        file_put_contents($dir . '/app/Atoms/GameRoom.php', $example[1]);
+        $result = (new Validator())->validate(AtomsJson::load($dir . '/atoms.json'));
+
+        self::assertSame([], $result->errors);
+        $atoms = array_column($result->manifest['atoms'], null, 'type');
+        self::assertTrue($atoms['GameRoom']['websocket']);
+        self::assertSame(['recordResult'], array_column($atoms['GameRoom']['methods'], 'name'));
     }
 
     public function testProjectContextRendersTheManifest(): void

@@ -11,11 +11,11 @@ your app, so a broken monolith never blocks a deploy.
 ## The core loop
 
 ```sh
-atoms validate                 # stages 1–3+5: static boundary/contract/migration checks. Seconds, no network. The PR gate.
+atoms validate                 # Check boundaries, contracts, and migrations offline.
 atoms build [--fast] [--out D] # deterministic, content-addressed bundle + manifest. --fast skips the vendor stage and refuses (ATOMS-E107) if atoms-composer.json declares packages.
 atoms diff [--against M]       # label each manifest change additive / contracting / breaking vs a saved manifest.
 atoms deploy --env X [--bundle B]  # build (unless --bundle), stage into the Worker project, then `wrangler deploy` into YOUR Cloudflare account.
-atoms dev [--port P]           # build + `wrangler dev` locally. No Cloudflare account needed.
+atoms dev --env X [--port P]   # build + `wrangler dev` locally. No Cloudflare account needed.
 atoms status --env X           # Worker versions (`wrangler versions list`).
 atoms rollback --env X [version-id]  # `wrangler rollback` (previous version by default).
 atoms secrets:set KEY --env X  # Worker secret, read in the Atom via $this->config().
@@ -84,16 +84,15 @@ the setting into that environment's vars. The routes sit behind the Worker's bea
 the default `ATOMS_BEARER_AUTH=required`; under `ATOMS_BEARER_AUTH=disabled`
 (an authenticating proxy in front of the Worker) the flag is the only gate.
 
-`atoms secrets:set PAYMENTS_API_KEY` stores the Worker secret
+`atoms secrets:set PAYMENTS_API_KEY --env X` stores the Worker secret
 `ATOMS_CONFIG_PAYMENTS_API_KEY`, because that is the name the Worker's config
 allowlist resolves `$this->config('PAYMENTS_API_KEY')` to. The prefix is read
 from the Worker project's wrangler config (`ATOMS_CONFIG_ENV_PREFIX`), so an
 overridden one is honoured; a key that could never be read back is refused with
 ATOMS-E077 rather than stored.
 
-`ATOMS_SHARED_SECRET` is the one key `secrets:set` will not store (ATOMS-E077):
-it is the auth root the bearer, WebSocket ticket and callback keys all derive
-from, and prefixing it would put it in the namespace Atom code can read. Use
+`secrets:set` refuses both `ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS` (ATOMS-E077).
+The bearer, WebSocket ticket and callback keys derive from `ATOMS_SHARED_SECRET`. Use
 `atoms shared-secret:set --env X`, which takes the value on stdin only (never
 argv), validates it as 32 bytes of base64, and skips the write when the Worker
 already has one unless `--force`. `--previous` writes the rotation overlap key.
@@ -102,15 +101,32 @@ except `GET /healthz` answers `misconfigured`, so a pipeline health check goes
 green while every invoke fails. In CI, pass it to the deploy action as
 `shared-secret` rather than calling this yourself. The same value must also be
 set on the application side, under the same name; nothing in Atoms can reach
-that. See docs/shared-secret.md.
+that.
 
-Rotating: set the new value with `--force` and the old one with `--previous`
-during the overlap window, then run `atoms shared-secret:unset --env X` once
-every caller holds the new secret. That command removes the overlap key only
-and succeeds when it is already gone. `ATOMS_SHARED_SECRET` itself cannot be
-unset — a Worker without it answers `misconfigured` on every route but
-`GET /healthz`. In CI the deploy action's `rotate-shared-secret` and
-`retire-shared-secret-previous` inputs drive both ends.
+### Rotate the shared secret
+
+Start with the old value as `ATOMS_SHARED_SECRET` on both sides.
+
+1. Configure every application instance with the old value as
+   `ATOMS_SHARED_SECRET` and the new value as `ATOMS_SHARED_SECRET_PREVIOUS`.
+   Reload all instances so they can verify callbacks signed with either key.
+2. On the Worker, pass the old value on stdin to
+   `atoms shared-secret:set --env X --previous --force`. Let it propagate,
+   then pass the new value on stdin to `atoms shared-secret:set --env X --force`.
+   Allow that update to propagate before switching application callers to the new key.
+3. Configure every application instance with the new value as current and the
+   old value as previous. Reload all instances.
+4. Once both deployments have updated and old tickets have expired, run
+   `atoms shared-secret:unset --env X`, remove the previous value from the
+   application, and reload it. The command removes only the Worker's overlap
+   key and succeeds when it is already gone.
+
+Check application calls, callbacks, and browser connections between steps.
+For step 2 in CI, use two deploy action runs with `rotate-shared-secret: true`.
+Supply the old key as `shared-secret-previous` on the first run and the new key
+as `shared-secret` on the second. Omit the other secret input on each run and
+allow each change to propagate. At step 4, use `retire-shared-secret-previous: true`
+to remove the Worker's previous key.
 
 ## Deploy ordering (expand/contract)
 

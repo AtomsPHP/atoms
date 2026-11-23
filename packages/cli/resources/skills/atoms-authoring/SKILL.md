@@ -30,19 +30,33 @@ rule everything else follows:
   `SomeJob::class` is a compile-time constant, so naming it neither loads nor
   ships anything.
 
-What an Atom may touch on `atoms/core` (frozen API):
+Inside an Atom, `$this->db()` exposes `pdo()`, `query()`, `execute()`, and
+`transaction()`. Read configuration with `$this->config('PAYMENTS_API_KEY')`
+and call app-side Methods with `$this->app()->getPlayer($id)`. Lifecycle hooks
+include `onActivation()` and `onDeactivation()`. WebSocket handlers are
+`onConnect()`, `onMessage()`, and `onDisconnect()`.
+
+For example, if the app-side job `RecordGameResult` takes constructor arguments
+`$ref` and `$seat`, the Atom can queue it and notify room subscribers.
 
 ```php
-$this->db();                       // Atoms\Database — pdo(), query(), execute(), transaction()
-$this->app()->getPlayer($id);      // reverse RPC into your Methods class (App-side)
-$this->dispatch(RecordGameResult::class, [  // hand a job to the monolith queue
-    'ref' => $ref,                                // keys are the job's constructor
-    'seat' => 1,                                  // parameter names
-]);
-$this->config('PAYMENTS_API_KEY');       // platform secrets/config — NOT env()
-$this->broadcast('room', [...]);   // push to subscribers
-// lifecycle: onActivation(), onDeactivation()
-// websocket: onConnect(), onMessage(), onDisconnect()
+<?php
+
+declare(strict_types=1);
+
+namespace App\Atoms;
+
+use App\Atoms\Jobs\RecordGameResult;
+use Atoms\Atom;
+
+final class GameRoom extends Atom
+{
+    public function recordResult(string $ref, int $seat): void
+    {
+        $this->dispatch(RecordGameResult::class, ['ref' => $ref, 'seat' => $seat]);
+        $this->broadcast('room', ['ref' => $ref, 'seat' => $seat]);
+    }
+}
 ```
 
 ## The serialization algebra (boundary types)
@@ -65,16 +79,18 @@ anywhere.** To pass a model, map it to a Shared DTO
 
 ## Migrations (per-Atom SQLite)
 
-Ordered `app/Atoms/{Atom}/migrations/NNN_*.sql` files run once, at activation,
-under the Atom's single-writer guarantee. Rules the toolchain enforces:
+At activation, each Atom applies files in `app/Atoms/{Atom}/migrations/` whose
+numeric prefix is higher than the version recorded in its SQLite database.
 
-- **Append-only after shipping.** Editing a shipped migration fails validation
-  (the manifest records each file's sha256). Add a new `NNN_` file instead.
-- **Strictly increasing** numeric prefixes (`001_`, `002_`, …); no gaps that
-  reorder, no duplicates.
-- **Backward-compatible one version** (expand/contract) — a code rollback does
-  not roll back schema.
-- Keep them tiny: they run in the activation path (budget ~250ms).
+- Give each SQL or PHP migration a unique version, such as `001_create_rooms.sql`.
+- Keep shipped files unchanged and append a higher-numbered migration for each
+  change. If you edit a shipped file, Atoms that applied it skip the edit and
+  new Atoms run the edited version. The manifest records each file's SHA-256.
+  Validation does not compare hashes across releases or emit `ATOMS-E050` for an edit.
+- Keep the schema compatible with the previous code version. Rolling back code
+  leaves the database at its current schema version.
+- Keep migrations short because the first turn waits for them. The build does
+  not measure migration time or emit the `ATOMS-E052` budget warning.
 
 ## Reentrancy hazards
 
