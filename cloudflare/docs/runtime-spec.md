@@ -669,9 +669,10 @@ cloudflare/worker/
                     #   Jobs/Notify)
   .php-wasm/        # php_8_3.asyncify.{js,wasm}  (pinned; staged by
                     #   scripts/prepare-runtime.mjs, gitignored, never committed)
-  scripts/          # build-bundle.mjs (assemble fixtures into bundle.json),
-                    #   dev-with-callback.mjs (wrangler dev + a per-run shared
-                    #   secret, for the conformance callback checks)
+  scripts/          # build-bundle.mjs (assemble fixtures into the gitignored
+                    #   src/bundle.generated.js), dev-with-callback.mjs
+                    #   (wrangler dev + a per-run shared secret, for the
+                    #   conformance callback checks)
   test/             # conformance suite (node, hits a running worker URL)
   wrangler.jsonc
   package.json
@@ -1346,11 +1347,15 @@ implemented in `src/timers.js`'s `TimersHost`.
 
 ## Bundle format
 
-`scripts/build-bundle.mjs` walks a fixture app directory and emits
-`src/bundle.generated.js`: `export default {manifest, files}` where `files`
-maps guest paths (`/app/...`, `/atoms/...`) to file contents, and `manifest`
-is `{"atoms":{"Counter":{"class":"App\\Atoms\\Counter","file":"/app/Counter.php",
+`scripts/build-bundle.mjs` walks a fixture app directory and emits the
+gitignored, build-generated `src/bundle.generated.js`: `export default {manifest, files}`
+where `files` maps guest paths (`/app/...`, `/atoms/...`) to file contents, and
+`manifest` is `{"atoms":{"Counter":{"class":"App\\Atoms\\Counter","file":"/app/Counter.php",
 "migrations":["/app/migrations/001_init.sql", ...]}}, "abi":{"php":"8.3"}}`.
+`src/bundle.generated.js` is never committed; in the monorepo it is generated
+automatically by `npm ci`, `npm run dev`, `npm run dev:callback`, and `npm run bundle`
+from `fixtures/counter/`, `php/runtime/`, and `packages/core/` (and in published
+scaffolds from `php/atoms-core/` by `scripts/bundle-from-cli.mjs`).
 The DO writes `files` into MEMFS at boot. No customer PHP executes at build
 time. This format is internal and versioned `bundle_format: 0`.
 

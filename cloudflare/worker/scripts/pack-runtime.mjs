@@ -45,8 +45,8 @@ const PACKAGE_ENTRYPOINTS = [
 /** Imported by shipped code, deliberately not shipped. */
 const UNPACKAGED_MODULES = new Set([
 	// Written per project by scripts/bundle-from-cli.mjs out of the customer's
-	// `atoms build` output. The repository's own copy is the conformance
-	// fixture's bundle and must never enter the tarball.
+	// `atoms build` output. In the monorepo it is build-generated from the
+	// conformance fixture and gitignored; it must never enter the tarball.
 	'src/bundle.generated.js',
 ]);
 
@@ -60,8 +60,8 @@ const UNPACKAGED_PREFIXES = [
 /** Non-module inputs under `cloudflare/worker`, which no import graph can discover. */
 const STATIC_FILES = [
 	// Ships as the template's .gitignore. The repository's own .gitignore is
-	// the monorepo's (it commits src/bundle.generated.js as the conformance
-	// fixture, which a customer directory must never do) and stays here.
+	// the monorepo's (it also ignores conformance-harness artifacts like
+	// test/.dev-secret.json and wrangler logs) and stays here.
 	'gitignore.scaffold',
 	'php/runtime',
 	'release/supported-core',

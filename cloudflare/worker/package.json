@@ -13,15 +13,16 @@
 		"wrangler": "4.165.0"
 	},
 	"scripts": {
-		"prepare": "node scripts/prepare-runtime.mjs --if-installed",
+		"prepare": "node scripts/prepare-runtime.mjs --if-installed && node scripts/build-bundle.mjs",
 		"prepare-runtime": "node scripts/prepare-runtime.mjs",
 		"bundle": "node scripts/build-bundle.mjs",
-		"check:fresh": "npm run bundle && git diff --exit-code -- src/bundle.generated.js",
 		"bundle:cli": "node scripts/bundle-from-cli.mjs",
 		"package:runtime": "node scripts/pack-runtime.mjs",
 		"test:package": "node test/runtime-package.mjs",
 		"test:instance": "node test/atom-do-instance.test.mjs",
+		"predev": "npm run bundle",
 		"dev": "wrangler dev",
+		"predev:callback": "npm run bundle",
 		"dev:callback": "node scripts/dev-with-callback.mjs",
 		"deploy": "wrangler deploy",
 		"test": "node test/conformance.mjs"

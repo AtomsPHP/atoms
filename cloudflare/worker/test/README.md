@@ -363,14 +363,16 @@ All are defined in `fixtures/counter/manifest.json` and bundled into the worker 
 
 ## Building the Bundle
 
-The fixture app is bundled at build time:
+The fixture app is bundled at build time into the gitignored
+`src/bundle.generated.js`, generated automatically by `npm ci`, `npm run dev`,
+and `npm run dev:callback`, or explicitly with `npm run bundle`:
 
 ```bash
 cd cloudflare/worker
 node scripts/build-bundle.mjs fixtures/counter src/bundle.generated.js
 ```
 
-This generates `src/bundle.generated.js`, which the worker loads on startup.
+This generates `src/bundle.generated.js`, which the worker loads on startup; never commit it.
 
 ## Regenerating the PDO Compatibility Doc
 

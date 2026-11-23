@@ -596,9 +596,9 @@ own validation cover the day one does. One file, owned by the user, with its
 requirements marked in place, is the smallest honest shape.
 
 **Generated outputs are gitignored.** The scaffold's `.gitignore` (runtime-
-owned; shipped as `gitignore.scaffold` from this repository, distinct from
-the monorepo worker's own, which commits the conformance fixture's bundle)
-covers everything `deploy`, `dev` and `npm ci` write: `src/bundle.generated.js`,
+owned; shipped as `gitignore.scaffold` from this repository, separate from
+the monorepo worker's own `.gitignore` which also ignores conformance-harness
+artifacts) covers everything `deploy`, `dev` and `npm ci` write: `src/bundle.generated.js`,
 `node_modules/`, `.php-wasm/`, `.dev.vars`, `.wrangler/` (Wrangler's own
 state), and `/.wrangler.atoms-*.json` (the config for each CLI invocation).
 A deploy never leaves the committed directory dirty; `test/runtime-package.mjs`

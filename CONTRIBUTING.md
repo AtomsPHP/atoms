@@ -124,8 +124,9 @@ ATOMS_BASE_URL=http://127.0.0.1:8787 ATOMS_SKIP=12 node test/conformance.mjs
 
 Do not commit a green run that skipped checks. `cloudflare/worker/test/README.md`
 documents what each check proves and what the remaining environment variables
-do. `npm run bundle` regenerates `src/bundle.generated.js` from
-`fixtures/counter`; if you change a fixture, rebuild and commit the result.
+do. `npm run bundle` regenerates the gitignored `src/bundle.generated.js` from
+`fixtures/counter` (also run automatically by `npm ci`, `npm run dev`, and
+`npm run dev:callback`); never commit it.
 
 ## Rules that are not up for negotiation in a pull request
 
