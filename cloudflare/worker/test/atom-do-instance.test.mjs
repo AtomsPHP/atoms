@@ -31,6 +31,9 @@ import { registerHooks } from 'node:module';
 
 const STUBS = {
 	'atoms-test:cloudflare-workers': 'export class DurableObject {}\n',
+	// src/bundle.generated.js is build-generated and gitignored; the test never
+	// activates or reads bundle contents.
+	'atoms-test:bundle': 'export default { manifest: { atoms: {} }, files: {} };\n',
 	// Nothing here is called: the test never activates. They exist so the
 	// module graph resolves.
 	'atoms-test:php-host': [
@@ -47,6 +50,9 @@ registerHooks({
 	resolve(specifier, context, nextResolve) {
 		if (specifier === 'cloudflare:workers') {
 			return { url: 'atoms-test:cloudflare-workers', shortCircuit: true };
+		}
+		if (specifier.endsWith('bundle.generated.js')) {
+			return { url: 'atoms-test:bundle', shortCircuit: true };
 		}
 		if (specifier.endsWith('php-host.js')) {
 			return { url: 'atoms-test:php-host', shortCircuit: true };

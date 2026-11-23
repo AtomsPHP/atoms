@@ -123,14 +123,17 @@ convenient it looks.
 - **No capacity numbers in code.** Every TTL, cap, deadline, limit and poll
   interval comes from an environment variable with a default, resolved in
   `worker/src/config.js` and nowhere else.
-- `worker/php/atoms-core/` is a **verbatim** copy of `packages/core/src`,
-  hash-recorded in its `VENDORED-FROM.md`. Never edit it in place — fix
-  `packages/core/` and re-vendor.
-- **The committed bundle embeds its inputs.** Any change under
-  `cloudflare/worker/php/` or `cloudflare/worker/fixtures/counter/` —
-  comment-only edits and re-vendors included — requires regenerating and
-  committing `src/bundle.generated.js` (`npm run bundle`). CI's staleness
-  gate enforces it; `npm run check:fresh` runs the same check locally.
+- **`packages/core/` is the single source of truth for guest `atoms/core`.**
+  There is no committed copy under `cloudflare/worker/php/`. Inside the
+  monorepo, `worker/scripts/lib/bundle-module.mjs` reads `packages/core/`
+  (`src/` minus `CORE_GUEST_OMISSIONS`, plus `resources/errors.json`) directly;
+  `scripts/pack-runtime.mjs` stages that same filtered set into
+  `template/php/atoms-core/` when packing `@atomsphp/runtime-cloudflare` so
+  customer scaffolds stay self-contained.
+- **`src/bundle.generated.js` is build-generated and gitignored.** It is never
+  committed. `npm ci` (`prepare`), `npm run dev`, `npm run dev:callback`, and
+  `npm run bundle` regenerate it from `fixtures/counter/`, `php/runtime/`, and
+  `packages/core/`.
 
 ## Cross-cutting rules
 
@@ -190,13 +193,13 @@ packages/cli/bin/atoms               # run the CLI from source
 packages/cli/bin/atoms dev           # build + `wrangler dev`; no Cloudflare account needed
 
 # Cloudflare Worker — from cloudflare/worker
-npm ci                               # installs deps and stages .php-wasm/
+npm ci                               # installs deps, stages .php-wasm/, and builds src/bundle.generated.js
 npm run prepare-runtime              # stage the runtime unconditionally
 npm run bundle                       # build src/bundle.generated.js from the conformance fixture
 npm run bundle:cli -- B M src/bundle.generated.js   # ...or from an `atoms build` bundle + manifest
 npx wrangler dev                     # serves on 127.0.0.1:8787 (wrangler.jsonc)
-npm run dev:callback                 # same, plus a per-run ATOMS_SHARED_SECRET and
-                                      # ATOMS_CALLBACK_URL wired in, for the callback checks
+npm run dev:callback                 # rebuilds the fixture bundle and starts wrangler dev with a
+                                     # per-run ATOMS_SHARED_SECRET and ATOMS_CALLBACK_URL wired in
 ATOMS_BASE_URL=http://127.0.0.1:8787 node test/conformance.mjs
 ```
 

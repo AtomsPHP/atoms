@@ -657,21 +657,22 @@ cloudflare/worker/
                     # codec, dispatcher, error envelope, CallbackAppProxy/
                     # CallbackChannel + CallbackError subclasses (app()/
                     # dispatch()), CfConnection/CfMessage/ConnectionClosed
-                    # (WebSockets), CfTimers + its typed exceptions (timers)
-    atoms-core/     # verbatim copies from packages/core/src (repo root):
-                    # Atom.php, Runtime/{AtomContext,LifecycleInvoker}.php,
-                    # Database.php, Migrations/*, Serialization/*, Websocket/*,
-                    # Timers/*, AtomJob.php, AtomMethods.php (+ whatever they
-                    # require)
+                    # (WebSockets), CfTimers + its typed exceptions (timers).
+                    # Verbatim atoms/core sources (packages/core/src minus
+                    # Sqlite/SqliteDatabase.php, plus resources/errors.json)
+                    # are read directly from ../../packages/core/ in the
+                    # monorepo and staged into php/atoms-core/ when packing
+                    # @atomsphp/runtime-cloudflare.
   fixtures/
     counter/        # fixture "customer app": manifest.json + Atom classes
                     #   + migrations (Counter, Vault, Room, Scheduler,
                     #   Jobs/Notify)
   .php-wasm/        # php_8_3.asyncify.{js,wasm}  (pinned; staged by
                     #   scripts/prepare-runtime.mjs, gitignored, never committed)
-  scripts/          # build-bundle.mjs (assemble fixtures into bundle.json),
-                    #   dev-with-callback.mjs (wrangler dev + a per-run shared
-                    #   secret, for the conformance callback checks)
+  scripts/          # build-bundle.mjs (assemble fixtures into the gitignored
+                    #   src/bundle.generated.js), dev-with-callback.mjs
+                    #   (wrangler dev + a per-run shared secret, for the
+                    #   conformance callback checks)
   test/             # conformance suite (node, hits a running worker URL)
   wrangler.jsonc
   package.json
@@ -1188,8 +1189,8 @@ no channel to name.
 A client therefore reads a `sendJson()` frame exactly as it reads whatever the
 Atom sent through `send()`, and reads `payload` out of a broadcast. The shared
 encoder is what keeps a structured frame's normalization identical whichever
-call produced it; it is vendored into the guest with the rest of `atoms/core`,
-so the rule cannot drift between the two call sites.
+call produced it; it ships verbatim into the guest from `packages/core/` with
+the rest of `atoms/core`, so the rule cannot drift between the two call sites.
 
 Because `json_encode()` output is always valid UTF-8, a `sendJson()` frame
 always arrives as a **text** frame under the outbound rule below. `sendJson()`
@@ -1346,11 +1347,15 @@ implemented in `src/timers.js`'s `TimersHost`.
 
 ## Bundle format
 
-`scripts/build-bundle.mjs` walks a fixture app directory and emits
-`src/bundle.generated.js`: `export default {manifest, files}` where `files`
-maps guest paths (`/app/...`, `/atoms/...`) to file contents, and `manifest`
-is `{"atoms":{"Counter":{"class":"App\\Atoms\\Counter","file":"/app/Counter.php",
+`scripts/build-bundle.mjs` walks a fixture app directory and emits the
+gitignored, build-generated `src/bundle.generated.js`: `export default {manifest, files}`
+where `files` maps guest paths (`/app/...`, `/atoms/...`) to file contents, and
+`manifest` is `{"atoms":{"Counter":{"class":"App\\Atoms\\Counter","file":"/app/Counter.php",
 "migrations":["/app/migrations/001_init.sql", ...]}}, "abi":{"php":"8.3"}}`.
+`src/bundle.generated.js` is never committed; in the monorepo it is generated
+automatically by `npm ci`, `npm run dev`, `npm run dev:callback`, and `npm run bundle`
+from `fixtures/counter/`, `php/runtime/`, and `packages/core/` (and in published
+scaffolds from `php/atoms-core/` by `scripts/bundle-from-cli.mjs`).
 The DO writes `files` into MEMFS at boot. No customer PHP executes at build
 time. This format is internal and versioned `bundle_format: 0`.
 
@@ -1879,7 +1884,7 @@ for each of them. They are recorded rather than worked around silently.
    patterns match nothing. The verbatim `Atoms\Migrations\MigrationSet::
    fromDirectory()` globs `*.{sql,php}`, so unshimmed it discovers zero
    migrations. `php/runtime/MigrationsGlobShim.php` shadows `glob()` and
-   `GLOB_BRACE` inside the `Atoms\Migrations` namespace only; atoms-core is
+   `GLOB_BRACE` inside the `Atoms\Migrations` namespace only; `atoms/core` is
    still verbatim and unpatched.
 
 3. **The guest clock does not advance inside a turn on deployed workerd.**

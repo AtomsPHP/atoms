@@ -1,16 +1,23 @@
 # `worker/php/` — everything that runs inside the PHP guest
 
-Two directories, with very different rules:
+Two source trees make up the guest PHP environment, with different homes:
 
-| Directory | What it is | Rule |
+| Source | What it is | Rule |
 |---|---|---|
-| `atoms-core/` | Verbatim copies of `packages/core/src` (+ `resources/errors.json`), from the repository root | **Never edit.** See `atoms-core/VENDORED-FROM.md` |
+| `packages/core/` (monorepo) / `php/atoms-core/` (published scaffold) | Verbatim `atoms/core` sources (`src/` minus `Sqlite/SqliteDatabase.php`, plus `resources/errors.json`) | Single source of truth is `packages/core/`; `scripts/pack-runtime.mjs` stages `php/atoms-core/` when packing `@atomsphp/runtime-cloudflare` so customer scaffolds stay self-contained |
 | `runtime/` | The `Atoms\Cf\` runtime — the platform side of the guest | Owned here |
 
-The whole point of the runtime is that the first column runs *unmodified*: the
+The whole point of the runtime is that `atoms/core` runs *unmodified*: the
 customer API, `Atoms\Migrations\Migrator` and `Atoms\Serialization\Serializer`
 inside a Durable Object are the same code the `atoms/core` package ships to
-customers. Nothing in `atoms-core/` was patched to make that work.
+customers. Nothing in `packages/core/` was patched to make that work.
+
+One file from `packages/core/src/` is deliberately omitted from the guest (and
+from published scaffolds), declared in `CORE_GUEST_OMISSIONS` in
+`scripts/lib/bundle-module.mjs`: `Sqlite/SqliteDatabase.php`. It opens a real
+`PDO('sqlite:…')` against a filesystem path, which is precisely what the
+Durable Object bridge replaces (`Atoms\Cf\BridgeDatabase` implements
+`Atoms\Database` here).
 
 ---
 
@@ -22,9 +29,11 @@ Guest paths are load-bearing in two places, so they are pinned rather than
 free-form:
 
 ```
-/atoms/core/src/…            <- worker/php/atoms-core/*.php  (same tree)
+/atoms/core/src/…            <- packages/core/src/*.php (minus Sqlite/SqliteDatabase.php),
+                                or php/atoms-core/*.php in a published scaffold
 /atoms/core/resources/errors.json
-                             <- worker/php/atoms-core/resources/errors.json
+                             <- packages/core/resources/errors.json,
+                                or php/atoms-core/resources/errors.json in a published scaffold
 /atoms/runtime/*.php         <- worker/php/runtime/*.php     (flat)
 /app/…                       <- the bundle's files, at the paths its manifest uses
 ```
@@ -64,7 +73,7 @@ Rules for the composed script:
 - **Encode `$CFG` as single-line JSON inside a nowdoc.** Nowdoc means no
   interpolation and no escaping problems, and `JSON.stringify` never emits a
   raw newline, so the closing identifier can never collide with the payload.
-- **`require`, never concatenate.** Every file in `atoms-core/` begins with
+- **`require`, never concatenate.** Every file in `atoms/core` begins with
   `declare(strict_types=1)`, which must be the first statement *of its file*.
   Concatenating them is a hard fatal. Nothing under
   `runtime/` declares
@@ -125,7 +134,7 @@ registered. Declared but missing from the guest filesystem is an `internal`
 
 `bootstrap.php` requires `host.php` and `int64.php`, then:
 
-1. `require`s `atoms-core/` (interfaces first) and then the rest of `runtime/`;
+1. `require`s `atoms/core` (interfaces first) and then the rest of `runtime/`;
 2. registers the bundle autoloader (vendor subtree excluded when the manifest
    declares `vendor.autoload`), then `require`s the declared vendor autoload
    file, if any;

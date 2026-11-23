@@ -7,13 +7,99 @@
  * directory walk, the runtime-half assembly and the writer live here rather
  * than drifting apart again — the two inline copies this replaces had already
  * diverged on missing-directory behavior (warn vs throw). Reconciled to
- * fail-loud throughout: `php/runtime/` and `php/atoms-core/` are committed
- * repository source, so their absence means a broken tree, and a bundle
- * silently missing the runtime or the vendored core is worse than no bundle.
+ * fail-loud throughout: a bundle silently missing `php/runtime/` or
+ * `atoms/core` is worse than no bundle.
+ *
+ * In the monorepo, `atoms/core` lives solely in `packages/core/`. When
+ * `pack-runtime.mjs` stages `@atomsphp/runtime-cloudflare`, it copies the
+ * filtered guest subset into `template/php/atoms-core/` so customer Worker
+ * directories are self-contained. `runtimeFiles()` reads `php/atoms-core/`
+ * when present and falls back to `../../packages/core/` inside the monorepo.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+
+/**
+ * Paths relative to `packages/core/src/` deliberately omitted from the
+ * Cloudflare Worker guest and from the published `@atomsphp/runtime-cloudflare`
+ * template.
+ *
+ * `Sqlite/SqliteDatabase.php` opens a real `PDO('sqlite:…')` against a
+ * filesystem path, which is what the Durable Object bridge replaces
+ * (`Atoms\Cf\BridgeDatabase` implements `Atoms\Database` in the guest).
+ */
+export const CORE_GUEST_OMISSIONS = new Set([
+    'Sqlite/SqliteDatabase.php',
+]);
+
+/**
+ * Recursively collect regular files under `dir` as `{rel, sourcePath}` with
+ * POSIX relative paths, sorted in localeCompare order for deterministic output.
+ *
+ * @param {string} dir
+ * @param {string} prefix
+ * @returns {Array<{ rel: string, sourcePath: string }>}
+ */
+function walkEntries(dir, prefix = '') {
+    const out = [];
+    if (!fs.existsSync(dir)) {
+        return out;
+    }
+
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const sorted = entries.sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const entry of sorted) {
+        const fullPath = path.join(dir, entry.name);
+        const rel = prefix === '' ? entry.name : path.posix.join(prefix, entry.name);
+
+        if (entry.isDirectory()) {
+            out.push(...walkEntries(fullPath, rel));
+        } else if (entry.isFile()) {
+            out.push({ rel, sourcePath: fullPath });
+        }
+    }
+
+    return out;
+}
+
+/**
+ * Enumerate the `atoms/core` files shipped into the Worker guest from a
+ * `packages/core` directory: every `.php` file under `src/` except
+ * `CORE_GUEST_OMISSIONS`, plus `resources/errors.json`.
+ *
+ * Returned `rel` paths are POSIX paths relative to `php/atoms-core/`
+ * (e.g. `Atom.php`, `Errors/ErrorCode.php`, `resources/errors.json`), so
+ * `runtimeFiles()` and `pack-runtime.mjs` share one file list and omission rule.
+ *
+ * @param {string} corePackageDir - path to `packages/core`
+ * @returns {Array<{ rel: string, sourcePath: string }>}
+ */
+export function coreSourceEntries(corePackageDir) {
+    const srcDir = path.join(corePackageDir, 'src');
+    if (!fs.existsSync(srcDir) || !fs.statSync(srcDir).isDirectory()) {
+        throw new Error(`packages/core/src/ not found at ${srcDir}`);
+    }
+
+    const errorsJson = path.join(corePackageDir, 'resources', 'errors.json');
+    if (!fs.existsSync(errorsJson) || !fs.statSync(errorsJson).isFile()) {
+        throw new Error(`packages/core/resources/errors.json not found at ${errorsJson}`);
+    }
+
+    const entries = [];
+    for (const entry of walkEntries(srcDir)) {
+        if (!entry.rel.endsWith('.php')) continue;
+        if (CORE_GUEST_OMISSIONS.has(entry.rel)) continue;
+        entries.push(entry);
+    }
+    if (!entries.some((entry) => entry.rel === 'Atom.php')) {
+        throw new Error(`packages/core/src/ at ${srcDir} is incomplete: missing Atom.php`);
+    }
+    entries.push({ rel: 'resources/errors.json', sourcePath: errorsJson });
+
+    return entries.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+}
 
 /**
  * Recursively read a directory into {guestPath: contents}, entries in
@@ -49,14 +135,17 @@ export function walkDir(dir, prefix = '') {
 
 /**
  * The runtime half every bundle carries: the verbatim `php/runtime/*` sources
- * as `/atoms/runtime/...`, plus `php/atoms-core/*` — except `resources/`,
- * which must land at `/atoms/core/resources/`. That split is load-bearing:
+ * as `/atoms/runtime/...`, plus `atoms/core` — PHP sources at
+ * `/atoms/core/src/...` and `resources/errors.json` at
+ * `/atoms/core/resources/errors.json`. That split is load-bearing:
  * `Atoms\Errors\ErrorCatalog` resolves its catalog as
  * `__DIR__ . '/../../resources/errors.json'`, i.e. from `/atoms/core/src/Errors`
  * up to `/atoms/core/resources`. See php/README.md §1.
  *
- * Throws when either input tree is missing: both are committed repository
- * source, so their absence is a broken tree, not a shippable partial bundle.
+ * Prefers `php/atoms-core/` when present (a scaffolded
+ * `@atomsphp/runtime-cloudflare` directory) and falls back to
+ * `../../packages/core/` inside the monorepo. Throws when `php/runtime/` or
+ * both core locations are missing, or when a core tree is incomplete.
  *
  * @param {string} projectRoot - the worker project root holding `php/`
  * @returns {Record<string, string>}
@@ -70,17 +159,36 @@ export function runtimeFiles(projectRoot) {
     }
     Object.assign(files, walkDir(runtimeDir, '/atoms/runtime'));
 
-    const coreDir = path.join(projectRoot, 'php', 'atoms-core');
-    if (!fs.existsSync(coreDir)) {
-        throw new Error(`php/atoms-core/ not found at ${coreDir}`);
+    const stagedCoreDir = path.join(projectRoot, 'php', 'atoms-core');
+    if (fs.existsSync(stagedCoreDir)) {
+        for (const [rel, contents] of Object.entries(walkDir(stagedCoreDir, '/'))) {
+            if (!/\.(php|json)$/.test(rel)) continue;
+            const stripped = rel.replace(/^\//, '');
+            if (CORE_GUEST_OMISSIONS.has(stripped)) continue;
+            const guestPath = stripped.startsWith('resources/')
+                ? `/atoms/core/${stripped}`
+                : `/atoms/core/src/${stripped}`;
+            files[guestPath] = contents;
+        }
+        if (!('/atoms/core/src/Atom.php' in files) || !('/atoms/core/resources/errors.json' in files)) {
+            throw new Error(
+                `php/atoms-core/ at ${stagedCoreDir} is incomplete: expected Atom.php and resources/errors.json`,
+            );
+        }
+        return files;
     }
-    for (const [rel, contents] of Object.entries(walkDir(coreDir, '/'))) {
-        if (!/\.(php|json)$/.test(rel)) continue; // VENDORED-FROM.md et al.
-        const stripped = rel.replace(/^\//, '');
-        const guestPath = stripped.startsWith('resources/')
-            ? `/atoms/core/${stripped}`
-            : `/atoms/core/src/${stripped}`;
-        files[guestPath] = contents;
+
+    const monorepoCoreDir = path.resolve(projectRoot, '..', '..', 'packages', 'core');
+    if (!fs.existsSync(monorepoCoreDir)) {
+        throw new Error(
+            `atoms/core not found: checked ${stagedCoreDir} and monorepo fallback ${monorepoCoreDir}`,
+        );
+    }
+    for (const { rel, sourcePath } of coreSourceEntries(monorepoCoreDir)) {
+        const guestPath = rel.startsWith('resources/')
+            ? `/atoms/core/${rel}`
+            : `/atoms/core/src/${rel}`;
+        files[guestPath] = fs.readFileSync(sourcePath, 'utf-8');
     }
 
     return files;

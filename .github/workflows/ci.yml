@@ -152,28 +152,6 @@ jobs:
             composer validate --no-check-all "packages/$p/composer.json"
           done
 
-      # cloudflare/worker/php/atoms-core/ is a verbatim copy of packages/core —
-      # the guest loads PHP source out of MEMFS and cannot composer-require it.
-      # The runtime's central claim is that the real API runs unmodified inside the
-      # Durable Object, and that claim is only true while the copy is identical.
-      # Before the 2026-08-08 migration the two lived in different repositories
-      # and this could not be checked in one clone; now it can, so it is. Driven
-      # from the vendored side because packages/core/src legitimately holds more
-      # than the guest needs (see that directory's VENDORED-FROM.md).
-      - name: atoms/core API copy has not drifted
-        run: |
-          status=0
-          for f in $(cd cloudflare/worker/php/atoms-core && find . -name '*.php' | sed 's|^\./||'); do
-            cmp "packages/core/src/$f" "cloudflare/worker/php/atoms-core/$f" || status=1
-          done
-          cmp packages/core/resources/errors.json \
-              cloudflare/worker/php/atoms-core/resources/errors.json || status=1
-          if [ "$status" -ne 0 ]; then
-            echo "::error::cloudflare/worker/php/atoms-core/ has drifted from packages/core."
-            echo "Fix packages/core and re-vendor; never edit the copy in place."
-          fi
-          exit "$status"
-
   # The Cloudflare Worker half: build it, run it locally under workerd, and put
   # the Worker conformance suite through it. Everything here is local —
   # `wrangler dev` needs no Cloudflare account, API token or login, and nothing
@@ -278,19 +256,6 @@ jobs:
 
       - name: Bundle the fixture app
         run: npm run bundle
-
-      # src/bundle.generated.js is committed but generated, and it embeds the
-      # vendored atoms/core catalog — so a change to packages/core silently
-      # staled it. Regenerating above and then diffing is what turns that into
-      # a red build: without this, CI is green precisely because it rebuilt the
-      # artifact it never checked.
-      - name: The committed bundle is not stale
-        run: |
-          if ! git diff --exit-code -- src/bundle.generated.js; then
-            echo "::error::src/bundle.generated.js is out of date."
-            echo "Run 'npm run bundle' in cloudflare/worker and commit the result."
-            exit 1
-          fi
 
       # One root per run for the whole app <-> Worker boundary
       # (docs/shared-secret.md): 32 random bytes, base64, from which the

@@ -596,9 +596,9 @@ own validation cover the day one does. One file, owned by the user, with its
 requirements marked in place, is the smallest honest shape.
 
 **Generated outputs are gitignored.** The scaffold's `.gitignore` (runtime-
-owned; shipped as `gitignore.scaffold` from this repository, distinct from
-the monorepo worker's own, which commits the conformance fixture's bundle)
-covers everything `deploy`, `dev` and `npm ci` write: `src/bundle.generated.js`,
+owned; shipped as `gitignore.scaffold` from this repository, separate from
+the monorepo worker's own `.gitignore` which also ignores conformance-harness
+artifacts) covers everything `deploy`, `dev` and `npm ci` write: `src/bundle.generated.js`,
 `node_modules/`, `.php-wasm/`, `.dev.vars`, `.wrangler/` (Wrangler's own
 state), and `/.wrangler.atoms-*.json` (the config for each CLI invocation).
 A deploy never leaves the committed directory dirty; `test/runtime-package.mjs`
@@ -1006,7 +1006,7 @@ supplies it.**
 - The Worker keeps loading `src/bundle.generated.js`, an ES module exporting
   `{manifest, files}` at `bundle_format: 0`. This is the **deploy** artifact.
   It has to be a JS module because the Worker script is what `wrangler deploy`
-  uploads, and it has to carry the `Atoms\Cf` runtime and the vendored
+  uploads, and it has to carry the `Atoms\Cf` runtime and the verbatim
   `atoms/core` sources — neither of which `atoms build` has any business
   knowing about.
 - `cloudflare/worker/scripts/bundle-from-cli.mjs` reads the first and emits the
@@ -1016,10 +1016,10 @@ supplies it.**
 ### Why not make one side adopt the other
 
 *Teaching `atoms build` to emit the Worker module* would put the guest
-runtime and the vendored core inside a PHP package — a second copy of files
-that version with the Worker, and the first thing to drift. It would also make
-the portable artifact un-portable: a JS module is not something you archive,
-diff or re-verify.
+runtime and the Worker's `atoms/core` staging inside a PHP package — a second
+copy of files that version with the Worker, and the first thing to drift. It
+would also make the portable artifact un-portable: a JS module is not something
+you archive, diff or re-verify.
 
 *Teaching the Worker to load the tar.gz at runtime* would mean gunzipping and
 untarring inside the isolate on every cold start, against a cold-start budget
@@ -1029,15 +1029,17 @@ already measured at ~740ms.
 translator does not already give.
 
 The translator lives in the Worker tree, not the CLI, for the same reason: it
-needs `php/runtime/` and `php/atoms-core/`, which are the Worker's own.
+needs `php/runtime/` and the guest `atoms/core` sources (`php/atoms-core/` in a
+published scaffold, or `packages/core/` directly in the monorepo), which are
+the Worker's own.
 
 ### What this bought
 
 **Nothing under `cloudflare/worker/src/**` or `cloudflare/worker/php/**`
 changed.** The emitted module is exactly the shape the host already reads, so
 the Worker conformance suite was untouched by the CLI integration (see
-`cloudflare/docs/runtime-spec.md` §Conformance suite), and the vendored
-`atoms/core` copy needed no re-vendor on this account.
+`cloudflare/docs/runtime-spec.md` §Conformance suite), and `packages/core/`
+needed no changes on this account.
 
 `build-bundle.mjs` is the conformance fixture builder. It is not a stand-in
 for the real `atoms build`.

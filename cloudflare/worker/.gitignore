@@ -4,6 +4,11 @@ node_modules/
 dist/
 .runtime-package/
 
+# Build-generated bundle module (conformance fixture via `scripts/build-bundle.mjs`,
+# or a CLI build via `scripts/bundle-from-cli.mjs`). Regenerated automatically by
+# `npm ci`, `npm run dev`, and `npm run dev:callback`; never commit it.
+/src/bundle.generated.js
+
 # Written by the CI worker job (and by anyone reproducing it locally) when it
 # backgrounds `wrangler dev` and polls /healthz. The -auth and -misconfigured
 # variants are the second and third posture's logs.

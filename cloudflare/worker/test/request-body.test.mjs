@@ -2,12 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 
-// Exercise the real entry handler; only the DO implementation (which imports
-// workerd and Wasm) is stubbed. The binding below records every dispatch.
+// Exercise the real entry handler; stub the DO implementation (which imports
+// workerd and Wasm) and the build-generated bundle (gitignored). The binding
+// below records every dispatch.
 registerHooks({
 	resolve(specifier, context, nextResolve) {
 		if (specifier === './atom-do.js') {
 			return { url: 'data:text/javascript,export class AtomDurableObject {}', shortCircuit: true };
+		}
+		if (specifier === './bundle.generated.js') {
+			return { url: 'data:text/javascript,export default { manifest: { atoms: { Counter: {} } }, files: {} };', shortCircuit: true };
 		}
 		return nextResolve(specifier, context);
 	},

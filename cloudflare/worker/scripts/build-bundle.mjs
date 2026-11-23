@@ -47,9 +47,9 @@ async function buildBundle() {
         Object.assign(allFiles, walkDir(appDir, '/app'));
     }
 
-    // 2 & 3. The runtime half — php/runtime/* as /atoms/runtime/... and the
-    // vendored php/atoms-core/* under /atoms/core/. Fail-loud on a missing
-    // tree: both are committed repository source (see runtimeFiles()).
+    // 2 & 3. The runtime half — php/runtime/* as /atoms/runtime/... and
+    // verbatim atoms/core sources under /atoms/core/. Fail-loud on a missing
+    // tree (see runtimeFiles()).
     Object.assign(allFiles, runtimeFiles(PROJECT_ROOT));
 
     // Sort keys for deterministic output
