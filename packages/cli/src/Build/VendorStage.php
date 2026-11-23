@@ -158,7 +158,11 @@ final class VendorStage
 
             $wroteLock = false;
             if ($lockBytes === null && is_file($work . '/composer.lock')) {
-                $lockBytes = $this->readOrFail($work . '/composer.lock');
+                $lockBytes = self::cleanLockForWriteBack(
+                    $this->readOrFail($work . '/composer.lock'),
+                    $this->workerPhpVersion,
+                    $this->extensionsResource,
+                );
                 $this->writeOrFail($lockPath, $lockBytes);
                 $wroteLock = true;
             }
@@ -185,7 +189,9 @@ final class VendorStage
      * Composer `config.platform` / lockfile `platform-overrides` map for the
      * Worker runtime: its exact PHP version plus its bundled extensions from
      * `resources/runtime-extensions.json` (skipping `core` and `standard`,
-     * which Composer treats as part of `php` rather than `ext-*` packages).
+     * which Composer treats as part of `php` rather than `ext-*` packages, and
+     * normalizing spaces to hyphens to match Composer platform names such as
+     * `ext-zend-opcache`).
      *
      * @return array<string, string>
      */
@@ -216,8 +222,47 @@ final class VendorStage
                 if ($lower === '' || $lower === 'core' || $lower === 'standard') {
                     continue;
                 }
-                $extensions['ext-' . $lower] = $workerPhpVersion;
+                $extensions['ext-' . str_replace(' ', '-', $lower)] = $workerPhpVersion;
             }
+        }
+        ksort($extensions, SORT_STRING);
+
+        return ['php' => $workerPhpVersion] + $extensions;
+    }
+
+    /**
+     * Platform override map staged into the temporary Composer work directory:
+     * {@see self::workerPlatform()} plus `false` entries for every host PHP
+     * extension absent from the Worker. Without the explicit `false` entries,
+     * Composer merges `config.platform` on top of host PHP's loaded extensions
+     * and would silently satisfy requirements like `ext-pcntl` or `ext-sockets`
+     * from the build machine.
+     *
+     * @param list<string>|null $hostExtensions defaults to `get_loaded_extensions()`
+     * @return array<string, string|false>
+     */
+    public static function stagedPlatform(
+        string $workerPhpVersion = self::WORKER_PHP_VERSION,
+        ?string $extensionsResource = null,
+        ?array $hostExtensions = null,
+    ): array {
+        $worker = self::workerPlatform($workerPhpVersion, $extensionsResource);
+        /** @var array<string, string|false> $extensions */
+        $extensions = array_slice($worker, 1, null, true);
+
+        foreach ($hostExtensions ?? get_loaded_extensions() as $ext) {
+            $lower = strtolower(trim($ext));
+            if ($lower === '' || $lower === 'core' || $lower === 'standard') {
+                continue;
+            }
+            $key = 'ext-' . str_replace(' ', '-', $lower);
+            if (isset($extensions[$key])) {
+                continue;
+            }
+            if (preg_match('/^ext-[a-z0-9](?:[_.-]?[a-z0-9]+)*$/', $key) !== 1) {
+                continue;
+            }
+            $extensions[$key] = false;
         }
         ksort($extensions, SORT_STRING);
 
@@ -230,8 +275,9 @@ final class VendorStage
      * against the project root (composer runs in a temp dir), and
      * `options.symlink: false` is forced — a symlinked package install is
      * invisible to the tree walk, so nothing would ship. `config.platform` is
-     * always injected with the Worker's PHP version and bundled extensions so
-     * Composer resolves against the Worker instead of the host PHP.
+     * always injected with the Worker's PHP version, bundled extensions, and
+     * disabled host-only extensions so Composer resolves against the Worker
+     * instead of the host PHP.
      */
     public static function stagedComposerJson(
         string $rootDir,
@@ -266,7 +312,7 @@ final class VendorStage
         }
 
         $config = ($decoded->config ?? null) instanceof \stdClass ? $decoded->config : new \stdClass();
-        $config->platform = self::workerPlatform($workerPhpVersion, $extensionsResource);
+        $config->platform = self::stagedPlatform($workerPhpVersion, $extensionsResource);
         $decoded->config = $config;
 
         return json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
@@ -276,10 +322,10 @@ final class VendorStage
      * The composer.lock staged into the work directory. When installing from
      * an existing lockfile, Composer reads `platform-overrides` from
      * `composer.lock` rather than `composer.json`'s `config.platform`, so
-     * staging the Worker's platform here ensures lockfiles created before
-     * platform pinning (or against another PHP version) are still verified
-     * against the Worker. The project's `atoms-composer.lock` is never
-     * rewritten on this path.
+     * staging the Worker's platform (with host-only extensions disabled) here
+     * ensures lockfiles created before platform pinning (or against another PHP
+     * version) are still verified against the Worker. The project's
+     * `atoms-composer.lock` is never rewritten on this path.
      */
     public static function stagedComposerLock(
         string $lockBytes,
@@ -292,6 +338,32 @@ final class VendorStage
             return $lockBytes;
         }
         if (!$decoded instanceof \stdClass) {
+            return $lockBytes;
+        }
+
+        $decoded->{'platform-overrides'} = self::stagedPlatform($workerPhpVersion, $extensionsResource);
+
+        return json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+    }
+
+    /**
+     * Normalize a freshly resolved lockfile before writing it back as
+     * `atoms-composer.lock`: replace host-dependent `false` entries in
+     * `platform-overrides` with the deterministic {@see self::workerPlatform()}
+     * map so the committed lockfile does not vary with the build machine's
+     * installed PHP extensions.
+     */
+    private static function cleanLockForWriteBack(
+        string $lockBytes,
+        string $workerPhpVersion,
+        ?string $extensionsResource,
+    ): string {
+        try {
+            $decoded = json_decode($lockBytes, false, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return $lockBytes;
+        }
+        if (!$decoded instanceof \stdClass || !property_exists($decoded, 'platform-overrides')) {
             return $lockBytes;
         }
 

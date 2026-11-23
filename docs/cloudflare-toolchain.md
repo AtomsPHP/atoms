@@ -1055,7 +1055,9 @@ them:
   temp directory — a build never executes customer or dependency code — with
   `config.platform` (and staged `composer.lock` `platform-overrides`) set to
   the Worker's PHP version (`8.3.32`) and its bundled extensions from
-  `packages/cli/resources/runtime-extensions.json`. A missing composer, an
+  `packages/cli/resources/runtime-extensions.json`, with host-only extensions
+  disabled so the build machine cannot satisfy an extension the Worker lacks.
+  A missing composer, an
   unresolvable or platform-incompatible constraint, or any other failure
   refuses loudly with **ATOMS-E079**; there is no silent fallback to an
   unshippable bundle.

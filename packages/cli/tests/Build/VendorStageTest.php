@@ -231,7 +231,7 @@ final class VendorStageTest extends TestCase
         self::assertFalse($decoded['repositories'][0]['options']['symlink']);
         self::assertFalse($decoded['repositories'][1]['options']['symlink']);
         self::assertArrayNotHasKey('options', $decoded['repositories'][2]);
-        self::assertSame(VendorStage::workerPlatform(), $decoded['config']['platform'] ?? null);
+        self::assertSame(VendorStage::stagedPlatform(), $decoded['config']['platform'] ?? null);
     }
 
     public function testComposerCommandEnforcesPlatformRequirements(): void
@@ -265,8 +265,29 @@ final class VendorStageTest extends TestCase
                 self::assertArrayNotHasKey('ext-' . $lower, $platform);
                 continue;
             }
-            self::assertSame(VendorStage::WORKER_PHP_VERSION, $platform['ext-' . $lower] ?? null);
+            $platformKey = 'ext-' . str_replace(' ', '-', $lower);
+            self::assertSame(VendorStage::WORKER_PHP_VERSION, $platform[$platformKey] ?? null);
         }
+
+        $workerPlatform = VendorStage::workerPlatform();
+        self::assertSame(VendorStage::WORKER_PHP_VERSION, $workerPlatform['ext-zend-opcache'] ?? null);
+        self::assertArrayNotHasKey('ext-zend opcache', $workerPlatform);
+        foreach (['ext-bcmath', 'ext-iconv', 'ext-openssl', 'ext-pdo', 'ext-pdo_sqlite', 'ext-xml', 'ext-zip', 'ext-zlib'] as $expected) {
+            self::assertSame(VendorStage::WORKER_PHP_VERSION, $workerPlatform[$expected] ?? null);
+            self::assertSame(VendorStage::WORKER_PHP_VERSION, $platform[$expected] ?? null);
+        }
+        foreach (['ext-pcntl', 'ext-posix', 'ext-sockets', 'ext-uv'] as $removed) {
+            self::assertArrayNotHasKey($removed, $workerPlatform);
+            self::assertNotSame(VendorStage::WORKER_PHP_VERSION, $platform[$removed] ?? null);
+        }
+
+        $stagedWithHostOnly = VendorStage::stagedPlatform(
+            hostExtensions: ['Core', 'standard', 'json', 'pcntl', 'sockets', 'Zend OPcache'],
+        );
+        self::assertFalse($stagedWithHostOnly['ext-pcntl'] ?? null);
+        self::assertFalse($stagedWithHostOnly['ext-sockets'] ?? null);
+        self::assertSame(VendorStage::WORKER_PHP_VERSION, $stagedWithHostOnly['ext-json'] ?? null);
+        self::assertSame(VendorStage::WORKER_PHP_VERSION, $stagedWithHostOnly['ext-zend-opcache'] ?? null);
     }
 
     public function testStagedComposerLockInjectsWorkerPlatformOverridesWithoutCorruptingEmptyObjects(): void
@@ -287,7 +308,7 @@ final class VendorStageTest extends TestCase
         self::assertStringContainsString('"packages-dev": []', $staged);
 
         $decoded = json_decode($staged, true, 16, JSON_THROW_ON_ERROR);
-        self::assertSame(VendorStage::workerPlatform(), $decoded['platform-overrides'] ?? null);
+        self::assertSame(VendorStage::stagedPlatform(), $decoded['platform-overrides'] ?? null);
     }
 
     public function testCacheKeyIncludesWorkerPhpVersion(): void
@@ -342,7 +363,7 @@ final class VendorStageTest extends TestCase
 
         /** @var array<string, mixed> $lock */
         $lock = json_decode((string) file_get_contents($root . '/atoms-composer.lock'), true, 64, JSON_THROW_ON_ERROR);
-        self::assertSame(VendorStage::WORKER_PHP_VERSION, $lock['platform-overrides']['php'] ?? null);
+        self::assertSame(VendorStage::workerPlatform(), $lock['platform-overrides'] ?? null);
 
         // Clear cache and re-run from the written lockfile to prove repeat
         // verification passes cleanly against the Worker platform.
@@ -443,15 +464,24 @@ final class VendorStageTest extends TestCase
     {
         $this->requireRealComposer();
 
-        // Bundled extensions from runtime-extensions.json (including ext-uv,
-        // which is rarely present on host PHP) must resolve cleanly.
+        // Bundled extensions from runtime-extensions.json (including extensions
+        // often absent on host PHP such as ext-bcmath/ext-gd/ext-soap, plus
+        // normalized ext-zend-opcache) must resolve cleanly.
         $okRoot = $this->freshDir();
         $this->writePathPackage($okRoot . '/packages/worker-exts', 'acme/worker-exts', '1.0.0', [
             'php' => '^8.3',
+            'ext-bcmath' => '*',
+            'ext-gd' => '*',
+            'ext-iconv' => '*',
+            'ext-mbstring' => '*',
+            'ext-openssl' => '*',
             'ext-pdo' => '*',
             'ext-pdo_sqlite' => '*',
-            'ext-mbstring' => '*',
-            'ext-uv' => '*',
+            'ext-soap' => '*',
+            'ext-xml' => '*',
+            'ext-zend-opcache' => '*',
+            'ext-zip' => '*',
+            'ext-zlib' => '*',
         ]);
         file_put_contents($okRoot . '/atoms-composer.json', json_encode([
             'require' => ['acme/worker-exts' => '*'],
@@ -464,27 +494,31 @@ final class VendorStageTest extends TestCase
         $tree = (new VendorStage(new \Atoms\Cli\Process\SymfonyProcessRunner()))->resolve($okRoot);
         self::assertSame(['acme/worker-exts' => '1.0.0'], $tree->packages);
 
-        // An unavailable extension must fail with the offending package and requirement.
-        $badRoot = $this->freshDir();
-        $this->writePathPackage($badRoot . '/packages/missing-ext', 'acme/missing-ext', '1.0.0', [
-            'php' => '^8.3',
-            'ext-atoms_nonexistent' => '*',
-        ]);
-        file_put_contents($badRoot . '/atoms-composer.json', json_encode([
-            'require' => ['acme/missing-ext' => '*'],
-            'repositories' => [
-                ['type' => 'path', 'url' => 'packages/missing-ext'],
-                ['packagist.org' => false],
-            ],
-        ], JSON_THROW_ON_ERROR));
+        // Extensions absent from php-wasm (including extensions commonly loaded
+        // on host PHP such as ext-pcntl and ext-sockets, plus ext-uv) must fail
+        // with the offending package and requirement.
+        foreach (['ext-atoms_nonexistent', 'ext-pcntl', 'ext-posix', 'ext-sockets', 'ext-uv'] as $unavailable) {
+            $badRoot = $this->freshDir();
+            $this->writePathPackage($badRoot . '/packages/missing-ext', 'acme/missing-ext', '1.0.0', [
+                'php' => '^8.3',
+                $unavailable => '*',
+            ]);
+            file_put_contents($badRoot . '/atoms-composer.json', json_encode([
+                'require' => ['acme/missing-ext' => '*'],
+                'repositories' => [
+                    ['type' => 'path', 'url' => 'packages/missing-ext'],
+                    ['packagist.org' => false],
+                ],
+            ], JSON_THROW_ON_ERROR));
 
-        try {
-            (new VendorStage(new \Atoms\Cli\Process\SymfonyProcessRunner()))->resolve($badRoot);
-            self::fail('a package requiring an unavailable extension must fail');
-        } catch (AtomsError $e) {
-            self::assertSame(ErrorCode::VendorResolutionFailed, $e->errorCode);
-            self::assertStringContainsString('acme/missing-ext', $e->getMessage());
-            self::assertStringContainsString('ext-atoms_nonexistent', $e->getMessage());
+            try {
+                (new VendorStage(new \Atoms\Cli\Process\SymfonyProcessRunner()))->resolve($badRoot);
+                self::fail("a package requiring unavailable {$unavailable} must fail");
+            } catch (AtomsError $e) {
+                self::assertSame(ErrorCode::VendorResolutionFailed, $e->errorCode);
+                self::assertStringContainsString('acme/missing-ext', $e->getMessage());
+                self::assertStringContainsString($unavailable, $e->getMessage());
+            }
         }
     }
 
