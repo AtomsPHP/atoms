@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Symfony;
 
+use Atoms\AtomMethods;
 use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
 use Atoms\Client\Callback\CallbackKernel;
@@ -22,6 +23,7 @@ use Atoms\Symfony\DependencyInjection\CallbackVerifierFactory;
 use Atoms\Symfony\DependencyInjection\GuzzleFactory;
 use Atoms\Symfony\DependencyInjection\HttpClientPass;
 use Atoms\Symfony\DependencyInjection\MessengerBridgePass;
+use Atoms\Symfony\DependencyInjection\MethodsPass;
 use Atoms\Symfony\DependencyInjection\NonceStorePass;
 use Atoms\Symfony\DependencyInjection\Psr17FactoryPass;
 use Atoms\Symfony\Routing\AtomsRouteLoader;
@@ -29,7 +31,6 @@ use GuzzleHttp\Psr7\HttpFactory;
 use Psr\Http\Client\ClientInterface;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\Console\Command\Command as ConsoleCommand;
-use Symfony\Component\DependencyInjection\Compiler\ServiceLocatorTagPass;
 use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -82,6 +83,7 @@ final class AtomsBundle extends AbstractBundle
 
         $container->addCompilerPass(new HttpClientPass());
         $container->addCompilerPass(new Psr17FactoryPass());
+        $container->addCompilerPass(new MethodsPass());
         $container->addCompilerPass(new MessengerBridgePass());
         $container->addCompilerPass(new NonceStorePass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
     }
@@ -134,7 +136,7 @@ final class AtomsBundle extends AbstractBundle
                     ->info('Service id of a PSR-17 factory (ServerRequestFactoryInterface + StreamFactoryInterface + ResponseFactoryInterface in one, e.g. GuzzleHttp\Psr7\HttpFactory or Nyholm\Psr7\Factory\Psr17Factory); when null, the bundled Guzzle factory is used. No auto-detection: PSR-17 spans several factory interfaces, so the bundle never guesses which app service should serve all of them — name it explicitly.')
                 ->end()
                 ->arrayNode('methods_classes')
-                    ->info('FQCNs of AtomMethods classes to register on the MethodsResolver (needed for #[MethodsFor] overrides; convention-resolved classes need no entry here).')
+                    ->info('FQCNs of AtomMethods classes to register explicitly on the MethodsResolver and container locator (container services extending Atoms\AtomMethods are collected automatically; list a class here only if it is not registered as a service).')
                     ->scalarPrototype()->end()
                     ->defaultValue([])
                 ->end()
@@ -147,6 +149,7 @@ final class AtomsBundle extends AbstractBundle
     public function loadExtension(array $config, ContainerConfigurator $configurator, ContainerBuilder $container): void
     {
         $container->setParameter('atoms.callback_path', $config['callback_path']);
+        $container->registerForAutoconfiguration(AtomMethods::class)->addTag(MethodsPass::TAG);
 
         $this->registerConfig($container, $config);
         $this->registerHttpClient($container, $config);
@@ -256,21 +259,13 @@ final class AtomsBundle extends AbstractBundle
      */
     private function registerCallbackStack(ContainerBuilder $container, array $config): void
     {
-        $resolver = $container->register(MethodsResolver::class, MethodsResolver::class)->setPublic(true);
+        $container->register(MethodsResolver::class, MethodsResolver::class)->setPublic(true);
 
-        // Every configured Methods class is both registered on the resolver by
-        // name (for #[MethodsFor] overrides) and as an autowired private
-        // service, so it can itself take app services as constructor
-        // dependencies. The latter feed the ServiceLocator below, which
-        // CallbackKernel consults before falling back to `new $class()` for
-        // anything not listed here.
-        $methodsLocatorMap = [];
-        foreach ($config['methods_classes'] as $methodsClass) {
-            $resolver->addMethodCall('registerMethodsClass', [$methodsClass]);
-
-            $container->register($methodsClass, $methodsClass)->setAutowired(true)->setPublic(false);
-            $methodsLocatorMap[$methodsClass] = new Reference($methodsClass);
-        }
+        // Read back by MethodsPass (registered in build()), which merges
+        // autoconfigured/container-defined AtomMethods services with any
+        // explicitly configured methods_classes into both MethodsResolver and
+        // CallbackKernel's PSR-11 ServiceLocator.
+        $container->setParameter(MethodsPass::CONFIGURED_CLASSES_PARAMETER, $config['methods_classes']);
 
         $container->setParameter(NonceStorePass::CONFIG_PARAMETER, $config['callback_nonce']);
         $container->setParameter(NonceStorePass::WINDOW_PARAMETER, $config['callback_timestamp_window']);
@@ -289,7 +284,7 @@ final class AtomsBundle extends AbstractBundle
                 new Reference('atoms.psr17_factory'),
                 new Reference('atoms.psr17_factory'),
                 $config['callback_timestamp_window'],
-                ServiceLocatorTagPass::register($container, $methodsLocatorMap),
+                null, // Populated by MethodsPass with a compiled ServiceLocator.
                 null,
                 // Apps with monolog (or any 'logger' service) get it wired in;
                 // apps without get null — see AtomsBundleExtensionTest for the

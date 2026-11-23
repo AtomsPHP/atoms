@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use Atoms\Client\Callback\NonceStore;
+use Atoms\Tests\Integration\Adapters\Fixtures\ConventionRoom\Methods as ConventionRoomMethods;
+use Atoms\Tests\Integration\Adapters\Fixtures\RankRoom\MethodsWithDependency as RankRoomMethods;
 use Atoms\Tests\Integration\Adapters\Fixtures\Scoreboard;
 use Atoms\Tests\Integration\Adapters\Support\RecordingLogger;
 use Atoms\Tests\Integration\Adapters\Support\TestDoubles;
@@ -50,14 +52,14 @@ return static function (ContainerConfigurator $container): void {
         ->factory([TestDoubles::class, 'nonceStore'])
         ->public();
 
-    // S6: a plain, always-present autowirable service — not a TestDoubles
-    // factory, since this one isn't swapped per case — so
-    // config/packages/atoms.yaml's RankRoom\MethodsWithDependency (itself
-    // autowired by AtomsBundle::registerCallbackStack() because it's listed
-    // in methods_classes) compiles with its constructor dependency actually
-    // satisfied. This is the real production autowiring path a host app's
-    // own services.php would use, not a test-only shortcut.
+    // S6 & convention-named Methods: plain autowired/autoconfigured services
+    // NOT listed in config/packages/atoms.yaml's methods_classes. MethodsPass
+    // collects both RankRoom\MethodsWithDependency (#[MethodsFor]) and
+    // ConventionRoom\Methods (convention-named) into CallbackKernel's
+    // ServiceLocator automatically, matching a real Symfony app's services.yaml.
     $services->set(Scoreboard::class);
+    $services->set(RankRoomMethods::class)->autowire()->autoconfigure();
+    $services->set(ConventionRoomMethods::class)->autowire()->autoconfigure();
 
     if (TestDoubles::$queueAvailable) {
         $services->set(MessageBusInterface::class)

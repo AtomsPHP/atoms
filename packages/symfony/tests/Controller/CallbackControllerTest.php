@@ -98,6 +98,44 @@ final class CallbackControllerTest extends TestCase
         self::assertSame(['result' => 5], json_decode((string) $response->getContent(), true));
     }
 
+    public function testConventionMethodsClassWithConstructorDependencyRunsWithoutMethodsClassesConfig(): void
+    {
+        $container = new ContainerBuilder();
+        $container->setParameter('kernel.environment', 'test');
+        $container->setParameter('kernel.build_dir', sys_get_temp_dir());
+        $bundle = new AtomsBundle();
+        $bundle->build($container);
+        $extension = $bundle->getContainerExtension();
+        self::assertNotNull($extension);
+
+        $container->registerExtension($extension);
+        $container->loadFromExtension($extension->getAlias(), [
+            'endpoint' => 'https://atoms.example.workers.dev',
+            'shared_secret' => self::SECRET,
+            'callback_nonce' => ['driver' => 'memory'],
+        ]);
+        $container->register(\Atoms\Symfony\Tests\Fixtures\ScoreFormatter::class)->setPublic(false);
+        $container->register(\Atoms\Symfony\Tests\Fixtures\ConventionRoom\Methods::class)
+            ->setAutowired(true)
+            ->setAutoconfigured(true)
+            ->setPublic(false);
+        $container->compile();
+
+        $controller = $container->get(CallbackController::class);
+        self::assertInstanceOf(CallbackController::class, $controller);
+
+        $request = $this->signedRequest('methods', [
+            'atom' => ['type' => \Atoms\Symfony\Tests\Fixtures\ConventionRoom::class, 'id' => 'c-1'],
+            'method' => 'describe',
+            'args' => [12],
+        ]);
+
+        $response = $controller($request);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(['result' => 'Score: 12'], json_decode((string) $response->getContent(), true));
+    }
+
     public function testBadSignatureIsRejectedWith401(): void
     {
         $request = $this->signedRequest(

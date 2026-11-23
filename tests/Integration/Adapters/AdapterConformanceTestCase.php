@@ -383,9 +383,9 @@ abstract class AdapterConformanceTestCase extends TestCase
      * its constructor — something a bare `new $class()` cannot supply — so a
      * 200 with the real formatted result is only possible if the host's own
      * container built it: Laravel's `$app` (bound via `$app->instance()`,
-     * see LaravelHost::boot()); Symfony's `ServiceLocator`, built by
-     * `AtomsBundle::registerCallbackStack()` from the fixture's
-     * `methods_classes` + `Scoreboard` autowired in `services.php`; and, for
+     * see LaravelHost::boot()); Symfony's `ServiceLocator`, populated by
+     * `MethodsPass` from autowired `AtomMethods` services + `Scoreboard` in
+     * `services.php` (without needing an entry in `methods_classes`); and, for
      * the two hosts with no framework container of their own, a stub
      * {@see \Atoms\Tests\Integration\Adapters\Support\ArrayContainer} threaded
      * through the exact same `container:` parameter a real framework-free

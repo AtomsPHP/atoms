@@ -18,9 +18,13 @@ use Atoms\Symfony\Command\AtomsDeployCommand;
 use Atoms\Symfony\Controller\CallbackController;
 use Atoms\Symfony\Messenger\MessengerQueueBridge;
 use Atoms\Symfony\Routing\AtomsRouteLoader;
+use Atoms\Symfony\Tests\Fixtures\AbstractBaseMethods;
+use Atoms\Symfony\Tests\Fixtures\ConventionRoom;
+use Atoms\Symfony\Tests\Fixtures\ConventionRoom\Methods as ConventionRoomMethods;
 use Atoms\Symfony\Tests\Fixtures\CustomOtherRoomMethods;
 use Atoms\Symfony\Tests\Fixtures\GameRoom;
 use Atoms\Symfony\Tests\Fixtures\OtherRoom;
+use Atoms\Symfony\Tests\Fixtures\ScoreFormatter;
 use Atoms\Symfony\Tests\Support\FakePsr17Factory;
 use Atoms\Symfony\Tests\Support\FakePsr18Client;
 use Atoms\Symfony\Tests\Support\RecordingMessageBus;
@@ -444,6 +448,130 @@ final class AtomsBundleExtensionTest extends TestCase
         self::assertInstanceOf(PsrContainerInterface::class, $locator);
         self::assertTrue($locator->has(CustomOtherRoomMethods::class));
         self::assertInstanceOf(CustomOtherRoomMethods::class, $locator->get(CustomOtherRoomMethods::class));
+    }
+
+    public function testConventionMethodsServiceWithAutoconfigurationAutowiresWithoutMethodsClasses(): void
+    {
+        $container = $this->buildContainer();
+        $container->register(ScoreFormatter::class, ScoreFormatter::class)->setPublic(false);
+        $container->register(ConventionRoomMethods::class, ConventionRoomMethods::class)
+            ->setAutowired(true)
+            ->setAutoconfigured(true)
+            ->setPublic(false);
+        $container->compile();
+
+        $kernel = $container->get(CallbackKernel::class);
+        self::assertInstanceOf(CallbackKernel::class, $kernel);
+
+        $locator = (new \ReflectionProperty(CallbackKernel::class, 'container'))->getValue($kernel);
+        self::assertInstanceOf(PsrContainerInterface::class, $locator);
+        self::assertTrue($locator->has(ConventionRoomMethods::class));
+
+        $methods = $locator->get(ConventionRoomMethods::class);
+        self::assertInstanceOf(ConventionRoomMethods::class, $methods);
+        self::assertSame('Score: 42', $methods->describe(42));
+    }
+
+    public function testConventionMethodsServiceWithoutAutoconfigurationStillAutowires(): void
+    {
+        $container = $this->buildContainer();
+        $container->register(ScoreFormatter::class, ScoreFormatter::class)->setPublic(false);
+        $container->register(ConventionRoomMethods::class, ConventionRoomMethods::class)
+            ->setAutowired(true)
+            ->setAutoconfigured(false)
+            ->setPublic(false);
+        $container->compile();
+
+        $kernel = $container->get(CallbackKernel::class);
+        self::assertInstanceOf(CallbackKernel::class, $kernel);
+
+        $locator = (new \ReflectionProperty(CallbackKernel::class, 'container'))->getValue($kernel);
+        self::assertInstanceOf(PsrContainerInterface::class, $locator);
+        self::assertTrue($locator->has(ConventionRoomMethods::class));
+
+        $methods = $locator->get(ConventionRoomMethods::class);
+        self::assertInstanceOf(ConventionRoomMethods::class, $methods);
+        self::assertSame('Score: 7', $methods->describe(7));
+    }
+
+    public function testConventionMethodsServiceWithCustomServiceIdIsCollectedIntoLocator(): void
+    {
+        $container = $this->buildContainer();
+        $container->register(ScoreFormatter::class, ScoreFormatter::class)->setPublic(false);
+        $container->register('app.convention_room_methods', ConventionRoomMethods::class)
+            ->setAutowired(true)
+            ->setAutoconfigured(true)
+            ->setPublic(false);
+        $container->compile();
+
+        $kernel = $container->get(CallbackKernel::class);
+        self::assertInstanceOf(CallbackKernel::class, $kernel);
+
+        $locator = (new \ReflectionProperty(CallbackKernel::class, 'container'))->getValue($kernel);
+        self::assertInstanceOf(PsrContainerInterface::class, $locator);
+        self::assertTrue($locator->has(ConventionRoomMethods::class));
+
+        $methods = $locator->get(ConventionRoomMethods::class);
+        self::assertInstanceOf(ConventionRoomMethods::class, $methods);
+        self::assertSame('Score: 11', $methods->describe(11));
+    }
+
+    public function testMethodsForServiceRegisteredInContainerResolvesWithoutMethodsClasses(): void
+    {
+        $container = $this->buildContainer();
+        $container->register(CustomOtherRoomMethods::class, CustomOtherRoomMethods::class)
+            ->setAutowired(true)
+            ->setAutoconfigured(true)
+            ->setPublic(false);
+        $container->compile();
+
+        $resolver = $container->get(MethodsResolver::class);
+        self::assertInstanceOf(MethodsResolver::class, $resolver);
+        self::assertSame(CustomOtherRoomMethods::class, $resolver->resolve(OtherRoom::class));
+
+        $kernel = $container->get(CallbackKernel::class);
+        self::assertInstanceOf(CallbackKernel::class, $kernel);
+        $locator = (new \ReflectionProperty(CallbackKernel::class, 'container'))->getValue($kernel);
+        self::assertInstanceOf(PsrContainerInterface::class, $locator);
+        self::assertTrue($locator->has(CustomOtherRoomMethods::class));
+    }
+
+    public function testMethodsClassesPreservesCustomAppServiceDefinition(): void
+    {
+        $container = $this->buildContainer(['methods_classes' => [ConventionRoomMethods::class]]);
+        $container->register('app.custom_formatter', ScoreFormatter::class)
+            ->setArguments(['Custom'])
+            ->setPublic(false);
+        $container->register(ConventionRoomMethods::class, ConventionRoomMethods::class)
+            ->setArguments([new \Symfony\Component\DependencyInjection\Reference('app.custom_formatter')])
+            ->setPublic(false);
+        $container->compile();
+
+        $kernel = $container->get(CallbackKernel::class);
+        self::assertInstanceOf(CallbackKernel::class, $kernel);
+
+        $locator = (new \ReflectionProperty(CallbackKernel::class, 'container'))->getValue($kernel);
+        self::assertInstanceOf(PsrContainerInterface::class, $locator);
+
+        $methods = $locator->get(ConventionRoomMethods::class);
+        self::assertInstanceOf(ConventionRoomMethods::class, $methods);
+        self::assertSame('Custom: 5', $methods->describe(5));
+    }
+
+    public function testAbstractAtomMethodsServiceInContainerIsIgnored(): void
+    {
+        $container = $this->buildContainer();
+        $container->register(AbstractBaseMethods::class, AbstractBaseMethods::class)
+            ->setAbstract(true)
+            ->setAutoconfigured(true);
+        $container->compile();
+
+        $kernel = $container->get(CallbackKernel::class);
+        self::assertInstanceOf(CallbackKernel::class, $kernel);
+
+        $locator = (new \ReflectionProperty(CallbackKernel::class, 'container'))->getValue($kernel);
+        self::assertInstanceOf(PsrContainerInterface::class, $locator);
+        self::assertFalse($locator->has(AbstractBaseMethods::class));
     }
 
     public function testRouteLoaderIsRegisteredWithTheRoutingLoaderTagAndConfiguredCallbackPath(): void

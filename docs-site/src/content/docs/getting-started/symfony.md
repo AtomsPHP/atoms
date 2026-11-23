@@ -27,8 +27,7 @@ atoms:
     callback_timestamp_window: 300
     http_client: null
     psr17_factory: null
-    methods_classes:
-        - App\Atoms\GameRoom\Methods
+    methods_classes: []
 ```
 
 - `shared_secret` is `ATOMS_SHARED_SECRET`: required, and identical on this application and the Worker. Set it on the Worker with `vendor/bin/atoms shared-secret:set`, never through `secrets:set`. An optional `shared_secret_previous` (`ATOMS_SHARED_SECRET_PREVIOUS`) widens acceptance during a rotation window without changing what this application sends. See [Secrets and authentication](/guides/secrets/).
@@ -36,7 +35,7 @@ atoms:
 - `callback_path` is where the signed reverse-RPC callback is mounted.
 - `callback_timestamp_window` is the permitted clock skew in seconds.
 - `psr17_factory` names a service implementing the PSR-17 request, response, server-request, and stream factory interfaces. Leave it `null` to use the bundled Guzzle factory.
-- `methods_classes` enables container construction and `#[MethodsFor]` overrides.
+- `methods_classes` is optional: `AtomMethods` classes registered as Symfony services (for example via standard `services.yaml` autowiring) are collected automatically for constructor injection and `#[MethodsFor]` resolution. List a class here only if it is not registered as a service.
 
 ## Mount the callback route
 
@@ -271,7 +270,3 @@ Identically is the deliberate part. `bin/console` runs after your application's
 `ATOMS_CALLBACK_URL` in your `.env` is not a deployment input, while one from
 your shell or from CI still is. See [Framework
 commands](/guides/environments/#framework-commands).
-
-## Shipped behavior
-
-The complete shipped behavior and remaining container-instantiation limitation are maintained in the [`atoms/symfony` README](https://github.com/AtomsPHP/atoms/tree/main/packages/symfony#readme).

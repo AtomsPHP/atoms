@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Tests\Integration\Adapters;
 
+use Atoms\Tests\Integration\Adapters\Fixtures\ConventionRoom;
 use Atoms\Tests\Integration\Adapters\Host\AdapterHost;
 use Atoms\Tests\Integration\Adapters\Host\SymfonyHost;
 
@@ -21,4 +22,20 @@ final class SymfonyAdapterConformanceTest extends AdapterConformanceTestCase
         return new SymfonyHost();
     }
 
+    /**
+     * Convention-named Methods classes registered as Symfony services
+     * (without #[MethodsFor] and without an entry in atoms.methods_classes)
+     * must resolve through CallbackKernel's compiled ServiceLocator with
+     * constructor injection working end-to-end.
+     */
+    public function testConventionNamedMethodsServiceAutowiresWithoutMethodsClasses(): void
+    {
+        $body = CallbackCases::methodsBody(ConventionRoom::class, 'c-1', 'rank', [9]);
+        $request = CallbackCases::signedRequest($this->signer, $this->options, 'methods', $body);
+
+        $response = $this->host->handle($request);
+
+        self::assertSame(200, $response->status);
+        self::assertSame('{"result":"Score: 9"}', $response->body);
+    }
 }
