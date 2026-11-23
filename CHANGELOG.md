@@ -5,6 +5,31 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-22
+
+- **Changed:** The Worker runtime now pins Wrangler `4.165.0` and requires
+  Node.js `>=22.12.0`.
+- **Added:** `atoms validate` and `atoms build` reject PHP syntax
+  (`ATOMS-E003`) and unavailable functions (`ATOMS-E004`) that the Worker's
+  PHP 8.3 runtime cannot execute, including bundled migrations and vendor
+  dependencies.
+- **Added:** `atoms/cli` and `atoms/laravel` support Symfony Console,
+  Filesystem, and Process 8.
+- **Added:** `php artisan atoms:deploy` exposes `--dry-run` and `--outdir`.
+- **Fixed:** Atom vendor dependency resolution targets the Worker's PHP 8.3.32
+  platform rather than the host PHP version.
+- **Fixed:** `atoms deploy` resolves relative bundle/manifest paths, rejects a
+  standalone `--manifest` without `--bundle` (`ATOMS-E114`), and validates
+  callback URLs during preflight. The Worker enforces a default SQL binding
+  limit of 100 parameters.
+- **Fixed:** `Connection::sendJson()` and `JsonFrame::encode()` reject
+  top-level list payloads across `atoms/core`, `atoms/testing`, and the Worker
+  runtime, enforcing the JSON object contract.
+- **Fixed:** `AtomHarness` matches Worker callback and transaction semantics.
+- **Changed:** Documentation clarifies PHP-Wasm bundler warnings, unique
+  `worker_name` per environment, required host PHP extensions, SQLite callback
+  nonce storage caveats, and lifecycle transaction examples.
+
 ## [0.9.2] - 2026-11-17
 
 - **Added:** `atoms deploy --dry-run` validates the selected environment and
@@ -624,3 +649,5 @@ deploy workflow, and the Cloudflare Durable Object PHP runtime.
 [0.9.1]: https://github.com/AtomsPHP/atoms/releases/tag/v0.9.1
 
 [0.9.2]: https://github.com/AtomsPHP/atoms/releases/tag/v0.9.2
+
+[0.10.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.10.0

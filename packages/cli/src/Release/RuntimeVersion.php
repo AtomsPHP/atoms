@@ -13,9 +13,9 @@ final class RuntimeVersion
 {
     public const PACKAGE = '@atomsphp/runtime-cloudflare';
 
-    public const VERSION = '0.9.2';
+    public const VERSION = '0.10.0';
 
-    public const CORE_VERSION = '0.9.2';
+    public const CORE_VERSION = '0.10.0';
 
     /** The committed Worker directory, relative to atoms.json. */
     public const WORKER_DIR = 'atoms-worker';

@@ -1,18 +1,18 @@
 ---
 title: Compatibility
-description: The versions that make up Atoms 0.9 and the toolchain it supports.
+description: The versions that make up Atoms 0.10 and the toolchain it supports.
 ---
 
 Atoms releases its PHP packages, Worker runtime, and deploy Action together,
 under one version number.
 
-| Component | 0.9 support |
+| Component | 0.10 support |
 |---|---|
-| `atoms/core` | `^0.9`; a stable API that grows by addition |
-| `atoms/client`, adapters, testing, rules, CLI | `^0.9` |
-| `atoms/database-illuminate` | `^0.9`, installed inside the Atom through `atoms-composer.json` |
-| `@atomsphp/runtime-cloudflare` | `0.9.2` |
-| Deploy Action | `AtomsPHP/atoms/action@v0.9.2` (the tag never moves) |
+| `atoms/core` | `^0.10`; a stable API that grows by addition |
+| `atoms/client`, adapters, testing, rules, CLI | `^0.10` |
+| `atoms/database-illuminate` | `^0.10`, installed inside the Atom through `atoms-composer.json` |
+| `@atomsphp/runtime-cloudflare` | `0.10.0` |
+| Deploy Action | `AtomsPHP/atoms/action@v0.10.0` (the tag never moves) |
 
 Keep every component on the same release. If your `atoms/core` version is
 outside the range the runtime supports, the Worker rejects the bundle with
