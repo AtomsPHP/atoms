@@ -9,7 +9,7 @@ application's `composer.json`:
 ```json
 {
     "require": {
-        "atoms/database-illuminate": "^0.9",
+        "atoms/database-illuminate": "^0.10",
         "illuminate/database": "^13.0"
     }
 }
