@@ -113,10 +113,11 @@ To restore an earlier version, see [Rollback](/guides/rollback/).
 ## Upgrade the runtime
 
 When you update the Atoms PHP packages, upgrade `atoms-worker/` to the same
-release:
+release (match your installed `atoms/cli` version, or run the exact command
+printed by [ATOMS-E108](/reference/errors/#atoms-e108)):
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.9.2 -- \
   atoms-runtime-cloudflare upgrade atoms-worker
 cd atoms-worker
 npm ci

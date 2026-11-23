@@ -19,10 +19,12 @@ cd atoms-demo
 composer require atoms/laravel --with-all-dependencies
 composer require --dev atoms/cli atoms/testing atoms/phpstan-rules
 php artisan atoms:install
-npm exec --yes --package=@atomsphp/runtime-cloudflare -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.9.2 -- \
   atoms-runtime-cloudflare init atoms-worker
 (cd atoms-worker && npm ci)
 ```
+
+Pin `@atomsphp/runtime-cloudflare` to your installed `atoms/cli` version (`php artisan atoms:install` prints the matching `atoms init` command).
 
 Continue with [Configure callback replay protection](#configure-callback-replay-protection).
 For this quickstart, use Laravel's generated SQLite database with the database
@@ -90,6 +92,18 @@ This creates `atoms_callback_nonces` on the selected connection. Atoms opens a
 separate connection for nonce writes so application transactions cannot undo
 them. Schedule `php artisan atoms:nonces:prune` through Laravel's scheduler to
 remove expired records.
+
+:::note[SQLite write locks]
+SQLite enforces a single file-level write lock across all connections to the
+same `.sqlite` file, including the separate connection Atoms opens for nonce
+writes (or another Laravel connection pointing at the same file). If your
+application holds an open SQLite write transaction while calling an Atom that
+triggers a callback, the callback's nonce insert blocks or fails. Commit open
+write transactions before calling the Atom, or point
+`ATOMS_CALLBACK_NONCE_DB_CONNECTION` at a separate SQLite file (or use Redis).
+If the callback handler itself writes to the application database, only
+committing beforehand avoids the lock.
+:::
 
 ### Redis
 

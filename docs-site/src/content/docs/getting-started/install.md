@@ -10,6 +10,7 @@ Atoms is currently experimental and in early stages. The goal is to keep the cur
 ## Requirements
 
 - PHP 8.3–8.6 on the application host
+- Host PHP extensions: `ext-curl` (for `atoms/cli`) and `ext-pdo_sqlite` (for `atoms/testing`)
 - Composer 2
 - Node.js 22 (22.12.0 or later) for the Cloudflare Worker toolchain
 - A Cloudflare account for deployment
@@ -70,12 +71,12 @@ includes:
 vendor/bin/atoms init
 ```
 
-The `init` command creates `atoms.json` and `atoms-composer.json`, and appends `/.atoms/` and `/.env.atoms.*` to your `.gitignore`.
+The `init` command creates `atoms.json` and `atoms-composer.json`, appends `/.atoms/` and `/.env.atoms.*` to your `.gitignore`, and prints the version-pinned scaffold command for your installed CLI.
 
-Create the Cloudflare Worker runtime:
+Create the Cloudflare Worker runtime matching your CLI release (use the command `atoms init` printed if you are on another version):
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.9.2 -- \
   atoms-runtime-cloudflare init atoms-worker
 cd atoms-worker
 npm ci
