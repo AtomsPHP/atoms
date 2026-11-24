@@ -3,6 +3,3 @@ atoms:
     shared_secret: '%env(ATOMS_SHARED_SECRET)%'
     shared_secret_previous: '%env(default::ATOMS_SHARED_SECRET_PREVIOUS)%'
     callback_path: '%env(ATOMS_CALLBACK_PATH)%'
-    methods_classes:
-        - Atoms\Tests\Integration\Adapters\Fixtures\GameRoom\Methods
-        - Atoms\Tests\Integration\Adapters\Fixtures\RankRoom\MethodsWithDependency

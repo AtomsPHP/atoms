@@ -16,14 +16,11 @@ use Atoms\Client\Tickets\TicketIssuer;
 use Atoms\Symfony\AtomsBundle;
 use Atoms\Symfony\Command\AtomsDeployCommand;
 use Atoms\Symfony\Controller\CallbackController;
-use Atoms\Symfony\Messenger\AtomJobHandler;
-use Atoms\Symfony\Messenger\AtomJobMessage;
 use Atoms\Symfony\Messenger\MessengerQueueBridge;
 use Atoms\Symfony\Routing\AtomsRouteLoader;
 use Atoms\Symfony\Tests\Fixtures\CustomOtherRoomMethods;
 use Atoms\Symfony\Tests\Fixtures\GameRoom;
 use Atoms\Symfony\Tests\Fixtures\OtherRoom;
-use Atoms\Symfony\Tests\Fixtures\TimestampJob;
 use Atoms\Symfony\Tests\Support\FakePsr17Factory;
 use Atoms\Symfony\Tests\Support\FakePsr18Client;
 use Atoms\Symfony\Tests\Support\RecordingMessageBus;
@@ -343,25 +340,6 @@ final class AtomsBundleExtensionTest extends TestCase
         self::assertInstanceOf(MessengerQueueBridge::class, $bridge);
     }
 
-    public function testMessengerInjectsTaggedServicesIntoJobHandle(): void
-    {
-        $container = $this->buildContainer();
-        $container->register(MessageBusInterface::class, RecordingMessageBus::class);
-        $container->register('app.clock_reading', \DateTimeImmutable::class)
-            ->setArguments(['2024-04-01T18:00:00Z'])
-            ->addTag('atoms.job_dependency', ['type' => \DateTimeInterface::class]);
-        $container->register(\DateTimeZone::class, \DateTimeZone::class)
-            ->setArguments(['Europe/Paris'])
-            ->addTag('atoms.job_dependency');
-        $container->setAlias('test.job_handler', AtomJobHandler::class)->setPublic(true);
-        $container->compile();
-
-        $handler = $container->get('test.job_handler');
-        $handler(new AtomJobMessage(TimestampJob::class, ['label' => 'queued']));
-
-        self::assertSame('queued 20:00', TimestampJob::$result);
-    }
-
     public function testCallbackKernelAndControllerAreWired(): void
     {
         $container = $this->buildContainer();
@@ -410,7 +388,7 @@ final class AtomsBundleExtensionTest extends TestCase
         self::assertSame(60, (new \ReflectionProperty(CallbackKernel::class, 'timestampWindow'))->getValue($kernel));
     }
 
-    public function testCallbackKernelLoggerIsNullWithoutAnAppLoggerService(): void
+    public function testClientAndKernelLoggersAreNullWithoutAnAppLoggerService(): void
     {
         $container = $this->buildContainer();
         $container->compile();
@@ -418,6 +396,8 @@ final class AtomsBundleExtensionTest extends TestCase
         $kernel = $container->get(CallbackKernel::class);
         self::assertInstanceOf(CallbackKernel::class, $kernel);
         self::assertNull((new \ReflectionProperty(CallbackKernel::class, 'logger'))->getValue($kernel));
+        $client = $container->get('atoms.client');
+        self::assertNull((new \ReflectionProperty(AtomsClient::class, 'logger'))->getValue($client));
     }
 
     public function testCallbackKernelLoggerResolvesToAnAppLoggerServiceWhenOneExists(): void

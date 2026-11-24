@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Symfony\DependencyInjection;
 
+use Atoms\AtomMethods;
 use Atoms\Client\Callback\MethodsResolver;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\Compiler\ServiceLocatorTagPass;
@@ -17,17 +18,13 @@ final class MethodsLocatorPass implements CompilerPassInterface
 
     public function process(ContainerBuilder $container): void
     {
-        $methods = [];
-        foreach ($container->findTaggedServiceIds(self::TAG) as $id => $_) {
-            $definition = $container->getDefinition($id);
-            $class = $container->getParameterBag()->resolveValue($definition->getClass());
-            if ($definition->isAbstract() || !is_string($class)) {
-                continue;
-            }
-            if ($id === $class || !isset($methods[$class])) {
-                $methods[$class] = new Reference($container->hasAlias($class) ? $class : $id);
-            }
+        if (!$container->hasParameter(self::CONFIG_PARAMETER)
+            || (!$container->hasDefinition(MethodsResolver::class) && !$container->hasAlias(MethodsResolver::class))) {
+            return;
         }
+
+        $services = ServiceDiscovery::find($container, self::TAG, AtomMethods::class);
+        $methods = array_map(static fn (string $id): Reference => new Reference($id), $services);
 
         /** @var list<class-string> $configured */
         $configured = $container->getParameter(self::CONFIG_PARAMETER);
@@ -56,7 +53,7 @@ final class MethodsLocatorPass implements CompilerPassInterface
 
         $resolver = $container->findDefinition(MethodsResolver::class);
         $resolver->addMethodCall('registerTypeMap', [$types]);
-        foreach ($configured as $class) {
+        foreach ([...array_diff(array_keys($services), $configured), ...$configured] as $class) {
             $resolver->addMethodCall('registerMethodsClass', [$class]);
         }
 

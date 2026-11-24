@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Symfony;
 
+use Atoms\AtomJob;
 use Atoms\AtomMethods;
 use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
@@ -19,6 +20,7 @@ use Atoms\Symfony\Command\AtomsDeployCommand;
 use Atoms\Symfony\Command\AtomsListCommand;
 use Atoms\Symfony\Command\AtomsRollbackCommand;
 use Atoms\Symfony\Controller\CallbackController;
+use Atoms\Symfony\DependencyInjection\AtomJobPass;
 use Atoms\Symfony\DependencyInjection\CallbackVerifierFactory;
 use Atoms\Symfony\DependencyInjection\GuzzleFactory;
 use Atoms\Symfony\DependencyInjection\HttpClientPass;
@@ -62,6 +64,7 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
  *     http_client: string|null,
  *     psr17_factory: string|null,
  *     methods_classes: list<class-string>,
+ *     job_classes: list<class-string<AtomJob>>,
  * }
  */
 final class AtomsBundle extends AbstractBundle
@@ -83,7 +86,10 @@ final class AtomsBundle extends AbstractBundle
 
         $container->addCompilerPass(new HttpClientPass());
         $container->addCompilerPass(new Psr17FactoryPass());
-        $container->addCompilerPass(new MessengerBridgePass());
+        // MessengerPass collects handlers at priority 0.
+        $container->addCompilerPass(new MessengerBridgePass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
+        $container->registerForAutoconfiguration(AtomJob::class)->addTag(AtomJobPass::TAG);
+        $container->addCompilerPass(new AtomJobPass());
         $container->registerForAutoconfiguration(AtomMethods::class)->addTag(MethodsLocatorPass::TAG);
         $container->addCompilerPass(new MethodsLocatorPass());
         $container->addCompilerPass(new NonceStorePass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
@@ -136,8 +142,13 @@ final class AtomsBundle extends AbstractBundle
                     ->defaultNull()
                     ->info('Service id of a PSR-17 factory (ServerRequestFactoryInterface + StreamFactoryInterface + ResponseFactoryInterface in one, e.g. GuzzleHttp\Psr7\HttpFactory or Nyholm\Psr7\Factory\Psr17Factory); when null, the bundled Guzzle factory is used. No auto-detection: PSR-17 spans several factory interfaces, so the bundle never guesses which app service should serve all of them — name it explicitly.')
                 ->end()
+                ->arrayNode('job_classes')
+                    ->info('AtomJob classes outside service discovery whose handle() arguments need autowiring.')
+                    ->scalarPrototype()->end()
+                    ->defaultValue([])
+                ->end()
                 ->arrayNode('methods_classes')
-                    ->info('FQCNs of AtomMethods classes to register on the MethodsResolver (needed for #[MethodsFor] overrides; convention-resolved classes need no entry here).')
+                    ->info('Additional AtomMethods classes. Explicit entries take precedence for #[MethodsFor] overrides.')
                     ->scalarPrototype()->end()
                     ->defaultValue([])
                 ->end()
@@ -157,6 +168,7 @@ final class AtomsBundle extends AbstractBundle
         $this->registerTicketIssuer($container);
         $this->registerCallbackStack($container, $config);
         $this->registerRouteLoader($container);
+        $container->setParameter(AtomJobPass::CONFIG_PARAMETER, $config['job_classes']);
         $this->registerMessenger($container);
         $this->registerConsole($container);
     }

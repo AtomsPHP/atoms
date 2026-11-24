@@ -58,13 +58,7 @@ final class SymfonyHost implements AdapterHost
         TestDoubles::$queueAvailable = $options->queueAvailable;
         TestDoubles::$bus = $this->bus;
 
-        // config/packages/atoms.yaml's methods_classes is a fixed list (the
-        // ONE Methods class this whole suite ever registers) rather than
-        // driven from $options->methodsClasses at runtime: unlike
-        // BareKernelHost/PlainPhpHost, which call registerMethodsClass()
-        // directly, a Symfony app's methods_classes is compiled config, and
-        // $options->methodsClasses never varies across this suite's cases —
-        // see CallbackCases and AdapterConformanceTestCase::defaultOptions().
+        // The fixture registers its Methods services in config/services.php.
         $this->setEnv('ATOMS_ENDPOINT', $options->endpoint);
         $this->setEnv('ATOMS_SHARED_SECRET', $options->sharedSecret);
         $this->setEnv('ATOMS_CALLBACK_PATH', $options->callbackPath);

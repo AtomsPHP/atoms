@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use Atoms\Client\Callback\NonceStore;
 use Atoms\Tests\Integration\Adapters\Fixtures\Scoreboard;
+use Atoms\Tests\Integration\Adapters\Fixtures\GameRoom\Methods;
+use Atoms\Tests\Integration\Adapters\Fixtures\RankRoom\MethodsWithDependency;
 use Atoms\Tests\Integration\Adapters\Support\RecordingLogger;
 use Atoms\Tests\Integration\Adapters\Support\TestDoubles;
 use Psr\Http\Client\ClientInterface;
@@ -50,8 +52,9 @@ return static function (ContainerConfigurator $container): void {
         ->factory([TestDoubles::class, 'nonceStore'])
         ->public();
 
-    // RankRoom\MethodsWithDependency takes a Scoreboard in its constructor.
     $services->set(Scoreboard::class);
+    $services->set(Methods::class)->autoconfigure();
+    $services->set(MethodsWithDependency::class)->autowire()->autoconfigure();
 
     if (TestDoubles::$queueAvailable) {
         $services->set(MessageBusInterface::class)
