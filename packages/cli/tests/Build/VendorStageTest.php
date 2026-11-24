@@ -349,7 +349,7 @@ final class VendorStageTest extends TestCase
 
         /** @var array<string, mixed> $lock */
         $lock = json_decode((string) file_get_contents($root . '/atoms-composer.lock'), true, 64, JSON_THROW_ON_ERROR);
-        self::assertSame(VendorStage::WORKER_PHP_VERSION, $lock['platform-overrides']['php'] ?? null);
+        self::assertSame(VendorStage::workerPlatform(), $lock['platform-overrides'] ?? null);
 
         // Clear cache and re-run from the written lockfile to prove repeat
         // verification passes cleanly against the Worker platform.

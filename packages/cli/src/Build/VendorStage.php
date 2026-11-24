@@ -127,7 +127,8 @@ final class VendorStage
         }
 
         try {
-            $platform = self::workerPlatform($this->workerPhpVersion, $this->extensionsResource);
+            $workerPlatform = self::workerPlatform($this->workerPhpVersion, $this->extensionsResource);
+            $platform = $workerPlatform;
             // Composer can run under a different PHP installation than the CLI.
             $hostExtensions = $this->runComposer([
                 'composer', 'show', '--platform', '--name-only', '--no-plugins', '--no-scripts', '--no-interaction', 'ext-*',
@@ -153,7 +154,7 @@ final class VendorStage
 
             $wroteLock = false;
             if ($lockBytes === null && is_file($work . '/composer.lock')) {
-                $lockBytes = $this->readOrFail($work . '/composer.lock');
+                $lockBytes = self::cleanLockForWriteBack($this->readOrFail($work . '/composer.lock'), $workerPlatform);
                 $this->writeOrFail($lockPath, $lockBytes);
                 $wroteLock = true;
             }
@@ -296,6 +297,30 @@ final class VendorStage
         }
 
         $decoded->{'platform-overrides'} = $platform ?? self::workerPlatform($workerPhpVersion, $extensionsResource);
+
+        return json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+    }
+
+    /**
+     * Strip host-specific `ext-*: false` overrides from a freshly resolved
+     * lockfile before writing it back to `atoms-composer.lock`, keeping the
+     * committed lockfile independent of the build machine's installed PHP
+     * extensions.
+     *
+     * @param array<string, string> $workerPlatform
+     */
+    private static function cleanLockForWriteBack(string $lockBytes, array $workerPlatform): string
+    {
+        try {
+            $decoded = json_decode($lockBytes, false, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return $lockBytes;
+        }
+        if (!$decoded instanceof \stdClass || !property_exists($decoded, 'platform-overrides')) {
+            return $lockBytes;
+        }
+
+        $decoded->{'platform-overrides'} = $workerPlatform;
 
         return json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
     }
