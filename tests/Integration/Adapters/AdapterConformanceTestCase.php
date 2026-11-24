@@ -241,6 +241,24 @@ abstract class AdapterConformanceTestCase extends TestCase
         self::assertSame('application/json', $request->getHeaderLine('Content-Type'));
     }
 
+    public function testClientLogsInvocationRetries(): void
+    {
+        $this->skipUnlessSupports('client', 'client retry logging');
+        $this->skipUnlessSupports('logging', 'client retry logging');
+        $this->host->httpFake()
+            ->queueJson(503, ['error' => ['code' => 'capacity_refused', 'message' => 'busy']])
+            ->queueJson(200, ['result' => 5]);
+
+        $client = $this->host->service(AtomsClient::class);
+        self::assertInstanceOf(AtomsClient::class, $client);
+        self::assertSame(5, $client->call('GameRoom', 'g-1', 'add', [2, 3]));
+        self::assertContains([
+            'level' => 'info',
+            'message' => 'Retrying Atoms invocation',
+            'context' => ['attempt' => 1, 'status' => 503, 'code' => 'capacity_refused'],
+        ], $this->host->logRecords());
+    }
+
     /**
      * S2: a malformed shared secret — the empty string, invalid base64, or a
      * decoded length other than 32 bytes — is a configuration error:
@@ -377,29 +395,6 @@ abstract class AdapterConformanceTestCase extends TestCase
         self::assertSame(\RuntimeException::class, $context['exception']);
     }
 
-    /**
-     * S6: {@see \Atoms\Tests\Integration\Adapters\Fixtures\RankRoom\MethodsWithDependency}
-     * takes a {@see \Atoms\Tests\Integration\Adapters\Fixtures\Scoreboard} in
-     * its constructor — something a bare `new $class()` cannot supply — so a
-     * 200 with the real formatted result is only possible if the host's own
-     * container built it: Laravel's `$app` (bound via `$app->instance()`,
-     * see LaravelHost::boot()); Symfony's `ServiceLocator`, built by
-     * `AtomsBundle::registerCallbackStack()` from the fixture's
-     * `methods_classes` + `Scoreboard` autowired in `services.php`; and, for
-     * the two hosts with no framework container of their own, a stub
-     * {@see \Atoms\Tests\Integration\Adapters\Support\ArrayContainer} threaded
-     * through the exact same `container:` parameter a real framework-free
-     * host could use (see BareKernelHost/PlainPhpHost). This is exactly the
-     * "Methods instantiation" contract `docs/adapters.md` documents.
-     * Container-capable hosts only.
-     *
-     * The other half of that contract — a Methods class NOT registered in the
-     * container instantiates via `new $class()` — is proven implicitly by
-     * every OTHER case in this suite:
-     * {@see \Atoms\Tests\Integration\Adapters\Fixtures\GameRoom\Methods} is
-     * never registered in any host's container, and every other test still
-     * passes; nothing here duplicates that proof.
-     */
     public function testS6MethodsClassWithConstructorDependencyResolvesFromHostContainer(): void
     {
         $this->skipUnlessSupports('container', 'S6');

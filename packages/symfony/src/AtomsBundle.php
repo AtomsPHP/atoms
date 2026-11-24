@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Symfony;
 
+use Atoms\AtomMethods;
 use Atoms\Client\AtomsClient;
 use Atoms\Client\AtomsConfig;
 use Atoms\Client\Callback\CallbackKernel;
@@ -22,6 +23,7 @@ use Atoms\Symfony\DependencyInjection\CallbackVerifierFactory;
 use Atoms\Symfony\DependencyInjection\GuzzleFactory;
 use Atoms\Symfony\DependencyInjection\HttpClientPass;
 use Atoms\Symfony\DependencyInjection\MessengerBridgePass;
+use Atoms\Symfony\DependencyInjection\MethodsLocatorPass;
 use Atoms\Symfony\DependencyInjection\NonceStorePass;
 use Atoms\Symfony\DependencyInjection\Psr17FactoryPass;
 use Atoms\Symfony\Routing\AtomsRouteLoader;
@@ -29,7 +31,6 @@ use GuzzleHttp\Psr7\HttpFactory;
 use Psr\Http\Client\ClientInterface;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\Console\Command\Command as ConsoleCommand;
-use Symfony\Component\DependencyInjection\Compiler\ServiceLocatorTagPass;
 use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -83,6 +84,8 @@ final class AtomsBundle extends AbstractBundle
         $container->addCompilerPass(new HttpClientPass());
         $container->addCompilerPass(new Psr17FactoryPass());
         $container->addCompilerPass(new MessengerBridgePass());
+        $container->registerForAutoconfiguration(AtomMethods::class)->addTag(MethodsLocatorPass::TAG);
+        $container->addCompilerPass(new MethodsLocatorPass());
         $container->addCompilerPass(new NonceStorePass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
     }
 
@@ -229,6 +232,7 @@ final class AtomsBundle extends AbstractBundle
                 new Reference('atoms.http_client'),
                 new Reference('atoms.psr17_factory'),
                 new Reference('atoms.psr17_factory'),
+                new Reference('logger', ContainerInterface::IGNORE_ON_INVALID_REFERENCE),
             ])
             ->setPublic(false);
 
@@ -253,22 +257,8 @@ final class AtomsBundle extends AbstractBundle
      */
     private function registerCallbackStack(ContainerBuilder $container, array $config): void
     {
-        $resolver = $container->register(MethodsResolver::class, MethodsResolver::class)->setPublic(true);
-
-        // Every configured Methods class is both registered on the resolver by
-        // name (for #[MethodsFor] overrides) and as an autowired private
-        // service, so it can itself take app services as constructor
-        // dependencies. The latter feed the ServiceLocator below, which
-        // CallbackKernel consults before falling back to `new $class()` for
-        // anything not listed here.
-        $methodsLocatorMap = [];
-        foreach ($config['methods_classes'] as $methodsClass) {
-            $resolver->addMethodCall('registerMethodsClass', [$methodsClass]);
-
-            $container->register($methodsClass, $methodsClass)->setAutowired(true)->setPublic(false);
-            $methodsLocatorMap[$methodsClass] = new Reference($methodsClass);
-        }
-
+        $container->register(MethodsResolver::class, MethodsResolver::class)->setPublic(true);
+        $container->setParameter(MethodsLocatorPass::CONFIG_PARAMETER, $config['methods_classes']);
         $container->setParameter(NonceStorePass::CONFIG_PARAMETER, $config['callback_nonce']);
         $container->setParameter(NonceStorePass::WINDOW_PARAMETER, $config['callback_timestamp_window']);
 
@@ -286,13 +276,8 @@ final class AtomsBundle extends AbstractBundle
                 new Reference('atoms.psr17_factory'),
                 new Reference('atoms.psr17_factory'),
                 $config['callback_timestamp_window'],
-                ServiceLocatorTagPass::register($container, $methodsLocatorMap),
-                null,
-                // Apps with monolog (or any 'logger' service) get it wired in;
-                // apps without get null — see AtomsBundleExtensionTest for the
-                // ContainerBuilder-level proof that IGNORE_ON_INVALID_REFERENCE
-                // resolves a missing service to null rather than throwing.
-                new Reference('logger', ContainerInterface::IGNORE_ON_INVALID_REFERENCE),
+                new Reference('atoms.methods_locator'),
+                '$logger' => new Reference('logger', ContainerInterface::IGNORE_ON_INVALID_REFERENCE),
             ])
             ->setPublic(true);
 

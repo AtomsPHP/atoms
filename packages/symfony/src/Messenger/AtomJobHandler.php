@@ -10,22 +10,18 @@ use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 use Atoms\Serialization\SerializationException;
 use Atoms\Serialization\Serializer;
+use Psr\Container\ContainerInterface;
 use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 
-/**
- * Reconstructs an AtomJob from its {@see AtomJobMessage} wire envelope
- * (constructor arguments by name through the core Serializer, same algebra
- * the platform callback uses) and runs it: calls `handle()` when the job
- * defines one. Registered as a Messenger handler only when symfony/messenger
- * is installed — see MessengerBridgePass.
- */
 #[AsMessageHandler]
 final class AtomJobHandler
 {
     private readonly Serializer $serializer;
 
-    public function __construct(?Serializer $serializer = null)
-    {
+    public function __construct(
+        ?Serializer $serializer = null,
+        private readonly ?ContainerInterface $handleServices = null,
+    ) {
         $this->serializer = $serializer ?? new Serializer();
     }
 
@@ -34,16 +30,35 @@ final class AtomJobHandler
         $job = $this->reconstruct($message);
 
         if (method_exists($job, 'handle')) {
-            $job->handle();
+            $job->handle(...$this->handleArguments($job));
         }
     }
 
+    /** @return array<string, mixed> */
+    private function handleArguments(AtomJob $job): array
+    {
+        if ($this->handleServices === null) {
+            return [];
+        }
+
+        $arguments = [];
+        $handle = new \ReflectionMethod($job, 'handle');
+        foreach ($handle->getParameters() as $parameter) {
+            $type = $parameter->getType();
+            if (!$type instanceof \ReflectionNamedType || $type->isBuiltin() || $parameter->isVariadic()) {
+                continue;
+            }
+
+            $id = $type->getName();
+            if (!$parameter->isOptional() || $this->handleServices->has($id)) {
+                $arguments[$parameter->getName()] = $this->handleServices->get($id);
+            }
+        }
+
+        return $arguments;
+    }
+
     /**
-     * The binding algebra lives in the core Serializer (docs/conventions.md),
-     * so a Messenger-delivered job hydrates exactly as the callback kernel's
-     * does — an absent argument takes its default, then null when the
-     * parameter is nullable, and is a catalogued failure otherwise.
-     *
      * @throws AtomsError            ATOMS-E033 when the class is not an AtomJob
      * @throws SerializationException ATOMS-E024 when an argument is missing or
      *                                of the wrong type

@@ -33,9 +33,10 @@ class RecordGameResult extends AtomJob
 }
 ```
 
-Only promoted constructor properties reach the job; any other state is lost.
-`handle()` is resolved through your framework's container, so it can take
-injected dependencies.
+The Atom sends the job's promoted constructor properties. A job can receive
+application services as parameters to `handle()`. Laravel resolves them
+through its container. In Symfony, tag each service with `atoms.job_dependency`.
+See [Dispatch through Messenger](/getting-started/symfony/#dispatch-through-messenger).
 
 ## Dispatch it
 

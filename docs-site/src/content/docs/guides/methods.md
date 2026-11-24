@@ -103,8 +103,11 @@ class in this order:
 If you follow the convention (which `make:atom` does), no registration is
 needed. Use `#[MethodsFor]` when the Methods class lives elsewhere.
 
-The class is instantiated through your framework's container when the adapter
-has one, so constructor injection works; otherwise it is constructed directly
+Laravel constructs the Methods class through its container. In Symfony,
+the bundle discovers autoconfigured `AtomMethods` services and
+uses the container to supply their constructor arguments. If you disabled
+autoconfiguration or keep the class outside service discovery, list it in
+`atoms.methods_classes`. A host without a container calls the constructor
 with no arguments.
 
 ## Allowed parameter and return types
