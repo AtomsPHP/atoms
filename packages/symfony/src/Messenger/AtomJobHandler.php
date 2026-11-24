@@ -18,9 +18,11 @@ final class AtomJobHandler
 {
     private readonly Serializer $serializer;
 
+    /** @param array<class-string<AtomJob>, iterable<string, mixed>> $jobArguments */
     public function __construct(
         ?Serializer $serializer = null,
         private readonly ?ContainerInterface $handleServices = null,
+        private readonly array $jobArguments = [],
     ) {
         $this->serializer = $serializer ?? new Serializer();
     }
@@ -30,28 +32,25 @@ final class AtomJobHandler
         $job = $this->reconstruct($message);
 
         if (method_exists($job, 'handle')) {
-            $job->handle(...$this->handleArguments($job));
+            $job->handle(...($this->jobArguments[$job::class] ?? $this->handleArguments($job)));
         }
     }
 
     /** @return array<string, mixed> */
     private function handleArguments(AtomJob $job): array
     {
-        if ($this->handleServices === null) {
-            return [];
-        }
-
         $arguments = [];
         $handle = new \ReflectionMethod($job, 'handle');
         foreach ($handle->getParameters() as $parameter) {
             $type = $parameter->getType();
-            if (!$type instanceof \ReflectionNamedType || $type->isBuiltin() || $parameter->isVariadic()) {
+            if ($parameter->isVariadic()) {
                 continue;
             }
 
-            $id = $type->getName();
-            if (!$parameter->isOptional() || $this->handleServices->has($id)) {
-                $arguments[$parameter->getName()] = $this->handleServices->get($id);
+            if ($type instanceof \ReflectionNamedType && !$type->isBuiltin() && $this->handleServices?->has($type->getName())) {
+                $arguments[$parameter->name] = $this->handleServices->get($type->getName());
+            } elseif (!$parameter->isDefaultValueAvailable() && $parameter->allowsNull()) {
+                $arguments[$parameter->name] = null;
             }
         }
 

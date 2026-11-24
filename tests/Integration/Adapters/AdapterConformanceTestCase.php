@@ -395,6 +395,12 @@ abstract class AdapterConformanceTestCase extends TestCase
         self::assertSame(\RuntimeException::class, $context['exception']);
     }
 
+    /**
+     * Each host must construct RankRoom's Methods through its container to supply
+     * the Scoreboard dependency. Symfony discovers the Methods service and autowires
+     * the private Scoreboard. Laravel uses its application container, and the
+     * framework-free hosts use the PSR-11 container supplied to the callback kernel.
+     */
     public function testS6MethodsClassWithConstructorDependencyResolvesFromHostContainer(): void
     {
         $this->skipUnlessSupports('container', 'S6');

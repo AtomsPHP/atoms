@@ -34,7 +34,7 @@ atoms:
 - `callback_path` is where the signed reverse-RPC callback is mounted.
 - `callback_timestamp_window` is the permitted clock skew in seconds.
 - `psr17_factory` names a service implementing the PSR-17 request, response, server-request, and stream factory interfaces. Leave it `null` to use the bundled Guzzle factory.
-- Symfony injects constructor dependencies into autoconfigured Methods services. List a class in `atoms.methods_classes` to register it explicitly or apply `#[MethodsFor]`.
+- Symfony discovers autoconfigured Methods services and reads their `#[MethodsFor]` attributes. List a class in `atoms.methods_classes` to register it explicitly.
 
 ## Mount the callback route
 
@@ -201,16 +201,20 @@ The public service id is `atoms.client`. The bundle resolves a PSR-18 client, PS
 
 When `symfony/messenger` and a message bus are present, the bundle wires `MessengerQueueBridge`. Otherwise it wires `NullQueueBridge`, which raises [ATOMS-E103](/reference/errors/#atoms-e103) when an Atom dispatches a job. Bind your own `QueueBridge` if Messenger is not your queue.
 
-To inject a service into a job, give the `handle()` parameter a class or interface type and tag the service in `config/services.yaml`. This example supplies `DatabaseScoreRecorder` to a job with `handle(ScoreRecorderInterface $scores)`.
+Messenger reconstructs the job from the constructor arguments sent by the Atom.
+For autoconfigured `AtomJob` classes, Symfony supplies services to `handle()`
+by type. For example, `handle(LoggerInterface $logger)` receives the logger
+bound to that interface. Use `#[Target]` for a named alias or
+`#[Autowire(service: 'app.score_recorder')]` to select a service for one parameter.
+
+If Symfony's service discovery excludes your jobs, list the classes that need
+injection in `config/packages/atoms.yaml`.
 
 ```yaml
-services:
-    App\Service\DatabaseScoreRecorder:
-        tags:
-            - { name: atoms.job_dependency, type: App\Contract\ScoreRecorderInterface }
+atoms:
+    job_classes:
+        - App\Atoms\GameRoom\RecordGameResult
 ```
-
-You can omit `type` when the service id matches the parameter's fully qualified type. The job constructor receives the arguments sent by the Atom.
 
 ## Test it without Cloudflare
 

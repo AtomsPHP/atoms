@@ -144,9 +144,9 @@ for replay guarantees and failure responses.
   `AtomJobHandler`; otherwise `Atoms\Client\Callback\NullQueueBridge`, which
   throws a clear "configure a QueueBridge" exception on first use.
 - Symfony discovers autoconfigured `AtomMethods` services, including private
-  services. Their constructors can take application dependencies. List a class
-  in `methods_classes` to register it explicitly or apply its `#[MethodsFor]`
-  override.
+  services, and injects their constructor dependencies. It reads `#[MethodsFor]`
+  on discovered classes. List classes outside service discovery in
+  `methods_classes`. Explicit entries take precedence for the same Atom.
 - `AtomsClient` and `CallbackKernel` both use the app's PSR-3 `logger` service
   when it exists.
 - `atoms:deploy`, `atoms:rollback`, `atoms:list` — thin console wrappers that
@@ -174,8 +174,9 @@ Every auto-detected collaborator has an explicit override point:
   signed callbacks return `503` with `ATOMS-E111`. Bind your own
   `Atoms\Client\Callback\NonceStore` to override the configured backend.
   Use `memory` only when the same store instance survives across callbacks.
-- **Job dependencies.** Tag a service with `atoms.job_dependency` to inject it
-  into a job's `handle()` method. See the [Symfony Messenger example](https://docs.atomsphp.dev/getting-started/symfony/#dispatch-through-messenger).
+- **Job dependencies.** Symfony autowires `handle()` on autoconfigured
+  `AtomJob` classes. List jobs outside service discovery in `atoms.job_classes`.
+  See the [Symfony Messenger example](https://docs.atomsphp.dev/getting-started/symfony/#dispatch-through-messenger).
 - **Logger.** Register a PSR-3 logger under the service id `logger`.
   FrameworkBundle provides this service when Monolog is installed.
 
