@@ -298,7 +298,7 @@ final class BundleBridgeTest extends TestCase
 
         $runner = new \Atoms\Cli\Tests\Support\FakeProcessRunner(onPath: ['composer' => '/usr/bin/composer']);
         $runner->resultFor = static function (array $command, ?string $cwd): ?\Atoms\Cli\Process\ProcessResult {
-            if ($command[0] !== 'composer' || $cwd === null) {
+            if ($command[0] !== 'composer' || $command[1] !== 'install' || $cwd === null) {
                 return null;
             }
             $v = $cwd . '/vendor';

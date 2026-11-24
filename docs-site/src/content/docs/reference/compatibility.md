@@ -48,29 +48,18 @@ even when the application host uses a newer PHP version.
 
 ## Worker PHP extensions
 
-The bundled PHP 8.3 WebAssembly runtime loads these PHP extensions.
-`atoms validate` and `atoms build` check Atom code against this list
-([ATOMS-E019](/reference/errors/#atoms-e019)), and `atoms build` supplies them
-to Composer when resolving `atoms-composer.json` dependencies:
+`atoms validate` checks built-in function and class names against these Worker
+extensions. `atoms build` uses their versions when Composer resolves dependencies
+in `atoms-composer.json`.
 
-`bcmath`, `calendar`, `core`, `ctype`, `curl`, `date`, `dom`, `exif`, `fileinfo`, `filter`, `gd`, `hash`, `iconv`, `json`, `libxml`, `mbstring`, `openssl`, `pcre`, `pdo`, `pdo_sqlite`, `phar`, `random`, `reflection`, `session`, `simplexml`, `soap`, `spl`, `sqlite3`, `standard`, `tokenizer`, `xml`, `xmlreader`, `xmlwriter`, `zend opcache` (Composer: `ext-zend-opcache`), `zip`, `zlib`.
+`bcmath`, `calendar`, `core`, `ctype`, `curl`, `date`, `dom`, `exif`, `fileinfo`, `filter`, `gd`, `hash`, `iconv`, `json`, `libxml`, `mbstring`, `openssl`, `pcre`, `pdo`, `pdo_sqlite`, `phar`, `random`, `reflection`, `session`, `simplexml`, `soap`, `spl`, `sqlite3`, `standard`, `tokenizer`, `xml`, `xmlreader`, `xmlwriter`, `zend opcache`, `zip`, `zlib`.
 
-`core` and `standard` are provided as part of `php` in Composer rather than as
-separate `ext-*` platform packages.
+Composer includes `core` and `standard` in the `php` package. To require
+`zend opcache`, use `ext-zend-opcache`.
 
-Some extensions compiled into upstream `php-wasm` behave differently inside the
-Cloudflare Workers WebAssembly sandbox:
-
-- **SQLite (`pdo`, `pdo_sqlite`, `sqlite3`)**: Use `$this->db()` or `$this->db()->pdo()`
-  for persistent storage backed by Durable Object SQLite (see
-  [PDO compatibility](/reference/pdo/)). Standalone `sqlite3` or `pdo_sqlite`
-  connections write only to the ephemeral in-memory filesystem and do not
-  survive eviction.
-- **Networking (`curl`, `soap`)**: The WebAssembly guest has no direct outbound
-  network sockets. Move outbound HTTP calls to a [Methods class](/guides/methods/)
-  via `$this->app()` or an [AtomJob](/guides/jobs/) via `$this->dispatch()`.
-- **Sessions (`session`)**: PHP session files live in ephemeral guest memory;
-  store persistent Atom state in SQLite via `$this->db()`.
+For persistent SQLite data, use `$this->db()` or its [PDO connection](/reference/pdo/).
+A connection you open directly with `pdo_sqlite` or `sqlite3` uses guest memory
+and loses its data when the Worker evicts the Atom.
 
 ## Laravel and Illuminate
 

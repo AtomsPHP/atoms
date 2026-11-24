@@ -10,7 +10,7 @@ Atoms is currently experimental and in early stages. The goal is to keep the cur
 ## Requirements
 
 - PHP 8.3–8.6 on the application host
-- Host PHP extensions: `ext-curl` (for `atoms/cli`) and `ext-pdo_sqlite` (for `atoms/testing`)
+- The `ext-pdo_sqlite` host extension if you use `atoms/testing`
 - Composer 2
 - Node.js 22 (22.12.0 or later) for the Cloudflare Worker toolchain
 - A Cloudflare account for deployment

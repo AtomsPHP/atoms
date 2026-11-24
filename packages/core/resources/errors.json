@@ -109,7 +109,7 @@
             "code": "ATOMS-E019",
             "title": "PHP extension not available in the runtime image",
             "message": "Atom code uses extension {extension}, which the Atoms runtime image does not provide.",
-            "fix": "See https://docs.atomsphp.dev/reference/compatibility/#worker-php-extensions for the supported Worker PHP extensions, or move the dependent code into a Methods class.",
+            "fix": "Move this code into a Methods class or use a Worker extension listed at https://docs.atomsphp.dev/reference/compatibility/#worker-php-extensions.",
             "severity": "error",
             "phase": "build"
         },

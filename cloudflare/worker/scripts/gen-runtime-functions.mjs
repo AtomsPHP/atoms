@@ -1,5 +1,4 @@
-// Run after npm run prepare-runtime. The CLI uses these lists to check built-in
-// functions and extensions offline and to pin Composer's Worker platform map.
+// Run after npm run prepare-runtime to refresh the CLI inventory.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire, registerHooks } from 'node:module';
 
@@ -25,84 +24,47 @@ const php = await bootPHP({ onSync() {}, onPark() {} });
 
 try {
 	const response = await php.run({ code: `<?php
-		// WordPress Playground's internal wasm/host C extensions (see
-		// cloudflare/THIRD_PARTY_NOTICES.md). They are runtime plumbing rather
-		// than customer-facing PHP extensions and must not be exposed to Atom
-		// code or Composer's platform map.
-		$excludedExtensions = [
-			'dns_polyfill' => true,
-			'post_message_to_js' => true,
-			'wasm_memory_storage' => true,
-		];
+		$extensions = [];
+		foreach (get_loaded_extensions() as $name) {
+			$extensions[strtolower($name)] = phpversion($name);
+		}
+		// These modules implement the php-wasm host bridge.
+		unset($extensions['post_message_to_js'], $extensions['dns_polyfill'], $extensions['wasm_memory_storage']);
+		// The static build also registers an empty module named opcache.
+		unset($extensions['opcache']);
+		ksort($extensions, SORT_STRING);
 
-		$loaded = [];
-		foreach (get_loaded_extensions() as $extension) {
-			$lower = strtolower($extension);
-			if (isset($excludedExtensions[$lower])) {
-				continue;
+		$classes = [];
+		foreach (array_merge(get_declared_classes(), get_declared_interfaces(), get_declared_traits()) as $name) {
+			$class = new ReflectionClass($name);
+			if ($class->isInternal()) {
+				$classes[strtolower($name)] = strtolower($class->getExtensionName());
 			}
-			$loaded[$lower] = true;
 		}
-		// php-wasm compiles opcache statically and reports both "opcache" (0
-		// symbols) and "Zend OPcache" (which owns all opcache_* functions and
-		// maps to Composer's ext-zend-opcache). Standard PHP reports only
-		// "Zend OPcache".
-		if (isset($loaded['zend opcache'])) {
-			unset($loaded['opcache']);
-		}
-		$extensions = array_keys($loaded);
-		sort($extensions, SORT_STRING);
+		ksort($classes, SORT_STRING);
 
 		$functions = [];
 		foreach (get_defined_functions()['internal'] as $name) {
-			$ext = strtolower((string) (new ReflectionFunction($name))->getExtensionName());
-			if (isset($excludedExtensions[$ext])) {
-				continue;
-			}
-			if (!isset($loaded[$ext])) {
-				fwrite(STDERR, "Function {$name} belongs to unloaded extension {$ext}\\n");
-				exit(1);
-			}
-			$functions[strtolower($name)] = $ext;
+			$functions[strtolower($name)] = strtolower((new ReflectionFunction($name))->getExtensionName());
 		}
 		ksort($functions, SORT_STRING);
-
-		echo json_encode([
-			'extensions' => $extensions,
-			'functions' => $functions,
-		], JSON_THROW_ON_ERROR);
+		echo json_encode(compact('extensions', 'classes', 'functions'), JSON_THROW_ON_ERROR);
 	` });
 	if (response.exitCode !== 0 || response.errors) throw new Error(response.errors || 'PHP probe failed');
 
-	const probe = JSON.parse(response.text);
-	const files = [
-		{
-			name: 'packages/cli/resources/runtime-functions.json',
-			url: new URL('../../../packages/cli/resources/runtime-functions.json', import.meta.url),
-			content: `${JSON.stringify(probe.functions, null, 4)}\n`,
-		},
-		{
-			name: 'packages/cli/resources/runtime-extensions.json',
-			url: new URL('../../../packages/cli/resources/runtime-extensions.json', import.meta.url),
-			content: `${JSON.stringify({
-				$comment:
-					'Generated from the pinned php-wasm Worker runtime by cloudflare/worker/scripts/gen-runtime-functions.mjs. Do not edit by hand. A built-in symbol whose defining extension is not on this list is a build error (ATOMS-E019). Compared case-insensitively against ReflectionClass/ReflectionFunction::getExtensionName().',
-				extensions: probe.extensions,
-			}, null, 4)}\n`,
-		},
-	];
-
-	if (process.argv.includes('--check')) {
-		const stale = files.filter(({ url, content }) => readFileSync(url, 'utf8') !== content);
-		if (stale.length > 0) {
-			const names = stale.map(({ name }) => name).join(', ');
-			throw new Error(
-				`Stale CLI runtime inventory (${names}). Run node scripts/gen-runtime-functions.mjs in cloudflare/worker to refresh.`,
-			);
-		}
-	} else {
-		for (const { url, content } of files) {
-			writeFileSync(url, content);
+	const { extensions, classes, functions } = JSON.parse(response.text);
+	for (const [file, data] of Object.entries({
+		'runtime-extensions.json': { extensions, classes },
+		'runtime-functions.json': functions,
+	})) {
+		const path = new URL(`../../../packages/cli/resources/${file}`, import.meta.url);
+		const content = JSON.stringify(data, null, 4) + '\n';
+		if (process.argv.includes('--check')) {
+			if (readFileSync(path, 'utf8') !== content) {
+				throw new Error(`Run node scripts/gen-runtime-functions.mjs to refresh ${file}.`);
+			}
+		} else {
+			writeFileSync(path, content);
 		}
 	}
 } finally {

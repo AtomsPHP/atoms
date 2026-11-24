@@ -25,18 +25,12 @@ function targetFile(hrefPath) {
 }
 
 const htmlFiles = await walk(dist);
-const siteOrigin = 'https://docs.atomsphp.dev';
 const failures = [];
 for (const file of htmlFiles) {
   const html = await readFile(file, 'utf8');
-  for (const match of html.matchAll(/(<a\b[^>]*?)?href="([^"]+)"/g)) {
-    const isAnchorTag = Boolean(match[1]);
-    let href = match[2];
-    if (isAnchorTag && href.startsWith(`${siteOrigin}/`)) {
-      href = href.slice(siteOrigin.length);
-    } else if (/^(?:https?:|mailto:|tel:|javascript:)/.test(href)) {
-      continue;
-    }
+  for (const match of html.matchAll(/href="([^"]+)"/g)) {
+    const href = match[1];
+    if (/^(?:https?:|mailto:|tel:|javascript:)/.test(href)) continue;
     const [hrefPath, fragment] = href.split('#');
     const destination = hrefPath
       ? targetFile(hrefPath.startsWith('/') ? hrefPath : '/' + path.posix.normalize(path.posix.join(path.relative(dist, path.dirname(file)).replaceAll(path.sep, '/'), hrefPath)))
