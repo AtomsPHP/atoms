@@ -1,43 +1,21 @@
 ---
 name: atoms-authoring
-description: Write Atoms code in this repo — the two-worlds model, the serialization algebra, migration rules, reentrancy hazards, and the full ATOMS-E* error catalog with canonical fixes. Use when creating or editing anything under the Atoms path.
+description: Write Atom classes, Methods, jobs, shared payloads, and SQLite migrations. Use the error catalog to fix build and boundary errors.
 ---
 
 # Authoring Atoms
 
-An Atom is a lightweight PHP class that runs on the Atoms platform runtime — a
-framework-free PHP 8.3 process. It is **not** a Laravel/Symfony class. The single
-rule everything else follows:
+## Worker and application code
 
-> **If it extends `Atom`, it leaves. If it extends `AtomMethods` or `AtomJob`, it
-> stays. If it's in `Shared/`, it does both — so it must be pure data.**
+An `Atoms\Atom` subclass runs in the Worker's PHP 8.3 runtime. It can use
+`atoms/core`, other Atom-side classes under the Atoms path, dependencies in
+`atoms-composer.json`, and PHP functions available in the runtime. Keep models,
+framework classes, facades, and framework helpers in the application.
 
-## The two worlds
-
-- **Atom-side — Atom classes** (`app/Atoms/GameRoom.php`) ship to the platform.
-  Inside them you may reference only: `atoms/core` (the `Atoms\*` API), classes
-  under the Atoms path (other Atoms, `Shared/` DTOs), packages declared in
-  `atoms-composer.json`, and the PHP stdlib available in the runtime image.
-  No `App\Models\*`, no framework classes, no facades, no global helpers.
-- **App-side — Methods and AtomJob classes** (`GameRoom/Methods.php`,
-  `Jobs/RecordGameResult.php`) stay in your monolith with full framework access.
-  The Atom reaches the App side through `$this->app()->method(...)` and
-  `$this->dispatch(SomeJob::class, ['param' => $value])`. Only their
-  **signatures** are the contract the build validates — the code never ships.
-  Which is exactly why a job is dispatched BY NAME: the class is not on the
-  platform, so `dispatch()` takes the class NAME, never an instance — building
-  a job with `new` inside an Atom is a build error (`ATOMS-E104`).
-  `SomeJob::class` is a compile-time constant, so naming it neither loads nor
-  ships anything.
-
-Inside an Atom, `$this->db()` exposes `pdo()`, `query()`, `execute()`, and
-`transaction()`. Read configuration with `$this->config('PAYMENTS_API_KEY')`
-and call app-side Methods with `$this->app()->getPlayer($id)`. Lifecycle hooks
-include `onActivation()` and `onDeactivation()`. WebSocket handlers are
-`onConnect()`, `onMessage()`, and `onDisconnect()`.
-
-For example, if the app-side job `RecordGameResult` takes constructor arguments
-`$ref` and `$seat`, the Atom can queue it and notify room subscribers.
+`AtomMethods` and `AtomJob` subclasses run in the application. The build checks
+their signatures. Call a Methods method with `$this->app()->getPlayer($id)`.
+Dispatch a job by class name and use its constructor parameter names as keys.
+Constructing the job inside the Atom raises `ATOMS-E104`.
 
 ```php
 <?php
@@ -59,55 +37,51 @@ final class GameRoom extends Atom
 }
 ```
 
-## The serialization algebra (boundary types)
+Use `$this->db()` for SQLite queries, writes, and transactions. Use
+`$this->config('PAYMENTS_API_KEY')` for Worker configuration. Lifecycle hooks
+include `onActivation()` and `onDeactivation()`. WebSocket handlers are
+`onConnect()`, `onMessage()`, and `onDisconnect()`.
 
-Everything crossing a boundary — RPC args/returns, `app()` calls, `dispatch()`
-payloads, WebSocket frames, `Shared/` DTO properties — must be one of:
+## Boundary types
 
-- `null`, `bool`, `int`, `float`, `string`
-- lists and string-keyed maps of legal types
-- classes implementing `Atoms\Serialization\Payload` (public promoted
-  constructor properties, hydrated by name; nesting allowed)
-- `\DateTimeImmutable` ⇄ RFC 3339 string
-- `\BackedEnum` ⇄ its backed value
+RPC arguments and results, Methods calls, jobs, and structured WebSocket
+payloads use the same serializer. It accepts these types.
 
-**Illegal** (build error + PHPStan error + runtime `SerializationException`):
-closures, resources, `\DateTime` (mutable), Eloquent models / Doctrine entities,
-anything container-bound. **Native `serialize()`/`unserialize()` never appears
-anywhere.** To pass a model, map it to a Shared DTO
-(`PlayerSnapshot::fromUser($user)`).
+- `null`, booleans, integers, floats, and strings.
+- Lists and string-keyed maps of supported values.
+- Objects implementing `Atoms\Serialization\Payload`. Classes in `Shared/` run
+  on both sides and must contain only data. The serializer matches public
+  promoted properties by name.
+- `\DateTimeImmutable` as an RFC 3339 string, and `\BackedEnum` as its backing value.
 
-## Migrations (per-Atom SQLite)
+Keep closures, resources, mutable dates, and ORM models on their own side of
+the boundary. To pass model data, copy the fields into a shared payload. Use
+the Atoms serializer for boundary data.
 
-At activation, each Atom applies files in `app/Atoms/{Atom}/migrations/` whose
-numeric prefix is higher than the version recorded in its SQLite database.
+## SQLite migrations
 
-- Give each SQL or PHP migration a unique version, such as `001_create_rooms.sql`.
-- Keep shipped files unchanged and append a higher-numbered migration for each
-  change. If you edit a shipped file, Atoms that applied it skip the edit and
-  new Atoms run the edited version. The manifest records each file's SHA-256.
-  Validation does not compare hashes across releases or emit `ATOMS-E050` for an edit.
-- Keep the schema compatible with the previous code version. Rolling back code
-  leaves the database at its current schema version.
-- Keep migrations short because the first turn waits for them. The build does
-  not measure migration time or emit the `ATOMS-E052` budget warning.
+Give each SQL or PHP migration in `app/Atoms/{Atom}/migrations/` a unique
+numeric prefix, as in `001_create_rooms.sql`. At activation, an Atom runs
+versions above the one recorded in its database.
 
-## Reentrancy hazards
+Add a higher-numbered migration for each change. Editing a shipped file can
+give new Atoms a different schema from those that already ran it. The manifest
+records file hashes, but validation does not compare releases or emit `ATOMS-E050`.
+Keep the schema compatible with the previous code version because a code
+rollback leaves the schema in place.
 
-Turns are single-threaded per Atom. Two traps:
+Keep migrations short. The first turn waits for them, and the build does not
+check their duration or emit `ATOMS-E052`.
 
-- **A→B→A deadlock.** If Atom A calls `$this->app()` into a Methods class that
-  calls back into Atom A (same id) before A's turn returns, the second call
-  waits on a turn that cannot complete. Don't make a Methods class re-enter the
-  Atom that called it.
-- **`app()` head-of-line blocking.** `$this->app()` is a synchronous round-trip
-  to the monolith; while it is in flight the Atom processes no other turn. Keep
-  Methods calls fast; move slow work into an `AtomJob` via `$this->dispatch()`.
+## Calls back to the application
+
+An Atom waits for `$this->app()` to return before it can handle another turn.
+A Methods call back into the same Atom ID would wait for the turn that called
+it. Use `$this->dispatch()` for slow work that can run on the application queue.
 
 ## Error catalog
 
-Every build/boundary failure has a stable `ATOMS-E###` code. When PHPStan or
-`atoms validate` prints one, find it here for the canonical fix and self-correct.
+Look up the `ATOMS-E###` code from PHPStan or `atoms validate` for its fix.
 
 <!-- atoms:generated -->
 {{ERROR_CATALOG_TABLE}}

@@ -11,30 +11,17 @@ use Symfony\Component\Console\Input\StringInput;
 
 final class OperatingSkillCommandsTest extends TestCase
 {
-    public function testCommandExamplesWorkWithAndWithoutTheirOptionalArguments(): void
+    public function testCliExamplesUseRegisteredCommandsAndOptions(): void
     {
         $skill = $this->skill();
         self::assertSame(1, preg_match('/^```sh\R(.*?)^```\r?$/ms', $skill, $block));
         $application = new Application(new FakeWrangler());
-        $names = [];
-
+        self::assertMatchesRegularExpression('/^atoms dev /m', $block[1]);
         foreach (explode("\n", trim($block[1])) as $line) {
-            $example = trim(explode('#', $line, 2)[0]);
-            self::assertMatchesRegularExpression('/^atoms \S+/', $example);
-            [, $name, $usage] = array_pad(explode(' ', $example, 3), 3, '');
-            $names[] = $name;
-
-            $required = preg_replace('/\[[^\]]+\]/', '', $usage);
-            $all = str_replace(['[', ']'], '', $usage);
-            foreach (array_unique([$required, $all]) as $arguments) {
-                $input = $this->parseArguments($application, $name, $arguments);
-                if ($input->hasOption('env')) {
-                    self::assertNotEmpty($input->getOption('env'), "$example requires an explicit --env.");
-                }
-            }
+            $example = rtrim(explode('#', $line, 2)[0]);
+            self::assertSame(1, preg_match('/^atoms (\S+)(?: (.*))?$/', $example, $parts));
+            $this->parseArguments($application, $parts[1], $parts[2] ?? '');
         }
-
-        self::assertContains('dev', $names);
     }
 
     public function testRotationCommandsStageThePreviousKeyBeforeReplacingTheCurrentKey(): void
@@ -46,7 +33,6 @@ final class OperatingSkillCommandsTest extends TestCase
         $operations = [];
         foreach ($commands as [, $name, $arguments]) {
             $input = $this->parseArguments($application, $name, $arguments);
-            self::assertNotEmpty($input->getOption('env'));
             $operations[] = [$name, $input->hasParameterOption('--previous'), $input->hasParameterOption('--force')];
         }
 
@@ -67,6 +53,9 @@ final class OperatingSkillCommandsTest extends TestCase
         $input = new StringInput($arguments);
         $input->bind($application->get($name)->getDefinition());
         $input->validate();
+        if ($input->hasOption('env')) {
+            self::assertNotEmpty($input->getOption('env'), "atoms $name requires --env.");
+        }
 
         return $input;
     }

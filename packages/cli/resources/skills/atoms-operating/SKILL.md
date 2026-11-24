@@ -1,163 +1,152 @@
 ---
 name: atoms-operating
-description: Operate Atoms deployments in this repo — the validate→build→diff→deploy loop, expand/contract deploy ordering, rollback, and reading version-skew errors. Use when deploying, rolling back, or diagnosing a deploy.
+description: Build, deploy, and roll back Atoms with the CLI. Use when configuring a Worker, rotating secrets, or diagnosing a deployment.
 ---
 
 # Operating Atoms
 
-The CLI is a standalone binary (`atoms`) driven by `atoms.json`. It never boots
-your app, so a broken monolith never blocks a deploy.
+## CLI commands
 
-## The core loop
+The standalone `atoms` CLI reads `atoms.json` without booting the application.
+Replace `staging` with the configured environment you want to use. Each line is a
+separate command.
 
 ```sh
-atoms validate                 # Check boundaries, contracts, and migrations offline.
-atoms build [--fast] [--out D] # deterministic, content-addressed bundle + manifest. --fast skips the vendor stage and refuses (ATOMS-E107) if atoms-composer.json declares packages.
-atoms diff [--against M]       # label each manifest change additive / contracting / breaking vs a saved manifest.
-atoms deploy --env X [--bundle B]  # build (unless --bundle), stage into the Worker project, then `wrangler deploy` into YOUR Cloudflare account.
-atoms dev --env X [--port P]   # build + `wrangler dev` locally. No Cloudflare account needed.
-atoms status --env X           # Worker versions (`wrangler versions list`).
-atoms rollback --env X [version-id]  # `wrangler rollback` (previous version by default).
-atoms secrets:set KEY --env X  # Worker secret, read in the Atom via $this->config().
-atoms shared-secret:set --env X  # ATOMS_SHARED_SECRET, read from stdin. The auth root; not readable by Atom code.
-atoms shared-secret:unset --env X  # Remove ATOMS_SHARED_SECRET_PREVIOUS, closing a rotation window.
+atoms validate                         # Check boundaries, contracts, and migrations offline.
+atoms build --out .atoms/build         # Write the bundle and manifest to this directory.
+atoms diff --against previous.json     # Compare with a saved manifest.
+atoms dev --env staging --port 8787    # Start the local Worker.
+atoms deploy --env staging             # Build and deploy to Cloudflare.
+atoms status --env staging             # List Worker versions.
+atoms rollback --env staging           # Roll back to the previous Worker version.
+atoms secrets:set PAYMENTS_API_KEY --env staging  # Set an application secret on the Worker.
+atoms shared-secret:set --env staging             # Read the Worker authentication secret from stdin.
+atoms shared-secret:unset --env staging           # Remove the previous key after rotation.
 ```
 
-Credentials: either `CLOUDFLARE_API_TOKEN` or an existing `wrangler login`
-session — with no token set, Atoms injects nothing and Wrangler uses its own.
-A token may come from the environment the command was started with or from
-`.env.atoms.<env>` beside atoms.json, never from a committed file.
-`CLOUDFLARE_ACCOUNT_ID` overrides the environment's `account_id` in atoms.json
-on every command, dev and deploy alike; there is no `--account-id` flag and no
-check that the two values agree. A single reachable account can still resolve
-without either; several reachable accounts produce ATOMS-E075. Whatever the CLI does resolve goes
-straight to your own Wrangler; Atoms never proxies or retains it. In CI, supply
-them to the deploy action as `cloudflare-api-token` / `cloudflare-account-id`:
-a runner has no login session to fall back on.
+Use `--fast` on a build to skip the vendor stage when `atoms-composer.json`
+declares no packages. Use `--bundle` on deploy to supply a prebuilt bundle.
+To roll back to a specific Worker version, pass the version ID from `atoms status`
+to `atoms rollback`.
 
-`atoms deploy` and `atoms dev` do not run Wrangler on the Worker project's wrangler.jsonc directly. They write a uniquely named copy beside it, pass that path to Wrangler with `--config`, and remove the copy afterwards. Config selection does not depend on cleanup: a copy left after interruption is never discovered by Wrangler. Relative paths, `.dev.vars`, and local storage keep their existing locations. The copy carries the environment's `worker_name` as `name`, its `custom_domains` as Wrangler's `routes` (each flagged as a custom domain), and the callback URL and debug switch in `vars`; `env` blocks are dropped. So hostnames are declared per environment under `custom_domains` in atoms.json. There is no `routes` key: the Worker serves only its own paths, so a route pattern with a path prefix would reach nothing, and an environment carrying one is ATOMS-E070. Routes or custom domains written at the top level of wrangler.jsonc are ignored with a notice. Two custom-domain behaviours do not fail loudly: a hostname declared on two environments moves to whichever deployed last with no error, and an existing DNS record or custom domain on the hostname is replaced without asking, because the CLI runs Wrangler non-interactively. ATOMS-E110 (script uploaded, routing not attached) is still recognised for zone-route failures, but no Atoms configuration writes a zone route. Every command that takes `--env` requires it — no command defaults to an environment name, because the names are the user's to choose. (`atoms token` takes no `--env`: the bearer comes from ATOMS_SHARED_SECRET alone.) Every configured environment must have a non-empty `worker_name`; the
-top-level `project` is not a fallback. A callback, when needed, is declared in
-the selected environment's `callback_url` in `atoms.json`, beside its
-`worker_name`, and resolves the same
-way on every command and for every setting: `--callback-url` (on `deploy` and
-`dev`), then `ATOMS_CALLBACK_URL` in the environment the command was started
-with, then in `.env.atoms.<env>` beside atoms.json, then the file entry. The
-nearer source wins silently — nothing is compared and no combination is a
-conflict, and an empty or whitespace-only value means "unset" from every source
-alike. `deploy` and `dev` print what they resolved and which source supplied
-it before doing anything with it. With no source at all there is no callback,
-and deploy warns; an absent file entry on its own is not that, since an
-`ATOMS_CALLBACK_URL` from either environment layer needs no file entry. The
-file entry is read only when no nearer source supplied a value, so nothing in
-it can fail a command a nearer source answered: a value that mixes a `${VAR_NAME}`
-placeholder with other text is ATOMS-E070 when the file wins, and
-is never inspected otherwise. A placeholder whose variable is unset
-is ATOMS-E070 on deploy, and on `atoms dev` simply no callback plus a warning —
-the variable may be one only CI holds.
+## Worker setup
 
-`.env.atoms.<env>` is optional, gitignored by `atoms init`, and read only for
-the environment named on the command line — never the application's `.env`,
-another target's file, or a generic `.env.atoms`. An existing but unparseable
-one is ATOMS-E109. This is also why `php artisan atoms:deploy` and
-`bin/console atoms:deploy` resolve identically to `vendor/bin/atoms deploy`:
-the wrappers hand the child the environment the command was started with, not
-the one the framework built after loading the app's `.env`.
+Run the version-matched Worker init command printed by `atoms init`. Run
+`npm ci` in `atoms-worker/` and commit the Worker project. Deploy uses its
+pinned Wrangler. Use `--worker-dir` if the directory is elsewhere. Check this
+directory for `ATOMS-E076` and its Wrangler installation for `ATOMS-E073`.
 
-Deploy needs the committed Worker directory, `atoms-worker/` beside atoms.json
-(or `--worker-dir`; atoms.json does not name it), with `npm ci` already run in
-it. `atoms init` prints
-the exact version-matched `@atomsphp/runtime-cloudflare init` command; run it
-once, `npm ci`, and commit the directory. Atoms runs the pinned Wrangler it
-finds there and never downloads one during deploy. Missing: ATOMS-E073/E076.
+If an Atoms package update produces `ATOMS-E108`, the Worker directory
+belongs to a different release. Run the upgrade command from the error
+message, run `npm ci`, review the diff, and commit it. The upgrade
+preserves your `wrangler.jsonc`.
 
-The directory is released with the CLI. After updating the atoms/* packages,
-`atoms deploy` and `atoms dev` refuse a directory from another release
-(ATOMS-E108) and print the `atoms-runtime-cloudflare upgrade` command; run
-it, `npm ci`, review the diff, commit. It rewrites runtime-owned files and
-leaves wrangler.jsonc, which is the user's, as it is.
+## Credentials and environments
 
-The Worker's `/debug` routes are off by default. To enable them for an
-environment, set `"debug_endpoints": true` on that environment in atoms.json —
-not in wrangler.jsonc, whose vars reach every environment's generated config
-and would enable them everywhere. `atoms dev` and `atoms deploy` both merge
-the setting into that environment's vars. The routes sit behind the Worker's bearer check under
-the default `ATOMS_BEARER_AUTH=required`; under `ATOMS_BEARER_AUTH=disabled`
-(an authenticating proxy in front of the Worker) the flag is the only gate.
+Wrangler uses `CLOUDFLARE_API_TOKEN` or an existing `wrangler login` session.
+Set the token in the shell or in the gitignored `.env.atoms.<env>` beside
+`atoms.json`. In CI, pass `cloudflare-api-token` and `cloudflare-account-id`
+to the deploy action. `CLOUDFLARE_ACCOUNT_ID` overrides the environment's
+`account_id`. If Wrangler can access several accounts, specify one to avoid
+`ATOMS-E075`. Local development requires no Cloudflare account.
 
-`atoms secrets:set PAYMENTS_API_KEY --env X` stores the Worker secret
-`ATOMS_CONFIG_PAYMENTS_API_KEY`, because that is the name the Worker's config
-allowlist resolves `$this->config('PAYMENTS_API_KEY')` to. The prefix is read
-from the Worker project's wrangler config (`ATOMS_CONFIG_ENV_PREFIX`), so an
-overridden one is honoured; a key that could never be read back is refused with
-ATOMS-E077 rather than stored.
+Commands that accept `--env` require an environment name. Each environment
+needs its own `worker_name`. The `atoms token` command derives a bearer from
+`ATOMS_SHARED_SECRET` and takes no environment option.
 
-`secrets:set` refuses both `ATOMS_SHARED_SECRET` and `ATOMS_SHARED_SECRET_PREVIOUS` (ATOMS-E077).
-The bearer, WebSocket ticket and callback keys derive from `ATOMS_SHARED_SECRET`. Use
-`atoms shared-secret:set --env X`, which takes the value on stdin only (never
-argv), validates it as 32 bytes of base64, and skips the write when the Worker
-already has one unless `--force`. `--previous` writes the rotation overlap key.
-The Worker needs it before it can serve anything — without it every route
-except `GET /healthz` answers `misconfigured`, so a pipeline health check goes
-green while every invoke fails. In CI, pass it to the deploy action as
-`shared-secret` rather than calling this yourself. The same value must also be
-set on the application side, under the same name; nothing in Atoms can reach
-that.
+For `dev` and `deploy`, the CLI writes a temporary Wrangler config beside
+`wrangler.jsonc` and selects it with `--config`. This keeps relative paths,
+local storage, and `.dev.vars` in the Worker directory. Wrangler ignores any
+temporary copy left after an interruption.
+
+- Set hostnames in the environment's `custom_domains` in `atoms.json`.
+  A `routes` key there raises `ATOMS-E070`. Deploy ignores top-level routing
+  and `env` blocks in `wrangler.jsonc`. A deploy can move a hostname from
+  another environment or replace its DNS record without prompting. `ATOMS-E110`
+  indicates that the script uploaded but Wrangler failed to attach a zone route.
+- Set `debug_endpoints` to `true` on the environment that needs `/debug`.
+  A top-level Wrangler variable applies to every environment. Debug routes
+  require a bearer by default. With `ATOMS_BEARER_AUTH=disabled`, the
+  authenticating proxy must control access.
+
+## Callback URL
+
+`dev` and `deploy` print the callback URL and its source. The CLI uses the
+first nonblank value in this order.
+
+1. The `--callback-url` option.
+2. `ATOMS_CALLBACK_URL` in the process environment.
+3. `ATOMS_CALLBACK_URL` in `.env.atoms.<env>`.
+4. The environment's `callback_url` in `atoms.json`.
+
+A file entry can be a literal URL or a single `${VAR_NAME}` placeholder.
+Mixing a placeholder with other text raises `ATOMS-E070` when the CLI uses that
+entry. An unset placeholder stops a deploy. Local development warns and runs
+without callbacks. If no source supplies a URL, deploy warns and proceeds
+without callbacks.
+
+`atoms init` gitignores `.env.atoms.<env>`. The CLI reads only the selected
+environment's file. A malformed file raises `ATOMS-E109`. Artisan and Symfony
+deploy wrappers pass the original process environment to the CLI, so values the
+framework loaded later from the application dotenv file do not affect deployment.
+
+## Worker secrets
+
+`atoms secrets:set PAYMENTS_API_KEY --env staging` stores the value for
+`$this->config('PAYMENTS_API_KEY')`. The Worker variable defaults to
+`ATOMS_CONFIG_PAYMENTS_API_KEY`. The CLI uses the prefix from
+`ATOMS_CONFIG_ENV_PREFIX` if configured. It refuses unreadable keys and
+both shared-secret names with `ATOMS-E077`.
+
+Configure the same `ATOMS_SHARED_SECRET` on the Worker and the application.
+Use 32 random bytes encoded as base64. The application and Worker derive
+bearer, WebSocket ticket, and callback keys from this value. Without it, the
+Worker returns `misconfigured` on every route except `GET /healthz`.
+
+Pass the value on stdin to `atoms shared-secret:set --env staging`, or use the
+deploy action's `shared-secret` input. The command preserves an existing value
+unless you pass `--force`.
 
 ### Rotate the shared secret
 
-Start with the old value as `ATOMS_SHARED_SECRET` on both sides.
-
-1. Configure every application instance with the old value as
-   `ATOMS_SHARED_SECRET` and the new value as `ATOMS_SHARED_SECRET_PREVIOUS`.
-   Reload all instances so they can verify callbacks signed with either key.
+1. Keep the old `ATOMS_SHARED_SECRET` on the application. Set
+   `ATOMS_SHARED_SECRET_PREVIOUS` to the new value and reload every instance.
+   All instances can now verify callbacks signed with either key.
 2. On the Worker, pass the old value on stdin to
-   `atoms shared-secret:set --env X --previous --force`. Let it propagate,
-   then pass the new value on stdin to `atoms shared-secret:set --env X --force`.
-   Allow that update to propagate before switching application callers to the new key.
-3. Configure every application instance with the new value as current and the
-   old value as previous. Reload all instances.
-4. Once both deployments have updated and old tickets have expired, run
-   `atoms shared-secret:unset --env X`, remove the previous value from the
-   application, and reload it. The command removes only the Worker's overlap
-   key and succeeds when it is already gone.
+   `atoms shared-secret:set --env staging --previous --force`. Wait for that
+   change to propagate. Pass the new value to `atoms shared-secret:set --env staging --force`
+   and wait for it to propagate before switching the application.
+3. Set the application's current key to the new value and its previous key to
+   the old value. Reload every instance.
+4. After both deployments have updated and old tickets have expired, run
+   `atoms shared-secret:unset --env staging`. Remove the previous key from the
+   application and reload it.
 
-Check application calls, callbacks, and browser connections between steps.
-For step 2 in CI, use two deploy action runs with `rotate-shared-secret: true`.
-Supply the old key as `shared-secret-previous` on the first run and the new key
-as `shared-secret` on the second. Omit the other secret input on each run and
-allow each change to propagate. At step 4, use `retire-shared-secret-previous: true`
-to remove the Worker's previous key.
+Check calls, callbacks, and browser connections between steps. For step 2 in
+CI, use two deploy action runs with `rotate-shared-secret: true`. Supply only
+the old `shared-secret-previous` on the first run and only the new `shared-secret`
+on the second. At step 4, use `retire-shared-secret-previous: true`.
 
-## Deploy ordering (expand/contract)
+## Deploy order
 
-The monolith and the Atom fleet deploy on different schedules — version skew is
-permanent, not an edge case. `atoms diff` labels every change:
+Use `atoms diff` to compare the manifest with the deployed version's saved manifest.
 
-- **additive** (new Atom type / new method) → **deploy Atoms first**, then the
-  monolith that calls them.
-- **contracting** (removed type/method) → **deploy the monolith first** (stop
-  calling it), then the Atoms.
-- **breaking** (changed signature) → treat as contract+expand: add the new
-  method alongside the old, migrate callers, then remove the old.
+- For a new Atom type or method, deploy the Worker before its callers.
+- To remove a type or method, deploy the application that stops calling it first.
+- To change a signature, add the new method alongside the old one, migrate
+  callers, then remove the old method.
 
-Schema follows the same discipline: migrations are append-only and each must be
-backward-compatible one version, because a **code** rollback does **not** roll
-back **schema**.
+A code rollback leaves the SQLite schema in place. Append migrations and keep
+the schema compatible with the previous code version.
 
-## Reading skew errors
+## Deployment errors
 
-- `ATOMS-E040` (manifest hash mismatch) — the monolith was built against a
-  different manifest than is deployed. Run `atoms diff` and fix deploy order.
-- `ATOMS-E041` (method not in deployed version) — the monolith is ahead; deploy
-  the Atoms first for additive changes.
-- `ATOMS-E042` (bundle rejected) — the platform re-validation failed; `atoms
-  validate` locally reproduces it exactly.
-- `ATOMS-E043` (unsupported core version) — the bundle's `atoms/core` version
-  is outside the Worker runtime's supported release line. Update the PHP
-  packages and Worker directory to compatible versions, then rebuild.
-- `ATOMS-E108` (Worker directory does not match the CLI release) — the
-  committed `atoms-worker/` was scaffolded by another release. Run the
-  `atoms-runtime-cloudflare upgrade` command in the message, `npm ci`, commit.
+| Code | What to check |
+| --- | --- |
+| `ATOMS-E040` | The application's manifest hash differs from the deployed hash. Use `atoms diff` to check deploy order. |
+| `ATOMS-E041` | The deployed Worker lacks the requested method. Deploy the Worker before its caller. |
+| `ATOMS-E042` | The platform rejected the bundle. Run `atoms validate` locally. |
+| `ATOMS-E043` | The bundle's `atoms/core` version is outside the Worker's supported range. Update the packages and Worker directory, then rebuild. |
 
 ## This project's environments
 
