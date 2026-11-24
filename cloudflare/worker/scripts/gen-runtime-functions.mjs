@@ -24,12 +24,22 @@ const php = await bootPHP({ onSync() {}, onPark() {} });
 
 try {
 	const response = await php.run({ code: `<?php
+		// These modules implement the php-wasm host bridge and must not be
+		// exposed to Atom code or Composer's platform map.
+		$excluded = [
+			'post_message_to_js' => true,
+			'dns_polyfill' => true,
+			'wasm_memory_storage' => true,
+		];
+
 		$extensions = [];
 		foreach (get_loaded_extensions() as $name) {
-			$extensions[strtolower($name)] = phpversion($name);
+			$lower = strtolower($name);
+			if (isset($excluded[$lower])) {
+				continue;
+			}
+			$extensions[$lower] = phpversion($name);
 		}
-		// These modules implement the php-wasm host bridge.
-		unset($extensions['post_message_to_js'], $extensions['dns_polyfill'], $extensions['wasm_memory_storage']);
 		// The static build also registers an empty module named opcache.
 		unset($extensions['opcache']);
 		ksort($extensions, SORT_STRING);
@@ -37,15 +47,32 @@ try {
 		$classes = [];
 		foreach (array_merge(get_declared_classes(), get_declared_interfaces(), get_declared_traits()) as $name) {
 			$class = new ReflectionClass($name);
-			if ($class->isInternal()) {
-				$classes[strtolower($name)] = strtolower($class->getExtensionName());
+			if (!$class->isInternal()) {
+				continue;
 			}
+			$ext = strtolower((string) $class->getExtensionName());
+			if (isset($excluded[$ext])) {
+				continue;
+			}
+			if (!isset($extensions[$ext])) {
+				fwrite(STDERR, "Class {$name} belongs to unlisted extension {$ext}\\n");
+				exit(1);
+			}
+			$classes[strtolower($name)] = $ext;
 		}
 		ksort($classes, SORT_STRING);
 
 		$functions = [];
 		foreach (get_defined_functions()['internal'] as $name) {
-			$functions[strtolower($name)] = strtolower((new ReflectionFunction($name))->getExtensionName());
+			$ext = strtolower((string) (new ReflectionFunction($name))->getExtensionName());
+			if (isset($excluded[$ext])) {
+				continue;
+			}
+			if (!isset($extensions[$ext])) {
+				fwrite(STDERR, "Function {$name} belongs to unlisted extension {$ext}\\n");
+				exit(1);
+			}
+			$functions[strtolower($name)] = $ext;
 		}
 		ksort($functions, SORT_STRING);
 		echo json_encode(compact('extensions', 'classes', 'functions'), JSON_THROW_ON_ERROR);

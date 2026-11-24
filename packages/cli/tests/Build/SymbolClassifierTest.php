@@ -22,8 +22,44 @@ final class SymbolClassifierTest extends TestCase
         self::assertNull($classifier->classify('PDO', SymbolKind::ClassLike, 'Room.php', 3));
         self::assertSame(['bcmath', 'curl', 'pdo'], $classifier->usedExtensions());
 
-        $error = $classifier->classify('post_message_to_js', SymbolKind::FunctionCall, 'Room.php', 4);
-        self::assertSame(ErrorCode::ExtensionUnavailable, $error?->code);
+        foreach (['post_message_to_js', 'checkdnsrr', 'dns_check_record', 'dns_get_mx', 'dns_get_record', 'getmxrr'] as $fn) {
+            $error = $classifier->classify($fn, SymbolKind::FunctionCall, 'Room.php', 4);
+            self::assertSame(ErrorCode::UnavailableWorkerFunction, $error?->code, "Expected {$fn}() to report ATOMS-E004");
+        }
+    }
+
+    public function testRuntimeInventoriesOnlyReferenceSupportedWorkerExtensions(): void
+    {
+        $resources = \dirname(__DIR__, 2) . '/resources';
+        /** @var array{extensions: array<string, string>, classes: array<string, string>} $inventory */
+        $inventory = json_decode(
+            (string) file_get_contents($resources . '/runtime-extensions.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR,
+        );
+        /** @var array<string, string> $functions */
+        $functions = json_decode(
+            (string) file_get_contents($resources . '/runtime-functions.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR,
+        );
+
+        foreach ($functions as $function => $extension) {
+            self::assertArrayHasKey(
+                $extension,
+                $inventory['extensions'],
+                "Function {$function}() references unlisted extension {$extension}",
+            );
+        }
+        foreach ($inventory['classes'] as $class => $extension) {
+            self::assertArrayHasKey(
+                $extension,
+                $inventory['extensions'],
+                "Class {$class} references unlisted extension {$extension}",
+            );
+        }
     }
 
     public function testClassAvailabilityFollowsTheWorkerInventory(): void
