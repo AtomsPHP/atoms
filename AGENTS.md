@@ -62,8 +62,8 @@ convenient it looks.
   explicit decision and a build error naming the new shape; it is never a
   judgement call to make mid-task.
 - **Layering is the product.** core ← client ← {laravel, symfony};
-  core ← {testing, phpstan-rules, cli}. The Symfony bundle must never need
-  `atoms/laravel`; the CLI and testing packages must never need
+  core ← {testing, phpstan-rules, cli, database-illuminate}. The Symfony bundle
+  must never need `atoms/laravel`; the CLI and testing packages must never need
   `atoms/client`. Nothing ships in `atoms/laravel` that could live in
   `atoms/client` or `atoms/core`.
 - **The error catalog is the single source of truth.**

@@ -272,6 +272,9 @@ Identically is the deliberate part. `bin/console` runs after your application's
 your shell or from CI still is. See [Framework
 commands](/guides/environments/#framework-commands).
 
+If you use the database nonce store, run `bin/console atoms:nonces:prune`
+to delete expired callback nonces.
+
 ## Shipped behavior
 
 The complete shipped behavior and remaining container-instantiation limitation are maintained in the [`atoms/symfony` README](https://github.com/AtomsPHP/atoms/tree/main/packages/symfony#readme).

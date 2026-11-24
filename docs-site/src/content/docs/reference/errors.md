@@ -221,7 +221,7 @@ Atoms cannot read your application's .env.
 
 **Fix**
 
-Use `atoms secrets set KEY --env <environment>` and read it with $this->config('KEY').
+Set the value with `atoms secrets:set KEY --env <environment>` and read it with `$this->config('KEY')`.
 
 
 <a id="atoms-e018"></a>

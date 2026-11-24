@@ -2,18 +2,10 @@
 
 ## Reporting a vulnerability
 
-Report privately. Do not open a public issue, a discussion, or a pull request
-that describes the problem before it is fixed.
-
-Use GitHub's private vulnerability reporting: the **Security** tab of this
-repository → **Report a vulnerability**. That opens a private advisory visible
-only to the maintainers, and it is the channel we watch.
-
-> **To be filled in by a maintainer:** a dedicated security contact address
-> (and, if we publish one, a PGP key) still needs to go here for reporters who
-> cannot or will not use GitHub. Until that line exists, GitHub's private
-> reporting is the only channel — please do not read its absence as an
-> invitation to disclose publicly.
+Open the repository's [Security tab](https://github.com/AtomsPHP/atoms/security)
+and select **Report a vulnerability** if the button is available. Otherwise,
+open an issue asking the maintainers for a private contact. Share the report
+details only through that private channel.
 
 We aim to acknowledge a report within a few business days. Atoms is a
 small-scale, unfunded project: we will not commit to a fix deadline, and there

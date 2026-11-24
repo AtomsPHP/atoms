@@ -44,8 +44,8 @@ will be declined.
 
 PHP 8.3 is the floor. `atoms/core` executes inside the runtime's PHP 8.3
 interpreter, so no 8.4-only syntax (no property hooks, no asymmetric
-visibility) may appear anywhere in the repository. CI runs the suites on 8.3
-and 8.4.
+visibility) may appear anywhere in the repository. CI runs the suites on PHP
+8.3 through 8.6.
 
 One install at the root wires all eight packages through Composer path
 repositories, symlinked. That root install is what you develop and test
@@ -61,12 +61,13 @@ packages/cli/bin/atoms               # run the CLI from source
 ```
 
 Suite names come from `phpunit.xml.dist`: `core`, `client`, `laravel`,
-`symfony`, `testing`, `phpstan-rules`, `cli`, `integration`.
+`symfony`, `testing`, `phpstan-rules`, `cli`, `database-illuminate`,
+`integration`.
 
 Manifests are validated separately, as CI does it:
 
 ```sh
-composer validate --strict --no-check-all --no-check-lock
+composer validate --strict --no-check-all
 ```
 
 Package versions and inter-package constraints are coordinated from
@@ -139,8 +140,8 @@ not a diff.
   of the boundary. Add signatures; never change or remove one. `atoms/core`
   depends on nothing framework-ish — `psr/*` interfaces only.
 - **Layering is the product.** core ← client ← {laravel, symfony}; core ←
-  {testing, phpstan-rules, cli}. The Symfony bundle must never need
-  `atoms/laravel`. The CLI and testing packages must never need
+  {testing, phpstan-rules, cli, database-illuminate}. The Symfony bundle must
+  never need `atoms/laravel`. The CLI and testing packages must never need
   `atoms/client`. Nothing ships in `atoms/laravel` that could live in
   `atoms/client` or `atoms/core`.
 - **The error catalog is append-only.**

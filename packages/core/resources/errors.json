@@ -93,7 +93,7 @@
             "code": "ATOMS-E017",
             "title": "env() called inside Atom code",
             "message": "Atoms cannot read your application's .env.",
-            "fix": "Use `atoms secrets set KEY --env <environment>` and read it with $this->config('KEY').",
+            "fix": "Set the value with `atoms secrets:set KEY --env <environment>` and read it with `$this->config('KEY')`.",
             "severity": "error",
             "phase": "build"
         },
