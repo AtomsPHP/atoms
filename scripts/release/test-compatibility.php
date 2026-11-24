@@ -160,6 +160,8 @@ try {
     expect(compatibilityBlocks($temp, $manifest)['.github/workflows/ci.yml'][2] !== $originalBlocks['.github/workflows/ci.yml'][2], 'CI metadata change must stale the CI matrix');
 
     $extensionsPath = "{$temp}/packages/cli/resources/runtime-extensions.json";
+    expect(str_contains($originalPage, '**Networking (`curl`, `soap`)**'), 'Compatibility page must document curl/soap sandbox limits');
+    expect(str_contains($originalPage, '**Sessions (`session`)**'), 'Compatibility page must document session sandbox limits');
     writeJsonAtomically($extensionsPath, ['extensions' => ['example' => '1.0']]);
     expect(str_contains(renderCompatibility($temp, $manifest), '`example`'), 'Compatibility page must list Worker extensions');
 
