@@ -14,7 +14,6 @@ use Illuminate\Support\Facades\Facade;
  * @method static Ticket ticket(string $class, string $id, array<string, string> $claims = [], ?int $ttlMs = null)
  * @method static string wsUrl(string $class, string $id, array<string, string|int|float|bool|list<string>> $query = [])
  * @method static mixed call(string $type, string $id, string $method, list<mixed> $args = [], ?string $atomClass = null)
- * @method static bool destroy(string $type, string $id)
  * @method static AtomsFake fake(array<string, array<string, mixed>> $stubs = [])
  * @method static bool isFake()
  *

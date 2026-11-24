@@ -1215,8 +1215,5 @@ Nothing in this sequence contacts a service operated by Atoms.
   signing key (`ATOMS-E081` covers the case where it still does not). See
   "The callback channel" above for the derived key and why the CLI never
   carries the secret itself.
-- **`AtomsClient::destroy()` has no Worker route.** It targets
-  `DELETE {baseUrl}/atoms/{type}/{id}`, which the Worker answers `not_found`.
-  The URL shape is settled; the route is not implemented.
 - **A real `wrangler deploy` is unproven in CI**, and deliberately: no job in
   this repository may need a Cloudflare account or an API token.

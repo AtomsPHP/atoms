@@ -473,26 +473,6 @@ final class AtomsClientTest extends TestCase
         }
     }
 
-    public function testDestroyReturnsFlag(): void
-    {
-        $client = $this->client();
-        $this->http->queueJson(200, ['destroyed' => true]);
-
-        self::assertTrue($client->destroy('GameRoom', 'g-1'));
-
-        $req = $this->http->lastRequest();
-        self::assertSame('DELETE', $req->getMethod());
-        self::assertSame('https://atoms.example.workers.dev/atoms/GameRoom/g-1', (string) $req->getUri());
-    }
-
-    public function testDestroyIdempotentFalse(): void
-    {
-        $client = $this->client();
-        $this->http->queueJson(200, ['destroyed' => false]);
-
-        self::assertFalse($client->destroy('GameRoom', 'g-1'));
-    }
-
     public function testProxyDenormalizesTypedReturn(): void
     {
         $client = $this->client();
@@ -528,10 +508,10 @@ final class AtomsClientTest extends TestCase
         $client = $this->client();
         $this->http
             ->queueJson(200, ['result' => 'pong'])
-            ->queueJson(200, ['destroyed' => true]);
+            ->queueJson(200, ['result' => 'pong']);
 
         $client->call('GameRoom', 'g-1', 'ping');
-        $client->destroy('GameRoom', 'g-1');
+        $client->get(GameRoom::class, 'g-1')->ping();
 
         foreach ($this->http->requests as $request) {
             self::assertSame(self::BEARER, $request->getHeaderLine('Authorization'));

@@ -56,15 +56,6 @@ final class AtomsFakeTest extends TestCase
         $fake->assertInvoked(GameRoom::class, 'ping');
     }
 
-    public function testAssertDestroyedRecordsDestroyCalls(): void
-    {
-        $fake = Atoms::fake();
-
-        Atoms::destroy(GameRoom::class, 'g-9');
-
-        $fake->assertDestroyed(GameRoom::class, 'g-9');
-    }
-
     public function testInvocationsReturnsRawCallLog(): void
     {
         $fake = Atoms::fake();

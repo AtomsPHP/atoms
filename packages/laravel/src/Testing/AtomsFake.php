@@ -21,9 +21,6 @@ final class AtomsFake
     /** @var list<array{type: string, id: string, method: string, args: list<mixed>}> */
     private array $invocations = [];
 
-    /** @var list<array{type: string, id: string}> */
-    private array $destroyedAtoms = [];
-
     /** @var array<string, Ticket|\Closure> type => ticket|closure */
     private array $ticketStubs = [];
 
@@ -57,13 +54,6 @@ final class AtomsFake
     public function get(string $atomClassOrType, string $id): FakeAtomProxy
     {
         return new FakeAtomProxy($this, self::typeOf($atomClassOrType), $id);
-    }
-
-    public function destroy(string $atomClassOrType, string $id): bool
-    {
-        $this->destroyedAtoms[] = ['type' => self::typeOf($atomClassOrType), 'id' => $id];
-
-        return true;
     }
 
     /**
@@ -164,18 +154,6 @@ final class AtomsFake
             $this->wasInvoked($atomClassOrType, $method, $filter),
             "Expected {$method}() NOT to have been invoked on Atom type '" . self::typeOf($atomClassOrType) . "', but it was.",
         );
-    }
-
-    public function assertDestroyed(string $atomClassOrType, string $id): void
-    {
-        $type = self::typeOf($atomClassOrType);
-
-        $found = array_filter(
-            $this->destroyedAtoms,
-            static fn (array $entry): bool => $entry['type'] === $type && $entry['id'] === $id,
-        );
-
-        PHPUnit::assertNotEmpty($found, "Expected Atom {$type}:{$id} to have been destroyed, but it was not.");
     }
 
     /**
