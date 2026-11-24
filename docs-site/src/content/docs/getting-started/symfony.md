@@ -280,3 +280,6 @@ Identically is the deliberate part. `bin/console` runs after your application's
 `ATOMS_CALLBACK_URL` in your `.env` is not a deployment input, while one from
 your shell or from CI still is. See [Framework
 commands](/guides/environments/#framework-commands).
+
+If you use the database nonce store, run `bin/console atoms:nonces:prune`
+to delete expired callback nonces.

@@ -211,36 +211,29 @@ justification died along with the mint route (`docs/ws-ticket-protocol.md`
 §Rotation explains why, and records the rejected alternative of keeping
 tickets strict).
 
-Runbook (zero downtime for bearer, tickets and callbacks):
+### Rotation procedure
 
-1. Worker: set `ATOMS_SHARED_SECRET` = new, `ATOMS_SHARED_SECRET_PREVIOUS`
-   = old, deploy. The Worker now accepts both bearers and both ticket
-   signatures.
-2. Monolith: deploy with the same pair. New instances emit the new bearer
-   and sign new tickets with the new key, and verify callbacks under both
-   keys; a still-old instance emits the old bearer and signs tickets with
-   the old key, both of which the Worker still accepts.
-3. Once every instance on both sides holds the new secret, delete
-   `ATOMS_SHARED_SECRET_PREVIOUS` from both and redeploy. This step still
-   invalidates every outstanding old-secret ticket at once, along with the
-   old bearer and old callback key.
+Start with the old value in `ATOMS_SHARED_SECRET` on both sides.
 
-All three steps run from a pipeline. Step 1 is the deploy Action's
-`shared-secret` and `shared-secret-previous` inputs with
-`rotate-shared-secret: true` — the flag exists because a routine deploy must
-never silently replace the root every caller derives its bearer from. Step 3
-is `retire-shared-secret-previous: true` on one later deploy, in place of
-`shared-secret-previous`; it runs `atoms shared-secret:unset`, which removes
-the key and succeeds when it is already gone, so leaving the input on costs
-nothing but is worth dropping once the window is closed.
+1. Keep the application's current secret and set `ATOMS_SHARED_SECRET_PREVIOUS`
+   to the new value. Reload every application instance so each can verify
+   callbacks signed with either key.
+2. On the Worker, set `ATOMS_SHARED_SECRET_PREVIOUS` to the old value. Let
+   that change propagate, then set `ATOMS_SHARED_SECRET` to the new value.
+   Wait for that change to propagate before switching the application.
+3. Set the application's current secret to the new value and its previous
+   secret to the old value. Reload every instance. The Worker accepts bearers
+   and tickets from both application versions during the rollout.
+4. Once both rollouts have finished and tickets signed with the old key have
+   expired, remove `ATOMS_SHARED_SECRET_PREVIOUS` from both sides. Run
+   `atoms shared-secret:unset --env <environment>` on the Worker and reload
+   the application after removing its previous secret.
 
-`shared-secret:unset` removes the overlap key only. `ATOMS_SHARED_SECRET`
-itself has no unset path: removing it makes every route except `GET /healthz`
-answer `misconfigured`, which is not an operation to keep one typo away from
-the one that closes a rotation.
-
-Step 2, and the app side of step 3, are your own platform's secret
-management; nothing here can reach it.
+For step 2 in GitHub Actions, use two runs with `rotate-shared-secret: true`.
+Pass only `shared-secret-previous` with the old value on the first run.
+After it propagates, pass only `shared-secret` with the new value on the
+second. For step 4, set `retire-shared-secret-previous: true` on one later
+run. Use your application's secret manager for its configuration changes.
 
 ## Setting it: CI is the common case
 
@@ -261,7 +254,7 @@ The deploy Action wraps this. Generate once with `openssl rand -base64 32`,
 then put that one value in three places:
 
 ```yaml
-- uses: AtomsPHP/atoms/action@v0
+- uses: AtomsPHP/atoms/action@v0.10.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}

@@ -75,6 +75,7 @@ To restore a selected Worker version, follow [Rollback](/guides/rollback/).
 - **`secrets:set KEY [VALUE]`** — `--env` (required), `--worker-dir`. Reads the value from stdin when the `VALUE` argument is omitted.
 - **`shared-secret:set`** — `--env` (required), `--worker-dir`, `--previous` to target `ATOMS_SHARED_SECRET_PREVIOUS` instead of `ATOMS_SHARED_SECRET`, `--force` to overwrite an existing value. Reads the secret from stdin. Leaves an existing secret unchanged unless you pass `--force`.
 - **`token`** — `--worker-dir` (defaults to `atoms-worker/` beside `atoms.json`). There is no `--env`: the bearer is derived from `ATOMS_SHARED_SECRET` alone, and the Worker directory is the same for every environment.
+- `ai:install` accepts the common `--root` option. It regenerates the project skills and the section between the Atoms markers in `AGENTS.md`.
 
 ## Secrets
 

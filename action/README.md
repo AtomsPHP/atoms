@@ -74,7 +74,7 @@ route **except `GET /healthz`** — a green health check over a broken Worker. P
 `shared-secret` and the action configures it in the same run:
 
 ```yaml
-- uses: AtomsPHP/atoms/action@v0
+- uses: AtomsPHP/atoms/action@v0.10.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -94,19 +94,11 @@ log could show. The write happens *after* the deploy step because
 `wrangler secret put` needs the Worker to exist, so a first deploy serves
 `misconfigured` for the seconds between the two, then heals.
 
-It is idempotent — the write is skipped when the Worker already has the secret,
-so running it on every deploy does not mint a Worker version each time. That
-also means it will not apply a **changed** value: set `rotate-shared-secret:
-true` for that, alongside `shared-secret-previous` for a zero-downtime overlap.
-
-Closing the window is `retire-shared-secret-previous: true` on one later
-deploy, in place of `shared-secret-previous`. It removes the overlap key and
-succeeds when the key is already gone, so it cannot fail a pipeline that runs
-it twice. The overlap key is the only one it removes — `ATOMS_SHARED_SECRET`
-has no retire input, because a Worker without it answers `misconfigured` on
-every route but `GET /healthz`. Drop the same value from the application side
-yourself; nothing here can reach it. See `docs/shared-secret.md` for the full
-rotation runbook.
+By default, the Action skips the write if the Worker already has the secret.
+To rotate it, prepare every application instance to verify callbacks with
+both keys. Set the Worker's previous and current secrets in separate runs
+so the first change can propagate. Follow the
+[rotation procedure](../docs/shared-secret.md#rotation-procedure).
 
 ## How it works
 
@@ -198,17 +190,26 @@ jobs:
           cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
 ```
 
-### Build locally, then deploy
+### Deploy a prebuilt bundle
+
+For a project with `atoms/cli` in its Composer dependencies, these steps
+build the archive and pass its path to the Action. The deploy command reads
+`manifest.json` from the same directory.
 
 ```yaml
 - uses: actions/checkout@v4
-- run: atoms build --output my-bundle.tar.gz
+- run: composer install --no-interaction
+- id: build
+  run: |
+    out=$(mktemp -d)
+    vendor/bin/atoms build --out "$out"
+    printf 'bundle=%s\n' "$out"/bundle-*.tar.gz >> "$GITHUB_OUTPUT"
 - uses: AtomsPHP/atoms/action@v0.10.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-    bundle: my-bundle.tar.gz
+    bundle: ${{ steps.build.outputs.bundle }}
 ```
 
 ### Deploy to staging on every pull request
