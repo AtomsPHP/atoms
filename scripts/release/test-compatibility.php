@@ -170,6 +170,18 @@ try {
             expect(str_contains($error->getMessage(), 'markers'), 'Expected invalid markers to fail');
         }
     }
+    $actionRefs = <<<'MD'
+- uses: AtomsPHP/atoms/action@v0
+- uses: AtomsPHP/atoms/action@v0.10
+- uses: AtomsPHP/atoms/action@v0.9.2
+- uses: AtomsPHP/atoms/action@v0.10.0-rc.1
+- uses: AtomsPHP/atoms/action@0123456789abcdef0123456789abcdef01234567
+Use `AtomsPHP/atoms/action@v0.10.0`.
+MD;
+    expect(
+        outdatedActionTags($actionRefs, '0.10.0') === ['v0', 'v0.10', 'v0.9.2', 'v0.10.0-rc.1'],
+        'Action references must use the full current release tag',
+    );
     fwrite(STDOUT, "Compatibility generation tests passed.\n");
 } finally {
     foreach ($paths as $path) {

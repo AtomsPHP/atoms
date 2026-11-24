@@ -4,7 +4,7 @@ This directory contains the conformance test suite for the Atoms runtime on Clou
 
 ## Tests
 
-`conformance.mjs` runs 45 checks against a live worker URL:
+`conformance.mjs` runs 46 checks against a live worker URL:
 
 1. **healthz** — `/healthz` endpoint responds
 2. **invoke + result envelope** — HTTP interface returns correct shape
@@ -51,6 +51,7 @@ This directory contains the conformance test suite for the Atoms runtime on Clou
 43. **structured WebSocket frames** — `Connection::sendJson()` puts a payload on the wire **bare**, with no `kind:"broadcast"` envelope, slashes unescaped and an integer past 2^53-1 intact, encodes an empty top-level map as `{}` and refuses a non-empty top-level list with `\JsonException` before sending anything; `Message::json()` round-trips an object and preserves a nested list; a nested empty map still encodes as `[]` (only the top level is forced to an object, deliberately); and a top-level list and malformed JSON both reach the Atom as one `\JsonException`. Every frame is compared as a raw string — `JSON.parse` would round the int64 and hide the envelope
 44. **malformed rotation overlap** — booted with a **valid** current secret but a malformed `ATOMS_SHARED_SECRET_PREVIOUS`, the Worker is exactly as loudly broken as check 41's: `/healthz` answers 200 `{ok:true}` and `/invoke`, `/tickets`, `/debug` and `/ws` all answer HTTP 500 `misconfigured` — and each refusal message names `ATOMS_SHARED_SECRET_PREVIOUS`, which is what proves the gate tripped on the overlap and not on the current secret. Pins the spec's "set but malformed → misconfigured" requirement that checks 40 (valid overlap) and 41 (no current secret) cannot see
 45. **vendor tree autoload** — the manifest's `vendor.autoload` classmap loads a vendor class the line-scanning bundle autoloader cannot index (`Acme\Greeter\Greeter` is declared indented inside a conditional, on purpose), and a Composer-style function file is already loaded before the class is first touched, proving "files" entries are required eagerly at activation
+46. **Invoke request byte limit.** The check sends ASCII and multibyte bodies below, at and above the limit, with both `Content-Length` and chunked transfer. The Worker returns HTTP 413 with `payload_too_large` for oversized bodies and leaves the counter unchanged.
 
 Register checks with `check(number, name, fn)`. Numbers must be consecutive and
 ordered from 1; the runner validates them before starting. `ATOMS_ONLY`,
@@ -100,8 +101,8 @@ partial checks. Run the runner tests with
 | 44 | `ATOMS_EXPECT_MISCONFIGURED_PREVIOUS` unset (the flag is the gate) | — |
 | 42 | the Worker's `ATOMS_CONFIG_ENV_KEYS` does not make the control key readable | `ATOMS_REQUIRE_DENY_CHECKS=1` |
 
-Checks 18–28, 30 and 45 have no gate; they always run. Check 30 never skips — a
-stale doc is not excused by a missing run.
+Checks 18–28, 30, 45 and 46 have no configuration gate. Check 30 fails if its
+report is missing or the documentation is stale.
 
 ## Tests that are not conformance checks
 
@@ -305,6 +306,7 @@ Environment variables:
 - `ATOMS_BEARER_AUTH` (optional, `required` — the default — or `disabled`) — the posture the Worker under test runs. `required` is what makes the suite present a bearer; anything unrecognized is treated as `required`
 - `ATOMS_SHARED_SECRET_PREVIOUS` (optional) — the rotation overlap secret the Worker was started with; required for check 40, which otherwise skips
 - `ATOMS_EVICTION_WAIT_MS` (default 12500) — milliseconds to wait for DO eviction in checks 12, 21, 24 and 25
+- If you override `ATOMS_MAX_REQUEST_BYTES` on the Worker, set the same value for the runner so check 46 uses the correct limit.
 - `ATOMS_CALLBACK_PORT` (optional) — port for the suite's own loopback callback listener; defaults to the port recorded in `test/.dev-secret.json`
 - `ATOMS_TURN_DEADLINE_MS` (optional) — must match the value the Worker was started with (`npm run dev:callback`'s own env var of the same name); required for check 15, which otherwise skips
 - `ATOMS_REQUIRE_CALLBACK_CHECKS` (optional, `1`) — turn checks 13–17's skips into failures. Set it whenever the run *does* have a callback channel, so a broken harness cannot silently delete them; CI sets it

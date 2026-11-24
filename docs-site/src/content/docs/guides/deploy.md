@@ -71,11 +71,10 @@ packaged files.
 
 ### Known PHP-Wasm bundler warnings
 
-With `@php-wasm/web-8-3@3.1.48`, Wrangler 4.118.0 reports
-`duplicate-object-key` and `direct-eval` warnings in the
-WordPress Playground PHP-Wasm loader. The duplicate settings have identical
-values, and Atoms does not load the additional Wasm libraries that use
-the `eval` calls. These warnings do not prevent packaging.
+Wrangler can report `duplicate-object-key` and `direct-eval` warnings when
+it bundles the WordPress Playground PHP-Wasm loader. The duplicate settings
+have identical values, and Atoms does not load the additional Wasm libraries
+that use the `eval` calls. Packaging can proceed with these warnings.
 
 ## Set the shared secret
 
@@ -156,8 +155,9 @@ The `shared-secret` input sets the Worker's shared secret after the deploy
 when the Worker doesn't have one yet. Configure the same value in your
 application.
 
-To rotate the secret from CI, first prepare your application as described in
-[Rotate the shared secret](/guides/secrets/#rotate-the-shared-secret). Then run
-the Action with `rotate-shared-secret: true`, `shared-secret` set to the new
-value and `shared-secret-previous` set to the old one. On a later run,
-`retire-shared-secret-previous: true` removes the old value from the Worker.
+Follow the [rotation procedure](/guides/secrets/#rotate-the-shared-secret)
+to update the application and Worker in order. For the two Worker writes,
+use separate Action runs with `rotate-shared-secret: true`. Pass only
+`shared-secret-previous` with the old value first. Once it propagates,
+pass only `shared-secret` with the new value. At the end of the overlap,
+use `retire-shared-secret-previous: true` to remove the old value.

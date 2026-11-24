@@ -303,3 +303,6 @@ from your shell or from CI still is. Note also that Laravel reads its own
 `.env.production`; that no longer decides anything on the Atoms side. See
 [Framework
 commands](/guides/environments/#framework-commands).
+
+If you use the database nonce store, run `php artisan atoms:nonces:prune`
+to delete expired callback nonces.

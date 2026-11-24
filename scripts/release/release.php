@@ -226,6 +226,7 @@ function validateCurrentReleaseReferences(string $root, string $version, string 
         'README.md',
         'action/README.md',
         'docs/cloudflare-toolchain.md',
+        'docs/shared-secret.md',
         'examples/laravel/README.md',
         'examples/laravel/composer.json',
         'examples/laravel/.github/workflows/deploy-atoms.yml',
@@ -252,11 +253,8 @@ function validateCurrentReleaseReferences(string $root, string $version, string 
             }
         }
 
-        preg_match_all('/AtomsPHP\/atoms\/action@v(\d+\.\d+\.\d+)/', $contents, $actionMatches);
-        foreach ($actionMatches[1] as $referencedVersion) {
-            if ($referencedVersion !== $version) {
-                $errors[] = "{$relativePath} references Action {$referencedVersion}; expected {$version}";
-            }
+        foreach (outdatedActionTags($contents, $version) as $tag) {
+            $errors[] = "{$relativePath} references Action {$tag}; expected v{$version}";
         }
 
         // A pinned link into the repository at a release tag drifts exactly like
@@ -281,6 +279,14 @@ function validateCurrentReleaseReferences(string $root, string $version, string 
     }
 
     return $errors;
+}
+
+/** @return array<int, string> */
+function outdatedActionTags(string $contents, string $version): array
+{
+    preg_match_all('~AtomsPHP/atoms/action@(v[^\s`"\']*)~', $contents, $matches);
+
+    return array_diff($matches[1], ["v{$version}"]);
 }
 
 /**

@@ -48,7 +48,7 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 - **Added:** Host PHP support through 8.6 with Laravel 13; Laravel 12 supports
   host PHP through 8.5. The Atom runtime remains on PHP 8.3.
 
-## [0.9.0] - Unreleased
+## [0.9.0] - 2026-10-30
 
 - **Changed:** Authenticated callbacks require a configured nonce store and
   fail with `ATOMS-E111` until one is available. Configure shared Redis or
@@ -61,7 +61,7 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 - **Fixed:** Broadcast-only Atoms enable WebSockets in the generated manifest.
 - **Fixed:** The Laravel adapter accepts Guzzle PSR-7 3.x as well as 2.x.
 
-## [0.8.0] - Unreleased
+## [0.8.0] - 2026-10-28
 
 - **Changed:** Atom helpers must use `Support/` to match their PSR-4 namespace.
   Rename `<Atom>/support/` through an intermediate name to `<Atom>/Support/`
@@ -622,7 +622,7 @@ Initial open-source release of the Atoms programming model, Laravel and
 Symfony adapters, testing and PHPStan tooling, deterministic CLI build and
 deploy workflow, and the Cloudflare Durable Object PHP runtime.
 
-[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.9.1...main
+[Unreleased]: https://github.com/AtomsPHP/atoms/compare/v0.10.0...main
 
 [0.1.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.1.0
 
