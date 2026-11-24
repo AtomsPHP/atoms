@@ -9,6 +9,8 @@ use Atoms\Client\Callback\InMemoryNonceStore;
 use Atoms\Client\Crypto\KeyDerivation;
 use Atoms\Symfony\AtomsBundle;
 use Atoms\Symfony\Controller\CallbackController;
+use Atoms\Symfony\Tests\Fixtures\CustomOtherRoomMethods;
+use Atoms\Symfony\Tests\Fixtures\GameRoom\Methods;
 use GuzzleHttp\Psr7\HttpFactory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -32,7 +34,7 @@ final class CallbackControllerTest extends TestCase
     /**
      * @param array<string, mixed> $extraConfig
      */
-    private function controller(array $extraConfig = []): CallbackController
+    private function controller(array $extraConfig = [], ?\Closure $registerServices = null): CallbackController
     {
         $container = new ContainerBuilder();
         $container->setParameter('kernel.environment', 'test');
@@ -48,6 +50,7 @@ final class CallbackControllerTest extends TestCase
             'shared_secret' => self::SECRET,
             'callback_nonce' => ['driver' => 'memory'],
         ], $extraConfig));
+        $registerServices?->__invoke($container);
         $container->compile();
 
         $controller = $container->get(CallbackController::class);
@@ -96,6 +99,40 @@ final class CallbackControllerTest extends TestCase
 
         self::assertSame(200, $response->getStatusCode());
         self::assertSame(['result' => 5], json_decode((string) $response->getContent(), true));
+    }
+
+    public function testConventionMethodsServiceHandlesBasenameCallbackWithDependencies(): void
+    {
+        $controller = $this->controller(registerServices: static function (ContainerBuilder $container): void {
+            $container->register('app.game_room_methods', Methods::class)->setAutowired(true)->setAutoconfigured(true);
+        });
+        $response = $controller($this->signedRequest('methods', [
+            'atom' => ['type' => 'GameRoom', 'id' => 'g-1'],
+            'method' => 'endpoint',
+            'args' => [],
+        ]));
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(['result' => 'https://atoms.example.workers.dev'], json_decode((string) $response->getContent(), true));
+    }
+
+    public function testConfiguredMethodsOverrideWorksOutsideServiceDiscovery(): void
+    {
+        $controller = $this->controller([
+            'methods_classes' => [CustomOtherRoomMethods::class],
+        ], static function (ContainerBuilder $container): void {
+            $container->register(CustomOtherRoomMethods::class, CustomOtherRoomMethods::class)
+                ->setAbstract(true)
+                ->addTag('container.excluded');
+        });
+        $response = $controller($this->signedRequest('methods', [
+            'atom' => ['type' => 'OtherRoom', 'id' => 'o-1'],
+            'method' => 'greet',
+            'args' => ['Ada'],
+        ]));
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(['result' => 'hello Ada'], json_decode((string) $response->getContent(), true));
     }
 
     public function testBadSignatureIsRejectedWith401(): void

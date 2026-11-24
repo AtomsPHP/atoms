@@ -27,8 +27,6 @@ atoms:
     callback_timestamp_window: 300
     http_client: null
     psr17_factory: null
-    methods_classes:
-        - App\Atoms\GameRoom\Methods
 ```
 
 - `shared_secret` is `ATOMS_SHARED_SECRET`: required, and identical on this application and the Worker. Set it on the Worker with `vendor/bin/atoms shared-secret:set`, never through `secrets:set`. An optional `shared_secret_previous` (`ATOMS_SHARED_SECRET_PREVIOUS`) widens acceptance during a rotation window without changing what this application sends. See [Secrets and authentication](/guides/secrets/).
@@ -36,7 +34,7 @@ atoms:
 - `callback_path` is where the signed reverse-RPC callback is mounted.
 - `callback_timestamp_window` is the permitted clock skew in seconds.
 - `psr17_factory` names a service implementing the PSR-17 request, response, server-request, and stream factory interfaces. Leave it `null` to use the bundled Guzzle factory.
-- `methods_classes` enables container construction and `#[MethodsFor]` overrides.
+- Symfony injects constructor dependencies into autoconfigured Methods services. List a class in `atoms.methods_classes` to register it explicitly or apply `#[MethodsFor]`.
 
 ## Mount the callback route
 
@@ -203,6 +201,17 @@ The public service id is `atoms.client`. The bundle resolves a PSR-18 client, PS
 
 When `symfony/messenger` and a message bus are present, the bundle wires `MessengerQueueBridge`. Otherwise it wires `NullQueueBridge`, which raises [ATOMS-E103](/reference/errors/#atoms-e103) when an Atom dispatches a job. Bind your own `QueueBridge` if Messenger is not your queue.
 
+To inject a service into a job, give the `handle()` parameter a class or interface type and tag the service in `config/services.yaml`. This example supplies `DatabaseScoreRecorder` to a job with `handle(ScoreRecorderInterface $scores)`.
+
+```yaml
+services:
+    App\Service\DatabaseScoreRecorder:
+        tags:
+            - { name: atoms.job_dependency, type: App\Contract\ScoreRecorderInterface }
+```
+
+You can omit `type` when the service id matches the parameter's fully qualified type. The job constructor receives the arguments sent by the Atom.
+
 ## Test it without Cloudflare
 
 Use `atoms/testing` for fast local tests of Atom behavior, migrations, callbacks, broadcasts, and timers:
@@ -271,7 +280,3 @@ Identically is the deliberate part. `bin/console` runs after your application's
 `ATOMS_CALLBACK_URL` in your `.env` is not a deployment input, while one from
 your shell or from CI still is. See [Framework
 commands](/guides/environments/#framework-commands).
-
-## Shipped behavior
-
-The complete shipped behavior and remaining container-instantiation limitation are maintained in the [`atoms/symfony` README](https://github.com/AtomsPHP/atoms/tree/main/packages/symfony#readme).

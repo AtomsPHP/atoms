@@ -33,8 +33,6 @@ atoms:
     callback_timestamp_window: 300   # seconds of clock skew a callback's timestamp may deviate before rejection
     http_client: null                # service id, or null to auto-detect / fall back to Guzzle
     psr17_factory: null              # service id, or null to fall back to Guzzle (no auto-detection — see "What's wired")
-    methods_classes:
-        - App\Atoms\GameRoom\Methods   # only needed for #[MethodsFor] overrides
 ```
 
 `shared_secret` is the root of the app ↔ Worker boundary: the same base64 of
@@ -145,15 +143,12 @@ for replay guarantees and failure responses.
   JSON-safe constructor args only) and handling them back via
   `AtomJobHandler`; otherwise `Atoms\Client\Callback\NullQueueBridge`, which
   throws a clear "configure a QueueBridge" exception on first use.
-- Methods resolution: every `methods_classes` entry is registered on the
-  `MethodsResolver` by name (for `#[MethodsFor]` overrides) *and* as an
-  autowired service, collected into a `Symfony\Component\DependencyInjection\ServiceLocator`
-  that `CallbackKernel` consults first — so a listed Methods class can itself
-  take app services as constructor dependencies. Anything not listed is
-  instantiated with `new $class()`.
-- A logger: `CallbackKernel` takes the app's `logger` service if one exists
-  (Monolog via FrameworkBundle, or anything else bound to that id) and `null`
-  otherwise — never a hard dependency on `psr/log`'s presence being wired up.
+- Symfony discovers autoconfigured `AtomMethods` services, including private
+  services. Their constructors can take application dependencies. List a class
+  in `methods_classes` to register it explicitly or apply its `#[MethodsFor]`
+  override.
+- `AtomsClient` and `CallbackKernel` both use the app's PSR-3 `logger` service
+  when it exists.
 - `atoms:deploy`, `atoms:rollback`, `atoms:list` — thin console wrappers that
   shell out to the real `atoms` binary (discovered via `vendor/bin/atoms`,
   then `$PATH`, then `packages/cli/bin/atoms`); registered only when
@@ -179,18 +174,10 @@ Every auto-detected collaborator has an explicit override point:
   signed callbacks return `503` with `ATOMS-E111`. Bind your own
   `Atoms\Client\Callback\NonceStore` to override the configured backend.
   Use `memory` only when the same store instance survives across callbacks.
-- **Methods classes** — list them under `methods_classes` to get container
-  resolution (and `#[MethodsFor]` support); anything else resolves by naming
-  convention with `new $class()`.
-- **Logger** — register any service under the id `logger` (FrameworkBundle
-  does this for you when Monolog is installed).
-
-## Not yet supported
-
-Methods classes resolve from the container only when listed under
-`methods_classes`; anything not listed there is instantiated with
-`new $class()` rather than autowired, even if the class itself would
-otherwise be autowirable.
+- **Job dependencies.** Tag a service with `atoms.job_dependency` to inject it
+  into a job's `handle()` method. See the [Symfony Messenger example](https://docs.atomsphp.dev/getting-started/symfony/#dispatch-through-messenger).
+- **Logger.** Register a PSR-3 logger under the service id `logger`.
+  FrameworkBundle provides this service when Monolog is installed.
 
 ## Development and support
 

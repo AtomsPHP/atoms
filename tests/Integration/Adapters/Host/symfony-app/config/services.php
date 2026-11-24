@@ -50,13 +50,7 @@ return static function (ContainerConfigurator $container): void {
         ->factory([TestDoubles::class, 'nonceStore'])
         ->public();
 
-    // S6: a plain, always-present autowirable service — not a TestDoubles
-    // factory, since this one isn't swapped per case — so
-    // config/packages/atoms.yaml's RankRoom\MethodsWithDependency (itself
-    // autowired by AtomsBundle::registerCallbackStack() because it's listed
-    // in methods_classes) compiles with its constructor dependency actually
-    // satisfied. This is the real production autowiring path a host app's
-    // own services.php would use, not a test-only shortcut.
+    // RankRoom\MethodsWithDependency takes a Scoreboard in its constructor.
     $services->set(Scoreboard::class);
 
     if (TestDoubles::$queueAvailable) {

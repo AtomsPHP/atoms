@@ -8,6 +8,8 @@ use Atoms\Client\Callback\QueueBridge;
 use Atoms\Symfony\Messenger\AtomJobHandler;
 use Atoms\Symfony\Messenger\AtomJobMessage;
 use Atoms\Symfony\Messenger\MessengerQueueBridge;
+use Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument;
+use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
@@ -41,6 +43,9 @@ final class MessengerBridgePass implements CompilerPassInterface
 
         if (class_exists(AsMessageHandler::class)) {
             $container->register(AtomJobHandler::class, AtomJobHandler::class)
+                ->setArgument('$handleServices', new ServiceLocatorArgument(
+                    new TaggedIteratorArgument('atoms.job_dependency', 'type', needsIndexes: true),
+                ))
                 ->setPublic(false)
                 ->addTag('messenger.message_handler', ['handles' => AtomJobMessage::class]);
         }
