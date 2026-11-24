@@ -202,7 +202,7 @@ final class NonceConfigurationTest extends TestCase
 
     public function testConfiguredPredisServiceClaimsNonceAndRejectsReplay(): void
     {
-        $connection = $this->createMock(\Predis\Connection\ConnectionInterface::class);
+        $connection = $this->createMock(\Predis\Connection\NodeConnectionInterface::class);
         $connection->method('getParameters')->willReturn(new \Predis\Connection\Parameters());
         $connection->expects(self::exactly(2))->method('executeCommand')
             ->with(self::callback(static function (\Predis\Command\CommandInterface $command): bool {

@@ -551,6 +551,13 @@ function validateManifest(array $manifest): array
     if (!is_string($nodeVersion) || preg_match('/^[1-9][0-9]*(?:\.[0-9]+\.[0-9]+)?$/', $nodeVersion) !== 1) {
         $errors[] = 'runtime.node must be a Node.js major or exact minimum version (e.g. 22 or 22.12.0)';
     }
+    $testedNode = $manifest['runtime']['node_tested'] ?? null;
+    if (!is_array($testedNode) || !array_is_list($testedNode) || $testedNode === []
+        || array_filter($testedNode, static fn ($v): bool => !is_string($v) || !preg_match('/^[1-9][0-9]*$/', $v))
+        || count(array_unique($testedNode)) !== count($testedNode)
+        || (int) min($testedNode) !== (int) $nodeVersion) {
+        $errors[] = 'runtime.node_tested must list unique Node.js majors starting at the minimum supported major';
+    }
     $wranglerVersion = $manifest['runtime']['wrangler'] ?? null;
     if (!is_string($wranglerVersion) || preg_match('/^[0-9]+\.[0-9]+\.[0-9]+$/', $wranglerVersion) !== 1) {
         $errors[] = 'runtime.wrangler must be an exact semver version matching the pinned Worker lockfile';
@@ -630,7 +637,7 @@ function renderCompatibility(string $root, array $manifest): string
     $untestedNote = $untested === [] ? '' : 'Laravel ' . formatMajors($untested) . " has no current CI coverage.\n";
     [$major, $minor] = explode('.', $version, 3);
     $releaseLine = "{$major}.{$minor}";
-    $nodeMajor = explode('.', (string) $runtime['node'], 2)[0];
+    $testedNode = formatMajors($runtime['node_tested']);
 
     return <<<MARKDOWN
 ---
@@ -669,11 +676,8 @@ so application and Worker installs are repeatable.
 | Component | Dependency constraint | Supported versions, tested in CI |
 |---|---|---|
 | Host PHP | `{$php['constraint']}` | {$testedPhp} |
-| Node.js | `>={$runtime['node']}` | Node.js {$nodeMajor} |
+| Node.js | `>={$runtime['node']}` | Node.js {$testedNode} |
 | Wrangler | `{$runtime['wrangler']}` | Wrangler {$runtime['wrangler']} |
-
-Use the supported versions above. Dependency constraints may allow newer
-versions that Atoms has not tested.
 
 Host PHP runs your application and CLI. The Worker release supplies its own
 PHP {$runtime['guest_php']} interpreter compiled to WebAssembly.
@@ -690,8 +694,16 @@ even when the application host uses a newer PHP version.
 {$ciRows}
 
 {$untestedNote}
+Laravel 12 requires Guzzle 7, which uses `guzzlehttp/psr7` 2.x. Laravel 13
+also supports Guzzle 8 with `guzzlehttp/psr7` 3.x.
+
 The optional `atoms/database-illuminate` bridge runs inside an Atom and allows
 Illuminate Database {$bridgeMajors}, independently of your application's Laravel version.
+
+## Symfony
+
+`atoms/symfony` supports Symfony 6.4 and 7.x. CI tests the bundle on Symfony
+6.4 and 7.4. The standalone `atoms/cli` also supports Symfony 8 components.
 
 MARKDOWN;
 }

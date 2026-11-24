@@ -4,8 +4,9 @@
 PHP packages, Cloudflare runtime, deploy Action, and compatibility table.
 Publication workflows reject a release tag unless its status is `ready`.
 
-`php.tested` defines host CI coverage; `laravel.ci[].php_max` optionally caps it
-for a Laravel release. After changing either, run
+`php.tested` lists the host PHP versions CI tests. A Laravel release can set
+`laravel.ci[].php_max` to cap its PHP range. The Worker suite runs on each
+Node.js major in `runtime.node_tested`. After changing these fields, run
 `php scripts/release/release.php generate` and `check`.
 
 Use the release tool rather than editing version fields by hand:

@@ -7,7 +7,6 @@ use Atoms\Tests\Integration\Adapters\Fixtures\Scoreboard;
 use Atoms\Tests\Integration\Adapters\Support\RecordingLogger;
 use Atoms\Tests\Integration\Adapters\Support\TestDoubles;
 use Psr\Http\Client\ClientInterface;
-use Psr\Log\NullLogger;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\Messenger\MessageBusInterface;
 
@@ -40,11 +39,6 @@ return static function (ContainerConfigurator $container): void {
     $services->set('logger', RecordingLogger::class)
         ->factory([TestDoubles::class, 'logger'])
         ->public();
-
-    // Backs framework.yaml's 'atoms_silent' exceptions.log_channel — see the
-    // comment there for why Symfony's own router/kernel exception logging
-    // (not CallbackKernel's) is routed away from the shared RecordingLogger.
-    $services->set('monolog.logger.atoms_silent', NullLogger::class);
 
     $services->set(NonceStore::class)
         ->factory([TestDoubles::class, 'nonceStore'])

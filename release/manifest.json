@@ -7,6 +7,11 @@
         "package": "@atomsphp/runtime-cloudflare",
         "version": "0.10.0",
         "node": "22.12.0",
+        "node_tested": [
+            "22",
+            "24",
+            "26"
+        ],
         "wrangler": "4.165.0",
         "guest_php": "8.3"
     },

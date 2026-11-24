@@ -29,11 +29,12 @@ try {
     $changedToolchain['php']['tested'] = ['9.1', '9.2'];
     unset($changedToolchain['laravel']['ci'][0]['php_max']);
     $changedToolchain['runtime']['node'] = '24';
+    $changedToolchain['runtime']['node_tested'] = ['24', '26'];
     $changedToolchain['runtime']['wrangler'] = '5.2.1';
     $changedToolchain['runtime']['guest_php'] = '9.0';
     $toolchainPage = renderCompatibility($temp, $changedToolchain);
     expect(str_contains($toolchainPage, '| Host PHP | `^9.0` | PHP 9.1 and PHP 9.2 |'), 'Host PHP constraint and tested versions must come from the manifest');
-    expect(str_contains($toolchainPage, '| Node.js | `>=24` | Node.js 24 |'), 'Node constraint and version must come from the manifest');
+    expect(str_contains($toolchainPage, '| Node.js | `>=24` | Node.js 24 and 26 |'), 'Node constraint and tested versions must come from the manifest');
     expect(str_contains($toolchainPage, '| Wrangler | `5.2.1` | Wrangler 5.2.1 |'), 'Wrangler pin must come from the manifest');
     expect(str_contains($toolchainPage, 'PHP 9.0 interpreter compiled to WebAssembly'), 'Guest interpreter version must come from the manifest');
 
@@ -41,7 +42,9 @@ try {
     $patchFloorNode['runtime']['node'] = '22.12.0';
     expect(validateManifest($patchFloorNode) === [], 'Exact minimum Node.js versions must pass manifest validation');
     $patchFloorPage = renderCompatibility($temp, $patchFloorNode);
-    expect(str_contains($patchFloorPage, '| Node.js | `>=22.12.0` | Node.js 22 |'), 'Node constraint must keep the exact floor while CI support lists the tested major');
+    expect(str_contains($patchFloorPage, '| Node.js | `>=22.12.0` | Node.js 22, 24 and 26 |'), 'Node constraint must keep the exact floor while CI support lists the tested majors');
+    $patchFloorNode['runtime']['node_tested'] = ['24', '26'];
+    expect(validateManifest($patchFloorNode) !== [], 'Worker CI must test the minimum supported Node major');
 
     foreach (['^22.12.0', '22.12', ''] as $invalidNode) {
         $invalidManifest = $manifest;

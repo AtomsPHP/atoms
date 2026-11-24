@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Atoms\Tests\Integration\Adapters\Host;
 
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
+use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\HttpKernel\Kernel;
 
 /**
@@ -36,7 +38,7 @@ use Symfony\Component\HttpKernel\Kernel;
  *    always compiles a fresh container instead of resurrecting a stale one —
  *    see {@see SymfonyHost::shutdown()} for the matching cleanup.
  */
-final class SymfonyTestKernel extends Kernel
+final class SymfonyTestKernel extends Kernel implements CompilerPassInterface
 {
     use MicroKernelTrait;
 
@@ -47,6 +49,12 @@ final class SymfonyTestKernel extends Kernel
         parent::__construct('test_' . bin2hex(random_bytes(8)), $debug);
 
         $this->varDir = sys_get_temp_dir() . '/atoms-symfony-host-' . bin2hex(random_bytes(8));
+    }
+
+    public function process(ContainerBuilder $container): void
+    {
+        // Only Atoms log records belong in the callback assertions.
+        $container->getDefinition('exception_listener')->replaceArgument(1, null);
     }
 
     public function getProjectDir(): string

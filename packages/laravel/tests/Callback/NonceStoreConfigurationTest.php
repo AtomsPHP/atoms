@@ -63,7 +63,7 @@ final class NonceStoreConfigurationTest extends TestCase
             'atoms.callback_nonce.namespace' => 'app:testing',
             'atoms.callback_nonce.redis_connection' => 'atoms',
         ]);
-        $nativeConnection = $this->createMock(\Predis\Connection\ConnectionInterface::class);
+        $nativeConnection = $this->createMock(\Predis\Connection\NodeConnectionInterface::class);
         $nativeConnection->method('getParameters')->willReturn(new \Predis\Connection\Parameters());
         $nativeConnection->expects(self::exactly(2))->method('executeCommand')->willReturnOnConsecutiveCalls(1, 0);
         $native = new \Predis\Client($nativeConnection);

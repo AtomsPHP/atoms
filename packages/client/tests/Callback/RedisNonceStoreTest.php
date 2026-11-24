@@ -14,7 +14,7 @@ use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use Predis\Client;
 use Predis\Command\CommandInterface;
-use Predis\Connection\ConnectionInterface;
+use Predis\Connection\NodeConnectionInterface;
 
 final class RedisNonceStoreTest extends TestCase
 {
@@ -24,7 +24,7 @@ final class RedisNonceStoreTest extends TestCase
         $records = [];
         $commands = [];
         $connect = function () use (&$records, &$commands): Client {
-            $connection = $this->createMock(ConnectionInterface::class);
+            $connection = $this->createMock(NodeConnectionInterface::class);
             $connection->method('getParameters')->willReturn(new \Predis\Connection\Parameters());
             $connection->method('executeCommand')->willReturnCallback(
                 static function (CommandInterface $command) use (&$records, &$commands): int {
