@@ -13,12 +13,11 @@
             "dist": {
                 "type": "path",
                 "url": "packages/cli",
-                "reference": "9b97037b2c4ab5a6f042d96422b7688d68574ce4"
+                "reference": "2b448321027214223aa6c5a5db79b5546c535de8"
             },
             "require": {
                 "atoms/core": "^0.10",
                 "colinodell/json5": "^2.3 || ^3.0",
-                "ext-curl": "*",
                 "ext-json": "*",
                 "nikic/php-parser": "^5.8",
                 "php": "^8.3",

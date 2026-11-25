@@ -257,7 +257,7 @@ Atom code uses extension {extension}, which the Atoms runtime image does not pro
 
 **Fix**
 
-Check the supported extension list in the docs, or move the dependent code into a Methods class.
+Move this code into a Methods class or use a Worker extension listed at https://docs.atomsphp.dev/reference/compatibility/#worker-php-extensions.
 
 
 <a id="atoms-e020"></a>

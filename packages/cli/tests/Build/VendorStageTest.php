@@ -231,7 +231,7 @@ final class VendorStageTest extends TestCase
         self::assertFalse($decoded['repositories'][0]['options']['symlink']);
         self::assertFalse($decoded['repositories'][1]['options']['symlink']);
         self::assertArrayNotHasKey('options', $decoded['repositories'][2]);
-        self::assertSame(VendorStage::workerPlatform(), $decoded['config']['platform'] ?? null);
+        self::assertSame(VendorStage::WORKER_PHP_VERSION, $decoded['config']['platform']['php'] ?? null);
     }
 
     public function testComposerCommandEnforcesPlatformRequirements(): void
@@ -257,15 +257,19 @@ final class VendorStageTest extends TestCase
         self::assertSame(VendorStage::WORKER_PHP_VERSION, $platform['php'] ?? null);
 
         $extensionsFile = \dirname(__DIR__, 2) . '/resources/runtime-extensions.json';
-        /** @var array{extensions: list<string>} $rawExtensions */
+        /** @var array{extensions: array<string, string>} $rawExtensions */
         $rawExtensions = json_decode((string) file_get_contents($extensionsFile), true, 16, JSON_THROW_ON_ERROR);
-        foreach ($rawExtensions['extensions'] as $ext) {
-            $lower = strtolower($ext);
-            if ($lower === 'core' || $lower === 'standard') {
-                self::assertArrayNotHasKey('ext-' . $lower, $platform);
+        foreach ($rawExtensions['extensions'] as $name => $version) {
+            if ($name === 'core' || $name === 'standard') {
+                self::assertArrayNotHasKey('ext-' . $name, $platform);
                 continue;
             }
-            self::assertSame(VendorStage::WORKER_PHP_VERSION, $platform['ext-' . $lower] ?? null);
+            $platformKey = 'ext-' . str_replace(' ', '-', $name);
+            self::assertSame($version, $platform[$platformKey] ?? null);
+        }
+
+        foreach (['pcntl', 'posix', 'sockets', 'uv'] as $missing) {
+            self::assertArrayNotHasKey('ext-' . $missing, $platform);
         }
     }
 
@@ -277,7 +281,7 @@ final class VendorStageTest extends TestCase
             'packages-dev' => [],
             'platform' => new \stdClass(),
             'platform-dev' => new \stdClass(),
-            'platform-overrides' => ['php' => '8.5.0'],
+            'platform-overrides' => ['php' => '8.5.0', 'ext-sockets' => '8.5.0'],
         ], JSON_THROW_ON_ERROR);
 
         $staged = VendorStage::stagedComposerLock($rawLock);
@@ -287,10 +291,11 @@ final class VendorStageTest extends TestCase
         self::assertStringContainsString('"packages-dev": []', $staged);
 
         $decoded = json_decode($staged, true, 16, JSON_THROW_ON_ERROR);
-        self::assertSame(VendorStage::workerPlatform(), $decoded['platform-overrides'] ?? null);
+        self::assertSame(VendorStage::WORKER_PHP_VERSION, $decoded['platform-overrides']['php'] ?? null);
+        self::assertArrayNotHasKey('ext-sockets', $decoded['platform-overrides']);
     }
 
-    public function testCacheKeyIncludesWorkerPhpVersion(): void
+    public function testCacheKeyIncludesWorkerPlatform(): void
     {
         $json = "{\"require\":{\"acme/lib\":\"^1.0\"}}\n";
         $lock = "{\"canned\": true}\n";
@@ -310,7 +315,9 @@ final class VendorStageTest extends TestCase
         (new VendorStage($runner, '8.3.32'))->resolve($root);
         $runsAfterFirst = \count($runner->runs);
 
-        (new VendorStage($runner, '8.4.0'))->resolve($root);
+        $differentPhp = new VendorStage($runner, '8.4.0');
+        self::assertNull($differentPhp->cached($root));
+        $differentPhp->resolve($root);
         self::assertGreaterThan(
             $runsAfterFirst,
             \count($runner->runs),
@@ -342,7 +349,7 @@ final class VendorStageTest extends TestCase
 
         /** @var array<string, mixed> $lock */
         $lock = json_decode((string) file_get_contents($root . '/atoms-composer.lock'), true, 64, JSON_THROW_ON_ERROR);
-        self::assertSame(VendorStage::WORKER_PHP_VERSION, $lock['platform-overrides']['php'] ?? null);
+        self::assertSame(VendorStage::workerPlatform(), $lock['platform-overrides'] ?? null);
 
         // Clear cache and re-run from the written lockfile to prove repeat
         // verification passes cleanly against the Worker platform.
@@ -443,15 +450,14 @@ final class VendorStageTest extends TestCase
     {
         $this->requireRealComposer();
 
-        // Bundled extensions from runtime-extensions.json (including ext-uv,
-        // which is rarely present on host PHP) must resolve cleanly.
         $okRoot = $this->freshDir();
         $this->writePathPackage($okRoot . '/packages/worker-exts', 'acme/worker-exts', '1.0.0', [
             'php' => '^8.3',
+            'ext-bcmath' => '*',
             'ext-pdo' => '*',
             'ext-pdo_sqlite' => '*',
-            'ext-mbstring' => '*',
-            'ext-uv' => '*',
+            'ext-zend-opcache' => '*',
+            'ext-zip' => '^1.15',
         ]);
         file_put_contents($okRoot . '/atoms-composer.json', json_encode([
             'require' => ['acme/worker-exts' => '*'],
@@ -464,11 +470,10 @@ final class VendorStageTest extends TestCase
         $tree = (new VendorStage(new \Atoms\Cli\Process\SymfonyProcessRunner()))->resolve($okRoot);
         self::assertSame(['acme/worker-exts' => '1.0.0'], $tree->packages);
 
-        // An unavailable extension must fail with the offending package and requirement.
         $badRoot = $this->freshDir();
         $this->writePathPackage($badRoot . '/packages/missing-ext', 'acme/missing-ext', '1.0.0', [
             'php' => '^8.3',
-            'ext-atoms_nonexistent' => '*',
+            'ext-sockets' => '*',
         ]);
         file_put_contents($badRoot . '/atoms-composer.json', json_encode([
             'require' => ['acme/missing-ext' => '*'],
@@ -480,12 +485,49 @@ final class VendorStageTest extends TestCase
 
         try {
             (new VendorStage(new \Atoms\Cli\Process\SymfonyProcessRunner()))->resolve($badRoot);
-            self::fail('a package requiring an unavailable extension must fail');
+            self::fail('a package requiring ext-sockets must fail');
         } catch (AtomsError $e) {
             self::assertSame(ErrorCode::VendorResolutionFailed, $e->errorCode);
             self::assertStringContainsString('acme/missing-ext', $e->getMessage());
-            self::assertStringContainsString('ext-atoms_nonexistent', $e->getMessage());
+            self::assertStringContainsString('ext-sockets', $e->getMessage());
         }
+    }
+
+    public function testRealComposerRejectsLockedPackageWhenItsExtensionLeavesTheWorker(): void
+    {
+        $this->requireRealComposer();
+
+        $root = $this->freshDir();
+        $this->writePathPackage($root . '/packages/socket-user', 'acme/socket-user', '1.0.0', [
+            'ext-sockets' => '*',
+        ]);
+        file_put_contents($root . '/atoms-composer.json', json_encode([
+            'require' => ['acme/socket-user' => '*'],
+            'repositories' => [
+                ['type' => 'path', 'url' => 'packages/socket-user'],
+                ['packagist.org' => false],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $oldExtensions = $root . '/old-extensions.json';
+        file_put_contents($oldExtensions, '{"extensions":{"sockets":"8.3.32"}}');
+        $runner = new \Atoms\Cli\Process\SymfonyProcessRunner();
+        $original = new VendorStage($runner, extensionsResource: $oldExtensions);
+        self::assertSame(['acme/socket-user' => '1.0.0'], $original->resolve($root)->packages);
+        $lock = file_get_contents($root . '/atoms-composer.lock');
+
+        $current = new VendorStage($runner);
+        self::assertNull($current->cached($root));
+        try {
+            $current->resolve($root);
+            self::fail('the locked package requires ext-sockets, which the Worker lacks');
+        } catch (AtomsError $e) {
+            self::assertSame(ErrorCode::VendorResolutionFailed, $e->errorCode);
+            self::assertStringContainsString('acme/socket-user', $e->getMessage());
+            self::assertStringContainsString('ext-sockets', $e->getMessage());
+        }
+
+        self::assertSame($lock, file_get_contents($root . '/atoms-composer.lock'));
     }
 
     /**
@@ -587,6 +629,9 @@ final class VendorStageTest extends TestCase
             new ProcessResult(1, '', 'Your requirements could not be resolved.'),
             onPath: ['composer' => '/usr/bin/composer'],
         );
+
+        $runner->resultFor = static fn (array $command): ?ProcessResult =>
+            $command[1] === 'show' ? new ProcessResult(0, 'ext-json', '') : null;
 
         try {
             (new VendorStage($runner))->resolve($root);

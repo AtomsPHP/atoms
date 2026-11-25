@@ -23,7 +23,7 @@ final class CannedComposer
     {
         $runner = new FakeProcessRunner(onPath: ['composer' => '/usr/bin/composer']);
         $runner->resultFor = static function (array $command, ?string $cwd) use ($extraFiles): ?ProcessResult {
-            if ($command[0] !== 'composer' || $cwd === null) {
+            if ($command[0] !== 'composer' || $command[1] !== 'install' || $cwd === null) {
                 return null;
             }
 

@@ -635,6 +635,9 @@ function renderCompatibility(string $root, array $manifest): string
     ));
     $untested = array_values(array_diff($compatibility['adapter'], array_column($compatibility['ci'], 'version')));
     $untestedNote = $untested === [] ? '' : 'Laravel ' . formatMajors($untested) . " has no current CI coverage.\n";
+    $inventory = readJson("{$root}/packages/cli/resources/runtime-extensions.json");
+    $extensionNames = array_keys(arrayValue($inventory, 'extensions'));
+    $workerExtensions = implode(', ', array_map(static fn (string $name): string => "`{$name}`", $extensionNames));
     [$major, $minor] = explode('.', $version, 3);
     $releaseLine = "{$major}.{$minor}";
     $testedNode = formatMajors($runtime['node_tested']);
@@ -684,6 +687,31 @@ PHP {$runtime['guest_php']} interpreter compiled to WebAssembly.
 Atom classes, Support code, shared code included in the bundle, migrations,
 and bundled dependencies must use PHP {$runtime['guest_php']}-compatible syntax,
 even when the application host uses a newer PHP version.
+
+## Worker PHP extensions
+
+`atoms validate` checks built-in function and class names against these Worker
+extensions. `atoms build` uses their versions when Composer resolves dependencies
+in `atoms-composer.json`.
+
+{$workerExtensions}.
+
+Composer includes `core` and `standard` in the `php` package. To require
+`zend opcache`, use `ext-zend-opcache`.
+
+Some extensions compiled into upstream `php-wasm` are restricted by the
+Cloudflare Workers WebAssembly sandbox:
+
+- **SQLite (`pdo`, `pdo_sqlite`, `sqlite3`)**: For persistent SQLite data, use
+  `\$this->db()` or its [PDO connection](/reference/pdo/). A connection you open
+  directly with `pdo_sqlite` or `sqlite3` uses guest memory and loses its data
+  when the Worker evicts the Atom.
+- **Networking (`curl`, `soap`)**: The WebAssembly guest has no direct outbound
+  network sockets. Move outbound HTTP or SOAP requests into a
+  [Methods class](/guides/methods/) via `\$this->app()` or an
+  [AtomJob](/guides/jobs/) via `\$this->dispatch()`.
+- **Sessions (`session`)**: PHP session storage lives in ephemeral guest memory
+  and is lost on eviction; store persistent Atom state in SQLite via `\$this->db()`.
 
 ## Laravel and Illuminate
 

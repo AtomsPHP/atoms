@@ -104,7 +104,7 @@ so the first change can propagate. Follow the
 
 1. **Masks** the Cloudflare API token and any shared-secret inputs so they
    cannot leak into the log.
-2. **Sets up PHP** (default 8.3) with `pdo_sqlite` and `curl`.
+2. **Sets up PHP** (default 8.3) with `pdo_sqlite`.
 3. **Sets up Node** (default 22) — Wrangler is a Node program.
 4. **Installs the matching Atoms CLI version** via Composer.
 5. **Runs `npm ci`** in your committed Worker directory, from the

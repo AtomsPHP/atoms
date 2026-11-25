@@ -17,7 +17,6 @@
     ],
     "require": {
         "php": "^8.3",
-        "ext-curl": "*",
         "ext-json": "*",
         "atoms/core": "^0.10",
         "colinodell/json5": "^2.3 || ^3.0",

@@ -27,8 +27,8 @@ final class SymbolClassifier
     /** @var list<string> approved namespace prefixes from atoms-composer.json */
     private array $approvedNamespaces;
 
-    /** @var array<string, true> lowercased allowed extension names */
-    private array $runtimeExtensions;
+    /** @var array{extensions: array<string, string>, classes: array<string, string>} */
+    private array $extensionInventory;
 
     /** @var array<string, true> extensions actually referenced by Atom/Shared code */
     private array $usedExtensions = [];
@@ -49,7 +49,7 @@ final class SymbolClassifier
         ?FunctionIndex $functions = null,
     ) {
         $this->approvedNamespaces = $approvedNamespaces;
-        $this->runtimeExtensions = self::loadExtensions($extensionsResource);
+        $this->extensionInventory = self::loadExtensions($extensionsResource);
         $this->functions = $functions ?? new FunctionIndex();
         $path = __DIR__ . '/../../resources/runtime-functions.json';
         $raw = @file_get_contents($path);
@@ -62,7 +62,7 @@ final class SymbolClassifier
     }
 
     /**
-     * @return array<string, true> lowercased extension name => true
+     * @return array{extensions: array<string, string>, classes: array<string, string>}
      */
     private static function loadExtensions(?string $path): array
     {
@@ -71,15 +71,10 @@ final class SymbolClassifier
         if ($raw === false) {
             throw new \RuntimeException("Could not read runtime-extensions.json at {$path}");
         }
-        /** @var array{extensions?: list<string>} $decoded */
-        $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        /** @var array{extensions: array<string, string>, classes: array<string, string>} $inventory */
+        $inventory = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
 
-        $out = [];
-        foreach ($decoded['extensions'] ?? [] as $ext) {
-            $out[strtolower($ext)] = true;
-        }
-
-        return $out;
+        return $inventory;
     }
 
     /**
@@ -190,19 +185,7 @@ final class SymbolClassifier
             return $this->classifyNamespaced($name, $file, $line, SymbolKind::ClassLike, $shared, $owner);
         }
 
-        // Global-namespace class: allowed only if a runtime builtin.
-        if (class_exists($name, false) || interface_exists($name, false)
-            || enum_exists($name, false) || trait_exists($name, false)) {
-            return $this->checkExtension(
-                (new \ReflectionClass($name))->getExtensionName(),
-                $name,
-                $file,
-                $line,
-            );
-        }
-
-        // A bare, unknown, un-namespaced class — treat as a monolith reference.
-        return new Violation(ErrorCode::MonolithClassInAtom, $file, $line, ['symbol' => $name], $name);
+        return $this->classifyBuiltinClass($name, $file, $line);
     }
 
     private function classifyNamespaced(
@@ -243,16 +226,26 @@ final class SymbolClassifier
             );
         }
 
-        // Namespaced but internal (e.g. a global-namespaced extension class)?
-        if ($kind === SymbolKind::ClassLike
-            && (class_exists($name, false) || interface_exists($name, false)
-                || enum_exists($name, false) || trait_exists($name, false))) {
-            return $this->checkExtension(
-                (new \ReflectionClass($name))->getExtensionName(),
-                $name,
-                $file,
-                $line,
-            );
+        if ($kind === SymbolKind::ClassLike) {
+            return $this->classifyBuiltinClass($name, $file, $line);
+        }
+
+        return new Violation(ErrorCode::MonolithClassInAtom, $file, $line, ['symbol' => $name], $name);
+    }
+
+    private function classifyBuiltinClass(string $name, string $file, int $line): ?Violation
+    {
+        $extension = $this->extensionInventory['classes'][strtolower($name)] ?? null;
+        if ($extension !== null) {
+            return $this->checkExtension($extension, $name, $file, $line);
+        }
+
+        if (class_exists($name, false) || interface_exists($name, false)
+            || enum_exists($name, false) || trait_exists($name, false)) {
+            $extension = (new \ReflectionClass($name))->getExtensionName();
+            if ($extension !== false && !isset($this->extensionInventory['extensions'][strtolower($extension)])) {
+                return $this->checkExtension($extension, $name, $file, $line);
+            }
         }
 
         return new Violation(ErrorCode::MonolithClassInAtom, $file, $line, ['symbol' => $name], $name);
@@ -269,14 +262,10 @@ final class SymbolClassifier
         );
     }
 
-    private function checkExtension(?string $extension, string $name, string $file, int $line): ?Violation
+    private function checkExtension(string $extension, string $name, string $file, int $line): ?Violation
     {
-        if ($extension === null || $extension === '') {
-            return null; // user-defined / engine core without extension metadata
-        }
-
         $lower = strtolower($extension);
-        if (isset($this->runtimeExtensions[$lower])) {
+        if (isset($this->extensionInventory['extensions'][$lower])) {
             $this->usedExtensions[$lower] = true;
 
             return null;

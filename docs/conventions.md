@@ -53,8 +53,8 @@ core  ←  client  ←  laravel
   skeleton needs anything from `atoms/laravel`, the layering is broken — fix
   the layering, not the skeleton.
 - `atoms/testing` depends on core (+ phpunit). NOT on client.
-- `atoms/cli` depends on core (+ symfony/console, nikic/php-parser). NOT on
-  client — it speaks the deploy HTTP API itself via ext-curl.
+- `atoms/cli` depends on core, symfony/console and nikic/php-parser.
+  It deploys through Wrangler and has no dependency on client.
 - `atoms/database-illuminate` depends on core (+ illuminate/database). NOT on
   client or the adapters.
 - Nothing ships in `atoms/laravel` that could live in `atoms/client` or

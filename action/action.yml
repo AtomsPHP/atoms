@@ -100,7 +100,7 @@ runs:
       uses: shivammathur/setup-php@v2
       with:
         php-version: ${{ inputs.php-version }}
-        extensions: pdo_sqlite, curl
+        extensions: pdo_sqlite
 
     - name: Set up Node
       uses: actions/setup-node@v4

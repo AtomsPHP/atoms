@@ -8,10 +8,15 @@ $source = dirname(__DIR__, 2);
 $temp = sys_get_temp_dir() . '/atoms-compatibility-' . bin2hex(random_bytes(8));
 mkdir($temp . '/packages/laravel', 0700, true);
 mkdir($temp . '/packages/database-illuminate', 0700, true);
+mkdir($temp . '/packages/cli/resources', 0700, true);
 $paths = ['laravel', 'database-illuminate'];
 foreach ($paths as $path) {
     copy("{$source}/packages/{$path}/composer.json", "{$temp}/packages/{$path}/composer.json");
 }
+copy(
+    "{$source}/packages/cli/resources/runtime-extensions.json",
+    "{$temp}/packages/cli/resources/runtime-extensions.json",
+);
 $manifest = readJson("{$source}/release/manifest.json");
 
 function expect(bool $condition, string $message): void
@@ -157,6 +162,12 @@ try {
     expect(renderCompatibility($temp, $manifest) !== $originalPage, 'CI metadata change must stale the compatibility page');
     expect(compatibilityBlocks($temp, $manifest)['.github/workflows/ci.yml'][2] !== $originalBlocks['.github/workflows/ci.yml'][2], 'CI metadata change must stale the CI matrix');
 
+    $extensionsPath = "{$temp}/packages/cli/resources/runtime-extensions.json";
+    expect(str_contains($originalPage, '**Networking (`curl`, `soap`)**'), 'Compatibility page must document curl/soap sandbox limits');
+    expect(str_contains($originalPage, '**Sessions (`session`)**'), 'Compatibility page must document session sandbox limits');
+    writeJsonAtomically($extensionsPath, ['extensions' => ['example' => '1.0']]);
+    expect(str_contains(renderCompatibility($temp, $manifest), '`example`'), 'Compatibility page must list Worker extensions');
+
     $block = replaceTaggedBlock("before\nSTART\nold\nEND\nafter", 'START', 'END', 'new');
     expect($block === "before\nSTART\nnew\nEND\nafter", 'Block replacement must preserve surrounding content');
     try {
@@ -191,6 +202,9 @@ MD;
         unlink("{$temp}/packages/{$path}/composer.json");
         rmdir("{$temp}/packages/{$path}");
     }
+    unlink("{$temp}/packages/cli/resources/runtime-extensions.json");
+    rmdir("{$temp}/packages/cli/resources");
+    rmdir("{$temp}/packages/cli");
     rmdir("{$temp}/packages");
     rmdir($temp);
 }

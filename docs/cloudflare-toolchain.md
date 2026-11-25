@@ -1051,21 +1051,17 @@ A project whose Atoms use approved packages (`atoms-composer.json`, gated by
 guest**. The build's vendor stage (`Atoms\Cli\Build\VendorStage`) supplies
 them:
 
-- `composer install --no-dev --no-scripts --no-plugins` runs in an isolated
-  temp directory — a build never executes customer or dependency code — with
-  `config.platform` (and staged `composer.lock` `platform-overrides`) set to
-  the Worker's PHP version (`8.3.32`) and its bundled extensions from
-  `packages/cli/resources/runtime-extensions.json`. A missing composer, an
-  unresolvable or platform-incompatible constraint, or any other failure
-  refuses loudly with **ATOMS-E079**; there is no silent fallback to an
-  unshippable bundle.
-- **Determinism**: the first successful resolution writes
-  `atoms-composer.lock` (Composer's own lock format) back next to
-  `atoms-composer.json`; committed, it pins every later resolution. The
-  resolved tree is cached under `.atoms/vendor-cache/<key>` (key = sha256 of
-  the Worker PHP version + atoms-composer.json + lock), so repeat builds —
-  `atoms dev`'s rebuild loop included — are offline and composer-free until
-  the lock or Worker PHP target changes.
+- The CLI runs `composer install --no-dev --no-scripts --no-plugins` in a
+  temporary directory. It sets `config.platform` and the staged lockfile's
+  `platform-overrides` to the Worker's PHP version and extension versions.
+  It disables host extensions the Worker lacks. The CLI reads the Worker
+  extensions from `packages/cli/resources/runtime-extensions.json`.
+  If Composer is missing or cannot install the dependencies, the build
+  reports **ATOMS-E079**.
+- The first successful install writes `atoms-composer.lock` next to
+  `atoms-composer.json`. Commit it to pin the resolved packages. The CLI
+  caches the files under `.atoms/vendor-cache/`. When both project files
+  and the Worker platform match the cache, the build skips Composer.
 - **What ships**: every vendor `.php` file (data files like Carbon's locale
   tables are `.php` too) plus package LICENSE files, under `vendor/…` in the
   tar, and one generated `vendor/atoms-vendor-autoload.php` — a classmap +
