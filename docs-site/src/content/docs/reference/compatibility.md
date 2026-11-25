@@ -34,11 +34,8 @@ so application and Worker installs are repeatable.
 | Component | Dependency constraint | Supported versions, tested in CI |
 |---|---|---|
 | Host PHP | `^8.3` | PHP 8.3, PHP 8.4, PHP 8.5 and PHP 8.6 |
-| Node.js | `>=22.12.0` | Node.js 22 |
+| Node.js | `>=22.12.0` | Node.js 22, 24 and 26 |
 | Wrangler | `4.165.0` | Wrangler 4.165.0 |
-
-Use the supported versions above. Dependency constraints may allow newer
-versions that Atoms has not tested.
 
 Host PHP runs your application and CLI. The Worker release supplies its own
 PHP 8.3 interpreter compiled to WebAssembly.
@@ -57,5 +54,13 @@ even when the application host uses a newer PHP version.
 
 Laravel 11 has no current CI coverage.
 
+Laravel 12 requires Guzzle 7, which uses `guzzlehttp/psr7` 2.x. Laravel 13
+also supports Guzzle 8 with `guzzlehttp/psr7` 3.x.
+
 The optional `atoms/database-illuminate` bridge runs inside an Atom and allows
 Illuminate Database 12 and 13, independently of your application's Laravel version.
+
+## Symfony
+
+`atoms/symfony` supports Symfony 6.4 and 7.x. CI tests the bundle on Symfony
+6.4 and 7.4. The standalone `atoms/cli` also supports Symfony 8 components.

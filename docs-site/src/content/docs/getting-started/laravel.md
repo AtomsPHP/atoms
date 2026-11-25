@@ -16,7 +16,7 @@ Run these commands in the directory where you want to create `atoms-demo`:
 ```bash
 composer create-project laravel/laravel atoms-demo
 cd atoms-demo
-composer require atoms/laravel --with-all-dependencies
+composer require atoms/laravel
 composer require --dev atoms/cli atoms/testing atoms/phpstan-rules
 php artisan atoms:install
 npm exec --yes --package=@atomsphp/runtime-cloudflare@0.10.0 -- \

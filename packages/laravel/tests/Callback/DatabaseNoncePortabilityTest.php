@@ -97,13 +97,13 @@ final class DatabaseNoncePortabilityTest extends TestCase
     /** @param list<string> $queries */
     private function connection(string $driver, array &$queries, ?PDOException $insertError = null): Connection
     {
-        $pdo = $this->createMock(PDO::class);
+        $pdo = $this->createStub(PDO::class);
         $pdo->method('inTransaction')->willReturn(false);
         $pdo->method('getAttribute')->willReturnCallback(static fn (int $attribute): mixed =>
             $attribute === PDO::ATTR_SERVER_VERSION ? '8.0.0' : true);
         $pdo->method('prepare')->willReturnCallback(function (string $query) use (&$queries, $insertError): PDOStatement {
             $queries[] = $query;
-            $statement = $this->createMock(PDOStatement::class);
+            $statement = $this->createStub(PDOStatement::class);
             if ($insertError !== null && str_starts_with($query, 'insert')) {
                 $statement->method('execute')->willThrowException($insertError);
             } else {

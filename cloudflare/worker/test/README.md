@@ -218,13 +218,10 @@ when running the listener alongside something else already bound to that port.
 `ATOMS_SHARED_SECRET` in the runner's own environment overrides the recorded
 secret, which is how CI drives a run whose secret it minted itself.
 
-**Client tooling for the WebSocket checks: Node's built-in global `WebSocket`,
-not the `ws` package.** Node 22's
-global `WebSocket` accepts `{headers: {Authorization: '...'}}` on the upgrade
-(an undici extension, not standard `WebSocket`), which is what lets these
-checks work identically against a deployed Worker and a local one with zero
-added dependencies — but it means **Node 22 is the floor** for running this
-suite. CI pins Node 22 (`.github/workflows/ci.yml`).
+The WebSocket checks use Node's built-in `WebSocket`. It accepts an
+`Authorization` header on the upgrade request. See
+[the release manifest](../../../release/manifest.json) for the minimum Node.js
+version and the majors CI tests.
 
 ## Running Remotely (Deployed)
 

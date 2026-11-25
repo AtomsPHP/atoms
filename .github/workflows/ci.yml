@@ -11,32 +11,25 @@ permissions:
 jobs:
   release-metadata:
     runs-on: ubuntu-latest
+    outputs:
+      node-versions: ${{ steps.versions.outputs.node-versions }}
+      php-versions: ${{ steps.versions.outputs.php-versions }}
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
           coverage: none
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: cloudflare/worker/package-lock.json
       - name: Check coordinated release metadata
         run: php scripts/release/release.php check
       - name: Test compatibility generation
         run: php scripts/release/test-compatibility.php
       - name: Validate Composer mirror splits
         run: php scripts/release/release.php validate-splits
-      # test:package bundles the scaffolded worker to prove its module graph
-      # resolves, which needs the esbuild wrangler pins — so this job installs
-      # the worker's dependencies even though nothing else here does.
-      - name: Install worker dependencies
-        working-directory: cloudflare/worker
-        run: npm ci
-      - name: Inspect and exercise the runtime package
-        working-directory: cloudflare/worker
-        run: npm run test:package
+      - name: Read versions for the PHP and Worker tests
+        id: versions
+        run: |
+          jq -r '"node-versions=\(.runtime.node_tested | tojson)", "php-versions=\(.php.tested | tojson)"' release/manifest.json >> "$GITHUB_OUTPUT"
 
   tests:
     runs-on: ubuntu-latest
@@ -93,24 +86,112 @@ jobs:
         run: node --test --test-concurrency=1 tests/Smoke/*.test.mjs
 
   psr7-3:
+    name: PSR-7 3 / Laravel 13 / PHP ${{ matrix.php-version }}
     runs-on: ubuntu-latest
+    needs: release-metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ${{ fromJSON(needs.release-metadata.outputs.php-versions) }}
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: ${{ matrix.php-version }}
           extensions: pdo_sqlite, sodium, curl
           coverage: none
       - uses: actions/cache@v4
         with:
           path: ~/.cache/composer
           key: ${{ runner.os }}-composer-${{ hashFiles('composer.lock') }}
-      # The regular matrix retains the locked PSR-7 2.x coverage. Guzzle
-      # itself must also be unlocked because its locked 7.x requires PSR-7 2.x.
-      - name: Install with PSR-7 3.x
-        run: composer update 'guzzlehttp/psr7:^3.0' guzzlehttp/guzzle --with-all-dependencies --minimal-changes --no-interaction --no-progress
+      # PSR-7 3 needs Guzzle 8. Laravel 12 requires Guzzle 7.
+      - name: Install PSR-7 3 with Laravel 13
+        run: >-
+          composer update 'guzzlehttp/psr7:^3.0' guzzlehttp/guzzle 'orchestra/testbench:^11.0'
+          --with-all-dependencies --minimal-changes --no-interaction --no-progress
+      - run: composer check-platform-reqs
       - run: composer test
       - run: composer stan
+
+  symfony-dependencies:
+    name: Symfony ${{ matrix.symfony }} / DoctrineBundle ${{ matrix.doctrine-bundle }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - symfony: '6.4'
+            doctrine-bundle: '2'
+            php-version: '8.3'
+            constraints: >-
+              symfony/framework-bundle:6.4.* symfony/messenger:6.4.* symfony/yaml:6.4.*
+              symfony/config:6.4.* symfony/dependency-injection:6.4.*
+              symfony/http-foundation:6.4.* symfony/http-kernel:6.4.* symfony/routing:6.4.*
+              symfony/console:6.4.* symfony/filesystem:6.4.* symfony/process:6.4.*
+              doctrine/doctrine-bundle:^2.13 doctrine/dbal:^3.10
+              predis/predis:^2.2 colinodell/json5:^2.3
+              psr/container:^1.1 psr/http-message:^1.1 psr/log:^2.0 guzzlehttp/guzzle:^7
+              phpunit/phpunit:^10.5
+            suites: client,symfony,cli,testing
+          - symfony: '7.4'
+            doctrine-bundle: '3'
+            php-version: '8.4'
+            constraints: doctrine/doctrine-bundle:^3.0 doctrine/dbal:^4.4
+            suites: symfony,integration
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: pdo_sqlite, sodium, curl
+          coverage: none
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: ${{ runner.os }}-composer-${{ hashFiles('composer.lock') }}
+      - name: Remove Laravel dependencies for Symfony 6.4
+        if: matrix.symfony == '6.4'
+        run: composer remove --dev --no-update atoms/laravel atoms/database-illuminate orchestra/testbench
+      - name: Use PHP 8.4 for dependency resolution
+        if: matrix.php-version == '8.4'
+        run: composer config --unset platform.php
+      - name: Install selected dependencies
+        env:
+          DEPENDENCY_CONSTRAINTS: ${{ matrix.constraints }}
+        run: |
+          read -r -a constraints <<< "$DEPENDENCY_CONSTRAINTS"
+          composer require --dev --no-update "${constraints[@]}"
+          composer update --minimal-changes --no-interaction --no-progress
+      - run: composer check-platform-reqs
+      - run: composer test -- --testsuite=${{ matrix.suites }}
+      - name: Run Symfony 6.4 adapter conformance
+        if: matrix.symfony == '6.4'
+        run: composer test -- tests/Integration/Adapters/SymfonyAdapterConformanceTest.php
+
+  symfony-cli-8:
+    name: Symfony 8 components / Laravel 13 / PHP 8.4
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_sqlite, sodium, curl
+          coverage: none
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: ${{ runner.os }}-composer-${{ hashFiles('composer.lock') }}
+      - name: Install Symfony 8 components
+        run: |
+          composer config --unset platform.php
+          composer remove --dev --no-update atoms/symfony symfony/framework-bundle symfony/messenger \
+            doctrine/dbal doctrine/doctrine-bundle doctrine/doctrine-migrations-bundle doctrine/migrations
+          composer require --dev --no-update 'symfony/console:^8' 'symfony/filesystem:^8' 'symfony/process:^8' \
+            'orchestra/testbench:^11' 'phpunit/phpunit:^12.0' 'predis/predis:^2.3'
+          composer update --minimal-changes --no-interaction --no-progress
+      - run: composer check-platform-reqs
+      - run: composer test -- --testsuite=cli,laravel,testing
 
   docs:
     runs-on: ubuntu-latest
@@ -131,6 +212,28 @@ jobs:
       - name: Build documentation
         working-directory: docs-site
         run: npm run build
+
+  fresh-laravel-install:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        laravel: ['12', '13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: pdo_sqlite, sodium, curl
+          coverage: none
+      - name: Create Laravel ${{ matrix.laravel }} project
+        run: composer create-project laravel/laravel "$RUNNER_TEMP/laravel-app" '^${{ matrix.laravel }}.0' --no-interaction --no-progress
+      - name: Require local Atoms packages
+        working-directory: ${{ runner.temp }}/laravel-app
+        run: |
+          composer config repositories.atoms path "$GITHUB_WORKSPACE/packages/*"
+          composer require atoms/laravel --no-interaction --no-progress
+          test "$(realpath vendor/atoms/laravel)" = "$GITHUB_WORKSPACE/packages/laravel"
 
   lint:
     runs-on: ubuntu-latest
@@ -159,6 +262,11 @@ jobs:
   # "work"; if it stops working, something in the worker broke.
   worker:
     runs-on: ubuntu-latest
+    needs: release-metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ${{ fromJSON(needs.release-metadata.outputs.node-versions) }}
     # Check 12 waits out a real Durable Object eviction (~12.5s), so the suite
     # is minutes, not seconds, and the job restarts the Worker several times (one
     # per configuration). Twelve minutes leaves room for a slow runner while still
@@ -208,12 +316,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Wrangler 4.x wants a current Node; 22 is what the worker is developed
-      # against. The lockfile lives under cloudflare/worker, not at the repo
-      # root, so the npm cache has to be pointed at it explicitly.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: cloudflare/worker/package-lock.json
 
