@@ -15,6 +15,7 @@ use Atoms\Client\Callback\QueueBridge;
 use Atoms\Client\Manifest\ManifestLoader;
 use Atoms\Client\Tickets\TicketIssuer;
 use Atoms\Laravel\Callback\NonceStoreFactory;
+use Atoms\Laravel\Console\CheckCommand;
 use Atoms\Laravel\Console\DeployCommand;
 use Atoms\Laravel\Console\DevCommand;
 use Atoms\Laravel\Console\InstallCommand;
@@ -86,6 +87,7 @@ final class AtomsServiceProvider extends ServiceProvider
 
         if ($this->app->runningInConsole()) {
             $this->commands([
+                CheckCommand::class,
                 InstallCommand::class,
                 DeployCommand::class,
                 RollbackCommand::class,

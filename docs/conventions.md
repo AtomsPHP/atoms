@@ -242,7 +242,8 @@ decisions below.
   comparison; it does not change what the client sends.
 - Additive headers we send (allowed within v1):
   - `X-Atoms-Manifest-Hash: <sha256>` — manifest hash the monolith was built
-    against (omitted when no local manifest is present).
+    against (omitted when no local manifest is present). The Worker does not
+    compare it today; ATOMS-E040 is reserved for a check that would.
   - `traceparent` — W3C trace context, generated if absent.
 - Retry policy: retry only errors marked `retryable: true` in the contract's
   table AND transport-level failures, with exponential backoff + jitter;

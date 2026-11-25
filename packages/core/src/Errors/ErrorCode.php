@@ -10,6 +10,10 @@ namespace Atoms\Errors;
  * The JSON catalog is the single source of truth; this enum must stay in sync
  * with it (a core test enforces the bidirectional match). Append-only — never
  * renumber an existing case.
+ *
+ * A few cases are reserved or retired: no current check raises them, and their
+ * catalog titles say so. They stay so that the number keeps its meaning and an
+ * older log still resolves. Reserved: E016, E040, E050, E052. Retired: E067.
  */
 enum ErrorCode: string
 {

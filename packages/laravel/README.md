@@ -8,6 +8,7 @@ and 13 on PHP 8.3 or later.
 ```sh
 composer require atoms/laravel:^0.10
 php artisan atoms:install
+php artisan atoms:check
 ```
 
 Continue with the [Laravel quickstart](https://docs.atomsphp.dev/getting-started/laravel/)

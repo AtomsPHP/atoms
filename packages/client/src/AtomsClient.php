@@ -229,33 +229,6 @@ final class AtomsClient
     }
 
     /**
-     * Explicitly destroy an Atom. Idempotent: returns false if it did not exist.
-     *
-     * NOTE: the Cloudflare Worker runtime does not implement `DELETE
-     * /atoms/{type}/{id}` yet — it answers `not_found`, which surfaces here as
-     * an {@see AtomsRequestFailed}. The method is kept because the route shape
-     * is settled; do not read a successful call as proof the Atom was removed
-     * until the Worker grows the route.
-     */
-    public function destroy(string $type, string $id): bool
-    {
-        $uri = sprintf(
-            '%s/atoms/%s/%s',
-            $this->config->baseUrl(),
-            rawurlencode($type),
-            rawurlencode($id),
-        );
-
-        $decoded = $this->execute($this->baseRequest('DELETE', $uri), [
-            'type' => $type,
-            'id' => $id,
-            'method' => '',
-        ]);
-
-        return (bool) ($decoded['destroyed'] ?? false);
-    }
-
-    /**
      * Send a request with the contract's retry policy and return the decoded
      * success body.
      *

@@ -106,11 +106,6 @@ final class AtomsManager
         return $this->client->call($type, $id, $method, $args, $atomClass);
     }
 
-    public function destroy(string $type, string $id): bool
-    {
-        return $this->fake?->destroy($type, $id) ?? $this->client->destroy($type, $id);
-    }
-
     /**
      * Switch this manager into fake mode; no HTTP call will be made until the
      * test resets the container. Returns the fake so assertions can chain.

@@ -12,8 +12,9 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Cross-package contract test: the manifest hash the CLI stamps on a build
- * MUST equal the hash atoms/client computes when it loads that manifest —
- * version-skew detection (ATOMS-E040/E041) depends on the two agreeing.
+ * MUST equal the hash atoms/client computes when it loads that manifest and
+ * sends as X-Atoms-Manifest-Hash — any future skew check (ATOMS-E040 is
+ * reserved for one) depends on the two agreeing.
  * Both implement "canonical JSON" from docs/conventions.md independently;
  * this test is the referee.
  */

@@ -47,19 +47,13 @@ Configure a queue bridge so an Atom can dispatch jobs.
 | Symfony | When the container constructs `AtomsConfig`. Missing configuration or an unset `%env(...)%` may fail earlier. |
 | Plain PHP | During `AtomsBootstrap::create()` or `CallbackKernelFactory::create()`. |
 
-To check Laravel before deployment, save this script in the project root and run it with the deployment's environment and cached configuration:
+To check Laravel before deployment, run this command with the deployment's environment and cached configuration:
 
-```php title="check-atoms-config.php"
-<?php
-
-require __DIR__ . '/vendor/autoload.php';
-
-$app = require __DIR__ . '/bootstrap/app.php';
-$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-$app->make(\Atoms\Client\AtomsConfig::class);
+```bash
+php artisan atoms:check
 ```
 
-Run `php check-atoms-config.php`. This checks the local secret's format. Configure the application and Worker from the same secret value, then test authentication with a bearer-protected call or signed callback.
+This resolves `AtomsConfig`, checking the local shared secret format (`ATOMS_SHARED_SECRET` and any configured `ATOMS_SHARED_SECRET_PREVIOUS`) and ticket TTL. Configure the application and Worker from the same secret value, then test authentication with a bearer-protected call or signed callback.
 
 ## Writing another adapter
 

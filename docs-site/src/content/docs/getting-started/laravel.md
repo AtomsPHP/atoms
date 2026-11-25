@@ -294,6 +294,10 @@ and `make:atom`. Each shells out to the same `atoms` binary and forwards your
 options, so `php artisan atoms:deploy --env production` and
 `vendor/bin/atoms deploy --env production` resolve identically.
 
+The provider also registers `atoms:check`, which resolves `AtomsConfig` to
+validate your shared secret and ticket TTL before deployment, and
+`atoms:nonces:prune` for database nonce cleanup.
+
 Identically is the deliberate part. Artisan runs after Laravel has loaded your
 application's `.env`, and the wrapper hands the child the environment the
 *command* was started with rather than the one the framework built — so a
