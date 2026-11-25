@@ -2233,7 +2233,7 @@ for each of them. They are recorded rather than worked around silently.
      (`toSqlBinding()`/`inlineWideIntegers()`) for the implementation this
      measurement drove.
 
-7. **Explicit destruction measurements (wrangler 4.165.0 / local workerd).**
+7. **Explicit destruction measurements (Wrangler 4.165.0, local and deployed).**
 
    - **Miniflare stores DO names in an internal `__miniflare_do_name` SQLite
      table.** Measured on a brand-new, never-written SQLite Durable Object under
@@ -2253,6 +2253,27 @@ for each of them. They are recorded rather than worked around silently.
      the RFC 6455 Close frame directly over a raw socket — verifying the
      immediate `(1000, "Atom destroyed")` close frame and putting real late data
      frames plus a deferred Close echo onto the wire after same-ID reuse.
+   - **Deployed SQLite catalog (2026-11-25, Wrangler 4.165.0, compatibility
+     date 2026-08-01).** On a never-used ID, an unfiltered
+     `SELECT type, name FROM sqlite_master` returned zero rows before and after
+     `DELETE`. Both debug reads reported 4096 bytes, empty `storage.tables`,
+     no alarm and no PHP instance. The delete returned `{"destroyed":false}`.
+     On a `sqlitecache-*` ID, failed activation left the customer table
+     `sqlitecache`, two host tables and their two SQLite autoindexes. Deletion
+     returned `{"destroyed":true}` and the raw catalog was empty on re-read.
+   - **Deployed idle eviction.** Single reads of separate warm Counters found
+     PHP still resident after 8.0 and 9.5 seconds. At 10.5, 11.5 and 12.5
+     seconds they found a new construction with PHP cold. In check 48, two
+     consecutive 12.5-second waits on one Atom advanced `constructions` from
+     1 to 2 to 3. PHP stayed cold through deletion, and the callback listener
+     received no lifecycle hook for that delete.
+   - **Deployed WebSocket close timing.** With an immediate client Close
+     echo, two warm sockets received `1000` / `Atom destroyed` 295 and 405 ms
+     after the client started `DELETE`. A hibernated socket received it after
+     116 ms. All three Close frames arrived before the HTTP response. The
+     client observed TCP FIN 10.03–10.12 seconds after the echo (Linux
+     `POLLRDHUP`, zero socket error). Check 49 separately deferred the echo
+     until same-ID reuse and verified the new Atom's state, socket and timer.
 
 ## Deployment
 
