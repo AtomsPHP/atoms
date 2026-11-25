@@ -121,7 +121,10 @@ Each Atom type may ship ordered migrations (`app/Atoms/GameRoom/migrations/001_*
 - The manifest records the head version; rollback of a *code* deploy does not roll back schema.
 - Migrations must be backward-compatible one version (expand/contract pattern).
 
-Activation-time cost gets a budget: a migration exceeding it (default 250ms) trips a warning at build time.
+Migrations run in the activation path, before the first turn, so keep them
+small. Nothing measures their cost at build time: builds never execute
+migrations. ATOMS-E052 is reserved for such a check. A migration that fails at
+activation reports ATOMS-E053.
 
 ## Packages Map to Sides
 

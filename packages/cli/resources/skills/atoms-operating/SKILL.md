@@ -141,9 +141,12 @@ the schema compatible with the previous code version.
 
 ## Deployment errors
 
+The client sends `X-Atoms-Manifest-Hash`, but the Worker does not compare it, so
+`ATOMS-E040` is reserved and never emitted. Use `atoms diff` before deploying to
+check deploy order.
+
 | Code | What to check |
 | --- | --- |
-| `ATOMS-E040` | The application's manifest hash differs from the deployed hash. Use `atoms diff` to check deploy order. |
 | `ATOMS-E041` | The deployed Worker lacks the requested method. Deploy the Worker before its caller. |
 | `ATOMS-E042` | The platform rejected the bundle. Run `atoms validate` locally. |
 | `ATOMS-E043` | The bundle's `atoms/core` version is outside the Worker's supported range. Update the packages and Worker directory, then rebuild. |

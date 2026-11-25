@@ -190,7 +190,7 @@ Keep Shared classes pure data: promoted scalar/Payload properties, accessors and
 
 <a id="atoms-e016"></a>
 
-## ATOMS-E016: Shared class contains behavior
+## ATOMS-E016: Shared class contains behavior (reserved)
 
 | | |
 |---|---|
@@ -199,11 +199,11 @@ Keep Shared classes pure data: promoted scalar/Payload properties, accessors and
 
 **Message**
 
-Shared class {class} method {method} looks like behavior (I/O or side effects), not data.
+Reserved for detecting behavior (I/O or side effects) in Shared class methods. No current build or analysis check emits this code.
 
 **Fix**
 
-Shared classes are DTOs. Move behavior to the Atom (Atom-side) or a Methods class (App-side).
+Keep Shared classes pure data: promoted properties, accessors and factories. Symbol rules are enforced today as ATOMS-E015; do not rely on E016 to flag method bodies.
 
 
 <a id="atoms-e017"></a>
@@ -424,7 +424,7 @@ Extend Atoms\AtomJob, or run the code inline in the Atom instead of dispatching 
 
 <a id="atoms-e040"></a>
 
-## ATOMS-E040: Manifest hash mismatch (version skew)
+## ATOMS-E040: Manifest hash mismatch (reserved)
 
 | | |
 |---|---|
@@ -433,11 +433,11 @@ Extend Atoms\AtomJob, or run the code inline in the Atom instead of dispatching 
 
 **Message**
 
-The monolith was built against manifest {local} but the platform is serving {deployed}.
+Reserved for reporting that the monolith and the Worker were built from different manifests. The client sends X-Atoms-Manifest-Hash, but the Worker does not compare it, so no current check emits this code.
 
 **Fix**
 
-Deploy order matters: additive Atom changes deploy Atoms-first; contractions deploy monolith-first. Run `atoms diff`.
+Order deploys yourself: additive Atom changes deploy Atoms-first; contractions deploy monolith-first. Run `atoms diff` against the manifest you last deployed.
 
 
 <a id="atoms-e041"></a>
@@ -496,7 +496,7 @@ composer update atoms/core to a supported version and rebuild.
 
 <a id="atoms-e050"></a>
 
-## ATOMS-E050: Shipped migration was edited
+## ATOMS-E050: Shipped migration was edited (reserved)
 
 | | |
 |---|---|
@@ -532,7 +532,7 @@ Number migrations with strictly increasing NNN_ prefixes (001_, 002_, ...).
 
 <a id="atoms-e052"></a>
 
-## ATOMS-E052: Migration likely exceeds the activation budget
+## ATOMS-E052: Migration likely exceeds the activation budget (reserved)
 
 | | |
 |---|---|
@@ -541,11 +541,11 @@ Number migrations with strictly increasing NNN_ prefixes (001_, 002_, ...).
 
 **Message**
 
-Migration {file} looks heavier than the activation-time budget ({budget_ms}ms).
+Reserved for warning about migrations too heavy for Atom activation. Builds never execute migrations, so no current check measures or emits this code.
 
 **Fix**
 
-Migrations run at Atom activation. Keep them tiny, or restructure as lazy per-row upgrades in Atom code.
+Migrations run at Atom activation. Keep them small, or restructure as lazy per-row upgrades in Atom code. A migration that fails at activation reports ATOMS-E053.
 
 
 <a id="atoms-e053"></a>

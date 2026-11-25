@@ -83,9 +83,9 @@
         },
         {
             "code": "ATOMS-E016",
-            "title": "Shared class contains behavior",
-            "message": "Shared class {class} method {method} looks like behavior (I/O or side effects), not data.",
-            "fix": "Shared classes are DTOs. Move behavior to the Atom (Atom-side) or a Methods class (App-side).",
+            "title": "Shared class contains behavior (reserved)",
+            "message": "Reserved for detecting behavior (I/O or side effects) in Shared class methods. No current build or analysis check emits this code.",
+            "fix": "Keep Shared classes pure data: promoted properties, accessors and factories. Symbol rules are enforced today as ATOMS-E015; do not rely on E016 to flag method bodies.",
             "severity": "warning",
             "phase": "build"
         },
@@ -187,9 +187,9 @@
         },
         {
             "code": "ATOMS-E040",
-            "title": "Manifest hash mismatch (version skew)",
-            "message": "The monolith was built against manifest {local} but the platform is serving {deployed}.",
-            "fix": "Deploy order matters: additive Atom changes deploy Atoms-first; contractions deploy monolith-first. Run `atoms diff`.",
+            "title": "Manifest hash mismatch (reserved)",
+            "message": "Reserved for reporting that the monolith and the Worker were built from different manifests. The client sends X-Atoms-Manifest-Hash, but the Worker does not compare it, so no current check emits this code.",
+            "fix": "Order deploys yourself: additive Atom changes deploy Atoms-first; contractions deploy monolith-first. Run `atoms diff` against the manifest you last deployed.",
             "severity": "warning",
             "phase": "runtime"
         },
@@ -219,7 +219,7 @@
         },
         {
             "code": "ATOMS-E050",
-            "title": "Shipped migration was edited",
+            "title": "Shipped migration was edited (reserved)",
             "message": "Reserved for detecting edits to shipped migrations. Current migration validation does not emit this code or compare historical migration hashes.",
             "fix": "Keep shipped migrations unchanged and add a higher-numbered migration. Existing Atoms skip applied versions; new identities can execute edited files. Do not rely on E050 to detect edits.",
             "severity": "error",
@@ -235,9 +235,9 @@
         },
         {
             "code": "ATOMS-E052",
-            "title": "Migration likely exceeds the activation budget",
-            "message": "Migration {file} looks heavier than the activation-time budget ({budget_ms}ms).",
-            "fix": "Migrations run at Atom activation. Keep them tiny, or restructure as lazy per-row upgrades in Atom code.",
+            "title": "Migration likely exceeds the activation budget (reserved)",
+            "message": "Reserved for warning about migrations too heavy for Atom activation. Builds never execute migrations, so no current check measures or emits this code.",
+            "fix": "Migrations run at Atom activation. Keep them small, or restructure as lazy per-row upgrades in Atom code. A migration that fails at activation reports ATOMS-E053.",
             "severity": "warning",
             "phase": "build"
         },
