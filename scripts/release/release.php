@@ -633,8 +633,6 @@ function renderCompatibility(string $root, array $manifest): string
             . formatMajors(array_map(static fn (string $v): string => 'PHP ' . $v, $entry['php'])) . ' |',
         $compatibility['ci'],
     ));
-    $untested = array_values(array_diff($compatibility['adapter'], array_column($compatibility['ci'], 'version')));
-    $untestedNote = $untested === [] ? '' : 'Laravel ' . formatMajors($untested) . " has no current CI coverage.\n";
     $inventory = readJson("{$root}/packages/cli/resources/runtime-extensions.json");
     $extensionNames = array_keys(arrayValue($inventory, 'extensions'));
     $workerExtensions = implode(', ', array_map(static fn (string $name): string => "`{$name}`", $extensionNames));
@@ -715,14 +713,13 @@ Cloudflare Workers WebAssembly sandbox:
 
 ## Laravel and Illuminate
 
-`atoms/laravel` accepts Laravel {$adapterMajors}. CI tests these combinations:
+`atoms/laravel` supports Laravel {$adapterMajors}, tested in CI across these combinations:
 
 | Laravel | Orchestra Testbench constraint | Host PHP |
 |---|---|---|
 {$ciRows}
 
-{$untestedNote}
-Laravel 12 requires Guzzle 7, which uses `guzzlehttp/psr7` 2.x. Laravel 13
+Laravel 11 and 12 require Guzzle 7, which uses `guzzlehttp/psr7` 2.x. Laravel 13
 also supports Guzzle 8 with `guzzlehttp/psr7` 3.x.
 
 The optional `atoms/database-illuminate` bridge runs inside an Atom and allows
@@ -751,7 +748,7 @@ function illuminateMajors(string $constraint, string $name): array
     return $majors;
 }
 
-/** @param array<string, mixed> $manifest @return array{adapter: list<string>, bridge: list<string>, ci: list<array{version: string, testbench: string, php: list<string>}>} */
+/** @param array<string, mixed> $manifest @return array{adapter: list<string>, bridge: list<string>, ci: list<array{version: string, testbench: string, php: list<string>, bridge: bool}>} */
 function laravelCompatibility(string $root, array $manifest): array
 {
     $adapter = readJson("{$root}/packages/laravel/composer.json");
@@ -798,8 +795,27 @@ function laravelCompatibility(string $root, array $manifest): array
         if ($php === []) {
             throw new RuntimeException("Laravel {$entry['version']} has no tested host PHP versions");
         }
-        $profiles[] = ['version' => $entry['version'], 'testbench' => $entry['testbench'], 'php' => $php];
+        $profiles[] = [
+            'version' => $entry['version'],
+            'testbench' => $entry['testbench'],
+            'php' => $php,
+            'bridge' => in_array($entry['version'], $bridgeMajors, true),
+        ];
         $seen[] = $entry['version'];
+    }
+    $missing = array_values(array_diff($majors, $seen));
+    if ($missing !== []) {
+        throw new RuntimeException(
+            'Every Laravel major declared in packages/laravel/composer.json must have CI coverage; missing: '
+            . implode(', ', $missing),
+        );
+    }
+    $missingBridge = array_values(array_diff($bridgeMajors, $seen));
+    if ($missingBridge !== []) {
+        throw new RuntimeException(
+            'Every Illuminate Database major declared in packages/database-illuminate/composer.json must have CI coverage; missing: '
+            . implode(', ', $missingBridge),
+        );
     }
     if (array_diff($hostPhp, ...array_column($profiles, 'php')) !== []) {
         throw new RuntimeException('Every php.tested version must have Laravel CI coverage');
@@ -822,15 +838,15 @@ function compatibilityBlocks(string $root, array $manifest): array
 {
     $compatibility = laravelCompatibility($root, $manifest);
     $adapter = formatMajors($compatibility['adapter']);
-    $ciVersions = formatMajors(array_column($compatibility['ci'], 'version'));
-    $note = "The adapter accepts Laravel {$adapter}. CI tests Laravel {$ciVersions}.";
+    $note = "Supports Laravel {$adapter} (tested in CI).";
     $note .= ' See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).';
     $php = hostPhpVersions($manifest);
     $versions = implode(', ', array_map(static fn (string $v): string => "'{$v}'", $php));
     $matrix = "      matrix:\n        php-version: [{$versions}]\n        laravel:";
     $excluded = [];
     foreach ($compatibility['ci'] as $entry) {
-        $laravel = "{version: '{$entry['version']}', testbench: '{$entry['testbench']}'}";
+        $bridge = $entry['bridge'] ? 'true' : 'false';
+        $laravel = "{version: '{$entry['version']}', testbench: '{$entry['testbench']}', bridge: {$bridge}}";
         $matrix .= "\n          - {$laravel}";
         foreach (array_diff($php, $entry['php']) as $version) {
             $excluded[] = "          - php-version: '{$version}'\n            laravel: {$laravel}";

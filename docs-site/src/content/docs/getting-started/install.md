@@ -24,7 +24,7 @@ PHP 8.3-compatible syntax.
 ## PHP
 
 <!-- BEGIN generated Laravel compatibility -->
-The adapter accepts Laravel 11, 12 and 13. CI tests Laravel 12 and 13. See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).
+Supports Laravel 11, 12 and 13 (tested in CI). See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).
 <!-- END generated Laravel compatibility -->
 
 To create an application, follow [New Laravel application](/getting-started/laravel/#new-laravel-application).

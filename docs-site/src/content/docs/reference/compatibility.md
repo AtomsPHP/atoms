@@ -70,16 +70,15 @@ Cloudflare Workers WebAssembly sandbox:
 
 ## Laravel and Illuminate
 
-`atoms/laravel` accepts Laravel 11, 12 and 13. CI tests these combinations:
+`atoms/laravel` supports Laravel 11, 12 and 13, tested in CI across these combinations:
 
 | Laravel | Orchestra Testbench constraint | Host PHP |
 |---|---|---|
+| Laravel 11 | `^9.0` | PHP 8.3, PHP 8.4 and PHP 8.5 |
 | Laravel 12 | `^10.0` | PHP 8.3, PHP 8.4 and PHP 8.5 |
 | Laravel 13 | `^11.0` | PHP 8.3, PHP 8.4, PHP 8.5 and PHP 8.6 |
 
-Laravel 11 has no current CI coverage.
-
-Laravel 12 requires Guzzle 7, which uses `guzzlehttp/psr7` 2.x. Laravel 13
+Laravel 11 and 12 require Guzzle 7, which uses `guzzlehttp/psr7` 2.x. Laravel 13
 also supports Guzzle 8 with `guzzlehttp/psr7` 3.x.
 
 The optional `atoms/database-illuminate` bridge runs inside an Atom and allows

@@ -39,11 +39,14 @@ jobs:
       matrix:
         php-version: ['8.3', '8.4', '8.5', '8.6']
         laravel:
-          - {version: '12', testbench: '^10.0'}
-          - {version: '13', testbench: '^11.0'}
+          - {version: '11', testbench: '^9.0', bridge: false}
+          - {version: '12', testbench: '^10.0', bridge: true}
+          - {version: '13', testbench: '^11.0', bridge: true}
         exclude:
           - php-version: '8.6'
-            laravel: {version: '12', testbench: '^10.0'}
+            laravel: {version: '11', testbench: '^9.0', bridge: false}
+          - php-version: '8.6'
+            laravel: {version: '12', testbench: '^10.0', bridge: true}
       # END generated Laravel matrix
     steps:
       - uses: actions/checkout@v4
@@ -56,9 +59,30 @@ jobs:
         with:
           path: ~/.cache/composer
           key: ${{ runner.os }}-composer-${{ hashFiles('composer.lock') }}
-      - run: composer install --no-interaction --no-progress
+      - if: matrix.laravel.bridge
+        run: composer install --no-interaction --no-progress
       - name: Select Laravel ${{ matrix.laravel.version }}
-        run: composer update "orchestra/testbench:${{ matrix.laravel.testbench }}" --with-all-dependencies --no-interaction --no-progress --minimal-changes
+        env:
+          LARAVEL_VERSION: ${{ matrix.laravel.version }}
+          LARAVEL_TESTBENCH: ${{ matrix.laravel.testbench }}
+          HAS_BRIDGE: ${{ matrix.laravel.bridge }}
+        run: |
+          set -euo pipefail
+          update_args=("orchestra/testbench:${LARAVEL_TESTBENCH}" --with-all-dependencies --no-interaction --no-progress --minimal-changes)
+          # When the host Laravel major is outside atoms/database-illuminate's
+          # Illuminate Database range, resolve host packages without the
+          # Atom-side bridge package.
+          if [ "$HAS_BRIDGE" != "true" ]; then
+            composer remove --dev atoms/database-illuminate --no-update --no-interaction
+            update_args=(atoms/database-illuminate "${update_args[@]}")
+          fi
+          # EOL Laravel 11 carries Packagist advisories that Composer 2.9+ blocks
+          # by default; keep this exception scoped to Laravel 11 independent of
+          # bridge support.
+          if [ "$LARAVEL_VERSION" = "11" ]; then
+            update_args+=(--no-security-blocking)
+          fi
+          composer update "${update_args[@]}"
       - run: composer check-platform-reqs
       - name: Verify installed Laravel version
         env:
@@ -72,8 +96,16 @@ jobs:
                 exit(1);
             }
           '
-      - run: composer test
-      - run: composer stan
+      - if: matrix.laravel.bridge
+        run: composer test
+      - name: Run non-bridge PHPUnit suites
+        if: "!matrix.laravel.bridge"
+        run: composer test -- --testsuite=core,client,laravel,symfony,testing,phpstan-rules,cli,integration
+      - if: matrix.laravel.bridge
+        run: composer stan
+      - name: Run non-bridge PHPStan analysis
+        if: "!matrix.laravel.bridge"
+        run: composer stan -- packages/core/src packages/client/src packages/laravel/src packages/symfony/src packages/testing/src packages/phpstan-rules/src packages/cli/src
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

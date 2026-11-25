@@ -32,7 +32,10 @@ try {
     $changedToolchain = $manifest;
     $changedToolchain['php']['constraint'] = '^9.0';
     $changedToolchain['php']['tested'] = ['9.1', '9.2'];
-    unset($changedToolchain['laravel']['ci'][0]['php_max']);
+    foreach ($changedToolchain['laravel']['ci'] as &$ciEntry) {
+        unset($ciEntry['php_max']);
+    }
+    unset($ciEntry);
     $changedToolchain['runtime']['node'] = '24';
     $changedToolchain['runtime']['node_tested'] = ['24', '26'];
     $changedToolchain['runtime']['wrangler'] = '5.2.1';
@@ -74,11 +77,24 @@ try {
         expect(str_contains($expandedMatrix, "version: '{$entry['version']}'"), 'Every Laravel CI version must remain in the matrix');
     }
     $profiles = laravelCompatibility($temp, $expandedPhp)['ci'];
-    expect($profiles[0]['php'] === ['8.3', '8.4', '8.5'], 'Laravel 12 must retain coverage through PHP 8.5');
-    expect($profiles[1]['php'] === $expandedPhp['php']['tested'], 'Laravel 13 must cover every tested host PHP version');
-    expect(str_contains($expandedMatrix, "exclude:\n          - php-version: '8.6'\n            laravel: {version: '12', testbench: '^10.0'}"), 'CI must exclude the unsupported Laravel 12/PHP 8.6 combination');
+    expect(count($profiles) === 3, 'CI must cover Laravel 11, 12 and 13');
+    expect($profiles[0]['version'] === '11' && $profiles[0]['php'] === ['8.3', '8.4', '8.5'] && $profiles[0]['bridge'] === false, 'Laravel 11 must cover PHP 8.3–8.5 without the database-illuminate bridge');
+    expect($profiles[1]['version'] === '12' && $profiles[1]['php'] === ['8.3', '8.4', '8.5'] && $profiles[1]['bridge'] === true, 'Laravel 12 must retain coverage through PHP 8.5 with the bridge');
+    expect($profiles[2]['version'] === '13' && $profiles[2]['php'] === $expandedPhp['php']['tested'] && $profiles[2]['bridge'] === true, 'Laravel 13 must cover every tested host PHP version with the bridge');
+    expect(
+        str_contains(
+            $expandedMatrix,
+            "exclude:\n          - php-version: '8.6'\n            laravel: {version: '11', testbench: '^9.0', bridge: false}\n          - php-version: '8.6'\n            laravel: {version: '12', testbench: '^10.0', bridge: true}",
+        ),
+        'CI must exclude the unsupported Laravel 11/12 on PHP 8.6 combinations',
+    );
+    expect(str_contains($expandedPage, '`atoms/laravel` supports Laravel 11, 12 and 13, tested in CI across these combinations:'), 'Docs must state that all supported Laravel majors are tested in CI');
+    expect(!str_contains($expandedPage, 'no current CI coverage'), 'Docs must not report untested Laravel majors');
+    expect(str_contains($expandedPage, '| Laravel 11 | `^9.0` | PHP 8.3, PHP 8.4 and PHP 8.5 |'), 'Docs must list Laravel 11 CI coverage and PHP cap');
     expect(str_contains($expandedPage, '| Laravel 12 | `^10.0` | PHP 8.3, PHP 8.4 and PHP 8.5 |'), 'Docs must respect the Laravel PHP cap');
     expect(str_contains($expandedPage, '| Laravel 13 | `^11.0` | PHP 8.3, PHP 8.4, PHP 8.5 and PHP 8.6 |'), 'Docs must retain PHP 8.6 coverage for Laravel 13');
+    expect(str_contains($originalBlocks['docs-site/src/content/docs/getting-started/install.md'][2], 'Supports Laravel 11, 12 and 13 (tested in CI).'), 'Install notice must reflect full CI coverage');
+    expect(str_contains($originalBlocks['docs-site/src/content/docs/getting-started/laravel.md'][2], 'Supports Laravel 11, 12 and 13 (tested in CI).'), 'Laravel notice must reflect full CI coverage');
 
     foreach (['8.6-dev', 8.5, null, '8.2'] as $invalidMax) {
         $invalidManifest = $expandedPhp;
@@ -91,7 +107,7 @@ try {
         }
     }
     $uncoveredPhp = $expandedPhp;
-    $uncoveredPhp['laravel']['ci'][1]['php_max'] = '8.5';
+    $uncoveredPhp['laravel']['ci'][2]['php_max'] = '8.5';
     try {
         laravelCompatibility($temp, $uncoveredPhp);
         throw new RuntimeException('Uncovered host PHP version was accepted');
@@ -120,10 +136,23 @@ try {
         }
     }
     writeJsonAtomically($adapterPath, $adapter);
-    expect(renderCompatibility($temp, $manifest) !== $originalPage, 'Adapter constraint change must stale the compatibility page');
-    $changedBlocks = compatibilityBlocks($temp, $manifest);
+    try {
+        laravelCompatibility($temp, $manifest);
+        throw new RuntimeException('Uncovered Laravel major in packages/laravel/composer.json was accepted');
+    } catch (RuntimeException $error) {
+        expect(
+            str_contains($error->getMessage(), 'Every Laravel major') && str_contains($error->getMessage(), 'missing: 14'),
+            'Adding an uncovered Laravel major must fail validation',
+        );
+    }
+    $expandedLaravel = $manifest;
+    $expandedLaravel['laravel']['ci'][] = ['version' => '14', 'testbench' => '^12.0'];
+    expect(renderCompatibility($temp, $expandedLaravel) !== $originalPage, 'Adapter constraint change with CI coverage must stale the compatibility page');
+    $changedBlocks = compatibilityBlocks($temp, $expandedLaravel);
     expect($changedBlocks['docs-site/src/content/docs/getting-started/install.md'][2] !== $originalBlocks['docs-site/src/content/docs/getting-started/install.md'][2], 'Adapter constraint change must stale the install notice');
     expect($changedBlocks['docs-site/src/content/docs/getting-started/laravel.md'][2] !== $originalBlocks['docs-site/src/content/docs/getting-started/laravel.md'][2], 'Adapter constraint change must stale the Laravel notice');
+    expect($changedBlocks['.github/workflows/ci.yml'][2] !== $originalBlocks['.github/workflows/ci.yml'][2], 'Adapter constraint change must stale the CI matrix');
+    expect(str_contains($changedBlocks['.github/workflows/ci.yml'][2], "{version: '14', testbench: '^12.0', bridge: false}"), 'Uncovered bridge major must set bridge: false');
 
     $adapter['require']['illuminate/bus'] = '^11.0';
     writeJsonAtomically($adapterPath, $adapter);
@@ -147,16 +176,32 @@ try {
     $bridge = readJson($bridgePath);
     $bridge['require']['illuminate/database'] .= ' || ^14.0';
     writeJsonAtomically($bridgePath, $bridge);
+    try {
+        laravelCompatibility($temp, $manifest);
+        throw new RuntimeException('Uncovered Illuminate Database major was accepted');
+    } catch (RuntimeException $error) {
+        expect(
+            str_contains($error->getMessage(), 'Every Illuminate Database major') && str_contains($error->getMessage(), 'missing: 14'),
+            'Adding an uncovered Illuminate Database major must fail validation',
+        );
+    }
+    $bridge['require']['illuminate/database'] = '^13.0';
+    writeJsonAtomically($bridgePath, $bridge);
     expect(renderCompatibility($temp, $manifest) !== $originalPage, 'Bridge constraint change must stale the compatibility page');
+    expect(str_contains(compatibilityBlocks($temp, $manifest)['.github/workflows/ci.yml'][2], "{version: '12', testbench: '^10.0', bridge: false}"), 'Dropping a bridge major must update bridge flag in CI matrix');
     copy("{$source}/packages/database-illuminate/composer.json", $bridgePath);
 
     $reducedCi = $manifest;
     array_shift($reducedCi['laravel']['ci']);
-    $reducedBlocks = compatibilityBlocks($temp, $reducedCi);
-    expect($reducedBlocks['docs-site/src/content/docs/getting-started/install.md'][2] !== $originalBlocks['docs-site/src/content/docs/getting-started/install.md'][2], 'CI version change must stale the install notice');
-    expect($reducedBlocks['docs-site/src/content/docs/getting-started/laravel.md'][2] !== $originalBlocks['docs-site/src/content/docs/getting-started/laravel.md'][2], 'CI version change must stale the Laravel notice');
-    expect($reducedBlocks['.github/workflows/ci.yml'][2] !== $originalBlocks['.github/workflows/ci.yml'][2], 'CI version change must stale the matrix');
-    expect(renderCompatibility($temp, $reducedCi) !== $originalPage, 'CI version change must stale the compatibility page');
+    try {
+        laravelCompatibility($temp, $reducedCi);
+        throw new RuntimeException('Dropping a Laravel major from laravel.ci was accepted');
+    } catch (RuntimeException $error) {
+        expect(
+            str_contains($error->getMessage(), 'Every Laravel major') && str_contains($error->getMessage(), 'missing: 11'),
+            'Removing CI coverage for a declared Laravel major must fail validation',
+        );
+    }
 
     $manifest['laravel']['ci'][0]['testbench'] = '^12.0';
     expect(renderCompatibility($temp, $manifest) !== $originalPage, 'CI metadata change must stale the compatibility page');
