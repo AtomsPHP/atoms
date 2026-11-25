@@ -12,7 +12,10 @@ use Atoms\Client\Callback\MethodsResolver;
 use Atoms\Client\Callback\NullQueueBridge;
 use Atoms\Client\Callback\QueueBridge;
 use Atoms\Client\Crypto\KeyDerivation;
+use Atoms\Client\Exception\PlatformUnavailable;
 use Atoms\Client\Tickets\TicketIssuer;
+use Psr\Http\Client\NetworkExceptionInterface;
+use Psr\Http\Message\RequestInterface;
 use Atoms\Symfony\AtomsBundle;
 use Atoms\Symfony\Command\AtomsDeployCommand;
 use Atoms\Symfony\Controller\CallbackController;
@@ -129,6 +132,60 @@ final class AtomsBundleExtensionTest extends TestCase
             'wss://atoms.example.workers.dev/ws/GameRoom/g-1?channels=lobby',
             $client->wsUrl(GameRoom::class, 'g-1', ['channels' => 'lobby']),
         );
+    }
+
+    public function testDestroyIsReachableThroughTheContainerWiredAtomsClientAndNeverAutoRetries(): void
+    {
+        $container = $this->buildContainer([
+            'http_client' => 'test.psr18_client',
+            'max_attempts' => 4,
+        ]);
+        $container->register('test.psr18_client', FakePsr18Client::class)->setPublic(true);
+        $container->compile();
+
+        $http = $container->get('test.psr18_client');
+        self::assertInstanceOf(FakePsr18Client::class, $http);
+
+        $client = $container->get('atoms.client');
+        self::assertInstanceOf(AtomsClient::class, $client);
+
+        $http
+            ->queueJson(200, ['destroyed' => true])
+            ->queueJson(200, ['destroyed' => false]);
+
+        self::assertTrue($client->destroy(GameRoom::class, 'g-1'));
+        self::assertFalse($client->destroy('GameRoom', 'g-1'));
+
+        self::assertCount(2, $http->requests);
+        self::assertSame('DELETE', $http->requests[0]->getMethod());
+        self::assertSame('https://atoms.example.workers.dev/atoms/GameRoom/g-1', (string) $http->requests[0]->getUri());
+        self::assertSame('Bearer ' . self::BEARER, $http->requests[0]->getHeaderLine('Authorization'));
+
+        // Lost response sends a single DELETE and leaves outcome unknown.
+        $http->requests = [];
+        $req = (new HttpFactory())->createRequest('DELETE', 'https://atoms.example.workers.dev/atoms/GameRoom/g-2');
+        $http
+            ->queueThrowable(new class($req) extends \RuntimeException implements NetworkExceptionInterface {
+                public function __construct(private readonly RequestInterface $request)
+                {
+                    parent::__construct('connection reset');
+                }
+
+                public function getRequest(): RequestInterface
+                {
+                    return $this->request;
+                }
+            })
+            ->queueJson(200, ['destroyed' => true]);
+
+        try {
+            $client->destroy(GameRoom::class, 'g-2');
+            self::fail('expected PlatformUnavailable');
+        } catch (PlatformUnavailable $e) {
+            self::assertStringContainsString('outcome unknown', $e->getMessage());
+        }
+
+        self::assertCount(1, $http->requests);
     }
 
     public function testConfiguredWsTicketTtlMsLandsInAtomsConfig(): void

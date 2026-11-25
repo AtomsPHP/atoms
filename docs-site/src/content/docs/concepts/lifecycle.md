@@ -44,6 +44,23 @@ When an Atom wakes up, the runtime starts PHP, applies pending migrations, and c
 
 `onDeactivation()` is best-effort cleanup, not a durability hook. Do not depend on it for writes that must happen.
 
+## Destroying an Atom
+
+To remove an Atom instance and its durable state, call `destroy()` with its class (or wire type) and ID:
+
+```php
+// Laravel
+$removed = Atoms::destroy(GameRoom::class, 'room-42');
+
+// Symfony or plain PHP (injected AtomsClient)
+$removed = $atoms->destroy(GameRoom::class, 'room-42');
+```
+
+- **Boolean result:** returns `true` when this request removed an existing Atom, and `false` when the ID was already absent. Deleting a missing ID leaves no SQLite tables, rows, or alarms behind.
+- **Teardown:** deletion is serialized behind in-flight turns on the same ID. If the Atom is currently warm and resident in memory, the runtime runs `onDeactivation()` best-effort under the normal turn limits and logs any failure; if the Atom is cold or hibernated, it is deleted without waking PHP or running customer hooks. After teardown settles, the runtime closes connected and hibernated WebSockets with code `1000` and reason `Atom destroyed`, clears all scheduled timers and the platform alarm, and wipes the Atom's SQLite storage before returning `true`.
+- **Reuse and tickets:** a subsequent authenticated invocation or WebSocket upgrade for the same ID creates a fresh Atom from scratch, re-running migrations and `onActivation()`. Stale socket frames, close events, and timers from the deleted Atom are fenced off and never touch the new incarnation. Previously issued stateless WebSocket tickets remain valid until their normal expiry, so applications that need permanent removal must control reuse of that ID and account for outstanding tickets.
+- **Single-attempt retry policy:** unlike ordinary RPC invocations, `destroy()` sends a **single** `DELETE` request and does not auto-retry on transport or platform failures. If the server committed the deletion and the response was lost, the outcome is unknown — a blind retry could destroy a newly recreated Atom under the same ID. Control reuse of that ID during any application-level retry window.
+
 ## Migrations
 
 An Atom's schema lives in a `migrations/` directory next to its class: a numbered series like `001_create_events.sql`, `002_add_round_index.sql`. When an Atom wakes up, the runtime applies new migrations before your code runs.

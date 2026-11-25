@@ -121,4 +121,86 @@ final class AtomsFakeTest extends TestCase
 
         $fake->assertTicketIssued(GameRoom::class, 'g-2');
     }
+
+    public function testDestroyTracksPresenceByTypeAndIdWithoutCreatingOnProxyOrTicket(): void
+    {
+        $fake = Atoms::fake();
+
+        // Never-invoked ID is absent.
+        self::assertFalse(Atoms::destroy(GameRoom::class, 'g-1'));
+
+        // Obtaining a proxy or minting a ticket alone does not mark an Atom present.
+        $proxy = Atoms::get(GameRoom::class, 'g-1');
+        Atoms::ticket(GameRoom::class, 'g-1');
+        self::assertFalse(Atoms::destroy(GameRoom::class, 'g-1'));
+
+        // Invoking a method marks the (type, id) present.
+        $proxy->ping();
+        self::assertTrue(Atoms::destroy(GameRoom::class, 'g-1'));
+
+        // Repeat destroy returns false until the ID is invoked again.
+        self::assertFalse(Atoms::destroy(GameRoom::class, 'g-1'));
+
+        // Reusing the same ID after destruction marks it present again.
+        Atoms::call('GameRoom', 'g-1', 'ping');
+        self::assertTrue(Atoms::destroy('GameRoom', 'g-1'));
+
+        self::assertSame(
+            [
+                ['type' => 'GameRoom', 'id' => 'g-1', 'destroyed' => false],
+                ['type' => 'GameRoom', 'id' => 'g-1', 'destroyed' => false],
+                ['type' => 'GameRoom', 'id' => 'g-1', 'destroyed' => true],
+                ['type' => 'GameRoom', 'id' => 'g-1', 'destroyed' => false],
+                ['type' => 'GameRoom', 'id' => 'g-1', 'destroyed' => true],
+            ],
+            $fake->destroyed(),
+        );
+    }
+
+    public function testDestroyIsolatesByTypeAndIdAndNormalizesUnloadedFqcn(): void
+    {
+        $fake = Atoms::fake();
+
+        // Normalize even an unloaded FQCN consistently with AtomsClient::wireType().
+        Atoms::call('App\\Atoms\\UnloadedRoom', 'r-1', 'ping');
+        Atoms::get(GameRoom::class, 'r-1')->ping();
+        Atoms::get(GameRoom::class, 'r-2')->ping();
+
+        self::assertTrue(Atoms::destroy('UnloadedRoom', 'r-1'));
+        self::assertFalse(Atoms::destroy('App\\Atoms\\UnloadedRoom', 'r-1'));
+
+        // Other type and other ID remain untouched.
+        self::assertTrue(Atoms::destroy(GameRoom::class, 'r-1'));
+        self::assertTrue(Atoms::destroy('GameRoom', 'r-2'));
+    }
+
+    public function testAssertDestroyedAndAssertNotDestroyed(): void
+    {
+        $fake = Atoms::fake();
+
+        Atoms::get(GameRoom::class, 'g-1')->ping();
+        Atoms::destroy(GameRoom::class, 'g-1');
+
+        $fake->assertDestroyed(GameRoom::class, 'g-1');
+        $fake->assertDestroyed('GameRoom', 'g-1');
+        $fake->assertNotDestroyed(GameRoom::class, 'g-2');
+        $fake->assertNotDestroyed('OtherRoom', 'g-1');
+    }
+
+    public function testAssertDestroyedFailsWhenNotDestroyed(): void
+    {
+        $fake = Atoms::fake();
+
+        $this->expectException(ExpectationFailedException::class);
+        $fake->assertDestroyed(GameRoom::class, 'g-1');
+    }
+
+    public function testAssertNotDestroyedFailsWhenDestroyed(): void
+    {
+        $fake = Atoms::fake();
+        Atoms::destroy(GameRoom::class, 'g-1');
+
+        $this->expectException(ExpectationFailedException::class);
+        $fake->assertNotDestroyed(GameRoom::class, 'g-1');
+    }
 }

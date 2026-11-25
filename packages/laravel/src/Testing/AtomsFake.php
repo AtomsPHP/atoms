@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Laravel\Testing;
 
+use Atoms\Client\AtomsClient;
 use Atoms\Client\Tickets\Ticket;
 use PHPUnit\Framework\Assert as PHPUnit;
 
@@ -20,6 +21,12 @@ final class AtomsFake
 
     /** @var list<array{type: string, id: string, method: string, args: list<mixed>}> */
     private array $invocations = [];
+
+    /** @var array<string, array<string, true>> type => id => true (Atoms that currently exist) */
+    private array $present = [];
+
+    /** @var list<array{type: string, id: string, destroyed: bool}> */
+    private array $destroyedAtoms = [];
 
     /** @var array<string, Ticket|\Closure> type => ticket|closure */
     private array $ticketStubs = [];
@@ -57,16 +64,37 @@ final class AtomsFake
     }
 
     /**
-     * Called by {@see FakeAtomProxy}: records the invocation and resolves the
+     * Destroy one fake Atom by class name or wire type and ID.
+     *
+     * Tracks presence by `(type, id)`: returns true when the Atom had been
+     * invoked since its last destruction (or ever), and false when it was
+     * absent. Obtaining a proxy or minting a ticket alone leaves an ID absent.
+     */
+    public function destroy(string $atomClassOrType, string $id): bool
+    {
+        $type = self::typeOf($atomClassOrType);
+        $existed = isset($this->present[$type][$id]);
+        unset($this->present[$type][$id]);
+
+        $this->destroyedAtoms[] = ['type' => $type, 'id' => $id, 'destroyed' => $existed];
+
+        return $existed;
+    }
+
+    /**
+     * Called by {@see FakeAtomProxy}: records the invocation, marks the Atom
+     * present for subsequent {@see self::destroy()} calls, and resolves the
      * stubbed response, or null when nothing was stubbed for it.
      *
      * @param list<mixed> $args
      */
     public function record(string $type, string $id, string $method, array $args): mixed
     {
-        $this->invocations[] = ['type' => $type, 'id' => $id, 'method' => $method, 'args' => $args];
+        $wireType = self::typeOf($type);
+        $this->present[$wireType][$id] = true;
+        $this->invocations[] = ['type' => $wireType, 'id' => $id, 'method' => $method, 'args' => $args];
 
-        $stub = $this->stubs[$type][$method] ?? null;
+        $stub = $this->stubs[$wireType][$method] ?? null;
 
         return $stub instanceof \Closure ? $stub(...$args) : $stub;
     }
@@ -156,6 +184,38 @@ final class AtomsFake
         );
     }
 
+    public function assertDestroyed(string $atomClassOrType, string $id): void
+    {
+        $type = self::typeOf($atomClassOrType);
+
+        $found = array_filter(
+            $this->destroyedAtoms,
+            static fn (array $entry): bool => $entry['type'] === $type && $entry['id'] === $id,
+        );
+
+        PHPUnit::assertNotEmpty($found, "Expected Atom {$type}:{$id} to have been destroyed, but it was not.");
+    }
+
+    public function assertNotDestroyed(string $atomClassOrType, string $id): void
+    {
+        $type = self::typeOf($atomClassOrType);
+
+        $found = array_filter(
+            $this->destroyedAtoms,
+            static fn (array $entry): bool => $entry['type'] === $type && $entry['id'] === $id,
+        );
+
+        PHPUnit::assertEmpty($found, "Expected Atom {$type}:{$id} NOT to have been destroyed, but it was.");
+    }
+
+    /**
+     * @return list<array{type: string, id: string, destroyed: bool}>
+     */
+    public function destroyed(): array
+    {
+        return $this->destroyedAtoms;
+    }
+
     /**
      * @return list<array{type: string, id: string, method: string, args: list<mixed>}>
      */
@@ -183,13 +243,6 @@ final class AtomsFake
 
     private static function typeOf(string $atomClassOrType): string
     {
-        return class_exists($atomClassOrType) ? self::basename($atomClassOrType) : $atomClassOrType;
-    }
-
-    private static function basename(string $class): string
-    {
-        $pos = strrpos($class, '\\');
-
-        return $pos === false ? $class : substr($class, $pos + 1);
+        return AtomsClient::wireType($atomClassOrType);
     }
 }
