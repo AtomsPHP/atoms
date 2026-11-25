@@ -751,6 +751,62 @@ function run_timer_turn($atom, SqlBridge $bridge, array $identity, $name)
 }
 
 /**
+ * Run best-effort `onDeactivation()` for explicit destruction of a healthy
+ * resident guest. Shares the two-layer guard with {@see run_timer_turn()}: an
+ * uncaught exception or turn-deadline overrun is logged, any open transaction is
+ * rolled back, and an error envelope is returned so the host can log it and
+ * proceed with final teardown.
+ *
+ * @param object $atom
+ * @param SqlBridge $bridge
+ * @param array<string, mixed> $identity
+ * @return array<string, mixed>
+ */
+function run_deactivate_turn($atom, SqlBridge $bridge, array $identity)
+{
+    try {
+        try {
+            LifecycleInvoker::deactivate($atom);
+        } catch (\Throwable $e) {
+            host_log('error', [
+                'event' => 'deactivation_failed',
+                'atom_type' => $identity['type'],
+                'atom_id' => $identity['id'],
+                'class' => get_class($e),
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            settle_open_transaction($bridge, $identity, 'onDeactivation');
+
+            if ($e instanceof TurnDeadlineExceeded) {
+                return error_envelope('turn_deadline_exceeded', $e->getMessage(), get_class($e));
+            }
+
+            return error_envelope('atom_exception', $e->getMessage(), get_class($e));
+        }
+
+        $leaked = settle_open_transaction($bridge, $identity, 'onDeactivation');
+        if ($leaked !== null) {
+            return error_envelope('atom_exception', $leaked, null);
+        }
+
+        return ['ok' => true, 'result' => null];
+    } catch (\Throwable $e) {
+        host_log('error', [
+            'event' => 'deactivation_internal_error',
+            'atom_type' => $identity['type'],
+            'atom_id' => $identity['id'],
+            'class' => get_class($e),
+            'message' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+
+        return error_envelope('internal', $e->getMessage(), get_class($e));
+    }
+}
+
+/**
  * Park between turns forever. The `result` field carries the PREVIOUS turn's
  * envelope and is null on the first park after boot (runtime-spec.md §Park ops).
  *
@@ -804,6 +860,14 @@ function turn_loop($atom, SqlBridge $bridge, array $identity)
 
         if ($kind === 'shutdown') {
             return;
+        }
+
+        if ($kind === 'deactivate') {
+            $result = encodable_envelope(
+                run_deactivate_turn($atom, $bridge, $identity),
+                'onDeactivation'
+            );
+            continue;
         }
 
         if ($kind === 'invoke') {

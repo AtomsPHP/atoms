@@ -91,8 +91,9 @@ export class Bridge {
 	// ------------------------------------------------------------------ schema
 
 	/**
-	 * Create the host-owned tables. Idempotent, safe in a constructor.
-	 * `__atoms_timers` lives here alongside `__atoms_meta`: one
+	 * Create the host-owned tables. Idempotent, called during activation
+	 * (never in the DO constructor, so probing or deleting an absent ID leaves
+	 * storage empty). `__atoms_timers` lives here alongside `__atoms_meta`: one
 	 * place creates every host-owned table, so the reserved-prefix guard
 	 * below only ever has to agree with itself.
 	 */
@@ -106,10 +107,99 @@ export class Bridge {
 	}
 
 	/**
+	 * Pure read-only table check against sqlite_master — safe on an empty
+	 * database and creates no storage.
+	 *
+	 * @param {string} table
+	 * @returns {boolean}
+	 */
+	tableExists(table) {
+		const rows = this.sql
+			.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", table)
+			.toArray();
+		return rows.length > 0;
+	}
+
+	/**
+	 * Read-only storage probe for `DELETE /atoms/:type/:id` and
+	 * `GET /debug/:type/:id/info`. Never creates tables or rows.
+	 *
+	 * Distinguishes real Atom state (customer tables/views/indexes/triggers,
+	 * scheduled timers, or any `__atoms_meta` key other than diagnostic
+	 * `constructions`) from legacy constructor-only metadata (`__atoms_meta`
+	 * holding only `constructions` plus empty host tables).
+	 *
+	 * @returns {{
+	 *   objects: {type: string, name: string}[],
+	 *   tables: string[],
+	 *   userTables: string[],
+	 *   hasMetaTable: boolean,
+	 *   hasTimersTable: boolean,
+	 *   metaKeys: string[],
+	 *   timerCount: number,
+	 *   hasAnyStorage: boolean,
+	 *   hasAtomData: boolean,
+	 *   databaseSize: number|null,
+	 * }}
+	 */
+	inspectStorage() {
+		// Filter platform-internal prefixes literally in JS rather than via
+		// SQLite LIKE, where '_' is a single-character wildcard that would
+		// accidentally match customer tables such as `sqlitecache` or `acf_x`.
+		const objects = this.sql
+			.exec('SELECT type, name FROM sqlite_master ORDER BY type ASC, name ASC')
+			.toArray()
+			.map((/** @type {any} */ r) => ({ type: String(r.type), name: String(r.name) }))
+			.filter((o) => !/^(sqlite_|_cf_|__miniflare_)/i.test(o.name));
+
+		const tables = objects.filter((o) => o.type === 'table').map((o) => o.name);
+		const hasMetaTable = tables.includes(META_TABLE);
+		const hasTimersTable = tables.includes(TIMERS_TABLE);
+		const customerObjects = objects.filter(
+			(o) => !(o.type === 'table' && (o.name === META_TABLE || o.name === TIMERS_TABLE))
+		);
+		const userTables = customerObjects.filter((o) => o.type === 'table').map((o) => o.name);
+
+		/** @type {string[]} */
+		let metaKeys = [];
+		if (hasMetaTable) {
+			metaKeys = this.sql
+				.exec(`SELECT key FROM ${META_TABLE} ORDER BY key ASC`)
+				.toArray()
+				.map((/** @type {any} */ r) => String(r.key));
+		}
+
+		let timerCount = 0;
+		if (hasTimersTable) {
+			const counted = this.sql.exec(`SELECT COUNT(*) AS n FROM ${TIMERS_TABLE}`).toArray();
+			timerCount = Number(counted[0]?.n ?? 0);
+		}
+
+		const nonDiagnosticMetaKeys = metaKeys.filter((k) => k !== META_KEYS.constructions);
+		const hasAnyStorage = objects.length > 0;
+		const hasAtomData = customerObjects.length > 0 || nonDiagnosticMetaKeys.length > 0 || timerCount > 0;
+		const databaseSize = typeof this.sql.databaseSize === 'number' ? this.sql.databaseSize : null;
+
+		return {
+			objects,
+			tables,
+			userTables,
+			hasMetaTable,
+			hasTimersTable,
+			metaKeys,
+			timerCount,
+			hasAnyStorage,
+			hasAtomData,
+			databaseSize,
+		};
+	}
+
+	/**
 	 * @param {string} key
 	 * @returns {string|null}
 	 */
 	metaGet(key) {
+		if (!this.tableExists(META_TABLE)) return null;
 		const rows = this.sql.exec(`SELECT value FROM ${META_TABLE} WHERE key = ?`, key).toArray();
 		return rows.length ? String(rows[0].value) : null;
 	}
@@ -128,14 +218,22 @@ export class Bridge {
 	}
 
 	/**
-	 * Count this residency. Called from the DO constructor, so it is the
-	 * observable for hibernation/eviction.
+	 * Read the persisted construction count without creating or writing storage.
+	 *
+	 * @returns {number}
+	 */
+	readConstructions() {
+		const prior = Number(this.metaGet(META_KEYS.constructions) ?? '0');
+		return Number.isFinite(prior) ? Math.max(0, Math.trunc(prior)) : 0;
+	}
+
+	/**
+	 * Count this residency. Kept for callers that persist an incremented count.
 	 *
 	 * @returns {number}
 	 */
 	bumpConstructions() {
-		const prior = Number(this.metaGet(META_KEYS.constructions) ?? '0');
-		const next = (Number.isFinite(prior) ? prior : 0) + 1;
+		const next = this.readConstructions() + 1;
 		this.metaSet(META_KEYS.constructions, String(next));
 		return next;
 	}

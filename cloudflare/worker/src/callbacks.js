@@ -120,6 +120,14 @@ export class CallbackChannel {
 		return this.config.callbackState;
 	}
 
+	/** Reset residency-local counters and transaction buffer on destruction. */
+	resetCounters() {
+		this.txBuffer = [];
+		this.callbackCalls = 0;
+		this.dispatches = 0;
+		this.dispatchFailures = 0;
+	}
+
 	/** @returns {TurnCollector} a fresh per-turn delivery collector */
 	newCollector() {
 		return { promises: [], dispatchCount: 0 };

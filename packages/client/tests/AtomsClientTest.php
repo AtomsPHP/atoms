@@ -650,4 +650,265 @@ final class AtomsClientTest extends TestCase
         /** @phpstan-ignore-next-line deliberately reading a property off a proxy */
         $client->get(GameRoom::class, 'g-1')->id;
     }
+
+    public function testDestroySendsDeleteWithNormalizedTypeAndReturnsBoolean(): void
+    {
+        $client = $this->client();
+        $this->http
+            ->queueJson(200, ['destroyed' => true])
+            ->queueJson(200, ['destroyed' => false]);
+
+        self::assertTrue($client->destroy(GameRoom::class, 'room 1'));
+        self::assertFalse($client->destroy('GameRoom', 'room-missing'));
+
+        self::assertCount(2, $this->http->requests);
+
+        $first = $this->http->requests[0];
+        self::assertSame('DELETE', $first->getMethod());
+        self::assertSame('https://atoms.example.workers.dev/atoms/GameRoom/room%201', (string) $first->getUri());
+        self::assertSame(self::BEARER, $first->getHeaderLine('Authorization'));
+        self::assertMatchesRegularExpression('/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/', $first->getHeaderLine('traceparent'));
+        self::assertSame('', (string) $first->getBody());
+
+        $second = $this->http->requests[1];
+        self::assertSame('DELETE', $second->getMethod());
+        self::assertSame('https://atoms.example.workers.dev/atoms/GameRoom/room-missing', (string) $second->getUri());
+    }
+
+    public function testDestroySendsManifestHashHeaderWhenLoaded(): void
+    {
+        $path = sys_get_temp_dir() . '/atoms-destroy-manifest-' . uniqid() . '.json';
+        file_put_contents($path, (string) json_encode([
+            'schema' => 1,
+            'project' => ['name' => 'demo'],
+            'atoms' => [],
+            'content_hash' => 'deadbeef',
+        ]));
+
+        try {
+            $client = $this->client(['manifestPath' => $path]);
+            $this->http->queueJson(200, ['destroyed' => true]);
+
+            self::assertTrue($client->destroy(GameRoom::class, 'g-1'));
+            self::assertMatchesRegularExpression(
+                '/^[0-9a-f]{64}$/',
+                $this->http->lastRequest()->getHeaderLine('X-Atoms-Manifest-Hash'),
+            );
+        } finally {
+            @unlink($path);
+        }
+    }
+
+    public function testDestroySendsOnlyOneDeleteWhenResponseIsLost(): void
+    {
+        $client = $this->client(['maxAttempts' => 5]);
+        $factoryReq = (new HttpFactory())->createRequest('DELETE', 'https://atoms.example.workers.dev/atoms/GameRoom/g-1');
+        $this->http
+            ->queueThrowable(new FakeNetworkException($factoryReq))
+            ->queueJson(200, ['destroyed' => true]);
+
+        try {
+            $client->destroy(GameRoom::class, 'g-1');
+            self::fail('expected PlatformUnavailable');
+        } catch (PlatformUnavailable $e) {
+            self::assertSame('transport', $e->platformCode);
+            self::assertFalse($e->retryable, 'outcome-unknown destroy transport failure must not advertise retryable=true');
+            self::assertStringContainsString('outcome unknown', $e->getMessage());
+            self::assertStringContainsString('GameRoom/g-1', $e->getMessage());
+        }
+
+        self::assertCount(1, $this->http->requests, 'destroy must send only one DELETE when the response is lost');
+        self::assertSame([], $this->sleeps, 'destroy must never sleep or retry');
+    }
+
+    public function testDestroyNonNetworkClientExceptionIsNonRetryableWithOutcomeUnknown(): void
+    {
+        $client = $this->client(['maxAttempts' => 4]);
+        $this->http->queueThrowable(new class('response stream interrupted') extends \RuntimeException implements \Psr\Http\Client\ClientExceptionInterface {});
+
+        try {
+            $client->destroy(GameRoom::class, 'g-stream');
+            self::fail('expected AtomsRequestFailed');
+        } catch (AtomsRequestFailed $e) {
+            self::assertSame('transport', $e->platformCode);
+            self::assertFalse($e->retryable);
+            self::assertStringContainsString('outcome unknown', $e->getMessage());
+            self::assertStringContainsString('GameRoom/g-stream', $e->getMessage());
+        }
+
+        self::assertCount(1, $this->http->requests);
+        self::assertSame([], $this->sleeps);
+    }
+
+    public function testDestroyLostResponseAfterCommitLeavesRecreatedAtomUntouched(): void
+    {
+        // Stateful in-memory PSR-18 double: commits the first DELETE, immediately
+        // recreates the same Atom ID at value 7, then drops the DELETE response.
+        $state = new class {
+            public ?int $counterValue = 1;
+            public int $deleteCalls = 0;
+        };
+
+        $http = new class($state) implements \Psr\Http\Client\ClientInterface {
+            public function __construct(private readonly object $state) {}
+
+            public function sendRequest(\Psr\Http\Message\RequestInterface $request): \Psr\Http\Message\ResponseInterface
+            {
+                if ($request->getMethod() === 'DELETE') {
+                    $this->state->deleteCalls++;
+                    // Server commits deletion of Atom A.
+                    $this->state->counterValue = null;
+
+                    if ($this->state->deleteCalls === 1) {
+                        // Another caller immediately recreates the same ID at value 7
+                        // before the response is lost on the wire.
+                        $this->state->counterValue = 7;
+
+                        throw new FakeNetworkException($request, 'response lost after commit');
+                    }
+
+                    return new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], '{"destroyed":true}');
+                }
+
+                return new \GuzzleHttp\Psr7\Response(
+                    200,
+                    ['Content-Type' => 'application/json'],
+                    (string) json_encode(['result' => $this->state->counterValue]),
+                );
+            }
+        };
+
+        $sleeps = [];
+        $factory = new HttpFactory();
+        $client = new AtomsClient(
+            AtomsConfig::fromArray([
+                'endpoint' => 'https://atoms.example.workers.dev/',
+                'sharedSecret' => self::SECRET,
+                'maxAttempts' => 5,
+                'backoffBaseMs' => 50,
+                'backoffJitter' => false,
+            ]),
+            $http,
+            $factory,
+            $factory,
+            null,
+            static function (int $ms) use (&$sleeps): void {
+                $sleeps[] = $ms;
+            },
+        );
+
+        try {
+            $client->destroy('Counter', 'reused-1');
+            self::fail('expected PlatformUnavailable');
+        } catch (PlatformUnavailable $e) {
+            self::assertFalse($e->retryable);
+            self::assertStringContainsString('outcome unknown', $e->getMessage());
+        }
+
+        self::assertSame(1, $state->deleteCalls, 'only one DELETE may be sent');
+        self::assertSame([], $sleeps);
+        self::assertSame(7, $client->call('Counter', 'reused-1', 'getValue'), 'recreated Atom B must remain intact at value 7');
+    }
+
+    public function testDestroyNeverAutoRetriesRetryablePlatformErrors(): void
+    {
+        $cases = [
+            [500, ['error' => ['code' => 'internal', 'message' => 'storage failed', 'retryable' => true]], AtomsRequestFailed::class],
+            [502, ['error' => ['code' => 'machine_unavailable', 'message' => 'down', 'retryable' => true]], PlatformUnavailable::class],
+            [503, ['error' => ['code' => 'capacity_refused', 'message' => 'busy', 'retryable' => true]], CapacityRefused::class],
+            [429, ['error' => ['code' => 'rate_limited', 'message' => 'slow down', 'retryable' => true]], CapacityRefused::class],
+        ];
+
+        foreach ($cases as [$status, $payload, $expectedClass]) {
+            $client = $this->client(['maxAttempts' => 4]);
+            $this->http
+                ->queueJson($status, $payload, ['Retry-After' => '2'])
+                ->queueJson(200, ['destroyed' => true]);
+
+            try {
+                $client->destroy(GameRoom::class, 'g-1');
+                self::fail("expected {$expectedClass} for status {$status}");
+            } catch (\Throwable $e) {
+                self::assertInstanceOf($expectedClass, $e);
+            }
+
+            self::assertCount(1, $this->http->requests, "status {$status} must not be auto-retried on destroy()");
+            self::assertSame([], $this->sleeps, "status {$status} must not sleep on destroy()");
+        }
+    }
+
+    public function testDestroyRejectsMalformedOrNonBooleanSuccessResponses(): void
+    {
+        $malformedBodies = [
+            [200, ''],
+            [200, 'not-json'],
+            [200, '{}'],
+            [200, '{"destroyed":null}'],
+            [200, '{"destroyed":1}'],
+            [200, '{"destroyed":0}'],
+            [200, '{"destroyed":"true"}'],
+            [200, '{"destroyed":"false"}'],
+            [200, '[]'],
+            [204, ''],
+        ];
+
+        foreach ($malformedBodies as [$status, $body]) {
+            $client = $this->client(['maxAttempts' => 3]);
+            $this->http->queueResponse($status, $body, ['Content-Type' => 'application/json']);
+
+            try {
+                $client->destroy(GameRoom::class, 'g-1');
+                self::fail("expected AtomsRequestFailed for status={$status} body={$body}");
+            } catch (AtomsRequestFailed $e) {
+                self::assertSame('invalid_response', $e->platformCode);
+                self::assertFalse($e->retryable);
+                self::assertSame($status, $e->httpStatus);
+            }
+
+            self::assertCount(1, $this->http->requests);
+            self::assertSame([], $this->sleeps);
+        }
+    }
+
+    public function testDestroyMapsUnknownAtomTypeAndInvalidRequestErrors(): void
+    {
+        $client = $this->client();
+        $this->http->queueJson(404, ['error' => ['code' => 'unknown_atom_type', 'message' => 'not deployed', 'retryable' => false]]);
+
+        try {
+            $client->destroy(GameRoom::class, 'g-1');
+            self::fail('expected AtomNotDeployed');
+        } catch (AtomNotDeployed $e) {
+            self::assertSame('GameRoom', $e->type);
+            self::assertSame(404, $e->httpStatus);
+        }
+
+        $client = $this->client();
+        $this->http->queueJson(400, ['error' => ['code' => 'invalid_request', 'message' => 'bad id', 'retryable' => false]]);
+
+        try {
+            $client->destroy('GameRoom', '');
+            self::fail('expected InvalidRequest');
+        } catch (InvalidRequest $e) {
+            self::assertSame(400, $e->httpStatus);
+            self::assertSame('bad id', $e->getMessage());
+        }
+    }
+
+    public function testDestroyThrowsOnTwoHundredCarryingAnErrorFrame(): void
+    {
+        $client = $this->client();
+        $this->http->queueJson(200, ['error' => ['code' => 'internal', 'message' => 'oops', 'retryable' => true]]);
+
+        try {
+            $client->destroy(GameRoom::class, 'g-1');
+            self::fail('expected AtomsRequestFailed');
+        } catch (AtomsRequestFailed $e) {
+            self::assertSame('internal', $e->platformCode);
+            self::assertSame(200, $e->httpStatus);
+        }
+
+        self::assertCount(1, $this->http->requests);
+        self::assertSame([], $this->sleeps);
+    }
 }

@@ -107,6 +107,20 @@ final class AtomsManager
     }
 
     /**
+     * Explicitly destroy an Atom instance and its durable state.
+     *
+     * Returns true when this request removed an existing Atom, or false when
+     * the ID was already absent. Sends a single DELETE with no automatic
+     * retries; if the response is lost, the outcome is unknown.
+     *
+     * @param class-string|string $class the Atom's FQCN, or its wire type
+     */
+    public function destroy(string $class, string $id): bool
+    {
+        return $this->fake?->destroy($class, $id) ?? $this->client->destroy($class, $id);
+    }
+
+    /**
      * Switch this manager into fake mode; no HTTP call will be made until the
      * test resets the container. Returns the fake so assertions can chain.
      *

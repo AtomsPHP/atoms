@@ -149,6 +149,7 @@ WebSocket seam's transaction hazard, below).
   boot). Resumed with a turn envelope carrying `"kind"` plus that kind's
   fields:
   - `{"kind":"invoke","method":string,"args":[...]}`
+  - `{"kind":"deactivate"}`
   - `{"kind":"shutdown"}`
   - `{"kind":"ws.connect","conn":{"id":string,"channels":[string,...]},"params":{string:string,...}}`
   - `{"kind":"ws.message","conn":{...},"payload":string,"binary":bool,"encoding":"utf8"|"base64"}`
@@ -210,17 +211,18 @@ of these that maps to a distinct HTTP status, 504 retryable; see §The turn
 deadline). Traces are sanitized: never sent to the client, logged server-side
 only.
 
-**WebSocket and timer turns.** A `ws.connect`/`ws.message`/`ws.close`/`timer`
+**WebSocket, timer and deactivation turns.** A `ws.connect`/`ws.message`/`ws.close`/`timer`/`deactivate`
 turn's success envelope is always `{"ok":true,"result":null}` — the handlers
-(`onConnect`/`onMessage`/`onDisconnect`/`onTimer`) return `void`. An uncaught
+(`onConnect`/`onMessage`/`onDisconnect`/`onTimer`/`onDeactivation`) return `void`. An uncaught
 exception in one of them is logged server-side (`atoms.ws.turn_failed` /
-equivalent) and becomes an ordinary `atom_exception` **turn-result** envelope,
+equivalent) and becomes an ordinary `atom_exception` (or `turn_deadline_exceeded`
+for an uncaught `app()` deadline overrun in `onDeactivation`) **turn-result** envelope,
 exactly like a failed invoke — but because there is no HTTP client on the
-other end of a socket or alarm event, that envelope is **never relayed to the
+other end of a socket or alarm event (and `onDeactivation` is best-effort), that envelope is **never relayed to the
 socket peer** in any form (not the message, not the class, not a generic
 "error" frame) and never surfaces anywhere but the host's structured log. It
-also does not close the socket and does not poison the residency: "the turn
-loop never throws" holds for `run_ws_turn()`/`run_timer_turn()` exactly as it
+also does not close the socket, does not abort destruction cleanup, and does not poison the residency: "the turn
+loop never throws" holds for `run_ws_turn()`/`run_timer_turn()`/`run_deactivate_turn()` exactly as it
 does for `run_turn()`.
 
 **The turn loop never throws.** Every failure a turn can produce — including
@@ -763,10 +765,20 @@ them as plaintext `vars`.
   `200 {"result":..., "atom":{"type":...,"id":...}}` or
   `4xx/5xx {"error":{"code","message","retryable"}}`. Single-tenant Worker;
   routes carry no tenant prefix.
+- `DELETE /atoms/:type/:id` → `200 {"destroyed":true|false}` or
+  `4xx/5xx {"error":{"code","message","retryable"}}`. Sits behind the same
+  configuration gate, server-to-server bearer authentication (no `/ws` ticket
+  carve-out), type/id validation, and deployed-manifest check
+  (`unknown_atom_type`, 404) as `/invoke`. Returns `{"destroyed":true}` when
+  this request removed an existing Atom, or `{"destroyed":false}` when the ID
+  was already absent; storage failures surface through the standard error
+  envelope.
 - `GET /healthz` → `{"ok":true}` (no DO touch).
 - `GET /debug/:type/:id/info` → residency info (constructions, turns, php
-  boot ms, user_version, memory high-water, plus the `ws`/`timers`/callback
+  boot ms, user_version, memory high-water, plus the `storage`/`ws`/`timers`/callback
   debug blocks described below). Enabled only when `ATOMS_DEBUG_ENDPOINTS=1`.
+  Purely read-only: safe on an empty database, never activates PHP, and never
+  creates SQLite tables, rows, or alarms.
 - `GET /ws/:type/:id?channels=a,b,c&...` `Upgrade: websocket` → `101` carrying
   `webSocket`, or `4xx/5xx {"error":{...}}` in the same envelope shape as
   `/invoke`. Validated in this order, all of it in `src/index.js` before
@@ -872,19 +884,67 @@ in PHP against the manifest.
 - Wrangler config uses the declarative class export with
   `storage: "sqlite"` and binding name `ATOMS` (shape from the production
   plan §"One generic Durable Object class").
+- **Zero-write construction and empty-database reads.** The DO constructor
+  creates no SQLite tables and writes no metadata rows: it reads
+  `__atoms_meta.constructions` only if `__atoms_meta` already exists, deriving
+  an in-memory construction count without mutating storage. `ensureSchema()`
+  runs during activation (`activate()`), not in the constructor. Both
+  `DELETE /atoms/:type/:id` and `GET /debug/:type/:id/info` probe storage
+  read-only without booting PHP, so inspecting or deleting a never-seen ID
+  leaves zero SQLite tables, zero rows, and no alarm.
 - First event of a residency runs the activation gate inside
   `blockConcurrencyWhile`: boot PHP (instantiateWasm), install doors, write
-  runtime + bundle files into MEMFS, start the PHP bootstrap (one `php.run()`
-  that never returns until shutdown), which: validates/records
-  `__atoms_meta` (canonical type, id, abi versions), applies pending
+  runtime + bundle files into MEMFS, create host tables (`__atoms_meta`,
+  `__atoms_timers`), start the PHP bootstrap (one `php.run()`
+  that never returns until shutdown), which: applies pending
   migrations via the real `Atoms\Migrations\Migrator` inside a transaction,
   constructs the customer Atom (`new $class($id, $context)`), calls
-  `LifecycleInvoker::activate()`, then parks at `turn.await`. `onActivation()`'s
+  `LifecycleInvoker::activate()`, then parks at `turn.await`. On completion,
+  the host records canonical type, id, abi versions, construction count, and
+  (for a newly created Atom) a host-minted UUID `incarnation` in `__atoms_meta`.
+  `onActivation()`'s
   callback budget is stamped at that first park, so it is not charged for boot
   or migrations, and the whole gate must stay under the platform's
   `blockConcurrencyWhile` ceiling (§The turn deadline, operator invariant).
 - Mismatched stored type/id vs request → 409, no PHP dispatch.
-- Turns are strictly serialized with a promise-chain mutex in the DO.
+- Turns — invokes, WebSocket upgrades and events, timer dispatches, post-turn
+  timer re-arming, and explicit destruction — are strictly serialized with a
+  promise-chain mutex in the DO.
+- **Explicit destruction (`DELETE /atoms/:type/:id`).** Runs on the turn mutex
+  so it orders cleanly after any in-flight invoke, upgrade, socket callback,
+  timer dispatch, or alarm re-arm. Checks stored identity (409 on conflict),
+  then probes storage without booting PHP:
+  - An Atom counts as existing (`{"destroyed":true}`) when a resident PHP
+    guest is present, any WebSocket is attached, a platform alarm is set, any
+    timer row is scheduled, any customer SQLite object exists (including state
+    persisted before a failed first activation), or `__atoms_meta` contains any
+    key beyond diagnostic `constructions`.
+  - Purely legacy constructor-only metadata (`__atoms_meta` containing only
+    `constructions` plus empty host tables, with no customer objects, timers,
+    alarm, sockets, or resident PHP) is discarded and answers
+    `{"destroyed":false}`. A never-used empty ID stays untouched and answers
+    `{"destroyed":false}`.
+  - When a healthy resident PHP guest is parked (`instance` live, `parkedTurn`
+    present, no open transaction), the host retires and closes all open sockets
+    with RFC 6455 code `1000` and reason `Atom destroyed` first — so destruction
+    owns the close handshake and guest code cannot override it — then runs
+    `onDeactivation()` best-effort through a `{"kind":"deactivate"}` turn under
+    the existing turn limits and callback window, logging any exception,
+    deadline overrun, or runtime error without aborting cleanup. Cold or evicted
+    Atoms are deleted without booting PHP or invoking customer hooks.
+  - Strictly after any `onDeactivation()` turn settles, the host discards PHP,
+    re-checks and retires/closes any sockets (idempotent), clears in-memory
+    timer state, awaits `ctx.storage.deleteAlarm()` and
+    `ctx.storage.deleteAll()`, advances the residency's epoch, and resets host
+    residency state so immediate same-ID reuse runs migrations and
+    `onActivation()` from scratch. Previously dispatched external callbacks can
+    finish independently; existing stateless WebSocket tickets retain their
+    normal validity until `exp`.
+  - Any `wsEvent()` or `runAlarm()` step re-verifies identity, incarnation,
+    and epoch (captured at `runAlarm()` entry, before the first mutex slot)
+    inside the turn mutex before mutating storage or dispatching a turn, so late
+    frames, close events, queued alarms, due timers, or alarm re-arms from a
+    deleted Atom never create, mutate, or disconnect a newly recreated Atom.
 - A turn: resume parked loop with the invoke envelope → PHP dispatches to the
   Atom method (args/result through `Atoms\Serialization\Serializer`) → PHP
   parks again at `turn.await` carrying the result → DO responds. Durability:
@@ -1065,11 +1125,11 @@ the guest runtime's `CfConnection`/`CfMessage`.
 
 ### The attachment format and its versioning rule
 
-One JSON-safe object, written once at accept via `serializeAttachment()`,
-never rewritten:
+One JSON-safe object, written at accept via `serializeAttachment()` and
+rewritten only on destruction to mark the socket retired:
 
 ```json
-{"v": 1, "id": "9f2c…-uuid", "ch": ["lobby", "room:7"]}
+{"v": 1, "id": "9f2c…-uuid", "ch": ["lobby", "room:7"], "inc": "3a1d…-uuid"}
 ```
 
 - `v` — format version, currently `1` (`websockets.js`'s `WS_ATTACHMENT_VERSION`,
@@ -1078,6 +1138,15 @@ never rewritten:
   accept. Exactly what `Connection::id()` returns to customer PHP.
 - `ch` — the channel names this connection joined, in accepted order,
   already validated and de-duplicated.
+- `inc` (optional, additive) — the host-minted incarnation UUID of the Atom
+  that accepted the socket. Omitted only on legacy pre-incarnation sockets or
+  legacy pre-incarnation Atoms; adding it does not bump `v`.
+- `retired` (optional, additive) — set to `true` (with `ch: []`) when
+  `DELETE /atoms/:type/:id` tears down the Atom. Any late message or close
+  event whose attachment is retired, carries a mismatched `inc`, or arrives
+  when no Atom exists is dropped inside the turn mutex without waking PHP or
+  touching a recreated Atom; `opBroadcast()` and `socketFor()` also filter
+  out retired or wrong-incarnation sockets.
 
 Nothing else — no `params`, no atom type/id, no timestamps, **no connection
 ticket and no ticket claims** (the ticket authorizes the *handshake*; its
@@ -1304,19 +1373,26 @@ implemented in `src/timers.js`'s `TimersHost`.
   back with it, exactly like an ordinary `sql.exec` write. `schedule()` with a
   name that already has a pending timer replaces it (`INSERT … ON CONFLICT
   (name) DO UPDATE`): at most one outstanding timer per name.
-- **A single alarm, re-armed at turn end.** Whenever a turn's `timer.*` ops
-  touch the table, `atom-do.js`'s post-turn hook calls
-  `TimersHost.rearmIfTouched()`: `SELECT MIN(due_at_ms)`, then
-  `ctx.storage.setAlarm(that value)` (a past value fires immediately) or
-  `ctx.storage.deleteAlarm()` when nothing is scheduled. One alarm slot serves
+- **A single alarm, re-armed at turn end inside the turn mutex.** Whenever a
+  turn's `timer.*` ops touch the table, `atom-do.js` calls
+  `TimersHost.rearmIfTouched()` at turn end **inside** the turn mutex
+  (`SELECT MIN(due_at_ms)`, then `ctx.storage.setAlarm(that value)` or
+  `ctx.storage.deleteAlarm()` when nothing is scheduled), so a post-turn
+  re-arm can never race with `DELETE /atoms/:type/:id`. One alarm slot serves
   every timer this Atom has, however many are pending — there is no
   per-timer alarm.
-- **At-most-once firing: delete before dispatch.** `atom-do.js`'s `alarm()`
-  (`runAlarm()`) reads due rows **without booting PHP**
-  (`TimersHost.dueRows()`), then for each row: **deletes it first**, *then*
-  dispatches the `timer` turn. A throwing (or residency-poisoning) `onTimer`
-  therefore still consumes the timer — this is deliberately **not** an
-  at-least-once queue; a timer that fails is gone, not retried.
+- **At-most-once firing and destruction fencing inside the mutex.**
+  `atom-do.js`'s `alarm()` (`runAlarm()`) acquires the turn mutex for each due
+  row, re-checks stored identity, incarnation, and residency epoch without
+  creating storage, reads one due row (`TimersHost.dueRows(now, 1)`),
+  **deletes it first**, *then* dispatches the `timer` turn, and settles
+  `dispatch()` deliveries outside the mutex before the next iteration. If the
+  Atom was absent or destroyed (including between two drained rows), `runAlarm()`
+  stops immediately without mutating a newly recreated Atom or re-arming. The
+  final `rearmForAlarm()` also runs inside the turn mutex under the same
+  epoch/incarnation check. A throwing (or residency-poisoning) `onTimer` still
+  consumes the timer — this is deliberately **not** an at-least-once queue; a
+  timer that fails is gone, not retried.
 - **Batch bound per alarm run.** `ATOMS_TIMERS_MAX_PER_ALARM` (default 100)
   due rows are processed per `alarm()` invocation, oldest due first
   (`ORDER BY due_at_ms ASC, name ASC`). If more rows were due than the batch
@@ -1471,6 +1547,17 @@ claims nothing beyond it. See `docs/cloudflare-toolchain.md` §3.
   **separate** type, like Room/Boot/Scheduler/Probe before it, so checks
   3/11/12/16/17's exact `turnsThisResidency` and listener-record assertions
   are undisturbed; no migrations.
+- `Destructible` — dedicated fixture (`"websocket": true`, migration
+  `destructible/001_init.sql`) for `DELETE /atoms/:type/:id`: durable state,
+  optional independent callback audit on `onActivation`/`onDeactivation`/
+  `onTimer`, partial first-activation failure (`partial-fail-*` IDs), barrier-
+  held `app()->hold()` invoke (`holdAndMutate()`), hostile `onDeactivation()`
+  mode (writes SQLite, schedules a timer, and throws), WebSocket echo/broadcast,
+  and timers.
+- `FailBootNoMig` — fixture with no migrations whose `onActivation()` throws
+  without writing customer data, leaving only diagnostic host tables so
+  conformance tests can verify scaffolding-only teardown returns
+  `{"destroyed":false}` and leaves storage empty.
 - `App\Jobs\Notify` (`fixtures/counter/app/Jobs/Notify.php`) — an `AtomJob`
   with promoted public `$atomId`/`$note` properties, the dispatch contract
   `dispatch()`'s encoder and `CallbackKernel::constructJob()` must agree on.
@@ -1488,13 +1575,15 @@ fail when required by an `ATOMS_REQUIRE_*` flag, including within partial checks
 See [the runner README](../worker/test/README.md) for setup and flags.
 
 `test/conformance.mjs` runs against any base URL (`ATOMS_BASE_URL`), so the
-same suite runs against `wrangler dev` and the deployed Worker. It is 45
+same suite runs against `wrangler dev` and the deployed Worker. It is 49
 checks: 1–12 cover activation, turns, warm residency, int64, transactions,
 migrations and eviction; 13–25 the callback channel, the turn deadline,
 WebSockets and timers; 26–30 the PDO surface; 31–38 connection tickets;
 39–42 the shared secret (`docs/shared-secret.md`); 43–44 structured
 WebSocket frames and the malformed rotation overlap; 45 the bundled vendor
-tree (§Bundle format, `vendor.autoload`).
+tree (§Bundle format, `vendor.autoload`); 46 invoke request byte limits;
+47–49 explicit Atom destruction (`DELETE /atoms/:type/:id`), held-invoke
+serialization, warm vs cold teardown, and the same-ID reuse release gate.
 
 **The mint route is proven absent (31–38 and 40).** There is no
 `POST /tickets` route, so the ticket checks issue their tickets locally,
@@ -1821,6 +1910,33 @@ it) and reports that a Composer-style function file was already loaded before
 the class was touched (the proof that "files" entries are required eagerly at
 activation, not lazily). No gate; runs in every posture that can invoke.
 
+**46.** invoke request byte limits (`ATOMS_MAX_REQUEST_BYTES`): ASCII and
+multibyte bodies below, at, and above the limit with `Content-Length` and
+chunked transfer return 413 `payload_too_large` when over-cap and leave state
+untouched.
+
+**47–49 — explicit Atom destruction (`DELETE /atoms/:type/:id`).** **47.**
+route contract, method/path/type/id validation, `unknown_atom_type` (404),
+absent ID zero-residue (`{"destroyed":false}`, read-only `GET /debug` confirms
+empty tables and no alarm and stays empty on re-read), scaffolding-only failed
+activation (`FailBootNoMig` → `{"destroyed":false}`, storage cleared), partial
+activation with persisted customer state (`Destructible` `partial-fail-*` →
+`{"destroyed":true}`), and repeat deletion (`true`, then `false`). **48.**
+ordering against a held invoke (barrier-held `app()->hold()` when the callback
+listener is present, plus concurrent `slowIncrement`), warm resident teardown
+(independent callback observation proves `onDeactivation()` ran), and genuinely
+evicted cold teardown (full `ATOMS_EVICTION_WAIT_MS` wait + `constructions`
+growth check + independent callback observation proving neither `onActivation()`
+nor `onDeactivation()` ran). **49.** release gate: Atom A with a WebSocket and
+pending timer plus a hostile `onDeactivation()` that writes SQLite, schedules
+another timer, and throws; `DELETE` returns `true`, closes A's socket with
+`1000` / `Atom destroyed`, and immediate same-ID Atom B starts fresh with clean
+migrations and state while A's late frames, close events, and timers never
+mutate or disconnect B and B's own socket, broadcast, and timer work — repeated
+across real hibernation (`ATOMS_EVICTION_WAIT_MS`) for a hibernated socket.
+Checks 38, 40, 41, and 44 also include `DELETE /atoms/...` legs covering bearer
+auth (no ticket carve-out), rotation overlap, and misconfigured Workers.
+
 Remote-only additions: measure cold activation, warm turn, and
 post-hibernation wake latencies; record them in `test/results/remote.json`.
 
@@ -2116,6 +2232,48 @@ for each of them. They are recorded rather than worked around silently.
      an ordinary bound `number` and correctly takes REAL. See `int64.js`
      (`toSqlBinding()`/`inlineWideIntegers()`) for the implementation this
      measurement drove.
+
+7. **Explicit destruction measurements (Wrangler 4.165.0, local and deployed).**
+
+   - **Miniflare stores DO names in an internal `__miniflare_do_name` SQLite
+     table.** Measured on a brand-new, never-written SQLite Durable Object under
+     `wrangler dev`: `sqlite_master` already contains a `__miniflare_do_name`
+     table (`database_size: 8192`). `Bridge.inspectStorage()` therefore excludes
+     `__miniflare_%` alongside `sqlite_%` and `_cf_%` so absent IDs genuinely
+     report `exists: false` and `DELETE` returns `{"destroyed":false}` without
+     writing to storage.
+   - **Local `workerd`/Miniflare defers TCP FIN after a Hibernation-API
+     WebSocket close until DO idle teardown (~10s).** Measured directly on the
+     wire: server-initiated `ws.close(1000, "Atom destroyed")` delivers the RFC
+     6455 Close frame `(1000, "Atom destroyed")` immediately (before `DELETE`
+     even finishes returning) and dispatches `webSocketClose()` on the DO upon
+     receiving the client's Close echo, but TCP FIN does not arrive for ~10s
+     (matching the local DO idle-eviction timer, and matching the existing
+     client-close behavior on `Room`). Conformance check 49 therefore inspects
+     the RFC 6455 Close frame directly over a raw socket — verifying the
+     immediate `(1000, "Atom destroyed")` close frame and putting real late data
+     frames plus a deferred Close echo onto the wire after same-ID reuse.
+   - **Deployed SQLite catalog (2026-11-25, Wrangler 4.165.0, compatibility
+     date 2026-08-01).** On a never-used ID, an unfiltered
+     `SELECT type, name FROM sqlite_master` returned zero rows before and after
+     `DELETE`. Both debug reads reported 4096 bytes, empty `storage.tables`,
+     no alarm and no PHP instance. The delete returned `{"destroyed":false}`.
+     On a `sqlitecache-*` ID, failed activation left the customer table
+     `sqlitecache`, two host tables and their two SQLite autoindexes. Deletion
+     returned `{"destroyed":true}` and the raw catalog was empty on re-read.
+   - **Deployed idle eviction.** Single reads of separate warm Counters found
+     PHP still resident after 8.0 and 9.5 seconds. At 10.5, 11.5 and 12.5
+     seconds they found a new construction with PHP cold. In check 48, two
+     consecutive 12.5-second waits on one Atom advanced `constructions` from
+     1 to 2 to 3. PHP stayed cold through deletion, and the callback listener
+     received no lifecycle hook for that delete.
+   - **Deployed WebSocket close timing.** With an immediate client Close
+     echo, two warm sockets received `1000` / `Atom destroyed` 295 and 405 ms
+     after the client started `DELETE`. A hibernated socket received it after
+     116 ms. All three Close frames arrived before the HTTP response. The
+     client observed TCP FIN 10.03–10.12 seconds after the echo (Linux
+     `POLLRDHUP`, zero socket error). Check 49 separately deferred the echo
+     until same-ID reuse and verified the new Atom's state, socket and timer.
 
 ## Deployment
 

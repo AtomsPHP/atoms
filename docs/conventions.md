@@ -228,6 +228,11 @@ decisions below.
 `atoms/client` calls the Worker:
 
 - `POST {baseUrl}/invoke/{type}/{id}/{method}` body `{"args": [...]}`.
+- `DELETE {baseUrl}/atoms/{type}/{id}` → `200 {"destroyed": true|false}`.
+  Accepts either an Atom class-string or bare wire type (normalized via
+  `AtomsClient::wireType()`), requires a literal boolean `"destroyed"` in the
+  success body (anything else throws `AtomsRequestFailed` with code
+  `invalid_response`), and maps unknown types to `AtomNotDeployed`.
 - WebSocket connection tickets are **not** minted over HTTP: there is no
   `POST /tickets` route. `Atoms\Client\Tickets\TicketIssuer` issues them
   locally, in the application process, from the same derived key the Worker
@@ -247,11 +252,18 @@ decisions below.
   - `traceparent` — W3C trace context, generated if absent.
 - Retry policy: retry only errors marked `retryable: true` in the contract's
   table AND transport-level failures, with exponential backoff + jitter;
-  never retry non-retryable codes. `turn_deadline_exceeded` is the one code
-  the platform flags retryable that the client never auto-retries: the turn's
-  writes before the overrun are durable, so only the caller knows whether the
-  method is safe to run twice. `TurnDeadlineExceeded` is non-retryable by
-  construction; a caller that knows better catches it and calls again.
+  never retry non-retryable codes. Two explicit exceptions are never
+  auto-retried:
+  - `turn_deadline_exceeded`: the platform flags it retryable, but the turn's
+    writes before the overrun are durable, so only the caller knows whether the
+    method is safe to run twice. `TurnDeadlineExceeded` is non-retryable by
+    construction; a caller that knows better catches it and calls again.
+  - **`AtomsClient::destroy()` (`DELETE /atoms/{type}/{id}`):** sends **one**
+    `DELETE` per call with no automatic retries on transport or platform
+    failures. If a committed deletion's response is lost while another request
+    recreates the same ID, a blind retry would destroy the new incarnation. A
+    transport failure therefore leaves the outcome unknown, and callers that
+    need to retry must prevent reuse of that ID during the retry window.
 - The WebSocket URL for an Atom is `AtomsClient::wsUrl()`, which derives
   `ws`/`wss` from the one configured endpoint (`AtomsConfig::wsBaseUrl()`).
   There is deliberately no second `ws_endpoint` setting: the Worker serves

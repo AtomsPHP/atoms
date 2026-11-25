@@ -26,9 +26,10 @@ use Psr\Log\LoggerInterface;
 
 /**
  * The monolith-side RPC client. Turns typed method calls into HTTP invocations
- * of the Worker's `POST /invoke/{type}/{id}/{method}` route, mapping error
- * frames to the {@see Exception} taxonomy and retrying only where the contract
- * says it is safe.
+ * of the Worker's `POST /invoke/{type}/{id}/{method}` route and explicit
+ * teardown into `DELETE /atoms/{type}/{id}`, mapping error frames to the
+ * {@see Exception} taxonomy and retrying only where the contract says it is
+ * safe (never auto-retrying `destroy()`).
  *
  * The deployed Worker is single-tenant — one Cloudflare account, one Worker,
  * one set of Atoms — so routes carry no tenant prefix. Every
@@ -229,6 +230,59 @@ final class AtomsClient
     }
 
     /**
+     * Explicitly destroy an Atom and its durable state via
+     * `DELETE /atoms/{type}/{id}`.
+     *
+     * Accepts either an Atom class-string or bare wire type (normalized with
+     * {@see self::wireType()}). Returns true when this request removed an
+     * existing Atom, or false when the ID was already absent.
+     *
+     * Sends a SINGLE DELETE request with NO automatic retries: if the Worker
+     * commits the deletion and the response is lost, a blind retry could
+     * destroy a newly recreated Atom under the same ID. A transport failure
+     * leaves the outcome unknown; callers that need to retry must prevent
+     * reuse of that ID during the retry window.
+     *
+     * @param class-string|string $type
+     */
+    public function destroy(string $type, string $id): bool
+    {
+        $wireType = self::wireType($type);
+
+        $uri = sprintf(
+            '%s/atoms/%s/%s',
+            $this->config->baseUrl(),
+            rawurlencode($wireType),
+            rawurlencode($id),
+        );
+
+        [$status, $decoded] = $this->executeWithStatus(
+            $this->baseRequest('DELETE', $uri),
+            [
+                'type' => $wireType,
+                'id' => $id,
+                'method' => '',
+            ],
+            allowRetry: false,
+        );
+
+        if (!array_key_exists('destroyed', $decoded) || !is_bool($decoded['destroyed'])) {
+            throw new AtomsRequestFailed(
+                sprintf(
+                    'Malformed destroy response for %s/%s: expected JSON object with boolean "destroyed".',
+                    $wireType,
+                    $id,
+                ),
+                'invalid_response',
+                false,
+                $status,
+            );
+        }
+
+        return $decoded['destroyed'];
+    }
+
+    /**
      * Send a request with the contract's retry policy and return the decoded
      * success body.
      *
@@ -236,6 +290,23 @@ final class AtomsClient
      * @return array<array-key, mixed>
      */
     private function execute(RequestInterface $request, array $ctx): array
+    {
+        [, $decoded] = $this->executeWithStatus($request, $ctx, allowRetry: true);
+
+        return $decoded;
+    }
+
+    /**
+     * Send a request and return `[httpStatus, decodedSuccessBody]`.
+     *
+     * When `$allowRetry` is false (used by {@see self::destroy()}), exactly one
+     * outgoing request is sent: neither transport errors nor retryable error
+     * frames trigger a retry or backoff sleep.
+     *
+     * @param array{type: string, id: string, method: string} $ctx
+     * @return array{0: int, 1: array<array-key, mixed>}
+     */
+    private function executeWithStatus(RequestInterface $request, array $ctx, bool $allowRetry): array
     {
         $attempt = 0;
 
@@ -245,20 +316,39 @@ final class AtomsClient
             try {
                 $response = $this->http->sendRequest($request);
             } catch (NetworkExceptionInterface $e) {
-                if ($attempt < $this->config->maxAttempts) {
+                if ($allowRetry && $attempt < $this->config->maxAttempts) {
                     $this->backoff($attempt);
                     continue;
                 }
 
+                $message = $allowRetry
+                    ? 'Transport failure talking to the Atoms platform: ' . $e->getMessage()
+                    : sprintf(
+                        'Transport failure talking to the Atoms platform while destroying %s/%s (outcome unknown): %s',
+                        $ctx['type'],
+                        $ctx['id'],
+                        $e->getMessage(),
+                    );
+
                 throw new PlatformUnavailable(
-                    'Transport failure talking to the Atoms platform: ' . $e->getMessage(),
+                    $message,
                     'transport',
                     0,
                     $e,
+                    retryable: $allowRetry,
                 );
             } catch (\Psr\Http\Client\ClientExceptionInterface $e) {
+                $message = $allowRetry
+                    ? 'Transport failure talking to the Atoms platform: ' . $e->getMessage()
+                    : sprintf(
+                        'Transport failure talking to the Atoms platform while destroying %s/%s (outcome unknown): %s',
+                        $ctx['type'],
+                        $ctx['id'],
+                        $e->getMessage(),
+                    );
+
                 throw new AtomsRequestFailed(
-                    'Transport failure talking to the Atoms platform: ' . $e->getMessage(),
+                    $message,
                     'transport',
                     false,
                     0,
@@ -276,7 +366,7 @@ final class AtomsClient
                     throw $this->mapError($status, $frame, null, $ctx);
                 }
 
-                return $decoded;
+                return [$status, $decoded];
             }
 
             $retryAfter = $this->retryAfterSeconds($response);
@@ -284,7 +374,8 @@ final class AtomsClient
 
             // The exception overrides the wire retry flag. A timed-out turn
             // may have committed writes, so only the caller can safely retry it.
-            if ($exception->retryable && $attempt < $this->config->maxAttempts) {
+            // destroy() disables automatic retries altogether (single attempt).
+            if ($allowRetry && $exception->retryable && $attempt < $this->config->maxAttempts) {
                 $this->logger?->info('Retrying Atoms invocation', [
                     'attempt' => $attempt,
                     'status' => $status,

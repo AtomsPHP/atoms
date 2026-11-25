@@ -59,6 +59,20 @@
       "file": "/app/Vendor.php",
       "websocket": false,
       "migrations": []
+    },
+    "Destructible": {
+      "class": "App\\Atoms\\Destructible",
+      "file": "/app/Destructible.php",
+      "websocket": true,
+      "migrations": [
+        "/app/migrations/destructible/001_init.sql"
+      ]
+    },
+    "FailBootNoMig": {
+      "class": "App\\Atoms\\FailBootNoMig",
+      "file": "/app/FailBootNoMig.php",
+      "websocket": false,
+      "migrations": []
     }
   },
   "vendor": {

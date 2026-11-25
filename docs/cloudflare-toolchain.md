@@ -378,14 +378,16 @@ names the environment, where a typo is an unknown environment
 `atoms/client` and the Worker meet at
 
 ```
-POST {baseUrl}/invoke/{type}/{id}/{method}
+POST   {baseUrl}/invoke/{type}/{id}/{method}
+DELETE {baseUrl}/atoms/{type}/{id}
 Authorization: Bearer $(atoms token)
 ```
 
 `atoms token` prints the bearer derived from `ATOMS_SHARED_SECRET` — see
 "Bearer auth is mandatory" below and `docs/shared-secret.md`, the decision
-record for the whole boundary. `/invoke` is the only route the client calls;
-WebSocket tickets are issued locally, without an HTTP hop.
+record for the whole boundary. `/invoke` and `DELETE /atoms` are the two
+server-to-server HTTP routes the client calls; WebSocket tickets are issued
+locally, without an HTTP hop.
 
 ### Why no tenant prefix in the routes
 
