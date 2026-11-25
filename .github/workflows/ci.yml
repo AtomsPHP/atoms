@@ -369,6 +369,9 @@ jobs:
       - name: Inspect and exercise the public runtime scaffold
         run: npm run test:package
 
+      - name: Exercise outbound HTTP against a loopback responder
+        run: node test/http-conformance.mjs
+
       - name: Run Worker unit tests
         run: node --test test/*.test.mjs
 

@@ -22,7 +22,11 @@ Override any of these in the `vars` section of `atoms-worker/wrangler.jsonc`.
 | `ATOMS_SQL_MAX_ROWS` | 100,000 rows | One SQL result |
 | `ATOMS_SQL_MAX_RESULT_BYTES` | 8,388,608 bytes (8 MiB) | One SQL result |
 | `ATOMS_SQL_MAX_BINDINGS` | 100 bound parameters | One SQL statement (after integer bindings are inlined) |
-| `ATOMS_TURN_DEADLINE_MS` | 30,000 ms | Total time awaiting callbacks in one turn |
+| `ATOMS_TURN_DEADLINE_MS` | 30,000 ms | Shared deadline for synchronous callbacks and outbound HTTP |
+| `ATOMS_HTTP_TIMEOUT_MS` | 5,000 ms | One HTTP call, through the last response byte |
+| `ATOMS_HTTP_MAX_REQUEST_BYTES` | 1,048,576 bytes (1 MiB) | Method, URL, header pairs and raw request body |
+| `ATOMS_HTTP_MAX_RESPONSE_BYTES` | 1,048,576 bytes (1 MiB) | Decimal status, header pairs and decoded response body |
+| `ATOMS_HTTP_MAX_REQUESTS_PER_TURN` | 8 attempts | Fetches started in one turn or activation |
 | `ATOMS_CALLBACK_TIMEOUT_MS` | 10,000 ms | One callback request |
 | `ATOMS_CALLBACK_MAX_REQUEST_BYTES` | 1,048,576 bytes (1 MiB) | One callback request body |
 | `ATOMS_CALLBACK_MAX_RESPONSE_BYTES` | 1,048,576 bytes (1 MiB) | One synchronous callback response |

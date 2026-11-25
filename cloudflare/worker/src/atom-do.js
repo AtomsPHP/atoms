@@ -29,6 +29,7 @@ import { CallbackChannel } from './callbacks.js';
 import { loadConfig, META_KEYS } from './config.js';
 import { AtomsError, normalizeError, retryableFor, statusFor } from './errors.js';
 import { bootPHP, composeBootCode, guestMemoryBytes, mkdirp, writeGuestFile } from './php-host.js';
+import { serviceHttp } from './http.js';
 import { TimersHost } from './timers.js';
 import {
 	WebSocketHost,
@@ -77,6 +78,7 @@ export class AtomDurableObject extends DurableObject {
 
 		this.config = loadConfig(env);
 		this.sql = ctx.storage.sql;
+		this.httpTransport = fetch;
 
 		/** @type {{type: string, id: string}|null} */
 		this.identity = null;
@@ -826,7 +828,7 @@ export class AtomDurableObject extends DurableObject {
 				this.tx.begin(p);
 			} else if (op === 'tx.commit' || op === 'tx.rollback') {
 				p.reply(errorReply('tx_state', `${op} received with no transaction open`));
-			} else if (op === 'app.call') {
+			} else if (op === 'app.call' || op === 'http.fetch') {
 				// This is the first `await` inside serviceParks(), and the reason
 				// the method is already `async` and already awaited by runTurn().
 				//
@@ -845,10 +847,17 @@ export class AtomDurableObject extends DurableObject {
 					this.log('warning', {
 						msg: 'atoms.do.callback_window_missing',
 						op,
-						error: 'an app.call park arrived with no callback window open; opened a fresh one',
+						error: 'an outbound park arrived with no callback window open; opened a fresh one',
 					});
 				}
-				await this.callbacks.serviceAppCall(p, this.turnBudget);
+				if (op === 'http.fetch') {
+					const generation = this.phpGeneration;
+					const live = () => this.phpGeneration === generation;
+					await serviceHttp(p, this.turnBudget, this.config, this.httpTransport, live);
+					if (!live()) return null;
+				} else {
+					await this.callbacks.serviceAppCall(p, this.turnBudget);
+				}
 			} else {
 				p.reply(errorReply('bad_host_message', `unknown park op ${JSON.stringify(op)}`));
 			}
@@ -1025,6 +1034,7 @@ export class AtomDurableObject extends DurableObject {
 			protocol: BOOT_PROTOCOL,
 			bundle_format: this.config.bundleFormat,
 			host: 'cloudflare-do',
+			http: { max_request_bytes: this.config.httpMaxRequestBytes, max_response_bytes: this.config.httpMaxResponseBytes },
 			atom: { type, id },
 			manifest: bundle?.manifest ?? {},
 			// Guest paths the host wrote into MEMFS. The guest runtime indexes
@@ -1243,6 +1253,7 @@ export class AtomDurableObject extends DurableObject {
 		// budget behind would hand the next residency's first guest code a
 		// latched, already-exhausted one; leaving the collector behind would let
 		// a stray dispatch attach a delivery to a window that no longer exists.
+		this.turnBudget?.httpController?.abort();
 		this.turnBudget = null;
 		this.callbacks.endWindow();
 		this.tx.reset();

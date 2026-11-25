@@ -100,6 +100,7 @@ abstract class Atom
     protected function dispatch(string $job, array $args = []): void;
     protected function config(string $key): mixed;
     protected function broadcast(string $channel, array $payload): void;
+    protected function http(): Http\HttpClient;
     protected function timers(): Timers\Timers;
 
     // lifecycle (invoked by the runtime via Atoms\Runtime\LifecycleInvoker)
@@ -138,7 +139,11 @@ Supporting types in core (exact FQCNs — other packages reference these):
   `db(): Database`, `app(): object`,
   `dispatch(string $job, array $args = []): void`,
   `config(string $key): mixed`, `broadcast(string $channel, array $payload): void`,
-  `timers(): Timers\Timers`.
+  `timers(): Timers\Timers`, `http(): Http\HttpClient`.
+- `Atoms\Http\HttpClient::request(string $method, string $url, array $headers = [], ?string $body = null): HttpResponse`
+  accepts a map of header names to strings or lists of strings and raw body bytes.
+  `Atoms\Http\HttpResponse` exposes readonly `int $status`, `array $headers`
+  (lowercase names to lists of strings) and `string $body` (decoded bytes).
 - `Atoms\Timers\Timers` — interface for named one-shot timers:
   `schedule(string $name, \DateTimeImmutable $at): void`, `cancel(string $name): void`,
   `scheduledAt(string $name): ?\DateTimeImmutable`. Delivery invokes the Atom's

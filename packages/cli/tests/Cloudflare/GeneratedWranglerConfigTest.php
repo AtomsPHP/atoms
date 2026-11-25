@@ -39,7 +39,7 @@ final class GeneratedWranglerConfigTest extends TestCase
               "name": "atoms-worker",
               "main": "src/index.js",
               "compatibility_date": "2026-08-01",
-              "vars": { "ATOMS_LOG_LEVEL": "debug", "ATOMS_CALLBACK_URL": "https://stale.example.com" },
+              "vars": { "ATOMS_LOG_LEVEL": "debug", "ATOMS_HTTP_ALLOWLIST": ["https://api.example.com"], "ATOMS_CALLBACK_URL": "https://stale.example.com" },
               "observability": { "enabled": true },
             }
             JSONC, ['atoms.example.com', 'www.example.com']);
@@ -58,7 +58,7 @@ final class GeneratedWranglerConfigTest extends TestCase
         );
         // The file's vars travel; a runtime var of the same name wins.
         self::assertSame(
-            ['ATOMS_LOG_LEVEL' => 'debug', 'ATOMS_CALLBACK_URL' => 'https://acme.example.com'],
+            ['ATOMS_LOG_LEVEL' => 'debug', 'ATOMS_HTTP_ALLOWLIST' => ['https://api.example.com'], 'ATOMS_CALLBACK_URL' => 'https://acme.example.com'],
             $generated->document['vars'],
         );
         self::assertSame(['enabled' => true], $generated->document['observability']);

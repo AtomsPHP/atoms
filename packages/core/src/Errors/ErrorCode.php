@@ -89,4 +89,14 @@ enum ErrorCode: string
     case CallbackNonceStoreUnavailable = 'ATOMS-E112';
     case PhpstanConfigurationFailed = 'ATOMS-E113';
     case ManifestWithoutBundle = 'ATOMS-E114';
+    case HttpConfiguration = 'ATOMS-E115';
+    case HttpOriginDenied = 'ATOMS-E116';
+    case HttpHeaderDenied = 'ATOMS-E117';
+    case HttpInvalidRequest = 'ATOMS-E118';
+    case HttpInTransaction = 'ATOMS-E119';
+    case HttpTimeout = 'ATOMS-E120';
+    case HttpSizeLimit = 'ATOMS-E121';
+    case HttpCountLimit = 'ATOMS-E122';
+    case HttpTransport = 'ATOMS-E123';
+    case HttpUnstubbed = 'ATOMS-E124';
 }

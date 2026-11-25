@@ -4,7 +4,7 @@
  * `Atoms\Runtime\AtomContext` for the Cloudflare runtime — everything the customer's
  * Atom is allowed to reach, and the exact boundary of what the runtime implements.
  *
- * `db()`, `config()`, `app()`, `dispatch()`, `broadcast()` and `timers()` are
+ * `db()`, `config()`, `app()`, `dispatch()`, `broadcast()`, `timers()` and `http()` are
  * all real.
  *
  * No declare(strict_types=1) — see the note in host.php.
@@ -15,6 +15,7 @@ namespace Atoms\Cf;
 use Atoms\Database;
 use Atoms\Runtime\AtomContext;
 use Atoms\Serialization\Serializer;
+use Atoms\Http\HttpClient;
 use Atoms\Timers\Timers;
 use Atoms\Websocket\JsonFrame;
 
@@ -46,12 +47,17 @@ final class CfAtomContext implements AtomContext
      *                          truth for "is a transaction open"
      * @param array{type: string, id: string} $identity
      */
-    public function __construct(BridgeDatabase $db, SqlBridge $bridge, array $identity)
+    public function __construct(BridgeDatabase $db, SqlBridge $bridge, array $identity, private readonly HttpClient $http)
     {
         $this->db = $db;
         $this->bridge = $bridge;
         $this->identity = $identity;
         $this->serializer = new Serializer();
+    }
+
+    public function http(): HttpClient
+    {
+        return $this->http;
     }
 
     /**

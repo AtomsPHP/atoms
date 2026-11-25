@@ -38,6 +38,16 @@ final class AtomTest extends TestCase
         self::assertSame($db, $atom->callDb());
     }
 
+    public function testHttpBelongsToTheContextEvenForTheSameId(): void
+    {
+        [$first, $firstContext] = $this->atom();
+        [$second, $secondContext] = $this->atom();
+        self::assertSame($first->id, $second->id);
+        self::assertSame($firstContext, $first->callHttp());
+        self::assertSame($secondContext, $second->callHttp());
+        self::assertTrue((new \ReflectionMethod($first, 'http'))->isProtected());
+    }
+
     public function testAppPassThrough(): void
     {
         [$atom, , , $app] = $this->atom();

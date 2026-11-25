@@ -705,7 +705,8 @@ Cloudflare Workers WebAssembly sandbox:
   directly with `pdo_sqlite` or `sqlite3` uses guest memory and loses its data
   when the Worker evicts the Atom.
 - **Networking (`curl`, `soap`)**: The WebAssembly guest has no direct outbound
-  network sockets. Move outbound HTTP or SOAP requests into a
+  network sockets. Use the [outbound HTTP client](/guides/outbound-http/)
+  to call trusted HTTPS APIs. Run code that needs native cURL, network streams or SOAP in a
   [Methods class](/guides/methods/) via `\$this->app()` or an
   [AtomJob](/guides/jobs/) via `\$this->dispatch()`.
 - **Sessions (`session`)**: PHP session storage lives in ephemeral guest memory

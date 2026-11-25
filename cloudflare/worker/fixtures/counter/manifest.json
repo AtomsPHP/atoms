@@ -4,6 +4,12 @@
     "php": "8.3"
   },
   "atoms": {
+    "HttpProbe": {
+      "class": "App\\Atoms\\HttpProbe",
+      "file": "/app/HttpProbe.php",
+      "websocket": true,
+      "migrations": []
+    },
     "Counter": {
       "class": "App\\Atoms\\Counter",
       "file": "/app/Counter.php",
