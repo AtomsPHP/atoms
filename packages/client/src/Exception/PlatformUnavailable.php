@@ -17,11 +17,12 @@ final class PlatformUnavailable extends AtomsException
         string $platformCode = 'machine_unavailable',
         int $httpStatus = 502,
         ?\Throwable $previous = null,
+        bool $retryable = true,
     ) {
         parent::__construct(
             $message === '' ? 'The Atoms platform is currently unavailable.' : $message,
             $platformCode,
-            true,
+            $retryable,
             $httpStatus,
             null,
             $previous,

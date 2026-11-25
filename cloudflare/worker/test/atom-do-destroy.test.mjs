@@ -113,19 +113,12 @@ function makeFakeCtx(opts = {}) {
 				return { toArray: () => (tables.has(params[0]) ? [{ 1: 1 }] : []) };
 			}
 
-			if (q.startsWith('SELECT type, name FROM sqlite_master')) {
+			if (q === 'SELECT type, name FROM sqlite_master ORDER BY type ASC, name ASC') {
 				sqlReads.push(q);
 				const list = [
 					...Array.from(tables).map((name) => ({ type: 'table', name })),
 					...extraObjects,
-				]
-					.filter(
-						(o) =>
-							!o.name.startsWith('sqlite_') &&
-							!o.name.startsWith('_cf_') &&
-							!o.name.startsWith('__miniflare_')
-					)
-					.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type.localeCompare(b.type)));
+				].sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type.localeCompare(b.type)));
 				return { toArray: () => list };
 			}
 
@@ -870,4 +863,163 @@ test('storage deleteAll() failure surfaces as an internal error rather than retu
 	assert.equal(env.ok, false);
 	assert.equal(env.error.code, 'internal');
 	assert.match(env.error.message, /disk full/);
+});
+
+// ---------------------------------------------------------------------------
+// 11. Queued alarm arriving while A's teardown is in flight and B is queued
+// ---------------------------------------------------------------------------
+
+test('queued runAlarm() delivered during A teardown with B reuse queued ahead never binds to B', async () => {
+	const fake = makeFakeCtx({ alarm: Date.now() - 10 });
+	seedActiveAtom(fake, { type: 'Destructible', id: 'alarm-queued', incarnation: 'inc-A' });
+	fake.timers.set('a-due', Date.now() - 20);
+
+	const { host } = makeDo(fake);
+	host.identity = { type: 'Destructible', id: 'alarm-queued' };
+	host.incarnation = 'inc-A';
+
+	// Hold A's onDeactivation() open on the turn mutex.
+	let deactEntered;
+	const deactEnteredPromise = new Promise((r) => {
+		deactEntered = r;
+	});
+	let releaseDeact;
+	const deactGate = new Promise((r) => {
+		releaseDeact = r;
+	});
+
+	host.instance = { php: { exit() {} }, gen: 0, settled: false, error: null };
+	host.parkedTurn = { msg: { op: 'turn.await' }, reply() {} };
+	const firedTimers = [];
+	const origRunTurn = host.runTurn.bind(host);
+	host.runTurn = async (env) => {
+		if (env.kind === 'deactivate') {
+			deactEntered();
+			await deactGate;
+			return { ok: true, result: null };
+		}
+		if (env.kind === 'timer') {
+			firedTimers.push({ inc: host.activeIncarnation(), name: env.name });
+			return { ok: true, result: null };
+		}
+		return origRunTurn(env);
+	};
+	host.ensureActive = async () => {};
+
+	// 1. Start A's destroy() and wait until it holds the mutex inside onDeactivation().
+	const destroyPromise = host.destroy('Destructible', 'alarm-queued');
+	await deactEnteredPromise;
+
+	// 2. Queue B's explicit reuse behind A's destroy() on the turn mutex.
+	const bDue = Date.now() - 5;
+	const bFuture = Date.now() + 60_000;
+	const reuseBPromise = host.enqueue(async () => {
+		seedActiveAtom(fake, { type: 'Destructible', id: 'alarm-queued', incarnation: 'inc-B' });
+		host.identity = { type: 'Destructible', id: 'alarm-queued' };
+		host.incarnation = 'inc-B';
+		fake.timers.set('b-due', bDue);
+		fake.timers.set('b-future', bFuture);
+		fake.alarm = bFuture;
+	});
+
+	// 3. Deliver A's already-running platform alarm BEFORE releasing teardown.
+	const staleAlarmPromise = host.runAlarm();
+
+	// 4. Release A's teardown and let everything settle.
+	releaseDeact();
+	const delRes = await destroyPromise;
+	await reuseBPromise;
+	await staleAlarmPromise;
+
+	assert.deepEqual(delRes, { ok: true, destroyed: true });
+	assert.deepEqual(firedTimers, [], 'A queued alarm must never dispatch B-due on inc-B');
+	assert.equal(fake.timers.get('b-due'), bDue, 'B due timer must remain untouched');
+	assert.equal(fake.timers.get('b-future'), bFuture);
+	assert.equal(fake.alarm, bFuture, 'B alarm must remain untouched');
+});
+
+// ---------------------------------------------------------------------------
+// 12. Literal reserved-prefix matching in inspectStorage()
+// ---------------------------------------------------------------------------
+
+test('inspectStorage() matches reserved prefixes literally (sqlitecache, acf_users, abminiflareX count as customer data)', async () => {
+	for (const tableName of ['sqlitecache', 'acf_users', 'abminiflareX']) {
+		const fake = makeFakeCtx();
+		fake.tables.add('__miniflare_do_name');
+		fake.tables.add('_cf_KV');
+		fake.tables.add('sqlite_sequence');
+		fake.tables.add(META_TABLE);
+		fake.tables.add(tableName);
+		fake.meta.set(META_KEYS.constructions, '1');
+
+		const { host } = makeDo(fake);
+		const info = await host.info('Destructible', `lit-${tableName}`);
+		assert.equal(info.storage.exists, true, `${tableName} must count as customer data`);
+		assert.deepEqual(info.storage.user_tables, [tableName]);
+
+		const res = await host.destroy('Destructible', `lit-${tableName}`);
+		assert.deepEqual(res, { ok: true, destroyed: true }, `${tableName} must produce destroyed: true`);
+	}
+});
+
+// ---------------------------------------------------------------------------
+// 13. Destruction owns the 1000 / "Atom destroyed" close frame during onDeactivation
+// ---------------------------------------------------------------------------
+
+test('guest onDeactivation() calling ws.close(4001, ...) cannot override 1000 "Atom destroyed"', async () => {
+	const fake = makeFakeCtx();
+	seedActiveAtom(fake, { type: 'Destructible', id: 'close-own', incarnation: 'inc-A' });
+
+	const ws = makeFakeSocket(buildAttachment('conn-own', ['lobby'], 'inc-A'));
+	fake.addSocket(ws, ['c:conn-own', 'ch:lobby']);
+
+	const { host } = makeDo(fake);
+	host.identity = { type: 'Destructible', id: 'close-own' };
+	host.incarnation = 'inc-A';
+	host.ws.noteSocket('conn-own', ws);
+	host.instance = { php: { exit() {} }, gen: 0, settled: false, error: null };
+	host.parkedTurn = {
+		msg: { op: 'turn.await' },
+		reply() {
+			// Guest tries to close with a custom code/reason during onDeactivation().
+			const closeReply = JSON.parse(
+				host.ws.opClose({ conn: 'conn-own', code: 4001, reason: 'guest deactivation' })
+			);
+			assert.equal(closeReply.ok, true);
+			assert.equal(closeReply.already_gone, true, 'socket must already be retired before onDeactivation runs');
+			host.pending = {
+				msg: { op: 'turn.await', result: { ok: true, result: null } },
+				reply() {},
+			};
+		},
+	};
+
+	const res = await host.destroy('Destructible', 'close-own');
+	assert.deepEqual(res, { ok: true, destroyed: true });
+	assert.equal(ws.closes[0]?.code, 1000);
+	assert.equal(ws.closes[0]?.reason, 'Atom destroyed');
+	assert.equal(
+		ws.closes.some((c) => c.code === 4001),
+		false,
+		'guest close(4001) must never be sent on the wire'
+	);
+});
+
+// ---------------------------------------------------------------------------
+// 14. Consecutive cold reconstructions of an existing Atom increment constructions
+// ---------------------------------------------------------------------------
+
+test('consecutive cold reconstructions of an existing Atom persist constructions 1 -> 2 -> 3 without booting PHP', async () => {
+	phpHostStub.resetBootCalls();
+	const fake = makeFakeCtx();
+	seedActiveAtom(fake, { type: 'Counter', id: 'cold-count', incarnation: 'inc-A', constructions: '1' });
+
+	const { host: cold1 } = makeDo(fake);
+	assert.equal(cold1.constructions, 2);
+	assert.equal(fake.meta.get(META_KEYS.constructions), '2');
+
+	const { host: cold2 } = makeDo(fake);
+	assert.equal(cold2.constructions, 3);
+	assert.equal(fake.meta.get(META_KEYS.constructions), '3');
+	assert.equal(phpHostStub.bootCalls, 0);
 });

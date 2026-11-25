@@ -712,12 +712,102 @@ final class AtomsClientTest extends TestCase
             self::fail('expected PlatformUnavailable');
         } catch (PlatformUnavailable $e) {
             self::assertSame('transport', $e->platformCode);
+            self::assertFalse($e->retryable, 'outcome-unknown destroy transport failure must not advertise retryable=true');
             self::assertStringContainsString('outcome unknown', $e->getMessage());
             self::assertStringContainsString('GameRoom/g-1', $e->getMessage());
         }
 
         self::assertCount(1, $this->http->requests, 'destroy must send only one DELETE when the response is lost');
         self::assertSame([], $this->sleeps, 'destroy must never sleep or retry');
+    }
+
+    public function testDestroyNonNetworkClientExceptionIsNonRetryableWithOutcomeUnknown(): void
+    {
+        $client = $this->client(['maxAttempts' => 4]);
+        $this->http->queueThrowable(new class('response stream interrupted') extends \RuntimeException implements \Psr\Http\Client\ClientExceptionInterface {});
+
+        try {
+            $client->destroy(GameRoom::class, 'g-stream');
+            self::fail('expected AtomsRequestFailed');
+        } catch (AtomsRequestFailed $e) {
+            self::assertSame('transport', $e->platformCode);
+            self::assertFalse($e->retryable);
+            self::assertStringContainsString('outcome unknown', $e->getMessage());
+            self::assertStringContainsString('GameRoom/g-stream', $e->getMessage());
+        }
+
+        self::assertCount(1, $this->http->requests);
+        self::assertSame([], $this->sleeps);
+    }
+
+    public function testDestroyLostResponseAfterCommitLeavesRecreatedAtomUntouched(): void
+    {
+        // Stateful in-memory PSR-18 double: commits the first DELETE, immediately
+        // recreates the same Atom ID at value 7, then drops the DELETE response.
+        $state = new class {
+            public ?int $counterValue = 1;
+            public int $deleteCalls = 0;
+        };
+
+        $http = new class($state) implements \Psr\Http\Client\ClientInterface {
+            public function __construct(private readonly object $state) {}
+
+            public function sendRequest(\Psr\Http\Message\RequestInterface $request): \Psr\Http\Message\ResponseInterface
+            {
+                if ($request->getMethod() === 'DELETE') {
+                    $this->state->deleteCalls++;
+                    // Server commits deletion of Atom A.
+                    $this->state->counterValue = null;
+
+                    if ($this->state->deleteCalls === 1) {
+                        // Another caller immediately recreates the same ID at value 7
+                        // before the response is lost on the wire.
+                        $this->state->counterValue = 7;
+
+                        throw new FakeNetworkException($request, 'response lost after commit');
+                    }
+
+                    return new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], '{"destroyed":true}');
+                }
+
+                return new \GuzzleHttp\Psr7\Response(
+                    200,
+                    ['Content-Type' => 'application/json'],
+                    (string) json_encode(['result' => $this->state->counterValue]),
+                );
+            }
+        };
+
+        $sleeps = [];
+        $factory = new HttpFactory();
+        $client = new AtomsClient(
+            AtomsConfig::fromArray([
+                'endpoint' => 'https://atoms.example.workers.dev/',
+                'sharedSecret' => self::SECRET,
+                'maxAttempts' => 5,
+                'backoffBaseMs' => 50,
+                'backoffJitter' => false,
+            ]),
+            $http,
+            $factory,
+            $factory,
+            null,
+            static function (int $ms) use (&$sleeps): void {
+                $sleeps[] = $ms;
+            },
+        );
+
+        try {
+            $client->destroy('Counter', 'reused-1');
+            self::fail('expected PlatformUnavailable');
+        } catch (PlatformUnavailable $e) {
+            self::assertFalse($e->retryable);
+            self::assertStringContainsString('outcome unknown', $e->getMessage());
+        }
+
+        self::assertSame(1, $state->deleteCalls, 'only one DELETE may be sent');
+        self::assertSame([], $sleeps);
+        self::assertSame(7, $client->call('Counter', 'reused-1', 'getValue'), 'recreated Atom B must remain intact at value 7');
     }
 
     public function testDestroyNeverAutoRetriesRetryablePlatformErrors(): void

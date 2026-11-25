@@ -143,16 +143,14 @@ export class Bridge {
 	 * }}
 	 */
 	inspectStorage() {
+		// Filter platform-internal prefixes literally in JS rather than via
+		// SQLite LIKE, where '_' is a single-character wildcard that would
+		// accidentally match customer tables such as `sqlitecache` or `acf_x`.
 		const objects = this.sql
-			.exec(
-				'SELECT type, name FROM sqlite_master ' +
-					"WHERE name NOT LIKE 'sqlite_%' " +
-					"AND name NOT LIKE '_cf_%' " +
-					"AND name NOT LIKE '__miniflare_%' " +
-					'ORDER BY type ASC, name ASC'
-			)
+			.exec('SELECT type, name FROM sqlite_master ORDER BY type ASC, name ASC')
 			.toArray()
-			.map((/** @type {any} */ r) => ({ type: String(r.type), name: String(r.name) }));
+			.map((/** @type {any} */ r) => ({ type: String(r.type), name: String(r.name) }))
+			.filter((o) => !/^(sqlite_|_cf_|__miniflare_)/i.test(o.name));
 
 		const tables = objects.filter((o) => o.type === 'table').map((o) => o.name);
 		const hasMetaTable = tables.includes(META_TABLE);

@@ -192,11 +192,15 @@ export class AtomDurableObject extends DurableObject {
 		/** @type {Set<string>} de-dupes webSocketError+webSocketClose firing for one socket */
 		this.wsDisconnected = new Set();
 
-		// Zero-write construction: read prior constructions only if
-		// __atoms_meta already exists, without creating tables or rows. This
-		// keeps DELETE and GET /debug on never-seen IDs completely side-effect
-		// free while preserving construction/eviction diagnostics for live Atoms.
+		// Zero-write construction for absent/deleted/legacy-scaffolding IDs: read
+		// prior constructions only if __atoms_meta already exists, without creating
+		// tables or rows. When an Atom already exists (atom_type is recorded in
+		// __atoms_meta), persist the incremented construction count so consecutive
+		// cold evictions remain observable in GET /debug without booting PHP.
 		this.constructions = this.bridge.readConstructions() + 1;
+		if (this.bridge.metaGet(META_KEYS.type) !== null) {
+			this.bridge.metaSet(META_KEYS.constructions, String(this.constructions));
+		}
 	}
 
 	// ------------------------------------------------------------- transport
@@ -1330,6 +1334,12 @@ export class AtomDurableObject extends DurableObject {
 				return { ok: true, destroyed: false };
 			}
 
+			// Destruction owns the close handshake for every socket open when
+			// teardown starts — retire and close with 1000 "Atom destroyed"
+			// BEFORE running resident onDeactivation() so guest code cannot
+			// override the wire close frame with a custom code/reason.
+			this.retireAndCloseAllSockets();
+
 			if (hasResidentPhp) {
 				const collector = this.callbacks.newCollector();
 				deactivateCollector = collector;
@@ -1386,6 +1396,7 @@ export class AtomDurableObject extends DurableObject {
 		const sockets = this.ctx.getWebSockets();
 		for (const ws of sockets) {
 			const att = readAttachment(ws);
+			if (att?.retired) continue;
 			try {
 				ws.serializeAttachment(buildRetiredAttachment(att?.id));
 			} catch {
@@ -1482,21 +1493,23 @@ export class AtomDurableObject extends DurableObject {
 	async runAlarm() {
 		const cap = this.config.timersMaxPerAlarm;
 		let drained = 0;
-		/** @type {number|null} */
-		let boundEpoch = null;
+		// Bind to the residency epoch at handler entry — BEFORE the first
+		// enqueue() — so an alarm queued behind an in-flight destroy() and a
+		// replacement Atom B's reuse can never bind to B's epoch or touch B.
+		const entryEpoch = this.atomEpoch;
 		/** @type {string|null|undefined} */
 		let boundIncarnation = undefined;
 
 		while (drained < cap) {
 			/** @type {{stop?: boolean, done?: boolean, collector?: import('./callbacks.js').TurnCollector}} */
 			const step = await this.enqueue(async () => {
-				if (boundEpoch !== null && this.atomEpoch !== boundEpoch) {
+				if (this.atomEpoch !== entryEpoch) {
 					return { stop: true };
 				}
 
 				const identity = this.identityFromMeta();
 				if (!identity) {
-					if (boundEpoch === null) {
+					if (drained === 0) {
 						this.log('info', {
 							msg: 'atoms.do.alarm_ignored_no_atom',
 							reason: 'alarm fired with no recorded __atoms_meta identity',
@@ -1506,8 +1519,7 @@ export class AtomDurableObject extends DurableObject {
 				}
 
 				const currentInc = this.activeIncarnation();
-				if (boundEpoch === null) {
-					boundEpoch = this.atomEpoch;
+				if (boundIncarnation === undefined) {
 					boundIncarnation = currentInc;
 				} else if (currentInc !== boundIncarnation) {
 					return { stop: true };
@@ -1564,10 +1576,10 @@ export class AtomDurableObject extends DurableObject {
 
 		// Final re-arm inside the turn mutex, ONLY if the same Atom still exists.
 		await this.enqueue(async () => {
-			if (boundEpoch !== null && this.atomEpoch !== boundEpoch) return;
+			if (this.atomEpoch !== entryEpoch) return;
 			const identity = this.identityFromMeta();
 			if (!identity) return;
-			if (boundEpoch !== null && this.activeIncarnation() !== boundIncarnation) return;
+			if (boundIncarnation !== undefined && this.activeIncarnation() !== boundIncarnation) return;
 			await this.timers.rearmForAlarm();
 		});
 	}

@@ -4864,6 +4864,30 @@ check(47, 'destroy: route contract, absent ID leaves no storage, partial activat
         problems.push(`FailBootNoMig scaffolding survived DELETE: ${JSON.stringify(noMigAfter.storage)}`);
     }
 
+    // Literal prefix detection on real SQLite: a customer table named `sqlitecache`
+    // created before a failed first activation MUST NOT be hidden by SQLite LIKE's
+    // `_` wildcard; DELETE must return {destroyed: true} and wipe it.
+    const cacheId = `sqlitecache-${RUN}`;
+    const cacheInvoke = await invoke('FailBootNoMig', cacheId, 'ping');
+    if (cacheInvoke.status === 200) {
+        problems.push(`sqlitecache FailBootNoMig unexpectedly succeeded: ${JSON.stringify(cacheInvoke.data)}`);
+    }
+    const cacheBefore = await debugInfo('FailBootNoMig', cacheId);
+    if (
+        cacheBefore.storage?.exists !== true ||
+        !(cacheBefore.storage?.user_tables ?? []).includes('sqlitecache')
+    ) {
+        problems.push(`sqlitecache customer table was hidden by inspectStorage: ${JSON.stringify(cacheBefore.storage)}`);
+    }
+    const cacheDel = await destroyAtom('FailBootNoMig', cacheId);
+    if (cacheDel.status !== 200 || cacheDel.data?.destroyed !== true) {
+        problems.push(`DELETE on sqlitecache partial Atom gave ${cacheDel.status} ${JSON.stringify(cacheDel.data)} (expected 200 {destroyed:true})`);
+    }
+    const cacheAfter = await debugInfo('FailBootNoMig', cacheId);
+    if (cacheAfter.storage?.exists !== false || (cacheAfter.storage?.tables ?? []).length !== 0) {
+        problems.push(`sqlitecache storage survived DELETE: ${JSON.stringify(cacheAfter.storage)}`);
+    }
+
     // Partial first activation that persisted customer data (migrations + SQL
     // writes before onActivation threw) MUST report {destroyed: true} and wipe.
     const partialId = `partial-fail-${RUN}`;
@@ -5043,6 +5067,17 @@ check(48, 'destroy: serialized in-flight work, warm onDeactivation audit, evicte
         );
     }
 
+    // Second consecutive cold observation without booting PHP: constructions
+    // must keep advancing (1 -> 2 -> 3) for an existing Atom.
+    await new Promise((r) => setTimeout(r, EVICTION_WAIT_MS));
+    const coldEvicted2 = await debugInfo('Destructible', coldId);
+    if (!(coldEvicted2.constructions > coldEvicted.constructions) || coldEvicted2.php_booted !== false) {
+        problems.push(
+            `consecutive cold DO observation undercounted constructions ` +
+                `(${coldEvicted.constructions} -> ${coldEvicted2.constructions}, php_booted=${coldEvicted2.php_booted})`
+        );
+    }
+
     listener.clear();
     const coldDel = await destroyAtom('Destructible', coldId);
     if (coldDel.status !== 200 || coldDel.data?.destroyed !== true) {
@@ -5158,8 +5193,14 @@ check(49, 'destroy: immediate same-ID reuse fences hostile onDeactivation, stale
         problems.push(`Atom A timers survived onto Atom B: a-soon=${aSoonOnB.data?.result}, deact-timer=${deactTimerOnB.data?.result}`);
     }
 
-    // Connect fresh sockB, test echo + broadcast + Atom B's own timer while waiting
-    // past Atom A's old timer deadlines (100ms deact-timer, 350ms a-soon).
+    // Connect fresh sockB, enable independent callback timer audit on Atom B
+    // (positive control for b-timer alongside negative check for a-soon and
+    // deact-timer), and test echo + broadcast + Atom B's own timer.
+    const auditB = `reuse-b-${RUN}`;
+    if (listener) {
+        listener.clear();
+        await invoke('Destructible', reuseId, 'configureDeactivation', ['normal', auditB]);
+    }
     const sockB = await openSocket(`/ws/Destructible/${reuseId}?channels=lobby`);
     try {
         const welcomeB = JSON.parse(/** @type {string} */ (await sockB.next()));
@@ -5193,6 +5234,18 @@ check(49, 'destroy: immediate same-ID reuse fences hostile onDeactivation, stale
         }
         if (timerDetails.includes('a-soon') || timerDetails.includes('deact-timer')) {
             problems.push(`stale Atom A timer fired on Atom B: ${JSON.stringify(timerDetails)}`);
+        }
+        if (listener) {
+            const cbTimerNotes = listener.records
+                .filter((r) => r.kind === 'job' && r.signatureValid && r.parsed?.args?.atomId === reuseId)
+                .map((r) => String(r.parsed?.args?.note ?? ''))
+                .filter((n) => n.startsWith('timer:'));
+            if (!cbTimerNotes.includes(`timer:${auditB}:b-timer`)) {
+                problems.push(`independent callback timer audit missed Atom B positive control (saw ${JSON.stringify(cbTimerNotes)})`);
+            }
+            if (cbTimerNotes.some((n) => n.includes('a-soon') || n.includes('deact-timer') || n.includes(hostileAudit))) {
+                problems.push(`independent callback timer audit observed stale Atom A timer: ${JSON.stringify(cbTimerNotes)}`);
+            }
         }
         if (connIdA && disconnectDetails.includes(connIdA)) {
             problems.push(`stale sockA onDisconnect fired on Atom B (${connIdA})`);

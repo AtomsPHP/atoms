@@ -925,23 +925,25 @@ in PHP against the manifest.
     `{"destroyed":false}`. A never-used empty ID stays untouched and answers
     `{"destroyed":false}`.
   - When a healthy resident PHP guest is parked (`instance` live, `parkedTurn`
-    present, no open transaction), the host runs `onDeactivation()` best-effort
-    through a `{"kind":"deactivate"}` turn under the existing turn limits and
-    callback window, logging any exception, deadline overrun, or runtime error
-    without aborting cleanup. Cold or evicted Atoms are deleted without booting
-    PHP or invoking customer hooks.
+    present, no open transaction), the host retires and closes all open sockets
+    with RFC 6455 code `1000` and reason `Atom destroyed` first — so destruction
+    owns the close handshake and guest code cannot override it — then runs
+    `onDeactivation()` best-effort through a `{"kind":"deactivate"}` turn under
+    the existing turn limits and callback window, logging any exception,
+    deadline overrun, or runtime error without aborting cleanup. Cold or evicted
+    Atoms are deleted without booting PHP or invoking customer hooks.
   - Strictly after any `onDeactivation()` turn settles, the host discards PHP,
-    rewrites every attached socket's attachment with `retired: true` and closes
-    every socket with RFC 6455 code `1000` and reason `Atom destroyed`, clears
-    in-memory timer state, awaits `ctx.storage.deleteAlarm()` and
+    re-checks and retires/closes any sockets (idempotent), clears in-memory
+    timer state, awaits `ctx.storage.deleteAlarm()` and
     `ctx.storage.deleteAll()`, advances the residency's epoch, and resets host
     residency state so immediate same-ID reuse runs migrations and
     `onActivation()` from scratch. Previously dispatched external callbacks can
     finish independently; existing stateless WebSocket tickets retain their
     normal validity until `exp`.
   - Any `wsEvent()` or `runAlarm()` step re-verifies identity, incarnation,
-    and epoch inside the turn mutex before mutating storage or dispatching a
-    turn, so late frames, close events, due timers, or alarm re-arms from a
+    and epoch (captured at `runAlarm()` entry, before the first mutex slot)
+    inside the turn mutex before mutating storage or dispatching a turn, so late
+    frames, close events, queued alarms, due timers, or alarm re-arms from a
     deleted Atom never create, mutate, or disconnect a newly recreated Atom.
 - A turn: resume parked loop with the invoke envelope → PHP dispatches to the
   Atom method (args/result through `Atoms\Serialization\Serializer`) → PHP

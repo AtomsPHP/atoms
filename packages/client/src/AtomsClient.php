@@ -335,10 +335,20 @@ final class AtomsClient
                     'transport',
                     0,
                     $e,
+                    retryable: $allowRetry,
                 );
             } catch (\Psr\Http\Client\ClientExceptionInterface $e) {
+                $message = $allowRetry
+                    ? 'Transport failure talking to the Atoms platform: ' . $e->getMessage()
+                    : sprintf(
+                        'Transport failure talking to the Atoms platform while destroying %s/%s (outcome unknown): %s',
+                        $ctx['type'],
+                        $ctx['id'],
+                        $e->getMessage(),
+                    );
+
                 throw new AtomsRequestFailed(
-                    'Transport failure talking to the Atoms platform: ' . $e->getMessage(),
+                    $message,
                     'transport',
                     false,
                     0,

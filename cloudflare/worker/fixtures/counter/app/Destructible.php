@@ -37,6 +37,8 @@ final class Destructible extends Atom
 
     private string $auditLabel = '';
 
+    private ?Connection $lastConnection = null;
+
     protected function onActivation(): void
     {
         $row = $this->readStateRow();
@@ -74,6 +76,11 @@ final class Destructible extends Atom
         }
 
         if ($this->deactMode === 'hostile') {
+            // Attempt to override the host's destruction close frame (1000 /
+            // "Atom destroyed") with a guest-chosen code/reason; destruction
+            // must own the close handshake so the client still sees 1000.
+            $this->lastConnection?->close(4001, 'guest deactivation');
+
             $this->db()->execute(
                 'UPDATE destructible_state SET tag = ?, counter = 999 WHERE id = 1',
                 ['deact-residue']
@@ -110,6 +117,8 @@ final class Destructible extends Atom
 
     public function onConnect(Connection $conn, array $params): void
     {
+        $this->lastConnection = $conn;
+
         $this->db()->execute(
             'INSERT INTO destructible_events (kind, detail) VALUES (?, ?)',
             ['connect', $conn->id()]

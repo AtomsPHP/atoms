@@ -20,6 +20,15 @@ final class FailBootNoMig extends Atom
 {
     protected function onActivation(): void
     {
+        // When addressed with a `sqlitecache-` prefix, create a customer table
+        // whose name starts with `sqlite` (no underscore) and insert a row
+        // before throwing, proving inspectStorage() matches reserved prefixes
+        // literally rather than treating '_' as a SQLite LIKE wildcard.
+        if (str_starts_with($this->id, 'sqlitecache-')) {
+            $this->db()->execute('CREATE TABLE IF NOT EXISTS sqlitecache (id INTEGER PRIMARY KEY, val TEXT NOT NULL)');
+            $this->db()->execute('INSERT INTO sqlitecache (val) VALUES (?)', ['customer-row']);
+        }
+
         throw new \RuntimeException('deliberate no-migration activation failure');
     }
 
