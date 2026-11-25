@@ -106,6 +106,7 @@ export const META_KEYS = {
 	bundleFormat: 'bundle_format',
 	abiPhp: 'abi_php',
 	createdAt: 'created_at',
+	incarnation: 'incarnation',
 };
 
 /**

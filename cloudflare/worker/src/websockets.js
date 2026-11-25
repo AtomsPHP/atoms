@@ -53,16 +53,42 @@ function errorMessage(e) {
 }
 
 /**
- * Build the `{v,id,ch}` attachment for a newly accepted connection.
+ * Build the `{v,id,ch,inc?}` attachment for a newly accepted connection.
  * `channels` must already be validated, de-duplicated, and in accepted
  * order — this function does no validation of its own.
  *
+ * `inc` is an optional additive field carrying the host-minted incarnation UUID
+ * of the Atom that accepted this socket (omitted only for legacy pre-incarnation
+ * Atoms; per the attachment versioning rule, adding an optional field keeps
+ * `v = 1`).
+ *
  * @param {string} connId
  * @param {string[]} channels
- * @returns {{v: number, id: string, ch: string[]}}
+ * @param {string|null} [incarnation]
+ * @returns {{v: number, id: string, ch: string[], inc?: string}}
  */
-export function buildAttachment(connId, channels) {
+export function buildAttachment(connId, channels, incarnation = null) {
+	if (typeof incarnation === 'string' && incarnation !== '') {
+		return { v: WS_ATTACHMENT_VERSION, id: connId, ch: channels, inc: incarnation };
+	}
 	return { v: WS_ATTACHMENT_VERSION, id: connId, ch: channels };
+}
+
+/**
+ * Build the retired attachment written onto a socket when its Atom is
+ * destroyed, so any late frame or close event is fenced off even if the same
+ * Atom ID is immediately recreated.
+ *
+ * @param {string|null|undefined} [connId]
+ * @returns {{v: number, id: string, ch: string[], retired: true}}
+ */
+export function buildRetiredAttachment(connId = 'retired') {
+	return {
+		v: WS_ATTACHMENT_VERSION,
+		id: typeof connId === 'string' && connId !== '' ? connId : 'retired',
+		ch: [],
+		retired: true,
+	};
 }
 
 /**
@@ -88,7 +114,7 @@ export function attachmentByteLength(attachment) {
  * a cross-version wire format, not an in-process struct.
  *
  * @param {any} ws
- * @returns {{v: number, id: string, ch: string[]}|null}
+ * @returns {{v: number, id: string, ch: string[], inc: string|null, retired: boolean}|null}
  */
 export function readAttachment(ws) {
 	/** @type {any} */
@@ -102,7 +128,33 @@ export function readAttachment(ws) {
 	if (typeof att.v !== 'number') return null;
 	if (typeof att.id !== 'string' || att.id === '') return null;
 	if (!Array.isArray(att.ch) || !att.ch.every((c) => typeof c === 'string')) return null;
-	return { v: att.v, id: att.id, ch: att.ch };
+	if (att.inc !== undefined && att.inc !== null && (typeof att.inc !== 'string' || att.inc === '')) return null;
+	if (att.retired !== undefined && typeof att.retired !== 'boolean') return null;
+	return {
+		v: att.v,
+		id: att.id,
+		ch: att.ch,
+		inc: typeof att.inc === 'string' ? att.inc : null,
+		retired: att.retired === true,
+	};
+}
+
+/**
+ * Check whether a parsed attachment belongs to the current Atom incarnation.
+ *
+ * `currentIncarnation` has three states:
+ *   - `undefined`: no Atom currently exists (absent or destroyed) -> never active
+ *   - `null`: legacy pre-incarnation Atom -> matches only non-retired v1 sockets with `inc === null`
+ *   - `string`: modern Atom incarnation UUID -> matches only non-retired v1 sockets with identical `inc`
+ *
+ * @param {{v: number, id: string, ch: string[], inc: string|null, retired: boolean}|null} att
+ * @param {string|null|undefined} currentIncarnation
+ * @returns {boolean}
+ */
+export function isAttachmentCurrent(att, currentIncarnation) {
+	if (!att || att.v !== WS_ATTACHMENT_VERSION || att.retired) return false;
+	if (currentIncarnation === undefined) return false;
+	return att.inc === currentIncarnation;
 }
 
 /**
@@ -171,11 +223,13 @@ export class WebSocketHost {
 	 * @param {any} opts.ctx DurableObjectState
 	 * @param {import('./config.js').AtomsConfig} opts.config
 	 * @param {(level: string, fields: Record<string, unknown>) => void} opts.log
+	 * @param {() => (string|null|undefined)} [opts.incarnationRef]
 	 */
-	constructor({ ctx, config, log }) {
+	constructor({ ctx, config, log, incarnationRef }) {
 		this.ctx = ctx;
 		this.config = config;
 		this.log = log;
+		this.incarnationRef = incarnationRef ?? (() => null);
 
 		/** @type {Map<string, any>} residency-local, NEVER persisted */
 		this.memo = new Map();
@@ -183,6 +237,23 @@ export class WebSocketHost {
 		// Debug-endpoint observables, monotonic per residency.
 		this.sendsThisResidency = 0;
 		this.broadcastsThisResidency = 0;
+	}
+
+	/** Reset residency-local counters on destruction. */
+	resetCounters() {
+		this.sendsThisResidency = 0;
+		this.broadcastsThisResidency = 0;
+	}
+
+	/**
+	 * Whether `ws` belongs to the current Atom incarnation (not retired, not
+	 * from a destroyed predecessor, not an unknown attachment version).
+	 *
+	 * @param {any} ws
+	 * @returns {boolean}
+	 */
+	isActiveSocket(ws) {
+		return isAttachmentCurrent(readAttachment(ws), this.incarnationRef());
 	}
 
 	/**
@@ -209,16 +280,22 @@ export class WebSocketHost {
 
 	/**
 	 * connId -> socket. O(1) through the memo; falls back to the platform's
-	 * own tag index, which needs no reconstruction after a wake.
+	 * own tag index, which needs no reconstruction after a wake. Always verifies
+	 * the socket belongs to the current Atom incarnation so a newly recreated
+	 * Atom can never address a closing socket from a destroyed predecessor.
 	 *
 	 * @param {string} connId
 	 * @returns {any|null}
 	 */
 	socketFor(connId) {
 		const memo = this.memo.get(connId);
-		if (memo) return memo;
+		if (memo) {
+			if (this.isActiveSocket(memo)) return memo;
+			this.memo.delete(connId);
+		}
 		const found = this.ctx.getWebSockets(this.config.wsConnTagPrefix + connId);
 		if (found.length !== 1) return null; // 0 = gone; >1 is impossible (UUID)
+		if (!this.isActiveSocket(found[0])) return null;
 		this.memo.set(connId, found[0]);
 		return found[0];
 	}
@@ -303,7 +380,9 @@ export class WebSocketHost {
 			);
 		}
 
-		const sockets = this.ctx.getWebSockets(this.config.wsChannelTagPrefix + channel);
+		const sockets = this.ctx
+			.getWebSockets(this.config.wsChannelTagPrefix + channel)
+			.filter((/** @type {any} */ ws) => this.isActiveSocket(ws));
 		if (sockets.length > this.config.wsMaxBroadcastSockets) {
 			throw new AtomsError(
 				'ws_fanout_limit',
@@ -365,7 +444,7 @@ export class WebSocketHost {
 	 * @returns {Record<string, unknown>}
 	 */
 	debugBlock(connectsThisResidency, turnsThisResidency) {
-		const sockets = this.ctx.getWebSockets();
+		const sockets = this.ctx.getWebSockets().filter((/** @type {any} */ ws) => this.isActiveSocket(ws));
 		/** @type {Record<string, number>} */
 		const byChannel = {};
 		/** @type {Record<string, unknown>[]} */

@@ -493,7 +493,7 @@ jobs:
             ATOMS_CALLBACK_URL=http://127.0.0.1:${{ env.ATOMS_CALLBACK_PORT }}/atoms/callback
             ATOMS_CONFIG_ENV_KEYS=ATOMS_SHARED_SECRET,ATOMS_SHARED_SECRET_PREVIOUS,ATOMS_DEBUG_ENDPOINTS
             ATOMS_MAX_REQUEST_BYTES=4096
-          checks: '2,32,33,34,35,36,37,38,39,40,42,46'
+          checks: '2,32,33,34,35,36,37,38,39,40,42,46,47'
           suite-env: |
             ATOMS_MAX_REQUEST_BYTES=4096
             ATOMS_SHARED_SECRET=${{ env.RUN_SECRET_NEXT }}

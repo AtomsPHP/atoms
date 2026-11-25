@@ -116,6 +116,25 @@ export class TimersHost {
 		this.firedThisResidency = 0;
 	}
 
+	/** Reset residency-local timer flags and counters on destruction. */
+	reset() {
+		this.touched = false;
+		this.firedThisResidency = 0;
+	}
+
+	/**
+	 * Read-only existence check for `__atoms_timers` so empty/destroyed DOs
+	 * never fail or create tables when probed by `alarm()` or `info()`.
+	 *
+	 * @returns {boolean}
+	 */
+	hasTable() {
+		const rows = this.sql
+			.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", TIMERS_TABLE)
+			.toArray();
+		return rows.length > 0;
+	}
+
 	// -------------------------------------------------------------- sync ops
 
 	/**
@@ -227,6 +246,7 @@ export class TimersHost {
 	 * @returns {{name: string, due_at_ms: number}[]}
 	 */
 	dueRows(nowMs, limit) {
+		if (!this.hasTable()) return [];
 		return /** @type {{name: string, due_at_ms: number}[]} */ (
 			this.sql
 				.exec(
@@ -247,6 +267,7 @@ export class TimersHost {
 	 * @param {string} timerName
 	 */
 	deleteRow(timerName) {
+		if (!this.hasTable()) return;
 		this.sql.exec(`DELETE FROM ${TIMERS_TABLE} WHERE name = ?`, timerName);
 	}
 
@@ -263,6 +284,10 @@ export class TimersHost {
 	 * transaction it opened has already committed or rolled back.
 	 */
 	async rearm() {
+		if (!this.hasTable()) {
+			await this.ctx.storage.deleteAlarm();
+			return;
+		}
 		const rows = this.sql.exec(`SELECT MIN(due_at_ms) AS due FROM ${TIMERS_TABLE}`).toArray();
 		const due = rows.length ? rows[0].due : null;
 		if (due === null || due === undefined) {
@@ -318,6 +343,13 @@ export class TimersHost {
 	 * @returns {{scheduled: number, next_due_at_ms: number|null, fired_this_residency: number}}
 	 */
 	debugBlock() {
+		if (!this.hasTable()) {
+			return {
+				scheduled: 0,
+				next_due_at_ms: null,
+				fired_this_residency: this.firedThisResidency,
+			};
+		}
 		const count = this.sql.exec(`SELECT COUNT(*) AS n FROM ${TIMERS_TABLE}`).toArray();
 		const next = this.sql.exec(`SELECT MIN(due_at_ms) AS due FROM ${TIMERS_TABLE}`).toArray();
 		const dueVal = next.length ? next[0].due : null;

@@ -3,14 +3,17 @@
  *
  * Routes (runtime spec §"Routing and auth"):
  *
- *   POST /invoke/:type/:id/:method   body {"args":[...]}
- *        -> 200 {"result":..., "atom":{"type":...,"id":...}}
- *        -> 4xx/5xx {"error":{"code","message","retryable"}}
- *   GET  /healthz                    -> {"ok":true}, never touches a DO
- *   GET  /debug/:type/:id/info       -> residency info, ATOMS_DEBUG_ENDPOINTS=1 only
- *   GET  /ws/:type/:id               -> WebSocket upgrade; bearer OR a `?ticket=`
- *                                       issued by the application (browsers
- *                                       cannot set an Authorization header)
+ *   POST   /invoke/:type/:id/:method   body {"args":[...]}
+ *          -> 200 {"result":..., "atom":{"type":...,"id":...}}
+ *          -> 4xx/5xx {"error":{"code","message","retryable"}}
+ *   DELETE /atoms/:type/:id
+ *          -> 200 {"destroyed":true|false}
+ *          -> 4xx/5xx {"error":{"code","message","retryable"}}
+ *   GET    /healthz                    -> {"ok":true}, never touches a DO
+ *   GET    /debug/:type/:id/info       -> residency info, ATOMS_DEBUG_ENDPOINTS=1 only
+ *   GET    /ws/:type/:id               -> WebSocket upgrade; bearer OR a `?ticket=`
+ *                                         issued by the application (browsers
+ *                                         cannot set an Authorization header)
  *
  * This is the invoke contract. `atoms/client` calls it directly; routes
  * carry no tenant prefix, because the Worker is single-tenant and has no
@@ -134,6 +137,16 @@ async function route(request, env) {
 			return errorResponse('invalid_request', 'expected /invoke/:type/:id/:method');
 		}
 		return invoke(request, env, config, decodeSeg(parts[1]), decodeSeg(parts[2]), decodeSeg(parts[3]));
+	}
+
+	if (parts[0] === 'atoms') {
+		if (request.method !== 'DELETE') {
+			return errorResponse('method_not_allowed', 'DELETE /atoms/:type/:id');
+		}
+		if (parts.length !== 3) {
+			return errorResponse('invalid_request', 'expected /atoms/:type/:id');
+		}
+		return destroyAtom(env, config, decodeSeg(parts[1]), decodeSeg(parts[2]));
 	}
 
 	if (parts[0] === 'debug') {
@@ -341,6 +354,37 @@ async function readRequestText(request, maxBytes) {
 	} finally {
 		reader.releaseLock();
 	}
+}
+
+/**
+ * `DELETE /atoms/:type/:id` — validate type, id and deployed manifest before
+ * touching the Durable Object, then ask the DO to destroy the Atom (or report
+ * `destroyed: false` without materialising storage when absent).
+ *
+ * @param {Record<string, any>} env
+ * @param {import('./config.js').AtomsConfig} config
+ * @param {string} type
+ * @param {string} id
+ * @returns {Promise<Response>}
+ */
+async function destroyAtom(env, config, type, id) {
+	validateType(type);
+	validateId(id, config);
+	const manifestFailure = checkManifest(type);
+	if (manifestFailure) return manifestFailure;
+
+	const envelope = await callDurableObject(env, type, id, { kind: 'destroy', type, id });
+	if (envelope.ok === true) {
+		if (typeof envelope.destroyed !== 'boolean') {
+			throw new AtomsError('internal', 'durable object destroy reply did not carry a boolean "destroyed"');
+		}
+		return json({ destroyed: envelope.destroyed });
+	}
+
+	const error = envelope.error ?? {};
+	const code = typeof error.code === 'string' ? error.code : 'internal';
+	const message = typeof error.message === 'string' ? error.message : 'internal error';
+	return errorResponse(code, code === 'internal' ? 'internal error' : message);
 }
 
 /**
@@ -613,7 +657,9 @@ function assertWsAcceptBudgets(channels, config) {
 		}
 	}
 
-	const attachmentBytes = attachmentByteLength(buildAttachment(WS_CONN_ID_PLACEHOLDER, channels));
+	const attachmentBytes = attachmentByteLength(
+		buildAttachment(WS_CONN_ID_PLACEHOLDER, channels, WS_CONN_ID_PLACEHOLDER)
+	);
 	if (attachmentBytes > config.wsMaxAttachmentBytes) {
 		throw new AtomsError(
 			'invalid_request',

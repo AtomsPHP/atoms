@@ -30,7 +30,15 @@ import { loadConfig, META_KEYS } from './config.js';
 import { AtomsError, normalizeError, retryableFor, statusFor } from './errors.js';
 import { bootPHP, composeBootCode, guestMemoryBytes, mkdirp, writeGuestFile } from './php-host.js';
 import { TimersHost } from './timers.js';
-import { WebSocketHost, WS_ATTACHMENT_VERSION, buildAttachment, readAttachment, attachmentByteLength } from './websockets.js';
+import {
+	WebSocketHost,
+	WS_ATTACHMENT_VERSION,
+	buildAttachment,
+	buildRetiredAttachment,
+	isAttachmentCurrent,
+	readAttachment,
+	attachmentByteLength,
+} from './websockets.js';
 
 /** Wire version of the boot payload handed to the guest runtime. */
 const BOOT_PROTOCOL = 1;
@@ -72,6 +80,21 @@ export class AtomDurableObject extends DurableObject {
 
 		/** @type {{type: string, id: string}|null} */
 		this.identity = null;
+		/**
+		 * Host-minted incarnation UUID for the active Atom, or `null` for a
+		 * legacy pre-incarnation Atom. Stored in `__atoms_meta.incarnation` so
+		 * sockets accepted before a destroy cannot match a recreated Atom with
+		 * the same `{type, id}`.
+		 *
+		 * @type {string|null}
+		 */
+		this.incarnation = null;
+		/**
+		 * Monotonic residency-local epoch bumped on destruction so any
+		 * multi-step host work (such as an alarm drain loop) sees that its
+		 * Atom was destroyed and stops before touching a recreated incarnation.
+		 */
+		this.atomEpoch = 0;
 		/**
 		 * The PHP residency: the booted instance, the generation it was born
 		 * into, and whether its one `php.run()` has ended. Null between
@@ -141,6 +164,7 @@ export class AtomDurableObject extends DurableObject {
 			ctx,
 			config: this.config,
 			log: (level, fields) => this.log(level, fields),
+			incarnationRef: () => this.activeIncarnation(),
 		});
 		this.timers = new TimersHost({
 			ctx,
@@ -168,8 +192,11 @@ export class AtomDurableObject extends DurableObject {
 		/** @type {Set<string>} de-dupes webSocketError+webSocketClose firing for one socket */
 		this.wsDisconnected = new Set();
 
-		this.bridge.ensureSchema();
-		this.constructions = this.bridge.bumpConstructions();
+		// Zero-write construction: read prior constructions only if
+		// __atoms_meta already exists, without creating tables or rows. This
+		// keeps DELETE and GET /debug on never-seen IDs completely side-effect
+		// free while preserving construction/eviction diagnostics for live Atoms.
+		this.constructions = this.bridge.readConstructions() + 1;
 	}
 
 	// ------------------------------------------------------------- transport
@@ -206,8 +233,11 @@ export class AtomDurableObject extends DurableObject {
 			if (call.kind === 'invoke') {
 				return envelope(await this.invoke(call.type, call.id, call.method, call.args ?? []));
 			}
+			if (call.kind === 'destroy') {
+				return envelope(await this.destroy(call.type, call.id));
+			}
 			if (call.kind === 'info') {
-				return envelope({ ok: true, info: this.info(call.type, call.id) });
+				return envelope({ ok: true, info: await this.info(call.type, call.id) });
 			}
 			throw new AtomsError('internal', `unknown DO call kind ${JSON.stringify(call.kind)}`);
 		} catch (e) {
@@ -256,9 +286,10 @@ export class AtomDurableObject extends DurableObject {
 				{ type, id },
 				() => {
 					// Step A4: host-minted identity. Nothing here is derived from guest
-					// memory — id and channels are the whole attachment.
+					// memory — id, channels, and the current incarnation UUID are the
+					// whole attachment.
 					const connId = crypto.randomUUID();
-					const attachment = buildAttachment(connId, channels);
+					const attachment = buildAttachment(connId, channels, this.incarnation);
 					if (attachmentByteLength(attachment) > this.config.wsMaxAttachmentBytes) {
 						throw new AtomsError(
 							'invalid_request',
@@ -317,7 +348,7 @@ export class AtomDurableObject extends DurableObject {
 
 					return clientSide;
 				},
-				(collector) => this.settlePostTurn(collector)
+				(collector) => this.settleDeliveries(collector)
 			);
 			// Step A7.
 			return new Response(null, { status: 101, webSocket: client });
@@ -348,29 +379,20 @@ export class AtomDurableObject extends DurableObject {
 		const binary = typeof message !== 'string';
 		const byteLength = binary ? /** @type {ArrayBuffer} */ (message).byteLength : encoder.encode(message).length;
 
-		if (byteLength > this.config.wsMaxMessageBytes) {
-			// An over-cap frame is not dispatched as a turn — the peer must
-			// never be left believing a dropped frame was delivered.
-			this.log('warning', { msg: 'atoms.ws.message_too_big', bytes: byteLength });
-			try {
-				ws.close(1009, 'atoms: message exceeds ATOMS_WS_MAX_MESSAGE_BYTES');
-			} catch {
-				/* best effort */
-			}
-			return;
-		}
-
-		await this.wsEvent(ws, (conn) =>
-			binary
-				? {
-						ok: true,
-						kind: 'ws.message',
-						conn,
-						payload: arrayBufferToBase64(/** @type {ArrayBuffer} */ (message)),
-						binary: true,
-						encoding: 'base64',
-					}
-				: { ok: true, kind: 'ws.message', conn, payload: message, binary: false, encoding: 'utf8' }
+		await this.wsEvent(
+			ws,
+			(conn) =>
+				binary
+					? {
+							ok: true,
+							kind: 'ws.message',
+							conn,
+							payload: arrayBufferToBase64(/** @type {ArrayBuffer} */ (message)),
+							binary: true,
+							encoding: 'base64',
+						}
+					: { ok: true, kind: 'ws.message', conn, payload: message, binary: false, encoding: 'utf8' },
+			{ byteLength, maxBytes: this.config.wsMaxMessageBytes }
 		);
 	}
 
@@ -406,85 +428,140 @@ export class AtomDurableObject extends DurableObject {
 
 	/**
 	 * The wake path shared by every hibernatable socket event.
-	 * Runs the SAME activation gate and the SAME turn mutex as `fetch()`'s
-	 * accept path and every invoke — there is no ws-specific mutex and no
-	 * ws-specific "is it warm?" check. Never throws: a failed ws turn is
-	 * logged, not a reason to take the residency (or the socket) down.
+	 *
+	 * Attachment validation, retirement/incarnation fencing, identity lookup,
+	 * disconnect de-duplication, turn execution, and post-turn timer re-arming
+	 * ALL happen inside `this.enqueue()` (the turn mutex) so an event from a
+	 * deleted Atom can never race with `destroy()` or touch a newly recreated
+	 * Atom under the same ID. Never throws: a failed ws turn is logged, not a
+	 * reason to take the residency (or the socket) down.
 	 *
 	 * @param {any} ws
 	 * @param {(conn: {id: string, channels: string[]}) => Record<string, unknown>} buildEnvelope
-	 * @param {{forget?: boolean, dedupe?: boolean}} [opts]
+	 * @param {{forget?: boolean, dedupe?: boolean, byteLength?: number, maxBytes?: number}} [opts]
 	 */
 	async wsEvent(ws, buildEnvelope, opts = {}) {
-		const att = readAttachment(ws);
-		if (!att) {
-			this.dropSocket(ws, 1011, 'atoms: unreadable connection attachment');
-			return;
-		}
-		if (att.v !== WS_ATTACHMENT_VERSION) {
-			this.dropSocket(ws, 1012, 'atoms: attachment format changed');
-			return;
-		}
+		/** @type {import('./callbacks.js').TurnCollector|null} */
+		let collector = null;
 
-		// A socket can only exist because an upgrade completed an activation,
-		// so __atoms_meta is always present; absent means corruption —
-		// dropped rather than guessed at. Read from durable state, not
-		// `this.identity`: a wake may be the FIRST event this residency has
-		// ever seen.
-		const identity = this.identityFromMeta();
-		if (!identity) {
-			this.dropSocket(ws, 1011, 'atoms: this object has no recorded identity');
-			return;
+		await this.enqueue(async () => {
+			const att = readAttachment(ws);
+			if (!att) {
+				this.dropSocket(ws, 1011, 'atoms: unreadable connection attachment');
+				return;
+			}
+			if (att.v !== WS_ATTACHMENT_VERSION) {
+				this.dropSocket(ws, 1012, 'atoms: attachment format changed');
+				return;
+			}
+			if (att.retired) {
+				this.dropStaleSocket(ws, att.id, 'socket attachment is retired');
+				return;
+			}
+
+			// A socket can only exist because an upgrade completed an activation,
+			// so __atoms_meta is present for a live Atom; absent means the Atom
+			// was destroyed (or corrupted). A socket event must NEVER create an
+			// Atom, and a socket from a prior incarnation must NEVER touch a
+			// recreated one.
+			const identity = this.identityFromMeta();
+			if (!identity) {
+				this.dropStaleSocket(ws, att.id, 'no recorded Atom identity (destroyed)');
+				return;
+			}
+			const currentInc = this.activeIncarnation();
+			if (!isAttachmentCurrent(att, currentInc)) {
+				this.dropStaleSocket(ws, att.id, 'socket belongs to a destroyed Atom incarnation');
+				return;
+			}
+
+			if (opts.dedupe) {
+				// The Set is residency-lived: it is never cleared per event,
+				// because the second of `webSocketError`/`webSocketClose` for one
+				// socket arrives AFTER the first has finished, and an entry removed
+				// in the first event's `finally` would let the second one through —
+				// which is the whole thing this guard exists to stop.
+				if (this.wsDisconnected.has(att.id)) return;
+				this.wsDisconnected.add(att.id);
+			} else if (this.wsDisconnected.has(att.id)) {
+				// A frame that arrived after this connection's onDisconnect already
+				// ran. Dispatching it would call onMessage() on a connection the
+				// Atom has been told is gone — an ordering the API does not allow —
+				// so it is dropped rather than delivered late.
+				this.log('debug', { msg: 'atoms.ws.message_after_disconnect', conn: att.id });
+				return;
+			}
+
+			if (opts.maxBytes !== undefined && (opts.byteLength ?? 0) > opts.maxBytes) {
+				// An over-cap frame is not dispatched as a turn — the peer must
+				// never be left believing a dropped frame was delivered. Checked
+				// after stale-socket fencing so a retired socket never emits
+				// message_too_big or 1009.
+				this.log('warning', { msg: 'atoms.ws.message_too_big', bytes: opts.byteLength });
+				try {
+					ws.close(1009, 'atoms: message exceeds ATOMS_WS_MAX_MESSAGE_BYTES');
+				} catch {
+					/* best effort */
+				}
+				return;
+			}
+
+			this.ws.noteSocket(att.id, ws);
+			const conn = { id: att.id, channels: att.ch };
+			const turnCollector = this.callbacks.newCollector();
+			collector = turnCollector;
+
+			try {
+				await this.ensureActive(identity.type, identity.id);
+				this.wsTurnsThisResidency++;
+				this.beginWindow(turnCollector);
+				try {
+					await this.runTurn(buildEnvelope(conn));
+				} finally {
+					await this.rearmTimersInTurn();
+				}
+			} catch (e) {
+				// The turn loop never throws out of here: the only way this catches
+				// is the same protocol-level failure that would poison an invoke, and
+				// a socket event must not take the residency OR the socket down for
+				// that.
+				const n = normalizeError(e);
+				this.log('error', { msg: 'atoms.ws.turn_failed', conn: att.id, code: n.code, error: n.message });
+			} finally {
+				// The connId -> socket memo is dropped; `wsDisconnected` is NOT —
+				// see the dedupe comment above. Forgetting the memo entry is safe
+				// because `socketFor()` falls back to the platform's tag index.
+				if (opts.forget) this.ws.forgetSocket(att.id);
+			}
+		});
+
+		// Outside the mutex, exactly like invoke()/handleWsUpgrade(): the next
+		// event may start while this turn's dispatch() deliveries are still
+		// in flight.
+		if (collector) {
+			await this.settleDeliveries(collector);
 		}
+	}
 
-		if (opts.dedupe) {
-			// The Set is residency-lived: it is never cleared per event,
-			// because the second of `webSocketError`/`webSocketClose` for one
-			// socket arrives AFTER the first has finished, and an entry removed
-			// in the first event's `finally` would let the second one through —
-			// which is the whole thing this guard exists to stop. Unbounded
-			// growth is not a concern: entries are UUIDs of sockets that have
-			// already disconnected, and the Set dies with the residency, which
-			// is exactly the lifetime the platform guarantees both events land
-			// inside.
-			if (this.wsDisconnected.has(att.id)) return;
-			this.wsDisconnected.add(att.id);
-		} else if (this.wsDisconnected.has(att.id)) {
-			// A frame that arrived after this connection's onDisconnect already
-			// ran. Dispatching it would call onMessage() on a connection the
-			// Atom has been told is gone — an ordering the API does not allow —
-			// so it is dropped rather than delivered late.
-			this.log('debug', { msg: 'atoms.ws.message_after_disconnect', conn: att.id });
-			return;
-		}
-
-		this.ws.noteSocket(att.id, ws);
-		const conn = { id: att.id, channels: att.ch };
-
+	/**
+	 * Drop a stale socket belonging to a destroyed Atom without creating
+	 * storage, activating PHP, or mutating any recreated incarnation.
+	 *
+	 * @param {any} ws
+	 * @param {string} connId
+	 * @param {string} reason
+	 */
+	dropStaleSocket(ws, connId, reason) {
+		this.log('info', { msg: 'atoms.ws.stale_socket_dropped', conn: connId, reason });
 		try {
-			// Outside the mutex, exactly like invoke()/handleWsUpgrade(): the next
-			// event may start while this turn's dispatch() deliveries are still
-			// in flight.
-			await this.withCallbackWindow(
-				identity,
-				() => {
-					this.wsTurnsThisResidency++;
-				},
-				() => this.runTurn(buildEnvelope(conn)),
-				(collector) => this.settlePostTurn(collector)
-			);
-		} catch (e) {
-			// The turn loop never throws out of here: the only way this catches
-			// is the same protocol-level failure that would poison an invoke, and
-			// a socket event must not take the residency OR the socket down for
-			// that.
-			const n = normalizeError(e);
-			this.log('error', { msg: 'atoms.ws.turn_failed', conn: att.id, code: n.code, error: n.message });
-		} finally {
-			// The connId -> socket memo is dropped; `wsDisconnected` is NOT —
-			// see the dedupe comment above. Forgetting the memo entry is safe
-			// because `socketFor()` falls back to the platform's tag index.
-			if (opts.forget) this.ws.forgetSocket(att.id);
+			ws.serializeAttachment(buildRetiredAttachment(connId));
+		} catch {
+			/* best effort — the socket may already be closed */
+		}
+		try {
+			ws.close(1000, 'Atom destroyed');
+		} catch {
+			/* best effort — the socket may already be closed */
 		}
 	}
 
@@ -521,50 +598,63 @@ export class AtomDurableObject extends DurableObject {
 		return { type, id };
 	}
 
+	/**
+	 * Incarnation token for the current Atom:
+	 *   - `string`: modern Atom's host-minted incarnation UUID
+	 *   - `null`: legacy pre-incarnation Atom (predates `META_KEYS.incarnation`)
+	 *   - `undefined`: no Atom currently exists (absent or destroyed)
+	 *
+	 * Purely read-only: never creates storage.
+	 *
+	 * @returns {string|null|undefined}
+	 */
+	activeIncarnation() {
+		if (this.identity !== null) return this.incarnation;
+		if (this.identityFromMeta() === null) return undefined;
+		return this.bridge.metaGet(META_KEYS.incarnation);
+	}
+
 	// ------------------------------------------------------------------ turns
 
 	/**
 	 * The one place that mints a turn's delivery collector, takes the turn
-	 * mutex, opens the callback window and settles the collector afterwards —
-	 * the sequence every turn entry point used to hand-roll ([Audit F22]):
+	 * mutex, opens the callback window, re-arms timers inside the mutex, and
+	 * settles outbound deliveries afterwards:
 	 *
-	 *   newCollector → enqueue(ensureActive → [mid] → beginWindow → turn)
+	 *   newCollector → enqueue(ensureActive → [mid] → beginWindow → turn → rearmTimers)
 	 *   → run.finally(settle).
 	 *
-	 * `ensureActive` here is Step A3: the SAME activation gate fetch() uses
-	 * for an invoke — if it throws, nothing below runs and nothing has been
-	 * accepted.
-	 *
-	 * Two things are deliberately parameters, not baked in:
-	 *
-	 * - `mid` is the site-specific work between activation and the window
-	 *   opening (`handleWsUpgrade()`'s accept sequence, `wsEvent()`'s turn
-	 *   counter). It runs synchronously inside the enqueued turn exactly where
-	 *   each former copy ran it, so anything it throws still lands before the
-	 *   window opens and before any guest code runs.
-	 * - `settle` differs by entry point and MUST keep differing: timer turns
-	 *   settle deliveries only (`settleDeliveries`), while invoke/ws turns run
-	 *   the fuller `settlePostTurn` (deliveries + alarm re-arm). Collapsing
-	 *   that asymmetry would reintroduce the lost-alarm race conformance
-	 *   checks 23/24 exist to catch.
+	 * Timer re-arming runs INSIDE the turn mutex (strictly after `runTurn()` has
+	 * returned and any transaction has committed/rolled back) so a post-turn
+	 * alarm re-arm can never race with `destroy()`. Outbound `dispatch()`
+	 * delivery settlement stays outside the mutex so slow callbacks do not block
+	 * subsequent turns.
 	 *
 	 * @template T
 	 * @param {{type: string, id: string}} identity
 	 * @param {(() => any) | null} mid
 	 * @param {(mid: any) => Promise<T>} turn
 	 * @param {(collector: import('./callbacks.js').TurnCollector) => Promise<void>} settle
+	 * @param {{rearmTimers?: boolean}} [opts]
 	 * @returns {Promise<T>}
 	 */
-	withCallbackWindow(identity, mid, turn, settle) {
+	withCallbackWindow(identity, mid, turn, settle, opts = {}) {
+		const rearmTimers = opts.rearmTimers ?? true;
 		const collector = this.callbacks.newCollector();
 		const run = this.enqueue(async () => {
 			await this.ensureActive(identity.type, identity.id);
 			const pre = mid ? mid() : undefined;
 			this.beginWindow(collector);
-			return turn(pre);
+			try {
+				return await turn(pre);
+			} finally {
+				if (rearmTimers) {
+					await this.rearmTimersInTurn();
+				}
+			}
 		});
-		// Outside the mutex, exactly like every former copy: the next turn may
-		// start while this turn's dispatch() deliveries are in flight.
+		// Outside the mutex: the next turn may start while this turn's
+		// dispatch() deliveries are still in flight.
 		return /** @type {Promise<T>} */ (run.finally(() => settle(collector)));
 	}
 
@@ -585,38 +675,22 @@ export class AtomDurableObject extends DurableObject {
 				const result = await this.runTurn({ ok: true, kind: 'invoke', method, args });
 				return { ...result, atom: { type, id } };
 			},
-			(collector) => this.settlePostTurn(collector)
+			(collector) => this.settleDeliveries(collector)
 		);
 	}
 
 	/**
-	 * Post-turn work that must happen after every ordinary turn, outside the
-	 * turn mutex: `dispatch()` delivery settlement and, when this turn
-	 * touched a timer, the Durable Object alarm re-arm (the "re-arm
-	 * rule"). Both are safe to run concurrently with each other and
-	 * with the next turn starting.
+	 * Re-arm the Durable Object alarm when this turn touched `__atoms_timers`,
+	 * running INSIDE the turn mutex so it cannot race with `destroy()`. Never
+	 * turns a committed turn's 200 into a 500: storage failures are logged.
 	 *
-	 * Timer turns dispatched from `alarm()` do NOT call this — `runAlarm()`
-	 * re-arms once after its whole drain instead (there is no HTTP response
-	 * to hold there, and re-arming per timer in a drain would be wasted work).
-	 *
-	 * Neither leg may turn a committed turn's 200 into a 500: the turn is over
-	 * and its writes are durable by the time this runs, so a failing alarm
-	 * re-arm (a storage error) is reported on the log, not propagated to the
-	 * caller. `settleTurn()` never rejects by construction — `deliverJob()`
-	 * logs and drops — so this only ever fires for the re-arm leg.
-	 *
-	 * @param {import('./callbacks.js').TurnCollector} collector
 	 * @returns {Promise<void>}
 	 */
-	async settlePostTurn(collector) {
-		const settled = await Promise.allSettled([
-			this.settleDeliveries(collector),
-			this.timers.rearmIfTouched(),
-		]);
-		for (const r of settled) {
-			if (r.status !== 'rejected') continue;
-			const n = normalizeError(r.reason);
+	async rearmTimersInTurn() {
+		try {
+			await this.timers.rearmIfTouched();
+		} catch (e) {
+			const n = normalizeError(e);
 			this.log('error', { msg: 'atoms.do.post_turn_failed', code: n.code, error: n.message });
 		}
 	}
@@ -797,6 +871,10 @@ export class AtomDurableObject extends DurableObject {
 				.catch((/** @type {unknown} */ e) => {
 					this.activationPromise = null;
 					this.discardPhp();
+					if (this.identityFromMeta() === null) {
+						this.identity = null;
+						this.incarnation = null;
+					}
 					throw e;
 				});
 		}
@@ -824,13 +902,23 @@ export class AtomDurableObject extends DurableObject {
 		const t0 = now();
 
 		this.checkStoredIdentity(type, id);
-		this.identity = { type, id };
 
 		const manifest = bundle?.manifest ?? {};
 		const atoms = manifest.atoms ?? {};
 		if (!Object.prototype.hasOwnProperty.call(atoms, type)) {
 			throw new AtomsError('atom_not_found', `atom type ${JSON.stringify(type)} is not in the bundle manifest`);
 		}
+
+		// Preserve existing incarnation across wakes/hibernations. Legacy Atoms
+		// (stored atom_type with no incarnation key) keep `null` so their
+		// pre-incarnation hibernated sockets remain valid until destruction;
+		// every newly created Atom receives a fresh UUID incarnation.
+		const existingType = this.bridge.metaGet(META_KEYS.type);
+		const existingInc = this.bridge.metaGet(META_KEYS.incarnation);
+		const incarnation = existingInc !== null ? existingInc : existingType === null ? crypto.randomUUID() : null;
+
+		this.identity = { type, id };
+		this.incarnation = incarnation;
 
 		const php = await bootPHP({
 			onSync: (msg) => this.bridge.handleSync(msg),
@@ -853,6 +941,12 @@ export class AtomDurableObject extends DurableObject {
 				`the bundle does not contain the PHP bootstrap at ${bootstrapPath}`
 			);
 		}
+
+		// Materialize host tables right before guest code runs (never in the
+		// constructor) so migrations can read/write PRAGMA user_version and
+		// onActivation() can use timers while absent/deleted IDs stay empty.
+		this.bridge.ensureSchema();
+		this.bridge.metaSet(META_KEYS.constructions, String(this.constructions));
 
 		/** @type {PhpInstance} */
 		const instance = { php, gen: this.phpGeneration, settled: false, error: null };
@@ -894,7 +988,7 @@ export class AtomDurableObject extends DurableObject {
 				throw new AtomsError('internal', instance.error ?? 'the PHP bootstrap exited before its first turn.await');
 			}
 
-			this.markIdentity(type, id);
+			this.markIdentity(type, id, incarnation);
 			this.activations++;
 			this.phpBootMs = now() - t0;
 			this.log('info', {
@@ -974,15 +1068,20 @@ export class AtomDurableObject extends DurableObject {
 	/**
 	 * @param {string} type
 	 * @param {string} id
+	 * @param {string|null} [incarnation]
 	 */
-	markIdentity(type, id) {
+	markIdentity(type, id, incarnation = null) {
 		this.bridge.metaSet(META_KEYS.type, type);
 		this.bridge.metaSet(META_KEYS.id, id);
 		this.bridge.metaSet(META_KEYS.bundleFormat, String(this.config.bundleFormat));
+		this.bridge.metaSet(META_KEYS.constructions, String(this.constructions));
 		const abi = bundle?.manifest?.abi?.php;
 		if (typeof abi === 'string') this.bridge.metaSet(META_KEYS.abiPhp, abi);
 		if (this.bridge.metaGet(META_KEYS.createdAt) === null) {
 			this.bridge.metaSet(META_KEYS.createdAt, new Date().toISOString());
+		}
+		if (typeof incarnation === 'string' && incarnation !== '') {
+			this.bridge.metaSet(META_KEYS.incarnation, incarnation);
 		}
 	}
 
@@ -1161,9 +1260,181 @@ export class AtomDurableObject extends DurableObject {
 		}
 	}
 
+	// ------------------------------------------------------------ destruction
+
 	/**
-	 * Shutdown envelope for the parked loop. Not reachable from the router
-	 * (there is no destroy route yet); kept because the protocol defines it.
+	 * Pure read-only inspection of whether an Atom currently exists on this DO
+	 * (persisted customer/meta/timer data, platform alarm, or live non-retired
+	 * sockets). Never creates SQLite tables, rows, or alarms, and never boots PHP.
+	 */
+	async inspectAtomState() {
+		const storage = this.bridge.inspectStorage();
+		const alarmAtMs = await this.ctx.storage.getAlarm();
+		const hasAlarm = alarmAtMs !== null && alarmAtMs !== undefined;
+		const rawSockets = this.ctx.getWebSockets();
+		const rawSocketCount = rawSockets.length;
+		const liveSocketCount = rawSockets.filter((/** @type {any} */ ws) => {
+			const att = readAttachment(ws);
+			return !att || !att.retired;
+		}).length;
+
+		return {
+			storage,
+			alarmAtMs: hasAlarm ? Number(alarmAtMs) : null,
+			hasAlarm,
+			rawSocketCount,
+			liveSocketCount,
+			hasAnyStorage: storage.hasAnyStorage,
+			exists: storage.hasAtomData || hasAlarm || liveSocketCount > 0,
+		};
+	}
+
+	/**
+	 * Explicitly destroy an Atom and all of its local durable state.
+	 *
+	 * Ordered on the turn mutex against invokes, upgrades, socket callbacks,
+	 * timer dispatches, and alarm re-arming. Runs `onDeactivation()` best-effort
+	 * ONLY for a healthy resident PHP guest under the existing turn limits,
+	 * then strictly after it settles discards PHP, retires and closes all
+	 * sockets with code `1000` and reason `Atom destroyed`, clears timers and
+	 * the platform alarm, awaits `ctx.storage.deleteAll()`, and resets host
+	 * residency state so immediate same-ID reuse starts fresh.
+	 *
+	 * @param {string} type
+	 * @param {string} id
+	 * @returns {Promise<{ok: true, destroyed: boolean}>}
+	 */
+	async destroy(type, id) {
+		/** @type {import('./callbacks.js').TurnCollector|null} */
+		let deactivateCollector = null;
+
+		const outcome = await this.enqueue(async () => {
+			this.checkStoredIdentity(type, id);
+
+			const state = await this.inspectAtomState();
+			const hasResidentPhp =
+				this.instance !== null && !this.instance.settled && this.parkedTurn !== null && !this.tx.open;
+			const hasAnyPhp = this.instance !== null || this.parkedTurn !== null;
+
+			if (!state.exists && !hasAnyPhp) {
+				// Absent ID or legacy constructor-only metadata: never boot PHP.
+				// Discard any leftover constructor-only scaffolding so storage
+				// stays genuinely empty, and report destroyed: false.
+				if (state.rawSocketCount > 0) {
+					this.retireAndCloseAllSockets();
+				}
+				if (state.hasAnyStorage || state.hasAlarm) {
+					await this.wipeStorage();
+				}
+				this.resetDestroyedHostState();
+				return { ok: true, destroyed: false };
+			}
+
+			if (hasResidentPhp) {
+				const collector = this.callbacks.newCollector();
+				deactivateCollector = collector;
+				this.beginWindow(collector);
+				try {
+					const result = await this.runTurn({ ok: true, kind: 'deactivate' });
+					if (result.ok !== true) {
+						this.log('warning', {
+							msg: 'atoms.do.deactivation_failed',
+							code: /** @type {any} */ (result).error?.code,
+							error: /** @type {any} */ (result).error?.message,
+						});
+					}
+				} catch (e) {
+					const n = normalizeError(e);
+					this.log('error', {
+						msg: 'atoms.do.deactivation_failed',
+						code: n.code,
+						error: n.message,
+					});
+				}
+			}
+
+			// Final cleanup runs strictly AFTER onDeactivation() settles so
+			// nothing the hook wrote or scheduled can survive.
+			this.atomEpoch++;
+			this.discardPhp();
+			this.retireAndCloseAllSockets();
+			this.timers.reset();
+			await this.wipeStorage();
+			this.resetDestroyedHostState();
+
+			this.log('info', {
+				msg: 'atoms.do.destroyed',
+				atom: { type, id },
+				was_resident: hasResidentPhp,
+			});
+
+			return { ok: true, destroyed: true };
+		});
+
+		if (deactivateCollector) {
+			await this.settleDeliveries(deactivateCollector);
+		}
+
+		return outcome;
+	}
+
+	/**
+	 * Mark every attached socket retired (including hibernated sockets and
+	 * older/unreadable attachment formats) and close with 1000 "Atom destroyed".
+	 */
+	retireAndCloseAllSockets() {
+		const sockets = this.ctx.getWebSockets();
+		for (const ws of sockets) {
+			const att = readAttachment(ws);
+			try {
+				ws.serializeAttachment(buildRetiredAttachment(att?.id));
+			} catch {
+				/* best effort — the socket may already be closed */
+			}
+			try {
+				ws.close(1000, 'Atom destroyed');
+			} catch {
+				/* best effort — the socket may already be closed */
+			}
+		}
+		this.ws.clearMemo();
+	}
+
+	/**
+	 * Delete the platform alarm and all Durable Object SQLite/KV storage.
+	 * Awaited before `destroy()` reports success so storage failures surface
+	 * through the error envelope.
+	 */
+	async wipeStorage() {
+		await this.ctx.storage.deleteAlarm();
+		await this.ctx.storage.deleteAll();
+	}
+
+	/**
+	 * Clear all host-side residency state after destruction so immediate reuse
+	 * of the same `{type, id}` starts completely fresh.
+	 */
+	resetDestroyedHostState() {
+		this.atomEpoch++;
+		this.identity = null;
+		this.incarnation = null;
+		this.turns = 0;
+		this.activations = 0;
+		this.phpBootMs = null;
+		this.lastPoison = null;
+		this.wsConnectsThisResidency = 0;
+		this.wsTurnsThisResidency = 0;
+		this.wsDisconnected.clear();
+		this.ws.clearMemo();
+		this.ws.resetCounters();
+		this.timers.reset();
+		this.callbacks.resetCounters();
+		this.bridge.sqlCalls = 0;
+		this.constructions = 1;
+	}
+
+	/**
+	 * Shutdown envelope for the parked loop. Kept because the protocol defines it.
 	 */
 	async shutdown() {
 		if (!this.parkedTurn) return { ok: true, shutdown: 'not_resident' };
@@ -1199,56 +1470,68 @@ export class AtomDurableObject extends DurableObject {
 		}
 	}
 
-	/** @returns {Promise<void>} */
+	/**
+	 * Drain due timers for the current Atom incarnation, strictly serialized
+	 * with `destroy()` on the turn mutex. Every iteration re-verifies identity,
+	 * incarnation, and `atomEpoch` inside `this.enqueue()` before reading or
+	 * deleting a due row or dispatching `onTimer()`, and the final
+	 * `rearmForAlarm()` runs inside `this.enqueue()` under the same check.
+	 *
+	 * @returns {Promise<void>}
+	 */
 	async runAlarm() {
-		// Read identity from durable __atoms_meta, exactly like a WebSocket
-		// wake (identityFromMeta(), above): this can be the FIRST event a
-		// fresh JS instance ever sees. Absent means corruption — log and
-		// return rather than guessing at an identity.
-		const identity = this.identityFromMeta();
-		if (!identity) {
-			this.log('error', {
-				msg: 'atoms.do.alarm_no_identity',
-				error: 'the alarm fired for a residency with no recorded __atoms_meta identity',
-			});
-			return;
-		}
-
-		// The drain loop — the fix for the deployed chained-timer flake found in
-		// the 2026-08-12 review (conformance check 23's chain leg). A timer
-		// scheduled for "now" from INSIDE onTimer() must fire in THIS alarm
-		// event, not wait on a past-due alarm that production workerd fires only
-		// eventually (~15s observed). Each iteration re-queries due rows against
-		// a FRESH now() — Date.now() advances across the awaited turn's real I/O
-		// — so a timer chained during one turn becomes `due_at_ms <= now` on the
-		// NEXT iteration and is drained in the SAME alarm event, milliseconds
-		// later, with no dependency on the platform firing a past-due alarm.
-		//
-		// `cap` bounds the TOTAL timers drained in one alarm() invocation, not
-		// just the first batch: a chain longer than the cap, or a genuinely
-		// future timer, is left for the final rearmForAlarm() below to point the
-		// alarm at (MIN(due_at_ms), possibly past → the platform re-fires and
-		// does ANOTHER bounded drain). Never an unbounded loop inside one
-		// alarm(); every row drained is deleted and counted, so total ≤ cap.
 		const cap = this.config.timersMaxPerAlarm;
 		let drained = 0;
-		while (drained < cap) {
-			// FRESH now() each iteration — see above. Host-side query, WITHOUT
-			// booting PHP: a spurious alarm (rows since cancelled or already
-			// consumed) just finds nothing due and falls straight to the re-arm.
-			const due = this.timers.dueRows(now(), cap - drained);
-			if (due.length === 0) break;
+		/** @type {number|null} */
+		let boundEpoch = null;
+		/** @type {string|null|undefined} */
+		let boundIncarnation = undefined;
 
-			for (const row of due) {
-				// At-most-once: delete BEFORE dispatch. A throwing (or
-				// residency-poisoning) onTimer must not be retried by a later
-				// alarm — the timer is already consumed. This is deliberately
-				// NOT an at-least-once queue.
+		while (drained < cap) {
+			/** @type {{stop?: boolean, done?: boolean, collector?: import('./callbacks.js').TurnCollector}} */
+			const step = await this.enqueue(async () => {
+				if (boundEpoch !== null && this.atomEpoch !== boundEpoch) {
+					return { stop: true };
+				}
+
+				const identity = this.identityFromMeta();
+				if (!identity) {
+					if (boundEpoch === null) {
+						this.log('info', {
+							msg: 'atoms.do.alarm_ignored_no_atom',
+							reason: 'alarm fired with no recorded __atoms_meta identity',
+						});
+					}
+					return { stop: true };
+				}
+
+				const currentInc = this.activeIncarnation();
+				if (boundEpoch === null) {
+					boundEpoch = this.atomEpoch;
+					boundIncarnation = currentInc;
+				} else if (currentInc !== boundIncarnation) {
+					return { stop: true };
+				}
+
+				// Host-side query inside the mutex, WITHOUT booting PHP when
+				// nothing is due.
+				const due = this.timers.dueRows(now(), 1);
+				if (due.length === 0) {
+					return { done: true };
+				}
+
+				const row = due[0];
+				// At-most-once: delete BEFORE dispatch, atomically inside the
+				// same mutex slot as the turn so destroy() cannot interleave
+				// between row selection, deletion, and dispatch.
 				this.timers.deleteRow(row.name);
 				this.timers.noteFired();
 
+				const collector = this.callbacks.newCollector();
 				try {
-					const result = await this.runTimerTurn(identity, row.name);
+					await this.ensureActive(identity.type, identity.id);
+					this.beginWindow(collector);
+					const result = await this.runTurn({ ok: true, kind: 'timer', name: row.name });
 					if (result.ok !== true) {
 						this.log('warning', {
 							msg: 'atoms.do.timer_turn_failed',
@@ -1258,11 +1541,6 @@ export class AtomDurableObject extends DurableObject {
 						});
 					}
 				} catch (e) {
-					// The turn loop is documented never to throw; this is defence
-					// in depth for a residency that got poisoned mid-turn (a real
-					// protocol failure), which must not take the whole alarm()
-					// call down with it — the remaining due rows still deserve
-					// their turn.
 					const n = normalizeError(e);
 					this.log('error', {
 						msg: 'atoms.do.alarm_turn_failed',
@@ -1272,59 +1550,38 @@ export class AtomDurableObject extends DurableObject {
 					});
 				}
 
-				drained++;
-				if (drained >= cap) break;
+				return { collector };
+			});
+
+			if (step.stop) return;
+			if (step.done) break;
+
+			if (step.collector) {
+				await this.settleDeliveries(step.collector);
 			}
+			drained++;
 		}
 
-		// One re-arm AFTER the whole drain. If the drain hit `cap` with rows
-		// still due (a chain longer than the cap, or genuinely-future timers
-		// remain), MIN(due_at_ms) is set and the platform fires again for another
-		// bounded drain — never an unbounded loop inside one alarm() invocation.
-		// `rearmForAlarm()` clears the touched flag BEFORE its own query and
-		// re-checks it after, so a `timer.schedule` that lands while the re-arm
-		// is in flight is either covered here or left flagged for the next turn's
-		// `rearmIfTouched()` — never swallowed by a clear this alarm does not own
-		// (which is how a concurrent schedule used to lose its alarm). Timer turns
-		// dispatched inside the drain set `touched`, and an ordinary turn
-		// interleaved between drain iterations may rearm intermediately off it;
-		// that is harmless because this final rearmForAlarm() overwrites it from
-		// post-drain truth.
-		await this.timers.rearmForAlarm();
+		// Final re-arm inside the turn mutex, ONLY if the same Atom still exists.
+		await this.enqueue(async () => {
+			if (boundEpoch !== null && this.atomEpoch !== boundEpoch) return;
+			const identity = this.identityFromMeta();
+			if (!identity) return;
+			if (boundEpoch !== null && this.activeIncarnation() !== boundIncarnation) return;
+			await this.timers.rearmForAlarm();
+		});
 	}
 
 	/**
-	 * Dispatch one alarm-driven timer turn through the SAME
-	 * enqueue/ensureActive/beginTurn/runTurn/settleTurn machinery as
-	 * invoke()/wsEvent(): app()/dispatch()/broadcast() work identically from
-	 * onTimer. No rearm here — runAlarm() rearms once after the whole drain
-	 * instead. There is no HTTP response to hold, so dispatch() deliveries
-	 * are still settled before this resolves, exactly like every other turn.
-	 *
-	 * @param {{type: string, id: string}} identity
-	 * @param {string} timerName
-	 * @returns {Promise<any>}
-	 */
-	async runTimerTurn(identity, timerName) {
-		// settleDeliveries-only, NOT settlePostTurn: there is no HTTP response
-		// to hold, and re-arming belongs to runAlarm()'s single post-drain
-		// rearmForAlarm(). Do not "fix" this asymmetry — see the helper.
-		return this.withCallbackWindow(
-			identity,
-			null,
-			() => this.runTurn({ ok: true, kind: 'timer', name: timerName }),
-			(collector) => this.settleDeliveries(collector)
-		);
-	}
-
-	/**
-	 * Residency info for `GET /debug/:type/:id/info`. Deliberately does not
-	 * activate: it must be usable to observe an evicted residency.
+	 * Residency info for `GET /debug/:type/:id/info`. Deliberately read-only
+	 * and does not activate: safe on an empty database, never creates tables or
+	 * alarms, and usable to observe an evicted or destroyed residency.
 	 *
 	 * @param {string} [type]
 	 * @param {string} [id]
 	 */
-	info(type, id) {
+	async info(type, id) {
+		const state = await this.inspectAtomState();
 		const userVersion = Number(this.bridge.metaGet(META_KEYS.userVersion) ?? '0');
 		return {
 			do_id: String(this.ctx.id),
@@ -1334,6 +1591,16 @@ export class AtomDurableObject extends DurableObject {
 				id: this.bridge.metaGet(META_KEYS.id),
 				created_at: this.bridge.metaGet(META_KEYS.createdAt),
 				abi_php: this.bridge.metaGet(META_KEYS.abiPhp),
+			},
+			storage: {
+				exists: state.exists,
+				has_meta_table: state.storage.hasMetaTable,
+				has_timers_table: state.storage.hasTimersTable,
+				tables: state.storage.tables,
+				user_tables: state.storage.userTables,
+				meta_keys: state.storage.metaKeys,
+				alarm_at_ms: state.alarmAtMs,
+				database_size: state.storage.databaseSize,
 			},
 			constructions: this.constructions,
 			activations_this_residency: this.activations,

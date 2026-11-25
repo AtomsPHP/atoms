@@ -72,6 +72,8 @@ import assert from 'node:assert/strict';
 import { createHmac, hkdfSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import net from 'node:net';
+import tls from 'node:tls';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -333,6 +335,11 @@ async function invoke(type, id, method, args = [], opts = {}) {
     return request('POST', `/invoke/${type}/${id}/${method}`, { args }, opts);
 }
 
+/** Helper to destroy an Atom via DELETE /atoms/:type/:id. */
+async function destroyAtom(type, id, opts = {}) {
+    return request('DELETE', `/atoms/${encodeURIComponent(type)}/${encodeURIComponent(id)}`, null, opts);
+}
+
 /** Residency info from GET /debug/:type/:id/info (ATOMS_DEBUG_ENDPOINTS=1). */
 async function debugInfo(type, id) {
     const { status, data } = await request('GET', `/debug/${type}/${id}/info`);
@@ -481,11 +488,24 @@ function openSocket(path, sockOpts = {}) {
     const frames = [];
     /** @type {((frame: string|ArrayBuffer) => void)[]} */
     const waiters = [];
+    /** @type {(evt: {code: number, reason: string, wasClean: boolean}) => void} */
+    let resolveClosed;
+    const closed = new Promise((resolve) => {
+        resolveClosed = resolve;
+    });
 
     ws.addEventListener('message', (e) => {
         if (waiters.length) waiters.shift()(e.data);
         else frames.push(e.data);
     });
+
+    ws.addEventListener(
+        'close',
+        (e) => {
+            resolveClosed({ code: e.code, reason: e.reason, wasClean: e.wasClean });
+        },
+        { once: true }
+    );
 
     const opened = new Promise((resolve, reject) => {
         ws.addEventListener('open', () => resolve(), { once: true });
@@ -494,6 +514,18 @@ function openSocket(path, sockOpts = {}) {
     });
 
     return opened.then(() => ({
+        get readyState() {
+            return ws.readyState;
+        },
+        closed,
+        waitClosed(timeoutMs = 5000) {
+            return Promise.race([
+                closed,
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error(`timed out waiting for close on ${path} after ${timeoutMs}ms`)), timeoutMs)
+                ),
+            ]);
+        },
         send(data) {
             ws.send(data);
         },
@@ -528,6 +560,218 @@ function openSocket(path, sockOpts = {}) {
             });
         },
     }));
+}
+
+/**
+ * Minimal RFC 6455 client over `node:net`/`node:tls` (zero extra deps, works
+ * against both local `http://` and deployed `https://` Workers).
+ *
+ * Exists for check 49 for two reasons:
+ *   1. On local `workerd`/Miniflare, server-initiated `ws.close(1000, reason)`
+ *      delivers the RFC 6455 Close frame immediately, while TCP FIN is deferred
+ *      until the DO's ~10s idle teardown — so a WHATWG WebSocket client sits in
+ *      `readyState === CLOSING` waiting for FIN instead of firing `close` right
+ *      away. Reading the Close frame directly verifies `(1000, "Atom destroyed")`
+ *      at wire speed without waiting out DO eviction.
+ *   2. A WHATWG WebSocket refuses `.send()` once `CLOSING`, so it can never put
+ *      a late frame or deferred Close echo on the wire AFTER a same-ID Atom B
+ *      has been recreated. This helper can, proving live on `workerd` that
+ *      real late frames and close handshakes from a deleted Atom cannot touch B.
+ *
+ * @param {string} path
+ * @param {{auth?: boolean}} [sockOpts]
+ */
+function openRawSocket(path, sockOpts = {}) {
+    return new Promise((resolve, reject) => {
+        const url = new URL(path, baseUrl);
+        const isTls = url.protocol === 'https:';
+        const port = url.port ? Number(url.port) : isTls ? 443 : 80;
+        const key = randomBytes(16).toString('base64');
+
+        const sock = isTls
+            ? tls.connect({ host: url.hostname, port, servername: url.hostname })
+            : net.connect({ host: url.hostname, port });
+
+        /** @type {string[]} */
+        const frames = [];
+        /** @type {((frame: string) => void)[]} */
+        const frameWaiters = [];
+        /** @type {(evt: {code: number|null, reason: string}) => void} */
+        let resolveCloseFrame;
+        let closeFrameSeen = false;
+        const closeFrame = new Promise((r) => {
+            resolveCloseFrame = r;
+        });
+
+        let handshakeDone = false;
+        let settled = false;
+        let buf = Buffer.alloc(0);
+
+        const openTimer = setTimeout(() => {
+            if (!settled) {
+                settled = true;
+                sock.destroy();
+                reject(new Error(`raw ws open timed out for ${path}`));
+            }
+        }, 5000);
+
+        const sendFrame = (opcode, payloadBuf) => {
+            const mask = randomBytes(4);
+            const len = payloadBuf.length;
+            let header;
+            if (len < 126) {
+                header = Buffer.from([0x80 | opcode, 0x80 | len]);
+            } else if (len < 65536) {
+                header = Buffer.alloc(4);
+                header[0] = 0x80 | opcode;
+                header[1] = 0x80 | 126;
+                header.writeUInt16BE(len, 2);
+            } else {
+                header = Buffer.alloc(10);
+                header[0] = 0x80 | opcode;
+                header[1] = 0x80 | 127;
+                header.writeBigUInt64BE(BigInt(len), 2);
+            }
+            const masked = Buffer.alloc(len);
+            for (let i = 0; i < len; i++) masked[i] = payloadBuf[i] ^ mask[i & 3];
+            sock.write(Buffer.concat([header, mask, masked]));
+        };
+
+        const handle = {
+            send(text) {
+                sendFrame(0x01, Buffer.from(String(text), 'utf8'));
+            },
+            sendCloseEcho(code = 1000, reason = '') {
+                const reasonBuf = Buffer.from(reason, 'utf8');
+                const payload = Buffer.alloc(2 + reasonBuf.length);
+                payload.writeUInt16BE(code, 0);
+                reasonBuf.copy(payload, 2);
+                sendFrame(0x08, payload);
+            },
+            async next(timeoutMs = 3000) {
+                if (frames.length) return frames.shift();
+                return new Promise((res, rej) => {
+                    const timer = setTimeout(() => {
+                        const i = frameWaiters.indexOf(onFrame);
+                        if (i !== -1) frameWaiters.splice(i, 1);
+                        rej(new Error(`timed out waiting for raw ws frame on ${path} after ${timeoutMs}ms`));
+                    }, timeoutMs);
+                    const onFrame = (f) => {
+                        clearTimeout(timer);
+                        res(f);
+                    };
+                    frameWaiters.push(onFrame);
+                });
+            },
+            waitCloseFrame(timeoutMs = 5000) {
+                return Promise.race([
+                    closeFrame,
+                    new Promise((_, rej) =>
+                        setTimeout(
+                            () => rej(new Error(`timed out waiting for RFC 6455 Close frame on ${path} after ${timeoutMs}ms`)),
+                            timeoutMs
+                        )
+                    ),
+                ]);
+            },
+            async close() {
+                try {
+                    sock.end();
+                } catch {
+                    /* ignore */
+                }
+                sock.destroy();
+            },
+        };
+
+        const parseFrames = () => {
+            while (buf.length >= 2) {
+                const opcode = buf[0] & 0x0f;
+                const masked = (buf[1] & 0x80) !== 0;
+                let len = buf[1] & 0x7f;
+                let off = 2;
+                if (len === 126) {
+                    if (buf.length < 4) return;
+                    len = buf.readUInt16BE(2);
+                    off = 4;
+                } else if (len === 127) {
+                    if (buf.length < 10) return;
+                    len = Number(buf.readBigUInt64BE(2));
+                    off = 10;
+                }
+                const maskLen = masked ? 4 : 0;
+                if (buf.length < off + maskLen + len) return;
+                const payload = Buffer.from(buf.subarray(off + maskLen, off + maskLen + len));
+                if (masked) {
+                    const mask = buf.subarray(off, off + 4);
+                    for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i & 3];
+                }
+                buf = buf.subarray(off + maskLen + len);
+
+                if (opcode === 0x01) {
+                    const text = payload.toString('utf8');
+                    if (frameWaiters.length) frameWaiters.shift()(text);
+                    else frames.push(text);
+                } else if (opcode === 0x08) {
+                    const code = payload.length >= 2 ? payload.readUInt16BE(0) : null;
+                    const reason = payload.length > 2 ? payload.subarray(2).toString('utf8') : '';
+                    if (!closeFrameSeen) {
+                        closeFrameSeen = true;
+                        resolveCloseFrame({ code, reason });
+                    }
+                } else if (opcode === 0x09) {
+                    // Reply to server Ping with Pong.
+                    sendFrame(0x0a, payload);
+                }
+            }
+        };
+
+        sock.on('data', (chunk) => {
+            buf = Buffer.concat([buf, chunk]);
+            if (!handshakeDone) {
+                const idx = buf.indexOf('\r\n\r\n');
+                if (idx === -1) return;
+                const head = buf.subarray(0, idx).toString('utf8');
+                buf = buf.subarray(idx + 4);
+                handshakeDone = true;
+                clearTimeout(openTimer);
+                if (!head.startsWith('HTTP/1.1 101')) {
+                    if (!settled) {
+                        settled = true;
+                        sock.destroy();
+                        reject(new Error(`raw ws handshake failed for ${path}: ${head.split('\r\n')[0]}`));
+                    }
+                    return;
+                }
+                if (!settled) {
+                    settled = true;
+                    resolve(handle);
+                }
+            }
+            parseFrames();
+        });
+
+        sock.on('error', (err) => {
+            clearTimeout(openTimer);
+            if (!settled) {
+                settled = true;
+                reject(err);
+            }
+        });
+
+        const reqLines = [
+            `GET ${url.pathname}${url.search} HTTP/1.1`,
+            `Host: ${url.host}`,
+            'Upgrade: websocket',
+            'Connection: Upgrade',
+            `Sec-WebSocket-Key: ${key}`,
+            'Sec-WebSocket-Version: 13',
+        ];
+        if (AUTH_HEADER_VALUE && sockOpts.auth !== false) {
+            reqLines.push(`Authorization: Bearer ${AUTH_HEADER_VALUE}`);
+        }
+        sock.write(reqLines.join('\r\n') + '\r\n\r\n');
+    });
 }
 
 // ------------------------------------------------------------ tickets
@@ -694,11 +938,37 @@ class CallbackListener {
         /** @type {object[]} */
         this.records = [];
         this.seenNonces = new Set();
+        this.holds = new Map();
         this.server = null;
     }
 
     clear() {
         this.records = [];
+    }
+
+    /**
+     * Register a deterministic barrier for `Destructible::holdAndMutate($tag)`:
+     * when `$this->app()->hold($tag)` arrives, `arrived` resolves and the HTTP
+     * response stays open until the test calls `release(reply)`.
+     *
+     * @param {string} tag
+     */
+    expectHold(tag) {
+        let onArrived;
+        const arrived = new Promise((resolve) => {
+            onArrived = resolve;
+        });
+        let onRelease;
+        const gate = new Promise((resolve) => {
+            onRelease = resolve;
+        });
+        this.holds.set(tag, { onArrived, gate, onRelease });
+        return {
+            arrived,
+            release(reply = `released:${tag}`) {
+                onRelease(reply);
+            },
+        };
     }
 
     async start(port) {
@@ -710,6 +980,10 @@ class CallbackListener {
     }
 
     async stop() {
+        for (const entry of this.holds.values()) {
+            entry.onRelease('stopped');
+        }
+        this.holds.clear();
         if (!this.server) return;
         const server = this.server;
         this.server = null;
@@ -807,6 +1081,24 @@ class CallbackListener {
                 const m = /"args"\s*:\s*\[\s*(-?\d+)\s*\]/.exec(rawText);
                 const literal = m ? m[1] : '0';
                 respond(200, `{"result":${literal}}`);
+                return;
+            }
+            if (method === 'hold') {
+                const tag = String(parsed?.args?.[0] ?? '');
+                const entry = this.holds.get(tag);
+                if (!entry) {
+                    respond(200, JSON.stringify({ result: `released:${tag}` }));
+                    return;
+                }
+                this.holds.delete(tag);
+                entry.onArrived();
+                entry.gate.then((reply) => {
+                    try {
+                        respond(200, JSON.stringify({ result: reply }));
+                    } catch {
+                        /* the socket may already be gone */
+                    }
+                });
                 return;
             }
             respond(
@@ -3923,6 +4215,19 @@ check(38, 'tickets (bearer required): /invoke and /debug still require the beare
         problems.push(`headerless /debug gave ${dbg.status}/${dbg.data?.error?.code} (expected 401/unauthenticated)`);
     }
 
+    const del = await request('DELETE', `/atoms/Counter/${id}`, null, { bearer: null });
+    if (del.status !== 401 || del.data?.error?.code !== 'unauthenticated') {
+        problems.push(`headerless DELETE /atoms gave ${del.status}/${del.data?.error?.code} (expected 401/unauthenticated)`);
+    }
+
+    const delTicket = await request('DELETE', `/atoms/Counter/${id}?ticket=v1.fake.sig`, null, { bearer: null });
+    if (delTicket.status !== 401 || delTicket.data?.error?.code !== 'unauthenticated') {
+        problems.push(
+            `headerless DELETE /atoms with ?ticket= gave ${delTicket.status}/${delTicket.data?.error?.code} ` +
+                '(expected 401/unauthenticated — ticket carve-out is /ws-only)'
+        );
+    }
+
     if (problems.length === 0) {
         pass(checkNum, name, 'the ticket carve-out is /ws-only');
     } else {
@@ -4087,6 +4392,10 @@ check(40, 'rotation: bearers and tickets accepted under either secret, callbacks
             if (r.status !== want) {
                 problems.push(`${label} gave ${r.status}/${r.data?.error?.code} (expected ${want})`);
             }
+            const d = await destroyAtom('Counter', atomId('rotation-del'), { bearer });
+            if (d.status !== want) {
+                problems.push(`DELETE /atoms with ${label} gave ${d.status}/${d.data?.error?.code} (expected ${want})`);
+            }
         }
     } else {
         notes.push('bearer legs skipped (env var: ATOMS_BEARER_AUTH)');
@@ -4182,6 +4491,7 @@ async function assertAllRoutesMisconfigured(problems, atomIdSuffix, messageMustN
 
     const routes = [
         ['POST /invoke', await invoke('Counter', id, 'increment', [1])],
+        ['DELETE /atoms', await request('DELETE', `/atoms/Counter/${id}`)],
         ['POST /tickets', await request('POST', `/tickets/Room/${id}`)],
         ['GET /debug', await request('GET', `/debug/Counter/${id}/info`)],
         ['GET /ws', await wsHandshakeAttempt(`/ws/Room/${id}?channels=lobby`, { auth: false })],
@@ -4478,6 +4788,522 @@ check(46, 'invoke request byte limit', async ({ num: checkNum, name }) => {
     assert.equal(final.status, 200);
     assert.equal(final.data.result, accepted, 'oversized requests must not invoke the Atom');
     pass(checkNum, name, `ASCII and multibyte bodies at ${limit - 1}/${limit}/${limit + 1} bytes, explicit length and chunked`);
+});
+
+// CHECK 47: explicit Atom destruction — route contract, absent ID leaves no
+// storage, failed-boot scaffolding vs partial customer state, repeat delete.
+check(47, 'destroy: route contract, absent ID leaves no storage, partial activation, repeat delete', async ({ num: checkNum, name }) => {
+    const problems = [];
+    const baseId = atomId('del-contract');
+
+    // Method, arity, type, id, and manifest validation must fail before any DO is touched.
+    const validationCases = [
+        ['GET /atoms/Counter/:id', 'GET', `/atoms/Counter/${baseId}`, 405, 'method_not_allowed'],
+        ['POST /atoms/Counter/:id', 'POST', `/atoms/Counter/${baseId}`, 405, 'method_not_allowed'],
+        ['DELETE /atoms/Counter', 'DELETE', '/atoms/Counter', 400, 'invalid_request'],
+        ['DELETE /atoms/Counter/:id/extra', 'DELETE', `/atoms/Counter/${baseId}/extra`, 400, 'invalid_request'],
+        ['DELETE /atoms/1BadType/:id', 'DELETE', `/atoms/1BadType/${baseId}`, 400, 'invalid_request'],
+        ['DELETE /atoms/Counter/bad%0Aid', 'DELETE', '/atoms/Counter/bad%0Aid', 400, 'invalid_request'],
+        ['DELETE /atoms/NotDeployed/:id', 'DELETE', `/atoms/NotDeployed/${baseId}`, 404, 'unknown_atom_type'],
+    ];
+    for (const [label, method, path, wantStatus, wantCode] of validationCases) {
+        const r = await request(method, path);
+        if (r.status !== wantStatus || r.data?.error?.code !== wantCode) {
+            problems.push(`${label} gave ${r.status}/${r.data?.error?.code} (expected ${wantStatus}/${wantCode})`);
+        }
+    }
+
+    // Never-used ID: zero-write probe before, DELETE -> {destroyed: false},
+    // zero-write probe after still shows empty storage and no PHP boot.
+    const absentId = atomId('del-absent');
+    const absentBefore = await debugInfo('Destructible', absentId);
+    if (
+        absentBefore.storage?.exists !== false ||
+        (absentBefore.storage?.tables ?? []).length !== 0 ||
+        absentBefore.storage?.alarm_at_ms !== null ||
+        absentBefore.php_booted !== false
+    ) {
+        problems.push(`absent ID before DELETE had unexpected storage: ${JSON.stringify(absentBefore.storage)}`);
+    }
+
+    const absentDel = await destroyAtom('Destructible', absentId);
+    if (absentDel.status !== 200 || absentDel.data?.destroyed !== false) {
+        problems.push(`DELETE on absent ID gave ${absentDel.status} ${JSON.stringify(absentDel.data)} (expected 200 {destroyed:false})`);
+    }
+
+    const absentAfter = await debugInfo('Destructible', absentId);
+    if (
+        absentAfter.storage?.exists !== false ||
+        (absentAfter.storage?.tables ?? []).length !== 0 ||
+        absentAfter.storage?.has_meta_table !== false ||
+        absentAfter.storage?.has_timers_table !== false ||
+        absentAfter.storage?.alarm_at_ms !== null ||
+        absentAfter.php_booted !== false
+    ) {
+        problems.push(`absent ID after DELETE materialized storage: ${JSON.stringify(absentAfter.storage)}`);
+    }
+
+    // Failed activation with NO migrations (FailBootNoMig): leaves only host
+    // scaffolding (__atoms_meta.constructions + empty __atoms_timers), so DELETE
+    // discards the scaffolding with {destroyed: false} and leaves storage empty.
+    const noMigId = atomId('del-nomig');
+    const noMigInvoke = await invoke('FailBootNoMig', noMigId, 'ping');
+    if (noMigInvoke.status === 200) {
+        problems.push(`FailBootNoMig unexpectedly succeeded: ${JSON.stringify(noMigInvoke.data)}`);
+    }
+    const noMigBefore = await debugInfo('FailBootNoMig', noMigId);
+    if (noMigBefore.storage?.exists !== false || noMigBefore.storage?.has_meta_table !== true) {
+        problems.push(`FailBootNoMig storage before DELETE unexpected: ${JSON.stringify(noMigBefore.storage)}`);
+    }
+    const noMigDel = await destroyAtom('FailBootNoMig', noMigId);
+    if (noMigDel.status !== 200 || noMigDel.data?.destroyed !== false) {
+        problems.push(`DELETE on FailBootNoMig gave ${noMigDel.status} ${JSON.stringify(noMigDel.data)} (expected 200 {destroyed:false})`);
+    }
+    const noMigAfter = await debugInfo('FailBootNoMig', noMigId);
+    if (noMigAfter.storage?.exists !== false || (noMigAfter.storage?.tables ?? []).length !== 0) {
+        problems.push(`FailBootNoMig scaffolding survived DELETE: ${JSON.stringify(noMigAfter.storage)}`);
+    }
+
+    // Partial first activation that persisted customer data (migrations + SQL
+    // writes before onActivation threw) MUST report {destroyed: true} and wipe.
+    const partialId = `partial-fail-${RUN}`;
+    const partialInvoke = await invoke('Destructible', partialId, 'state');
+    if (partialInvoke.status === 200) {
+        problems.push(`partial-fail Destructible unexpectedly succeeded: ${JSON.stringify(partialInvoke.data)}`);
+    }
+    const partialBefore = await debugInfo('Destructible', partialId);
+    if (
+        partialBefore.storage?.exists !== true ||
+        partialBefore.stored?.type !== null ||
+        !(partialBefore.storage?.user_tables ?? []).includes('destructible_state')
+    ) {
+        problems.push(`partial-fail storage before DELETE unexpected: ${JSON.stringify(partialBefore)}`);
+    }
+    const partialDel = await destroyAtom('Destructible', partialId);
+    if (partialDel.status !== 200 || partialDel.data?.destroyed !== true) {
+        problems.push(`DELETE on partial-fail Atom gave ${partialDel.status} ${JSON.stringify(partialDel.data)} (expected 200 {destroyed:true})`);
+    }
+    const partialAfter = await debugInfo('Destructible', partialId);
+    if (partialAfter.storage?.exists !== false || (partialAfter.storage?.tables ?? []).length !== 0) {
+        problems.push(`partial-fail storage survived DELETE: ${JSON.stringify(partialAfter.storage)}`);
+    }
+    const partialRepeat = await destroyAtom('Destructible', partialId);
+    if (partialRepeat.status !== 200 || partialRepeat.data?.destroyed !== false) {
+        problems.push(`repeat DELETE on partial-fail gave ${partialRepeat.status} ${JSON.stringify(partialRepeat.data)} (expected 200 {destroyed:false})`);
+    }
+
+    // Live Atom delete + repeat delete.
+    const liveId = atomId('del-live');
+    const liveInv = await invoke('Destructible', liveId, 'setTag', ['v1']);
+    if (liveInv.status !== 200 || liveInv.data?.result?.tag !== 'v1') {
+        problems.push(`live setup invoke failed: ${liveInv.status} ${JSON.stringify(liveInv.data)}`);
+    }
+    const liveDel1 = await destroyAtom('Destructible', liveId);
+    if (liveDel1.status !== 200 || liveDel1.data?.destroyed !== true) {
+        problems.push(`first DELETE on live Atom gave ${liveDel1.status} ${JSON.stringify(liveDel1.data)} (expected 200 {destroyed:true})`);
+    }
+    const liveAfter = await debugInfo('Destructible', liveId);
+    if (
+        liveAfter.storage?.exists !== false ||
+        (liveAfter.storage?.tables ?? []).length !== 0 ||
+        liveAfter.storage?.alarm_at_ms !== null ||
+        liveAfter.php_booted !== false
+    ) {
+        problems.push(`live Atom storage survived DELETE: ${JSON.stringify(liveAfter.storage)}`);
+    }
+    const liveDel2 = await destroyAtom('Destructible', liveId);
+    if (liveDel2.status !== 200 || liveDel2.data?.destroyed !== false) {
+        problems.push(`second DELETE on live Atom gave ${liveDel2.status} ${JSON.stringify(liveDel2.data)} (expected 200 {destroyed:false})`);
+    }
+
+    if (problems.length === 0) {
+        pass(checkNum, name, 'validation, absent zero-write, scaffolding discard, partial activation, live + repeat delete');
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 48: serialized in-flight work (held-invoke barrier + slowIncrement),
+// warm onDeactivation() external audit, and genuinely evicted cold teardown
+// without booting PHP or running hooks.
+check(48, 'destroy: serialized in-flight work, warm onDeactivation audit, evicted cold teardown without PHP', async ({ num: checkNum, name }) => {
+    if (!listener) {
+        skip(
+            checkNum,
+            name,
+            'needs callback listener for held-invoke barrier and external hook audit',
+            'callback',
+            'ATOMS_CALLBACK_PORT'
+        );
+        return;
+    }
+    const problems = [];
+
+    // Part A1: deterministic held-invoke barrier + warm onDeactivation() audit.
+    const serId = atomId('del-serial');
+    const warmAudit = `warm-${RUN}`;
+    const holdTag = `barrier-${RUN}`;
+
+    const s1 = await invoke('Destructible', serId, 'setTag', ['before-hold']);
+    const s2 = await invoke('Destructible', serId, 'configureDeactivation', ['normal', warmAudit]);
+    if (s1.status !== 200 || s2.status !== 200) {
+        problems.push(`warm setup failed: s1=${s1.status} s2=${s2.status}`);
+    } else {
+        listener.clear();
+        const hold = listener.expectHold(holdTag);
+
+        let invokeDoneAt = 0;
+        let deleteDoneAt = 0;
+        const heldInvoke = invoke('Destructible', serId, 'holdAndMutate', [holdTag]).then((r) => {
+            invokeDoneAt = Date.now();
+            return r;
+        });
+
+        await Promise.race([
+            hold.arrived,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timed out waiting for hold callback')), 5000)),
+        ]);
+
+        // Start DELETE while holdAndMutate is parked inside the turn mutex.
+        const delPromise = destroyAtom('Destructible', serId).then((r) => {
+            deleteDoneAt = Date.now();
+            return r;
+        });
+
+        // Give DELETE a brief window: it MUST wait behind the held invoke.
+        await new Promise((r) => setTimeout(r, 200));
+        if (deleteDoneAt !== 0) {
+            problems.push('DELETE completed while an in-flight invoke was still held inside the turn mutex');
+        }
+
+        hold.release('barrier-ok');
+        const [invRes, delRes] = await Promise.all([heldInvoke, delPromise]);
+
+        if (invRes.status !== 200 || invRes.data?.result?.ack !== 'barrier-ok' || invRes.data?.result?.state?.tag !== holdTag) {
+            problems.push(`held invoke failed: ${invRes.status} ${JSON.stringify(invRes.data)}`);
+        }
+        if (delRes.status !== 200 || delRes.data?.destroyed !== true) {
+            problems.push(`serialized DELETE failed: ${delRes.status} ${JSON.stringify(delRes.data)}`);
+        }
+        if (invokeDoneAt > deleteDoneAt) {
+            problems.push(`DELETE finished (${deleteDoneAt}) before in-flight invoke (${invokeDoneAt})`);
+        }
+
+        const deactNotes = listener.records
+            .filter((r) => r.kind === 'job' && r.signatureValid && r.parsed?.args?.atomId === serId)
+            .map((r) => r.parsed?.args?.note);
+        if (!deactNotes.includes(`deactivate:${warmAudit}`)) {
+            problems.push(`warm onDeactivation audit missing (saw ${JSON.stringify(deactNotes)})`);
+        }
+
+        const serAfter = await debugInfo('Destructible', serId);
+        if (serAfter.storage?.exists !== false || (serAfter.storage?.tables ?? []).length !== 0) {
+            problems.push(`storage survived serialized warm DELETE: ${JSON.stringify(serAfter.storage)}`);
+        }
+    }
+
+    // Part A2: concurrent Counter::slowIncrement + DELETE serializes cleanly.
+    const slowId = atomId('del-slow');
+    await invoke('Counter', slowId, 'increment', [1]);
+    const slowP = invoke('Counter', slowId, 'slowIncrement', [1, 200]);
+    await new Promise((r) => setTimeout(r, 30));
+    const slowDelP = destroyAtom('Counter', slowId);
+    const [slowRes, slowDelRes] = await Promise.all([slowP, slowDelP]);
+    if (slowRes.status !== 200 || slowRes.data?.result !== 2) {
+        problems.push(`slowIncrement alongside DELETE gave ${slowRes.status} ${JSON.stringify(slowRes.data)} (expected 200 result=2)`);
+    }
+    if (slowDelRes.status !== 200 || slowDelRes.data?.destroyed !== true) {
+        problems.push(`DELETE alongside slowIncrement gave ${slowDelRes.status} ${JSON.stringify(slowDelRes.data)}`);
+    }
+    const slowAfter = await debugInfo('Counter', slowId);
+    if (slowAfter.storage?.exists !== false || (slowAfter.storage?.tables ?? []).length !== 0) {
+        problems.push(`Counter storage survived DELETE: ${JSON.stringify(slowAfter.storage)}`);
+    }
+
+    // Part B: genuinely evicted cold Atom teardown — real EVICTION_WAIT_MS,
+    // verified by constructions bump, deletes without booting PHP or running hooks.
+    const coldId = atomId('del-cold');
+    const coldAudit = `cold-${RUN}`;
+    await invoke('Destructible', coldId, 'setTag', ['cold-data']);
+    await invoke('Destructible', coldId, 'configureDeactivation', ['normal', coldAudit]);
+    await invoke('Destructible', coldId, 'arm', ['cold-timer', 60000]);
+
+    const coldBefore = await debugInfo('Destructible', coldId);
+    if (coldBefore.php_booted !== true || coldBefore.timers?.scheduled !== 1 || coldBefore.storage?.alarm_at_ms === null) {
+        problems.push(`cold setup state unexpected: ${JSON.stringify(coldBefore)}`);
+    }
+
+    await new Promise((r) => setTimeout(r, EVICTION_WAIT_MS));
+
+    const coldEvicted = await debugInfo('Destructible', coldId);
+    if (!(coldEvicted.constructions > coldBefore.constructions) || coldEvicted.php_booted !== false) {
+        problems.push(
+            `cold DO was not evicted after ${EVICTION_WAIT_MS}ms ` +
+                `(constructions ${coldBefore.constructions} -> ${coldEvicted.constructions}, php_booted=${coldEvicted.php_booted})`
+        );
+    }
+
+    listener.clear();
+    const coldDel = await destroyAtom('Destructible', coldId);
+    if (coldDel.status !== 200 || coldDel.data?.destroyed !== true) {
+        problems.push(`cold DELETE gave ${coldDel.status} ${JSON.stringify(coldDel.data)} (expected 200 {destroyed:true})`);
+    }
+
+    const coldAfter = await debugInfo('Destructible', coldId);
+    if (
+        coldAfter.php_booted !== false ||
+        coldAfter.activations_this_residency !== 0 ||
+        coldAfter.storage?.exists !== false ||
+        (coldAfter.storage?.tables ?? []).length !== 0 ||
+        coldAfter.storage?.alarm_at_ms !== null ||
+        coldAfter.timers?.scheduled !== 0
+    ) {
+        problems.push(`cold DELETE booted PHP or left residue: ${JSON.stringify(coldAfter)}`);
+    }
+
+    const coldHookEvents = listener.records
+        .filter((r) => r.kind === 'job' && r.parsed?.args?.atomId === coldId)
+        .map((r) => r.parsed?.args?.note);
+    if (coldHookEvents.length !== 0) {
+        problems.push(`cold DELETE unexpectedly ran guest hooks: ${JSON.stringify(coldHookEvents)}`);
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            `held-invoke serialized, warm onDeactivation audited, cold evicted (${coldBefore.constructions}->${coldEvicted.constructions}) deleted without PHP`
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
+});
+
+// CHECK 49: release gate — immediate same-ID reuse fences hostile
+// onDeactivation (writes + schedules timer + throws), stale timers, and stale
+// sockets both warm and across real hibernation.
+check(49, 'destroy: immediate same-ID reuse fences hostile onDeactivation, stale timers, and stale sockets', async ({ num: checkNum, name }) => {
+    const problems = [];
+
+    // Part A: warm hostile onDeactivation + live socket + soon timer -> destroy
+    // -> immediate same-ID Atom B stays completely untouched.
+    const reuseId = atomId('del-reuse');
+    const hostileAudit = `hostile-${RUN}`;
+
+    await invoke('Destructible', reuseId, 'setTag', ['atom-A']);
+    await invoke('Destructible', reuseId, 'configureDeactivation', ['hostile', hostileAudit]);
+
+    const sockA = await openRawSocket(`/ws/Destructible/${reuseId}?channels=lobby`);
+    let connIdA = null;
+    try {
+        const welcomeA = JSON.parse(/** @type {string} */ (await sockA.next()));
+        connIdA = welcomeA.conn;
+        if (welcomeA.tag !== 'atom-A') {
+            problems.push(`sockA welcome tag=${JSON.stringify(welcomeA.tag)} (expected "atom-A")`);
+        }
+
+        // Arm a timer that would fire shortly after reuse if not wiped/fenced.
+        await invoke('Destructible', reuseId, 'arm', ['a-soon', 350]);
+        if (listener) listener.clear();
+
+        const delA = await destroyAtom('Destructible', reuseId);
+        if (delA.status !== 200 || delA.data?.destroyed !== true) {
+            problems.push(`hostile warm DELETE gave ${delA.status} ${JSON.stringify(delA.data)} (expected 200 {destroyed:true})`);
+        }
+
+        const closeA = await sockA.waitCloseFrame(5000);
+        if (closeA.code !== 1000 || closeA.reason !== 'Atom destroyed') {
+            problems.push(`sockA closed with code=${closeA.code} reason=${JSON.stringify(closeA.reason)} (expected 1000 "Atom destroyed")`);
+        }
+
+        if (listener) {
+            const notes = listener.records
+                .filter((r) => r.kind === 'job' && r.signatureValid && r.parsed?.args?.atomId === reuseId)
+                .map((r) => r.parsed?.args?.note);
+            if (!notes.includes(`deactivate:${hostileAudit}`)) {
+                problems.push(`hostile onDeactivation did not run (audit notes: ${JSON.stringify(notes)})`);
+            }
+        }
+
+        // Immediately recreate Atom B under the exact same ID BEFORE echoing close
+        // on sockA — then fire a real late data frame AND the Close echo on sockA
+        // straight at the live DO hosting Atom B to prove both are fenced.
+        const stateB0 = await invoke('Destructible', reuseId, 'state');
+        if (stateB0.status !== 200) {
+            problems.push(`Atom B creation failed: ${stateB0.status} ${JSON.stringify(stateB0.data)}`);
+        } else {
+            const b = stateB0.data.result;
+            if (b.tag !== 'initial' || b.counter !== 0 || b.deactMode !== 'normal') {
+                problems.push(`Atom B inherited stale state from A or hostile onDeactivation: ${JSON.stringify(b)}`);
+            }
+            const ev0 = b.events ?? [];
+            if (ev0.length !== 1 || ev0[0].kind !== 'activate') {
+                problems.push(`Atom B initial events unexpected: ${JSON.stringify(ev0)}`);
+            }
+        }
+
+        try {
+            sockA.send('late-from-A');
+            sockA.sendCloseEcho(1000, 'Atom destroyed');
+        } catch {
+            /* ignore if peer already closed TCP */
+        }
+    } finally {
+        await sockA.close();
+    }
+
+    const aSoonOnB = await invoke('Destructible', reuseId, 'scheduledMs', ['a-soon']);
+    const deactTimerOnB = await invoke('Destructible', reuseId, 'scheduledMs', ['deact-timer']);
+    if (aSoonOnB.data?.result !== null || deactTimerOnB.data?.result !== null) {
+        problems.push(`Atom A timers survived onto Atom B: a-soon=${aSoonOnB.data?.result}, deact-timer=${deactTimerOnB.data?.result}`);
+    }
+
+    // Connect fresh sockB, test echo + broadcast + Atom B's own timer while waiting
+    // past Atom A's old timer deadlines (100ms deact-timer, 350ms a-soon).
+    const sockB = await openSocket(`/ws/Destructible/${reuseId}?channels=lobby`);
+    try {
+        const welcomeB = JSON.parse(/** @type {string} */ (await sockB.next()));
+        if (welcomeB.tag !== 'initial') {
+            problems.push(`sockB welcome tag=${JSON.stringify(welcomeB.tag)} (expected "initial")`);
+        }
+
+        sockB.send('ping-B');
+        const echoB = await sockB.next();
+        if (echoB !== 'echo:ping-B') {
+            problems.push(`sockB echo gave ${JSON.stringify(echoB)} (expected "echo:ping-B")`);
+        }
+
+        await invoke('Destructible', reuseId, 'broadcastText', ['lobby', 'hello-B']);
+        const bcastB = JSON.parse(/** @type {string} */ (await sockB.next()));
+        if (bcastB.kind !== 'broadcast' || bcastB.channel !== 'lobby' || bcastB.payload?.text !== 'hello-B') {
+            problems.push(`sockB broadcast gave ${JSON.stringify(bcastB)} (expected broadcast on lobby with text "hello-B")`);
+        }
+
+        await invoke('Destructible', reuseId, 'arm', ['b-timer', 250]);
+        await new Promise((r) => setTimeout(r, 700));
+
+        const stateB1 = await invoke('Destructible', reuseId, 'state');
+        const eventsB = stateB1.data?.result?.events ?? [];
+        const timerDetails = eventsB.filter((e) => e.kind === 'timer').map((e) => e.detail);
+        const disconnectDetails = eventsB.filter((e) => e.kind === 'disconnect').map((e) => e.detail);
+        const msgDetails = eventsB.filter((e) => e.kind === 'message').map((e) => e.detail);
+
+        if (!timerDetails.includes('b-timer')) {
+            problems.push(`Atom B's own timer did not fire (timers seen: ${JSON.stringify(timerDetails)})`);
+        }
+        if (timerDetails.includes('a-soon') || timerDetails.includes('deact-timer')) {
+            problems.push(`stale Atom A timer fired on Atom B: ${JSON.stringify(timerDetails)}`);
+        }
+        if (connIdA && disconnectDetails.includes(connIdA)) {
+            problems.push(`stale sockA onDisconnect fired on Atom B (${connIdA})`);
+        }
+        if (msgDetails.some((d) => d.includes('late-from-A') || (connIdA && d.startsWith(`${connIdA}:`)))) {
+            problems.push(`stale sockA message landed on Atom B: ${JSON.stringify(msgDetails)}`);
+        }
+        if (stateB1.data?.result?.tag !== 'initial' || stateB1.data?.result?.counter !== 0) {
+            problems.push(`Atom B state mutated by stale work: ${JSON.stringify(stateB1.data?.result)}`);
+        }
+    } finally {
+        await sockB.close();
+    }
+
+    // Part B: hibernated socket across real EVICTION_WAIT_MS -> cold DELETE ->
+    // immediate same-ID reuse leaves Atom B untouched and closes hibernated socket 1000.
+    const hibId = atomId('del-hib-ws');
+    await invoke('Destructible', hibId, 'setTag', ['hib-A']);
+
+    const sockHibA = await openRawSocket(`/ws/Destructible/${hibId}?channels=lobby`);
+    let connHibA = null;
+    try {
+        const welcomeHib = JSON.parse(/** @type {string} */ (await sockHibA.next()));
+        connHibA = welcomeHib.conn;
+
+        const beforeHib = await debugInfo('Destructible', hibId);
+        if (beforeHib.ws?.sockets !== 1) {
+            problems.push(`before hibernation ws.sockets=${beforeHib.ws?.sockets} (expected 1)`);
+        }
+
+        await new Promise((r) => setTimeout(r, EVICTION_WAIT_MS));
+
+        const duringHib = await debugInfo('Destructible', hibId);
+        if (
+            !(duringHib.constructions > beforeHib.constructions) ||
+            duringHib.php_booted !== false ||
+            duringHib.ws?.sockets !== 1
+        ) {
+            problems.push(
+                `socket DO did not hibernate after ${EVICTION_WAIT_MS}ms ` +
+                    `(constructions ${beforeHib.constructions} -> ${duringHib.constructions}, ` +
+                    `php_booted=${duringHib.php_booted}, ws.sockets=${duringHib.ws?.sockets})`
+            );
+        }
+
+        const delHib = await destroyAtom('Destructible', hibId);
+        if (delHib.status !== 200 || delHib.data?.destroyed !== true) {
+            problems.push(`hibernated DELETE gave ${delHib.status} ${JSON.stringify(delHib.data)}`);
+        }
+
+        const closeHib = await sockHibA.waitCloseFrame(5000);
+        if (closeHib.code !== 1000 || closeHib.reason !== 'Atom destroyed') {
+            problems.push(
+                `hibernated sockHibA closed with code=${closeHib.code} reason=${JSON.stringify(closeHib.reason)} ` +
+                    '(expected 1000 "Atom destroyed")'
+            );
+        }
+
+        // Immediately recreate Atom B under the hibernated Atom's ID, then send
+        // a real late frame + Close echo on sockHibA straight at Atom B.
+        const hibB0 = await invoke('Destructible', hibId, 'state');
+        if (hibB0.status !== 200 || hibB0.data?.result?.tag !== 'initial' || hibB0.data?.result?.counter !== 0) {
+            problems.push(`post-hibernation Atom B state unexpected: ${hibB0.status} ${JSON.stringify(hibB0.data)}`);
+        }
+
+        try {
+            sockHibA.send('late-hib-from-A');
+            sockHibA.sendCloseEcho(1000, 'Atom destroyed');
+        } catch {
+            /* ignore if peer already closed TCP */
+        }
+    } finally {
+        await sockHibA.close();
+    }
+
+    await new Promise((r) => setTimeout(r, 300));
+    const hibB1 = await invoke('Destructible', hibId, 'state');
+    const hibEvents = hibB1.data?.result?.events ?? [];
+    if (
+        hibEvents.some((e) => e.kind === 'disconnect' && connHibA && e.detail === connHibA) ||
+        hibEvents.some((e) => e.kind === 'message') ||
+        hibEvents.length !== 1 ||
+        hibEvents[0].kind !== 'activate'
+    ) {
+        problems.push(`stale hibernated socket event leaked into Atom B: ${JSON.stringify(hibEvents)}`);
+    }
+
+    const sockHibB = await openSocket(`/ws/Destructible/${hibId}?channels=lobby`);
+    try {
+        const welcomeHibB = JSON.parse(/** @type {string} */ (await sockHibB.next()));
+        if (welcomeHibB.tag !== 'initial') {
+            problems.push(`post-hibernation sockHibB welcome tag=${JSON.stringify(welcomeHibB.tag)} (expected "initial")`);
+        }
+        await invoke('Destructible', hibId, 'broadcastText', ['lobby', 'post-hib-B']);
+        const frameHibB = JSON.parse(/** @type {string} */ (await sockHibB.next()));
+        if (frameHibB.kind !== 'broadcast' || frameHibB.channel !== 'lobby' || frameHibB.payload?.text !== 'post-hib-B') {
+            problems.push(`post-hibernation broadcast gave ${JSON.stringify(frameHibB)}`);
+        }
+    } finally {
+        await sockHibB.close();
+    }
+
+    if (problems.length === 0) {
+        pass(
+            checkNum,
+            name,
+            'hostile onDeactivation wiped, warm & hibernated sockets closed 1000/"Atom destroyed", immediate same-ID Atom B untouched'
+        );
+    } else {
+        fail(checkNum, name, problems.join('; '));
+    }
 });
 
 // ---------------------------------------------------------------- run

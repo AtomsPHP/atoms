@@ -4,7 +4,7 @@ This directory contains the conformance test suite for the Atoms runtime on Clou
 
 ## Tests
 
-`conformance.mjs` runs 46 checks against a live worker URL:
+`conformance.mjs` runs 49 checks against a live worker URL:
 
 1. **healthz** — `/healthz` endpoint responds
 2. **invoke + result envelope** — HTTP interface returns correct shape
@@ -52,6 +52,9 @@ This directory contains the conformance test suite for the Atoms runtime on Clou
 44. **malformed rotation overlap** — booted with a **valid** current secret but a malformed `ATOMS_SHARED_SECRET_PREVIOUS`, the Worker is exactly as loudly broken as check 41's: `/healthz` answers 200 `{ok:true}` and `/invoke`, `/tickets`, `/debug` and `/ws` all answer HTTP 500 `misconfigured` — and each refusal message names `ATOMS_SHARED_SECRET_PREVIOUS`, which is what proves the gate tripped on the overlap and not on the current secret. Pins the spec's "set but malformed → misconfigured" requirement that checks 40 (valid overlap) and 41 (no current secret) cannot see
 45. **vendor tree autoload** — the manifest's `vendor.autoload` classmap loads a vendor class the line-scanning bundle autoloader cannot index (`Acme\Greeter\Greeter` is declared indented inside a conditional, on purpose), and a Composer-style function file is already loaded before the class is first touched, proving "files" entries are required eagerly at activation
 46. **Invoke request byte limit.** The check sends ASCII and multibyte bodies below, at and above the limit, with both `Content-Length` and chunked transfer. The Worker returns HTTP 413 with `payload_too_large` for oversized bodies and leaves the counter unchanged.
+47. **destroy contract, validation, absent ID zero-residue, partial activation, repeat delete** — `DELETE /atoms/:type/:id` rejects wrong methods (405), bad path/type/id (400), and unknown types (404 `unknown_atom_type`); deleting a never-seen ID returns `{"destroyed":false}` and leaves zero SQLite tables, rows, or alarm (verified by read-only `GET /debug`, which also leaves storage empty on re-read); scaffolding-only failed first activation (`FailBootNoMig`) is discarded with `false`; partial activation that persisted customer data (`Destructible` `partial-fail-*`) is wiped with `true`; repeat delete returns `true` then `false`.
+48. **destroy ordering, warm vs cold teardown** — deletion serializes behind a held invoke (`holdAndMutate` via callback barrier when listener is active, plus concurrent `slowIncrement`) so in-flight writes never survive past `DELETE`; warm teardown runs best-effort `onDeactivation()` (verified externally via the callback listener); genuinely evicted cold teardown (`ATOMS_EVICTION_WAIT_MS` + `constructions` growth) deletes without booting PHP or running `onActivation()`/`onDeactivation()`.
+49. **destroy release gate: hostile deactivation and stale socket/timer isolation across immediate reuse (warm + hibernated)** — Atom A has a live socket, pending timer, and hostile `onDeactivation()` that writes SQLite, schedules another timer, and throws; `DELETE` returns `true`, closes A's socket with `1000` / `Atom destroyed`, and immediate same-ID Atom B observes fresh migrations and state while A's late frames, close events, and timers never mutate or disconnect B and B's own socket, broadcast, and timer work; the socket case is repeated across real hibernation (`ATOMS_EVICTION_WAIT_MS`). Checks 38, 40, 41, and 44 also verify `DELETE /atoms/...` auth, rotation, and misconfigured gates.
 
 Register checks with `check(number, name, fn)`. Numbers must be consecutive and
 ordered from 1; the runner validates them before starting. `ATOMS_ONLY`,
@@ -101,7 +104,7 @@ partial checks. Run the runner tests with
 | 44 | `ATOMS_EXPECT_MISCONFIGURED_PREVIOUS` unset (the flag is the gate) | — |
 | 42 | the Worker's `ATOMS_CONFIG_ENV_KEYS` does not make the control key readable | `ATOMS_REQUIRE_DENY_CHECKS=1` |
 
-Checks 18–28, 30, 45 and 46 have no configuration gate. Check 30 fails if its
+Checks 18–28, 30, 45, 46, 47, 48 (callback-independent legs) and 49 (callback-independent legs) have no configuration gate; checks 48–49 require the callback listener for their external-audit/barrier legs when `ATOMS_REQUIRE_CALLBACK_CHECKS=1`. Check 30 fails if its
 report is missing or the documentation is stale.
 
 ## Tests that are not conformance checks
@@ -112,6 +115,7 @@ The runtime scaffold and residency tests also have dedicated commands:
 |---|---|---|
 | `runtime-package.mjs` | `test:package` | the public runtime scaffold's shape, its `atoms-runtime.json` stamp and `.gitignore`, and what `upgrade` writes, removes and leaves alone |
 | `atom-do-instance.test.mjs` | `test:instance` | a discarded PHP instance cannot report onto a live one |
+| `atom-do-destroy.test.mjs` | — (`node --test test/*.test.mjs`) | destruction routing/validation, zero-write construction, legacy metadata discard, stale socket/alarm/re-arm race fencing, and storage-wipe error propagation |
 
 CI runs all `test/*.test.mjs` files with `node --test test/*.test.mjs` from
 `cloudflare/worker`. Add new unit regressions using that filename suffix; they
@@ -356,7 +360,9 @@ The suite tests against the `fixtures/counter/` app, which includes:
 - **Scheduler** Atom: `arm()`/`cancelTimer()`/`scheduledMs()`/`timerLog()` over `$this->timers()`, driving checks 23-24.
 - **Probe** Atom: the PDO surface work. `surfaceAudit()` drives check 26; `comparatorSanity()`/`differentialGroups()`/`differential(group)` drive checks 27-28; `capProbe(cap, rows, padBytes)` and `capProbeRunMode(rows)` (both recursive CTEs, no writes) drive check 29. A separate type for the same reason Room/Scheduler are.
 - **Vendor** Atom: `viaVendor()` drives check 45 over the bundled vendor tree under `app/vendor/` and the manifest's `vendor.autoload` key. A separate type for the same reason Room/Scheduler/Probe are.
-- **`App\Jobs\Notify`**: the `AtomJob` `Counter::notify()` dispatches.
+- **Destructible** Atom (`"websocket": true` in the manifest): drives checks 47–49 for `DELETE /atoms/:type/:id`, held-invoke serialization, hostile `onDeactivation()`, independent callback audit, and same-ID reuse isolation.
+- **FailBootNoMig** Atom (no migrations): fails `onActivation()` without writing customer data so check 47 verifies scaffolding-only teardown returns `{"destroyed":false}` and clears storage.
+- **`App\Jobs\Notify`**: the `AtomJob` `Counter::notify()` and `Destructible`'s audit hooks dispatch.
 
 All are defined in `fixtures/counter/manifest.json` and bundled into the worker at build time.
 
