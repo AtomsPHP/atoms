@@ -12,11 +12,13 @@ function run({ mutation = '', only = '1', skip = '' } = {}) {
     const directory = mkdtempSync(join(tmpdir(), 'atoms-check-registry-'));
     try {
         mkdirSync(join(directory, 'test'));
-        mkdirSync(join(directory, 'scripts'));
+        mkdirSync(join(directory, 'scripts', 'lib'), { recursive: true });
         copyFileSync(new URL('./required-capabilities.mjs', import.meta.url),
             join(directory, 'test', 'required-capabilities.mjs'));
         copyFileSync(new URL('../scripts/gen-pdo-matrix.mjs', import.meta.url),
             join(directory, 'scripts', 'gen-pdo-matrix.mjs'));
+        copyFileSync(new URL('../scripts/lib/php-runtimes.mjs', import.meta.url),
+            join(directory, 'scripts', 'lib', 'php-runtimes.mjs'));
         const runner = join(directory, 'test', 'conformance.mjs');
         // Mutate the completed registry, before its startup validation.
         writeFileSync(runner, source.replace('async function run() {', `${mutation}\nasync function run() {`));

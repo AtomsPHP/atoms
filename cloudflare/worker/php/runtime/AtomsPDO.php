@@ -25,8 +25,32 @@
 
 namespace Atoms\Cf;
 
+// The native factory was added in PHP 8.4. Keep method discovery accurate on
+// 8.3 while declaring every inherited PDO entry point on newer guests.
+if (PHP_VERSION_ID >= 80400) {
+    trait AtomsPDOFactory
+    {
+        /** A DSN cannot create or select the current Durable Object's storage bridge. */
+        public static function connect(
+            string $dsn,
+            ?string $username = null,
+            #[\SensitiveParameter] ?string $password = null,
+            ?array $options = null
+        ): static {
+            throw new AtomsNotSupported(
+                'AtomsPDO::connect()',
+                'Use the PDO handle returned by the current Atom database.'
+            );
+        }
+    }
+} else {
+    trait AtomsPDOFactory {}
+}
+
 class AtomsPDO extends \PDO
 {
+    use AtomsPDOFactory;
+
     /** The DSN of the inert carrier connection. */
     const CARRIER_DSN = 'sqlite::memory:';
 
@@ -282,11 +306,9 @@ class AtomsPDO extends \PDO
      * `quote(true, PARAM_BOOL)` is `"'1'"` (quoted, not bare `1`),
      * `quote('42', PARAM_INT)` is `"'42'"` (quoted, not bare `42`), and an
      * unrecognized `$type` is not refused. Every branch the old
-     * type-dispatching implementation had was a divergence. One exception,
-     * deliberately NOT matched: real pdo_sqlite silently TRUNCATES a value at
-     * its first NUL byte; this runtime refuses instead, because silently
-     * truncating a value is the one thing this surface must not do (pinned
-     * deviation `pdo.quote.nul_byte`).
+     * type-dispatching implementation had was a divergence. PDO SQLite on
+     * PHP 8.3–8.4 truncates at the first NUL byte. Atoms refuses this input on
+     * every series; PHP 8.5 added the same refusal to the native driver.
      *
      * The parameter list declares the same types as the real
      * `\PDO::quote()` — `string $string, int $type = \PDO::PARAM_STR`.
@@ -311,6 +333,9 @@ class AtomsPDO extends \PDO
         $s = $string;
 
         if (strpos($s, "\0") !== false) {
+            if (PHP_VERSION_ID >= 80500) {
+                throw new \PDOException('SQLite PDO::quote does not support null bytes');
+            }
             throw new \PDOException(
                 'Atoms: PDO::quote() refuses a value containing a NUL byte. Real pdo_sqlite silently '
                 . 'truncates the value at the NUL instead, which this runtime will not reproduce — encode '

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Tests\Command;
 
+use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\RuntimeStamp;
 use Atoms\Cli\Command\DevCommand;
 use Atoms\Cli\Process\ProcessResult;
@@ -34,6 +35,7 @@ final class DevCommandTest extends TestCase
         file_put_contents($dir . '/wrangler.jsonc', json_encode(['name' => 'w'], JSON_THROW_ON_ERROR));
         mkdir($dir . '/src', 0777, true);
         file_put_contents($dir . '/src/config.js', '');
+        file_put_contents($dir . '/' . BundleStager::OUTPUT, "// Atoms Worker PHP 8.3.32\n");
         self::stamp($dir);
 
         return $dir;
@@ -63,6 +65,27 @@ final class DevCommandTest extends TestCase
         ]);
 
         return $tester;
+    }
+
+    public function testNoBuildRequiresAStagedBundleThatRecordsItsPhpVersion(): void
+    {
+        $dir = $this->workerDir();
+        $bundle = $dir . '/' . BundleStager::OUTPUT;
+        unlink($bundle);
+        foreach ([null, 'export default { manifest: {}, files: {} };'] as $legacy) {
+            if ($legacy !== null) {
+                file_put_contents($bundle, $legacy);
+            }
+            $wrangler = new FakeWrangler();
+            $tester = $this->execute($dir, $wrangler);
+
+            self::assertSame(1, $tester->getStatusCode());
+            self::assertStringContainsString('ATOMS-E115', $tester->getDisplay());
+            self::assertStringContainsString(BundleStager::OUTPUT, $tester->getDisplay());
+            self::assertStringContainsString('without `--no-build`', $tester->getDisplay());
+            self::assertFileDoesNotExist($dir . '/.dev.vars');
+            self::assertSame([], $wrangler->calls);
+        }
     }
 
     public function testActiveOwnerIsRefusedBeforeCreatingSecrets(): void
@@ -100,6 +123,7 @@ final class DevCommandTest extends TestCase
         self::assertSame(32, \strlen($decoded));
 
         self::assertStringContainsString('Generated a per-machine dev secret at ' . $path, $tester->getDisplay());
+        self::assertStringContainsString('Worker PHP: 8.3.32 (staged bundle)', $tester->getDisplay());
         self::assertStringNotContainsString($m[1], $tester->getDisplay(), 'the generated secret must never be printed');
 
         $dev = $wrangler->lastCall('dev');

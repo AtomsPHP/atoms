@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Cli\Config;
 
 use Atoms\Cli\Build\TargetSyntax;
+use Atoms\Cli\Release\RuntimeVersion;
 use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
@@ -37,6 +38,8 @@ use Atoms\Errors\ErrorCode;
  */
 final class AtomsJson
 {
+    private ?WorkerPhpPlatform $platform = null;
+
     /**
      * @param array<string, Environment> $environments
      * @param array<string, mixed>       $atomConfig
@@ -50,6 +53,11 @@ final class AtomsJson
         public readonly array $environments,
         public readonly array $atomConfig,
     ) {
+    }
+
+    public function phpPlatform(): WorkerPhpPlatform
+    {
+        return $this->platform ??= new WorkerPhpPlatform($this->php);
     }
 
     /**
@@ -149,9 +157,8 @@ final class AtomsJson
             : rtrim($atomsPath, '/') . '/Shared';
 
         $php = isset($decoded['php']) ? self::requireString($decoded, 'php') : TargetSyntax::PHP_SERIES;
-        if ($php !== TargetSyntax::PHP_SERIES) {
-            throw self::invalid('"php" must be "' . TargetSyntax::PHP_SERIES
-                . '" for the current Worker (PHP ' . TargetSyntax::PHP_VERSION . ')');
+        if (!\in_array($php, RuntimeVersion::GUEST_PHP, true)) {
+            throw self::invalid('"php" must be one of ' . implode(', ', RuntimeVersion::GUEST_PHP));
         }
 
         $environments = self::parseEnvironments($decoded['environments'] ?? null);

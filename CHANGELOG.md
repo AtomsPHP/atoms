@@ -5,6 +5,9 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+- Set `"php": "8.4"` or `"php": "8.5"` in `atoms.json` to run Atoms on
+  that Playground interpreter. PHP 8.3 remains the default. The CLI uses the
+  selected guest for validation, dependency resolution, and Worker packaging.
 - The next minor adds outbound HTTPS through `$this->http()->request(...)`.
   Implementations of `Atoms\Runtime\AtomContext` must supply
   `http(): Atoms\Http\HttpClient`. The Cloudflare runtime and testing

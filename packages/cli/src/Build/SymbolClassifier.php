@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Cli\Build;
 
 use Atoms\Cli\Config\AllowedPackages;
+use Atoms\Cli\Config\WorkerPhpPlatform;
 use Atoms\Errors\ErrorCode;
 
 /**
@@ -47,11 +48,14 @@ final class SymbolClassifier
         array $approvedNamespaces,
         ?string $extensionsResource = null,
         ?FunctionIndex $functions = null,
+        private readonly ?WorkerPhpPlatform $platform = null,
     ) {
         $this->approvedNamespaces = $approvedNamespaces;
-        $this->extensionInventory = self::loadExtensions($extensionsResource);
+        $this->extensionInventory = $extensionsResource !== null
+            ? WorkerPhpPlatform::readInventory($extensionsResource)
+            : ($platform ?? new WorkerPhpPlatform(TargetSyntax::PHP_SERIES))->inventory;
         $this->functions = $functions ?? new FunctionIndex();
-        $path = __DIR__ . '/../../resources/runtime-functions.json';
+        $path = $platform->functionsFile ?? __DIR__ . '/../../resources/runtime-functions.json';
         $raw = @file_get_contents($path);
         if ($raw === false) {
             throw new \RuntimeException("Could not read runtime-functions.json at {$path}");
@@ -59,22 +63,6 @@ final class SymbolClassifier
         /** @var array<string, string> $functionsByExtension */
         $functionsByExtension = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
         $this->runtimeFunctions = $functionsByExtension;
-    }
-
-    /**
-     * @return array{extensions: array<string, string>, classes: array<string, string>}
-     */
-    private static function loadExtensions(?string $path): array
-    {
-        $path ??= __DIR__ . '/../../resources/runtime-extensions.json';
-        $raw = @file_get_contents($path);
-        if ($raw === false) {
-            throw new \RuntimeException("Could not read runtime-extensions.json at {$path}");
-        }
-        /** @var array{extensions: array<string, string>, classes: array<string, string>} $inventory */
-        $inventory = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-
-        return $inventory;
     }
 
     /**
@@ -153,7 +141,7 @@ final class SymbolClassifier
 
         return new Violation(ErrorCode::UnavailableWorkerFunction, $file, $line, [
             'symbol' => $name,
-            'target' => TargetSyntax::PHP_VERSION,
+            'target' => $this->platform->version ?? TargetSyntax::PHP_VERSION,
         ], $name);
     }
 
@@ -238,6 +226,18 @@ final class SymbolClassifier
         $extension = $this->extensionInventory['classes'][strtolower($name)] ?? null;
         if ($extension !== null) {
             return $this->checkExtension($extension, $name, $file, $line);
+        }
+
+        $extension = WorkerPhpPlatform::knownClassExtension($name);
+        if ($extension !== null) {
+            if (!isset($this->extensionInventory['extensions'][$extension])) {
+                return $this->checkExtension($extension, $name, $file, $line);
+            }
+
+            return new Violation(ErrorCode::UnavailableWorkerClass, $file, $line, [
+                'target' => $this->platform->version ?? TargetSyntax::PHP_VERSION,
+                'symbol' => $name,
+            ], $name);
         }
 
         if (class_exists($name, false) || interface_exists($name, false)

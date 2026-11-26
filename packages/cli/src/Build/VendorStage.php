@@ -47,12 +47,8 @@ final class VendorStage
     /** Bundle-relative path of the generated autoloader. */
     public const AUTOLOAD_PATH = 'vendor/atoms-vendor-autoload.php';
 
-    /**
-     * Exact PHP version of the bundled Cloudflare Worker runtime
-     * (`@php-wasm/web-8-3`, `8_3_32`). Composer resolves and verifies Atom
-     * dependencies against this target instead of the host PHP version.
-     */
-    public const WORKER_PHP_VERSION = '8.3.32';
+    /** Default target for standalone vendor staging. Builds select their configured guest. */
+    public const WORKER_PHP_VERSION = TargetSyntax::PHP_VERSION;
 
     /**
      * Pruned files with one of these extensions look like runtime data a
@@ -277,7 +273,8 @@ final class VendorStage
 
     /**
      * Stage composer.lock with the current Worker platform. Composer uses
-     * the lockfile's platform-overrides to verify an existing resolution.
+     * this temporary copy to verify the locked packages on the selected
+     * guest. The project's lock records the platform that resolved them.
      *
      * @param array<string, string|false>|null $platform
      */

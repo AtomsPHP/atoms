@@ -15,7 +15,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 final class TargetSyntaxTest extends TestCase
 {
     #[DataProvider('newerSyntax')]
-    public function testSyntaxIsCheckedAgainstTheWorker(string $snippet): void
+    public function testSyntaxIsCheckedAgainstTheWorker(string $snippet, string $minimum): void
     {
         $violation = (new TargetSyntax())->check("<?php\n\n" . $snippet, 'app/Atoms/Room.php');
 
@@ -25,27 +25,36 @@ final class TargetSyntaxTest extends TestCase
         self::assertSame(3, $violation->line);
         self::assertStringContainsString('PHP 8.3.32', $violation->message());
         self::assertStringContainsString('Fix:', $violation->message());
+
+        foreach (['8.4', '8.5'] as $target) {
+            $error = (new TargetSyntax($target))->check('<?php ' . $snippet, 'Room.php');
+            self::assertSame(version_compare($target, $minimum, '>='), $error === null, $target . ' ' . $error?->message());
+        }
     }
 
-    /** @return iterable<string, array{string}> */
+    /** @return iterable<string, array{string, string}> */
     public static function newerSyntax(): iterable
     {
-        yield 'property hooks' => ['class Room { public string $name { get => "room"; } }'];
-        yield 'asymmetric visibility' => ['class Room { public private(set) string $name; }'];
-        yield 'final property' => ['class Room { final public string $name; }'];
-        yield 'direct dereference of new' => ['new Room()->name();'];
-        yield 'pipe operator' => ['return "room" |> trim(...);'];
-        yield 'first-class callable in constant' => ['class Room { public const FORMAT = \strlen(...); }'];
-        yield 'closure in constant' => ['class Room { public const FN = static function () {}; }'];
-        yield 'arrow function in constant' => ['class Room { public const FN = static fn () => 1; }'];
-        yield 'cast in parameter default' => ['function room(int $id = (int) "1"): int { return $id; }'];
-        yield 'cast in constant' => ['const ROOM_ID = (int) "1";'];
-        yield 'cast in enum case' => ['enum RoomKind: int { case Main = (int) "1"; }'];
-        yield 'trailing comma in exit' => ['exit(0,);'];
-        yield 'trailing comma in die' => ['die(0, /* comment */);'];
-        yield 'exit first-class callable' => ['$fn = exit(...);'];
-        yield 'clone with' => ['$copy = clone($room, ["name" => "lobby"]);'];
-        yield 'attribute on non-class const' => ['#[\Deprecated] const ROOM = "lobby";'];
+        yield 'property hooks' => ['class Room { public string $name { get => "room"; } }', '8.4'];
+        yield 'asymmetric visibility' => ['class Room { public private(set) string $name; }', '8.4'];
+        yield 'final property' => ['class Room { final public string $name; }', '8.4'];
+        yield 'final promoted property' => ['class Room { function __construct(final public string $name) {} }', '8.5'];
+        yield 'asymmetric static property' => ['class Room { public private(set) static string $name; }', '8.5'];
+        yield 'void cast' => ['(void) strlen("room");', '8.5'];
+        yield 'direct dereference of new' => ['new Room()->name();', '8.4'];
+        yield 'pipe operator' => ['return "room" |> trim(...);', '8.5'];
+        yield 'first-class callable in constant' => ['class Room { public const FORMAT = \strlen(...); }', '8.5'];
+        yield 'closure in constant' => ['class Room { public const FN = static function () {}; }', '8.5'];
+        yield 'arrow function in constant' => ['class Room { public const FN = static fn () => 1; }', '8.5'];
+        yield 'cast in parameter default' => ['function room(int $id = (int) "1"): int { return $id; }', '8.5'];
+        yield 'cast in asymmetric promoted default' => ['class Room { function __construct(public private(set) int $id = (int) "1") {} }', '8.5'];
+        yield 'cast in constant' => ['const ROOM_ID = (int) "1";', '8.5'];
+        yield 'cast in enum case' => ['enum RoomKind: int { case Main = (int) "1"; }', '8.5'];
+        yield 'trailing comma in exit' => ['exit(0,);', '8.4'];
+        yield 'trailing comma in die' => ['die(0, /* comment */);', '8.4'];
+        yield 'exit first-class callable' => ['$fn = exit(...);', '8.4'];
+        yield 'clone with' => ['$copy = clone($room, ["name" => "lobby"]);', '8.5'];
+        yield 'attribute on non-class const' => ['#[\Deprecated] const ROOM = "lobby";', '8.5'];
     }
 
     public function testAcceptsPhp83Syntax(): void
@@ -131,10 +140,10 @@ PHP);
         $root = $this->tempCopy('sample-app');
         $config = $root . '/atoms.json';
         $contents = (string) file_get_contents($config);
-        file_put_contents($config, str_replace('"project":', '"php": "8.5", "project":', $contents));
+        file_put_contents($config, str_replace('"project":', '"php": "8.6", "project":', $contents));
 
         $this->expectException(AtomsError::class);
-        $this->expectExceptionMessage('"php" must be "8.3" for the current Worker (PHP 8.3.32)');
+        $this->expectExceptionMessage('"php" must be one of 8.3, 8.4, 8.5');
         AtomsJson::load($config);
     }
 }

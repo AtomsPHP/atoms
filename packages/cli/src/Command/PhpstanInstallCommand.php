@@ -31,7 +31,8 @@ final class PhpstanInstallCommand extends AbstractCommand
                     $paths[] = $config->sharedPath;
                 }
 
-                $contents = "includes:\n    - vendor/atoms/phpstan-rules/rules.neon\n\nparameters:\n    level: 8\n    paths:\n";
+                $contents = "# Run vendor/bin/atoms validate to check the Worker selected in atoms.json.\n"
+                    . "includes:\n    - vendor/atoms/phpstan-rules/rules.neon\n\nparameters:\n    level: 8\n    paths:\n";
                 foreach ($paths as $sourcePath) {
                     $contents .= '        - ' . self::quote($sourcePath) . "\n";
                 }
@@ -66,7 +67,15 @@ final class PhpstanInstallCommand extends AbstractCommand
         if (!is_file($config->rootDir . '/vendor/atoms/phpstan-rules/rules.neon')) {
             $output->writeln('Install the analysis dependency: composer require --dev atoms/phpstan-rules');
         }
-        $output->writeln('After creating an Atom, run: vendor/bin/phpstan analyse --configuration=' . self::FILE);
+        $output->writeln('Check compatibility with Worker PHP ' . $config->php . ': vendor/bin/atoms validate');
+        $output->writeln('Check types and Atoms boundary rules: vendor/bin/phpstan analyse --configuration=' . self::FILE);
+        if ($config->php !== PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION) {
+            $output->writeln(sprintf(
+                'The CLI runs on PHP %d.%d. PHPStan uses its own PHP target for every file in this configuration, including Methods and Jobs.',
+                PHP_MAJOR_VERSION,
+                PHP_MINOR_VERSION,
+            ));
+        }
 
         return self::SUCCESS;
     }

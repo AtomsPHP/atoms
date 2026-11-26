@@ -34,6 +34,14 @@
             "phase": "build"
         },
         {
+            "code": "ATOMS-E005",
+            "title": "Built-in class unavailable in the Worker",
+            "message": "Worker PHP {target} does not provide the built-in class {symbol}.",
+            "fix": "Select a Worker PHP version that provides this class in atoms.json, or use a class available in the selected version.",
+            "severity": "error",
+            "phase": "build"
+        },
+        {
             "code": "ATOMS-E010",
             "title": "Framework symbol referenced inside Atom code",
             "message": "{symbol} belongs to a web framework and cannot be used inside Atom code — the Atoms runtime has no framework loaded.",
@@ -397,7 +405,7 @@
             "code": "ATOMS-E079",
             "title": "Vendor dependency resolution failed",
             "message": "Could not resolve atoms-composer.json dependencies: {reason}.",
-            "fix": "`atoms build` installs atoms-composer.json's packages in an isolated directory (composer install --no-scripts --no-plugins) and ships the resulting PHP sources in the bundle. Check that composer is on PATH and the constraints are satisfiable. For reproducible builds, commit the atoms-composer.lock file the first successful resolution writes next to atoms-composer.json.",
+            "fix": "Check that Composer is on PATH and the package constraints support the selected Worker PHP version. To resolve new versions after switching PHP, remove atoms-composer.lock, run `atoms build`, review the dependency changes, and commit the new lockfile.",
             "severity": "error",
             "phase": "build"
         },
@@ -574,6 +582,14 @@
             "title": "--manifest requires --bundle",
             "message": "--manifest cannot be used without --bundle.",
             "fix": "Pass --bundle <path> together with --manifest <path>, or omit --manifest to let `atoms deploy` build a fresh bundle and manifest.",
+            "severity": "error",
+            "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E115",
+            "title": "Staged bundle incompatible with the selected Worker PHP",
+            "message": "The staged Worker bundle cannot be used. {reason}",
+            "fix": "Run `atoms dev --env <environment>` without `--no-build` to build and stage the PHP version selected in atoms.json.",
             "severity": "error",
             "phase": "cli"
         },

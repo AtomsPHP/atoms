@@ -1006,7 +1006,7 @@ supplies it.**
   (below) — the resolved `atoms-composer.json` packages the app's Atoms use;
   nothing else.
 - The Worker keeps loading `src/bundle.generated.js`, an ES module exporting
-  `{manifest, files}` at `bundle_format: 0`. This is the **deploy** artifact.
+  `{asyncifyLoader, manifest, files}` at `bundle_format: 0`. This is the **deploy** artifact.
   It has to be a JS module because the Worker script is what `wrangler deploy`
   uploads, and it has to carry the `Atoms\Cf` runtime and the verbatim
   `atoms/core` sources — neither of which `atoms build` has any business
@@ -1014,6 +1014,15 @@ supplies it.**
 - `cloudflare/worker/scripts/bundle-from-cli.mjs` reads the first and emits the
   second. `atoms deploy` runs it (`Atoms\Cli\Cloudflare\BundleStager`) before
   invoking `wrangler deploy`.
+
+The module's first line records the selected loader's exact version, for
+example `// Atoms Worker PHP 8.4.23`. While holding the Worker-directory
+lock, the CLI reads that line without evaluating the module. A saved bundle
+deploy reports the interpreter chosen by its manifest and calls out any
+difference from the current `atoms.json` selection. `atoms dev --no-build`
+requires a staged bundle with a version header matching the project's PHP
+series. A missing, older, or mismatched bundle produces ATOMS-E115 before
+starting Wrangler.
 
 ### Why not make one side adopt the other
 
@@ -1056,8 +1065,10 @@ them:
 - The CLI runs `composer install --no-dev --no-scripts --no-plugins` in a
   temporary directory. It sets `config.platform` and the staged lockfile's
   `platform-overrides` to the Worker's PHP version and extension versions.
-  It disables host extensions the Worker lacks. The CLI reads the Worker
-  extensions from `packages/cli/resources/runtime-extensions.json`.
+  It disables host extensions the Worker lacks. The CLI uses the inventory
+  measured on the guest selected by the project's top-level `php` setting
+  (8.3 by default). The build manifest records that minor in `toolchain.php`,
+  which selects the interpreter when the bundle is staged for Wrangler.
   If Composer is missing or cannot install the dependencies, the build
   reports **ATOMS-E079**.
 - The first successful install writes `atoms-composer.lock` next to

@@ -35,15 +35,25 @@ vendor/bin/atoms dev --env staging --callback-url http://127.0.0.1:8000/atoms/ca
 ```
 
 `dev` builds the bundle and starts the Worker. `validate` and `build` check
-bundled PHP code, including PHP migrations, against the Worker's PHP 8.3
-runtime. Methods and Jobs run on your application's PHP version.
+bundled PHP code, including PHP migrations, against the PHP version selected
+in `atoms.json`. Methods and Jobs run on your application's PHP version.
 
 For a direct function call, the CLI looks for a Worker built-in or a
 declaration in a bundled project file or eager vendor `autoload.files` entry.
 On PHP 8.3, `array_find()` needs a polyfill. If an Atom dependency supplies it,
 run `vendor/bin/atoms build` to cache the dependency. Then `validate` can check
-the call offline as long as `atoms-composer.json` and `atoms-composer.lock`
-match the cache.
+the call offline when the vendor cache matches both files and the selected guest.
+
+When you change `php` in `atoms.json`, run `vendor/bin/atoms build` again.
+The build keeps the package versions in `atoms-composer.lock` and verifies
+their requirements against the selected guest's PHP and extensions. The
+lockfile's `platform-overrides` records the guest used for the original
+resolution. An incompatible locked package causes `ATOMS-E079`.
+
+To select fresh package versions for the new guest, remove
+`atoms-composer.lock` and run `vendor/bin/atoms build`. Composer selects
+versions allowed by `atoms-composer.json`. Review and commit the new lockfile
+with the change to `atoms.json`.
 
 ## Deployment
 
@@ -60,11 +70,13 @@ credentials. Use `--outdir <directory>` to keep the packaged files. See
 
 To restore a selected Worker version, follow [Rollback](/guides/rollback/).
 
+After changing `php` in `atoms.json`, run `atoms dev --env <environment>` to rebuild the staged bundle. The `--no-build` option requires a staged bundle for the selected PHP series. `atoms deploy` prints the exact interpreter version before invoking Wrangler. With `--bundle`, the saved manifest selects the PHP series, even if the project's current setting differs.
+
 ## Command options
 
 - **`init`** — `--project` (defaults to the directory name), `--path` (defaults to `app/Atoms`). Refuses if `atoms.json` already exists. Also appends `/.atoms/` and `/.env.atoms.*` to `.gitignore`, each only if absent.
 - **`make:atom NAME`** — `--with-methods`, `--with-migration`, `--websocket`. `NAME` must be a valid PHP class name.
-- **`phpstan:install`** — creates `phpstan.atoms.neon` with the Atoms rules, level 8, and Atom/shared source paths from `atoms.json`. Existing files are preserved, including application PHPStan configs. Run `vendor/bin/phpstan analyse --configuration=phpstan.atoms.neon` after creating an Atom. Install `atoms/phpstan-rules` as a development dependency if the command reports it missing. Laravel's `atoms:install` runs this step automatically.
+- **`phpstan:install`** — creates `phpstan.atoms.neon` with the Atoms rules, level 8, and Atom/shared source paths from `atoms.json`. Existing files are preserved, including application PHPStan configs. After creating an Atom, run `vendor/bin/atoms validate` for the selected Worker and `vendor/bin/phpstan analyse --configuration=phpstan.atoms.neon` for type and boundary checks. Install `atoms/phpstan-rules` as a development dependency if the command reports it missing. Laravel's `atoms:install` runs this step automatically.
 - **`validate`** — `--json` for machine-readable output.
 - **`build`** — `--fast` skips the vendor stage (refuses with `ATOMS-E107` if `atoms-composer.json` declares packages); `--out` (defaults to `.atoms/build`).
 - **`diff`** — `--against` a saved `manifest.json` to compare with the current one.

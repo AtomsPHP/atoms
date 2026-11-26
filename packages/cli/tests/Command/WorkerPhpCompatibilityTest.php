@@ -68,6 +68,61 @@ SOURCE, 4, '8.4'];
         self::assertSame($before, $this->artifacts($previous));
     }
 
+    /** @return iterable<string, array{string, string}> */
+    public static function guestBuiltins(): iterable
+    {
+        yield 'PHP 8.4' => ['8.4', 'array_find([1, 2], static fn (int $n): bool => $n > 0)'];
+        yield 'PHP 8.5' => ['8.5', '[1, 2] |> array_first(...)'];
+    }
+
+    #[DataProvider('guestBuiltins')]
+    public function testBuildUsesTheSelectedGuestForSyntaxFunctionsAndDependencies(string $series, string $expression): void
+    {
+        $root = $this->tempCopy('sample-app');
+        $config = json_decode((string) file_get_contents($root . '/atoms.json'), true, 512, JSON_THROW_ON_ERROR);
+        $config['php'] = $series;
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+        file_put_contents($root . '/' . self::ATOM, <<<PHP
+            <?php
+            namespace App\Atoms;
+            final class GameRoom extends \Atoms\Atom {
+                public function first(): int { return {$expression}; }
+            }
+            PHP);
+        // Application-only files may still use identifiers accepted by a PHP 8.3 host.
+        file_put_contents($root . '/app/Atoms/GameRoom/Methods.php', <<<'PHP'
+            <?php
+            namespace App\Atoms\GameRoom;
+            const __PROPERTY__ = 'host';
+            final class Methods extends \Atoms\AtomMethods {}
+            PHP);
+        $validate = new CommandTester(new ValidateCommand());
+        self::assertSame(0, $validate->execute(['--root' => $root]), $validate->getDisplay());
+
+        $runner = CannedComposer::runner();
+        $install = $runner->resultFor;
+        $platform = null;
+        $runner->resultFor = static function (array $command, string $cwd) use ($install, &$platform) {
+            if ($command[1] === 'install') {
+                $staged = json_decode((string) file_get_contents($cwd . '/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+                $platform = $staged['config']['platform'];
+            }
+            return $install($command, $cwd);
+        };
+        $out = $this->freshDir();
+        $build = new CommandTester(new BuildCommand(new Builder(runner: $runner)));
+        self::assertSame(0, $build->execute(['--root' => $root, '--out' => $out]), $build->getDisplay());
+        $manifest = json_decode((string) file_get_contents($out . '/manifest.json'), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame($series, $manifest['toolchain']['php']);
+        self::assertStringStartsWith($series . '.', $platform['php']);
+        self::assertSame($platform['php'], $platform['ext-date']);
+
+        $config['php'] = $series === '8.5' ? '8.4' : '8.3';
+        file_put_contents($root . '/atoms.json', json_encode($config, JSON_THROW_ON_ERROR));
+        self::assertSame(1, $validate->execute(['--root' => $root]));
+        self::assertStringContainsString('PHP ' . $config['php'] . '.', $validate->getDisplay());
+    }
+
     public function testCommandsAcceptGuestFunctionsAndMigrationWithNewerSyntaxInHostMethods(): void
     {
         $root = $this->tempCopy('sample-app');

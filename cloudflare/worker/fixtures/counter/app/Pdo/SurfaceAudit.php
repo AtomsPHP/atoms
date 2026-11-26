@@ -84,6 +84,7 @@ final class SurfaceAudit
 
         self::auditConstants($violations, $membersChecked, $counts);
         self::auditFetchBehaviour($pdo, $violations);
+        self::auditConnectionFactory($pdo, $violations);
 
         $allowlist = self::runAllowlist($pdo, $violations);
 
@@ -95,6 +96,38 @@ final class SurfaceAudit
             'members_checked' => $membersChecked,
             'allowlist' => $allowlist,
         ];
+    }
+
+    /** @param list<array{rule: string, member: string, detail: string}> $violations */
+    private static function auditConnectionFactory(\PDO $pdo, array &$violations): void
+    {
+        $member = 'PDO::connect';
+        $expected = PHP_VERSION_ID >= 80400;
+        if (method_exists(\PDO::class, 'connect') !== $expected || method_exists($pdo, 'connect') !== $expected) {
+            $violations[] = ['rule' => 'R2', 'member' => $member, 'detail' => 'factory availability differs from the guest PHP version'];
+            return;
+        }
+        if (!$expected) {
+            return;
+        }
+
+        $native = \PDO::connect('sqlite::memory:');
+        if (!$native instanceof \Pdo\Sqlite || $native->query('SELECT 1')->fetchColumn() !== 1) {
+            $violations[] = ['rule' => 'R2', 'member' => $member, 'detail' => 'native factory did not open a SQLite connection'];
+        }
+
+        try {
+            $pdo::connect('sqlite::memory:');
+            $violations[] = ['rule' => 'R2', 'member' => $member, 'detail' => 'managed factory accepted a DSN'];
+        } catch (AtomsNotSupported $error) {
+            if ($error->getCode() !== '0A000' || $error->errorInfo[0] !== '0A000') {
+                $violations[] = ['rule' => 'R2', 'member' => $member, 'detail' => 'managed factory returned the wrong SQLSTATE'];
+            }
+        }
+        // This table exists only in the migrated Probe Durable Object.
+        if (!is_int($pdo->query('SELECT count(*) FROM probe_rows')->fetchColumn())) {
+            $violations[] = ['rule' => 'R2', 'member' => $member, 'detail' => 'managed PDO could not query its migrated database'];
+        }
     }
 
     /**

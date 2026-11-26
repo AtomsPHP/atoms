@@ -11,13 +11,15 @@ import { REQUIRED_CAPABILITIES, isRequired } from './required-capabilities.mjs';
 // Isolate the runner from a developer's optional test/.dev-secret.json.
 const directory = mkdtempSync(join(tmpdir(), 'atoms-capabilities-'));
 mkdirSync(join(directory, 'test'));
-mkdirSync(join(directory, 'scripts'));
+mkdirSync(join(directory, 'scripts', 'lib'), { recursive: true });
 mkdirSync(join(directory, 'empty-bin'));
 for (const name of ['conformance.mjs', 'required-capabilities.mjs']) {
     copyFileSync(fileURLToPath(new URL(`./${name}`, import.meta.url)), join(directory, 'test', name));
 }
 copyFileSync(fileURLToPath(new URL('../scripts/gen-pdo-matrix.mjs', import.meta.url)),
     join(directory, 'scripts', 'gen-pdo-matrix.mjs'));
+copyFileSync(new URL('../scripts/lib/php-runtimes.mjs', import.meta.url),
+    join(directory, 'scripts', 'lib', 'php-runtimes.mjs'));
 const runner = join(directory, 'test', 'conformance.mjs');
 after(() => rmSync(directory, { recursive: true, force: true }));
 const secret = Buffer.alloc(32, 1).toString('base64');

@@ -9,8 +9,9 @@ that you deploy yourself.
 
 ### Which PHP versions are supported?
 
-The `atoms/*` packages require PHP 8.3 or newer in your main app. Atoms
-themselves currently run on PHP 8.3 compiled to WebAssembly inside the Durable Object.
+The `atoms/*` packages require PHP 8.3 or newer in your main app. Your Atoms
+run on PHP 8.3, 8.4, or 8.5 inside the Durable Object. Set `php` in
+`atoms.json` to select the version. The default is 8.3.
 
 ### Which frameworks does Atoms support?
 

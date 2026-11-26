@@ -11,7 +11,7 @@ registerHooks({
 			return { url: 'data:text/javascript,export class AtomDurableObject {}', shortCircuit: true };
 		}
 		if (specifier === './bundle.generated.js') {
-			return { url: 'data:text/javascript,export default { manifest: { atoms: { Counter: {} } }, files: {} };', shortCircuit: true };
+			return { url: 'data:text/javascript,export default { asyncifyLoader: {}, manifest: { atoms: { Counter: {} } }, files: {} };', shortCircuit: true };
 		}
 		return nextResolve(specifier, context);
 	},

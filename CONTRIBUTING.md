@@ -21,7 +21,7 @@ The repository is two halves that meet at the frozen `atoms/core` API.
 | `action/` | The deploy GitHub Action. |
 | `docs/` | `conventions.md` (normative), `two-worlds.md`, `errors.md` (the error catalog). |
 | `tests/Integration/` | Cross-package tests that no single package owns. |
-| `cloudflare/` | The Worker runtime: a PHP 8.3 WebAssembly interpreter parked inside a SQLite-backed Durable Object, its binding spec in `cloudflare/docs/runtime-spec.md`, and the conformance suite. Atoms-authored source here is MIT; upstream components retain their own licenses. |
+| `cloudflare/` | The Worker runtime: a PHP WebAssembly interpreter parked inside a SQLite-backed Durable Object, its binding spec in `cloudflare/docs/runtime-spec.md`, and the conformance suite. Atoms-authored source here is MIT; upstream components retain their own licenses. |
 
 The two halves have separate toolchains and separate test commands.
 `packages/core/` is the single source of truth for the runtime API: inside the
@@ -42,10 +42,9 @@ will be declined.
 
 ## The PHP side
 
-PHP 8.3 is the floor. `atoms/core` executes inside the runtime's PHP 8.3
-interpreter, so no 8.4-only syntax (no property hooks, no asymmetric
-visibility) may appear anywhere in the repository. CI runs the suites on PHP
-8.3 through 8.6.
+All eight packages and the shared Worker bootstrap must run on PHP 8.3.
+Customer Atoms can use syntax supported by their project's selected guest
+(PHP 8.3, 8.4, or 8.5). CI runs the host PHP suites on 8.3 through 8.6.
 
 One install at the root wires all eight packages through Composer path
 repositories, symlinked. That root install is what you develop and test
@@ -76,10 +75,10 @@ them.
 
 ## The Worker side
 
-The PHP interpreter is not in this repository. `npm ci` fetches it from
-Playground's `@php-wasm/web-8-3` package and the `prepare` lifecycle script
-stages it into a gitignored `cloudflare/worker/.php-wasm/`, verifying its
-hashes first; see `cloudflare/README.md`.
+`npm ci` fetches the pinned PHP interpreters from Playground. The `prepare`
+script verifies each Wasm binary and its JavaScript glue, then stages them in
+the gitignored `cloudflare/worker/.php-wasm/`. Each Worker bundle imports the
+pair for its selected PHP version. See `cloudflare/README.md`.
 
 The conformance suite needs no Cloudflare account, no API token and no
 secret. It runs entirely against `wrangler dev` on localhost.

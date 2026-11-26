@@ -817,7 +817,6 @@ class AtomsStatement extends \PDOStatement
                 $name = (string) $column;
                 if ($reflection->hasProperty($name)) {
                     $property = $reflection->getProperty($name);
-                    $property->setAccessible(true);
                     $property->setValue($obj, $value);
                 } else {
                     // Unmatched column: real PDO makes it a dynamic public
@@ -869,7 +868,6 @@ class AtomsStatement extends \PDOStatement
             $name = (string) $column;
             if ($reflection->hasProperty($name)) {
                 $property = $reflection->getProperty($name);
-                $property->setAccessible(true);
                 $property->setValue($obj, $value);
             } else {
                 $obj->$name = $value;
@@ -1110,7 +1108,9 @@ class AtomsStatement extends \PDOStatement
     {
         throw new AtomsNotSupported(
             'PDOStatement::setAttribute()',
-            'There is no driver-owned statement handle to configure — real pdo_sqlite refuses this too.',
+            PHP_VERSION_ID >= 80500
+                ? 'The Durable Object SQL bridge has no driver-owned statement handle to configure.'
+                : 'There is no driver-owned statement handle to configure — real pdo_sqlite refuses this too.',
             'IM001'
         );
     }

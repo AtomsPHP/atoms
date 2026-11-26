@@ -40,13 +40,6 @@
  */
 import { loadPHPRuntime, PHP, __private__dont__use } from '@php-wasm/universal';
 
-// Staged out of node_modules by scripts/prepare-runtime.mjs, which verifies
-// the artifact's hash and applies the one-line Asyncify patch. `.php-wasm/` is
-// generated and gitignored; the interpreter is fetched from Playground's npm
-// package.
-import * as asyncifyLoader from '../.php-wasm/php_8_3.js';
-import asyncifyWasm from '../.php-wasm/8_3_32/php_8_3.wasm';
-
 import { AtomsError } from './errors.js';
 
 const encoder = new TextEncoder();
@@ -100,10 +93,11 @@ function writeReply(M, responseBufferPtr, str) {
 /**
  * Boot one PHP instance with the tagged doors installed.
  *
+ * @param {any} asyncifyLoader Verified Playground loader selected by the bundle.
  * @param {PhpDoors} doors
  * @returns {Promise<any>} the PHP instance (with `__atoms` bookkeeping attached)
  */
-export async function bootPHP({ onSync, onPark }) {
+export async function bootPHP(asyncifyLoader, { onSync, onPark }) {
 	if (typeof onSync !== 'function' || typeof onPark !== 'function') {
 		throw new AtomsError('internal', 'bootPHP requires both onSync and onPark handlers');
 	}
@@ -156,6 +150,7 @@ export async function bootPHP({ onSync, onPark }) {
 				return stock(dataPtr, respPtr);
 			};
 
+			const asyncifyWasm = asyncifyLoader.dependencyFilename;
 			const instance = new WebAssembly.Instance(asyncifyWasm, imports);
 			successCallback(instance, asyncifyWasm);
 			return instance.exports;

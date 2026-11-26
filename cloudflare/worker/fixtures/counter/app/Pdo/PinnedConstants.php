@@ -8,13 +8,9 @@ namespace App\Pdo;
  * The pinned name=>value maps for every \PDO constant namespace the
  * reflection tripwire audits (rule R5).
  *
- * MEASURED on local PHP 8.4.19 / SQLite 3.45.1 (`php -r`, reflecting
- * \PDO::class, driver-namespaced constants excluded — see
- * SurfaceAudit::DRIVER_PREFIX). The guest is php-wasm PHP 8.3.32: these
- * values are the STARTING pin, and the first in-guest run of check 26 is
- * what confirms them. A mismatch is a red build the implementer resolves by
- * recording the measured 8.3 value here with a comment — that is rule R5
- * working as designed, not a bug in the pin.
+ * Check 26 compares these literals with the guest's actual PDO constants.
+ * PHP 8.5 changed five fetch flags in ext/pdo/php_pdo_driver.h. The adapter
+ * passes the guest's own flags through the dispatcher on each series.
  *
  * `ERR_NONE` is a lone constant, not a family — it is the only public
  * `ERR_*`-prefixed constant \PDO declares (measured); it is kept in its own
@@ -31,6 +27,20 @@ final class PinnedConstants
      */
     public static function fetch(): array
     {
+        $flags = PHP_VERSION_ID >= 80500 ? [
+            'FETCH_GROUP' => 32,
+            'FETCH_UNIQUE' => 64,
+            'FETCH_CLASSTYPE' => 128,
+            'FETCH_SERIALIZE' => 512,
+            'FETCH_PROPS_LATE' => 256,
+        ] : [
+            'FETCH_GROUP' => 65536,
+            'FETCH_UNIQUE' => 196608,
+            'FETCH_CLASSTYPE' => 262144,
+            'FETCH_SERIALIZE' => 524288,
+            'FETCH_PROPS_LATE' => 1048576,
+        ];
+
         return [
             'FETCH_DEFAULT' => 0,
             'FETCH_LAZY' => 1,
@@ -51,12 +61,7 @@ final class PinnedConstants
             'FETCH_ORI_LAST' => 3,
             'FETCH_ORI_ABS' => 4,
             'FETCH_ORI_REL' => 5,
-            'FETCH_GROUP' => 65536,
-            'FETCH_UNIQUE' => 196608,
-            'FETCH_CLASSTYPE' => 262144,
-            'FETCH_SERIALIZE' => 524288,
-            'FETCH_PROPS_LATE' => 1048576,
-        ];
+        ] + $flags;
     }
 
     /**

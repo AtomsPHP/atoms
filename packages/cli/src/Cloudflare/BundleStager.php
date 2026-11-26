@@ -35,6 +35,17 @@ final class BundleStager
         $this->runner = $runner ?? new SymfonyProcessRunner();
     }
 
+    /** Read the version header written by writeBundleModule() without loading the customer bundle. */
+    public static function stagedPhpVersion(CloudflareTarget $target): ?string
+    {
+        $header = @file_get_contents($target->workerDir . '/' . self::OUTPUT, false, null, 0, 64);
+        if ($header === false || preg_match('~\A// Atoms Worker PHP (\d+\.\d+\.\d+)\r?\n~', $header, $matches) !== 1) {
+            return null;
+        }
+
+        return $matches[1];
+    }
+
     /**
      * @return string the absolute path of the generated Worker bundle module
      *

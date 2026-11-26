@@ -125,8 +125,6 @@ final class Normalize
             }
             $seen[$name] = true;
 
-            $property->setAccessible(true);
-
             try {
                 if (!$property->isInitialized($o)) {
                     continue;

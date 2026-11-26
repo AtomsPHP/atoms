@@ -1,10 +1,9 @@
 # Corresponding source for the php-wasm binary
 
-The PHP 8.3 interpreter is a prebuilt WebAssembly binary compiled by the
-WordPress Playground project. It is fetched from
-`@php-wasm/web-8-3@3.1.48`; it is not committed to this repository.
-`../worker/scripts/prepare-runtime.mjs` stages it into the gitignored
-`../worker/.php-wasm/` directory after verifying its SHA-256.
+Atoms uses the PHP 8.3, 8.4 and 8.5 Asyncify interpreters published by
+WordPress Playground in its 3.1.48 release. `../worker/scripts/prepare-runtime.mjs`
+verifies each pair against `../worker/scripts/lib/php-runtimes.mjs` and stages
+it in the gitignored `../worker/.php-wasm/` directory.
 
 This directory is kept as **provenance**. It records exactly which
 upstream artifact the build pins, how that pin was checked against
@@ -36,53 +35,30 @@ The rule that follows is permanent and cheap: **never graft that
 predecessor history onto this repository, and never commit the binary.** `../worker/.gitignore` and `../worker/scripts/prepare-runtime.mjs`
 enforce the second half.
 
-## Which binary this corresponds to
+## Interpreter packages and corresponding source
 
-| | |
-|---|---|
-| Artifact | `asyncify/8_3_32/php_8_3.wasm`, staged as `../worker/.php-wasm/8_3_32/php_8_3.wasm` |
-| SHA-256 | `eca478d2bad4cae984cd5b5ec39ce42311fcc4d31cf48fce7293e9a5034f1c98` |
-| Bytes | 18,309,089 |
-| Package it comes from | `@php-wasm/web-8-3@3.1.48` |
-| Hash and size pinned in | `../worker/scripts/prepare-runtime.mjs` |
-| Upstream repository | `github.com/WordPress/wordpress-playground` |
-| Upstream commit | `53d5c3030702e1edb3f82e7dbc308fcac27c3d0a` |
-| Commit subject | `v3.1.48` |
-| Commit author date | Mon Aug 3 10:34:28 2026 +0000 |
-| Tree hash | `0db020c5bd51a4d32c97929a64191a7de6356a28` |
+All three npm packages correspond to WordPress Playground commit
+`53d5c3030702e1edb3f82e7dbc308fcac27c3d0a` (`v3.1.48`, tree
+`0db020c5bd51a4d32c97929a64191a7de6356a28`). The size and SHA-256 below
+match both the npm files and the files in that commit. The same source
+archive covers all three packages. [Upstream build outputs](https://github.com/WordPress/wordpress-playground/tree/53d5c3030702e1edb3f82e7dbc308fcac27c3d0a/packages/php-wasm/web-builds)
 
-The accompanying JavaScript glue is `asyncify/php_8_3.js` from the same
-package — SHA-256
-`719346ea1827cc48c8dd298974649503b7a227a7c0e5c12827db1c993dccf3ac`,
-268,881 bytes, likewise pinned in `prepare-runtime.mjs`. It needs no
-separate archive: it is already human-readable source, so its
-corresponding source is the file itself, and it is a file anyone can
-fetch from the same npm package.
+| PHP | npm package | Wasm bytes | Wasm SHA-256 | Glue bytes | Glue SHA-256 |
+|---|---|---:|---|---:|---|
+| 8.3.32 | `@php-wasm/web-8-3@3.1.48` | 18,309,089 | `eca478d2bad4cae984cd5b5ec39ce42311fcc4d31cf48fce7293e9a5034f1c98` | 268,881 | `719346ea1827cc48c8dd298974649503b7a227a7c0e5c12827db1c993dccf3ac` |
+| 8.4.23 | `@php-wasm/web-8-4@3.1.48` | 19,943,873 | `06c33a34294ff0ef39a9b65d140e569a0aad216d3e8e042299cf15639430f94c` | 270,583 | `d6077aabfb9af35ed1e75bb5f197645b175edf1981d57671348aa942abe29ad8` |
+| 8.5.8 | `@php-wasm/web-8-5@3.1.48` | 21,019,221 | `ed97ea5422dbf23e0687c98203cc8c6d7f2772a3d71b03d4991d2fdd93a048f0` | 270,942 | `0ed44eae7cd040826775b3dcd5376bb86a14257ae9fe1ff5cda1b7daf7572088` |
 
-Atoms patches one line into it while staging —
-`Module['Asyncify'] = Asyncify;`. Under the old vendoring the glue
-carried **two** modifications; the second was an import-path change,
-needed because vendoring flattened upstream's directory layout. Staging
-preserves that layout, keeping the `.wasm` in its nested `8_3_32/`
-directory, so upstream's own `./8_3_32/php_8_3.wasm` import resolves
-untouched and only the Asyncify line remains. `prepare-runtime.mjs`
-documents the change at its patch site and fails loudly if the anchor
-moves or upstream starts exposing `Asyncify` itself.
+For example, the PHP 8.5 files in the npm package are
+`asyncify/php_8_5.js` and `asyncify/8_5_8/php_8_5.wasm`. The upstream commit
+contains those files under `packages/php-wasm/web-builds/8-5/`. The same
+layout applies to the other minors.
 
-### The pin is verified from inside the archive, not merely asserted
-
-Playground commits its build outputs, so the archive contains the very
-file the build stages. Two independent checks confirm the commit above is
-the right one:
-
-| Path inside the archive | SHA-256 | Matches |
-|---|---|---|
-| `packages/php-wasm/web-builds/8-3/asyncify/8_3_32/php_8_3.wasm` | `eca478d2…4f1c98` | byte-identical to the staged `.wasm` |
-| `packages/php-wasm/web-builds/8-3/asyncify/php_8_3.js` | `719346ea…ccf3ac` (268,881 bytes) | the upstream glue hash pinned in `prepare-runtime.mjs` |
-
-So the npm package the build installs from is a repackaging of build
-outputs committed at this commit, and the provenance recorded here holds
-up when checked against upstream rather than against itself.
+Atoms preserves the Wasm bytes and the relative path the glue uses to import
+them. During staging it adds one line to each loader,
+`Module['Asyncify'] = Asyncify;`, so the host can resume the guest inside
+a synchronous Durable Object transaction. The patch and its anchor check
+are in `../worker/scripts/prepare-runtime.mjs`.
 
 ## Reproducing the archive
 
@@ -130,7 +106,10 @@ MiB the `.tar.gz` is past GitHub's 100 MB hard limit for a tracked file,
 so committing it was never available; recording the hashes and a script
 that reproduces them byte-for-byte is.
 
-## What this source actually covers, and where it stops
+## Build inputs and source coverage
+
+The recipe survey below follows the PHP 8.3 build. The other builds use the
+corresponding `php8.4.patch` or `php8.5.patch` in the same compile tree.
 
 The answer is not the comfortable one, which is why it is written down.
 

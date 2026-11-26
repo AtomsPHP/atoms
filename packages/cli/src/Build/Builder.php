@@ -31,7 +31,8 @@ final class Builder
     public function build(AtomsJson $config, string $outDir, bool $fast = false): BuildResult
     {
         $resolveVendor = $fast ? null : function (AtomsComposerJson $composer) use ($config): VendorTree {
-            $stage = new VendorStage($this->runner ?? new SymfonyProcessRunner());
+            $platform = $config->phpPlatform();
+            $stage = new VendorStage($this->runner ?? new SymfonyProcessRunner(), $platform->version, $platform->extensionsFile);
 
             return $stage->resolve($config->rootDir);
         };

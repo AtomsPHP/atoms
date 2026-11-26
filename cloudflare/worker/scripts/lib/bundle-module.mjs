@@ -19,6 +19,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { phpRuntime } from './php-runtimes.mjs';
 
 /**
  * Paths relative to `packages/core/src/` deliberately omitted from the
@@ -210,8 +212,7 @@ export function sortedFiles(files) {
 
 /**
  * Emit the deploy module the Worker loads:
- * `export default {manifest, files}` with a do-not-edit banner naming the
- * script that produced it.
+ * The static loader import selects exactly one interpreter for Wrangler.
  *
  * @param {string} generatorName - script name for the banner, e.g. 'build-bundle.mjs'
  * @param {any} manifest - the host manifest to embed
@@ -219,12 +220,21 @@ export function sortedFiles(files) {
  * @param {string} outputFile - absolute destination path
  */
 export function writeBundleModule(generatorName, manifest, files, outputFile) {
-    const output = `/**
+    const runtime = phpRuntime(manifest.abi.php);
+    const loader = fileURLToPath(new URL(`../../.php-wasm/${runtime.glue}`, import.meta.url));
+    const relative = path.relative(path.dirname(outputFile), loader).split(path.sep).map(encodeURIComponent).join('/');
+    const specifier = relative.startsWith('../') ? relative : './' + relative;
+    // The CLI reads this first line to identify an existing bundle without loading it.
+    const output = `// Atoms Worker PHP ${runtime.version}
+/**
  * Auto-generated bundle by ${generatorName}
  * Do not edit manually.
  */
 
+import * as asyncifyLoader from ${JSON.stringify(specifier)};
+
 export default {
+  asyncifyLoader,
   manifest: ${JSON.stringify(manifest, null, 2)},
   files: ${JSON.stringify(files, null, 2)},
 };

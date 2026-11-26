@@ -4,9 +4,9 @@
  * build-bundle.mjs — assemble a fixture app into a bundle.
  *
  * Walks a fixture directory and emits src/bundle.generated.js as
- * export default {manifest, files} where files maps guest paths to contents.
+ * export default {asyncifyLoader, manifest, files} where files maps guest paths to contents.
  *
- * Usage: node build-bundle.mjs <fixture-dir> <output-file>
+ * Usage: node build-bundle.mjs <fixture-dir> <output-file> [php-series]
  * Default: node build-bundle.mjs fixtures/counter src/bundle.generated.js
  */
 
@@ -70,6 +70,7 @@ async function buildBundle() {
 
     const outputManifest = {
         ...manifest,
+        abi: { ...manifest.abi, php: process.argv[4] ?? manifest.abi?.php ?? '8.3' },
         atoms: rewrittenAtoms,
     };
 

@@ -17,9 +17,10 @@ Atoms is currently experimental and in early stages. The goal is to keep the cur
 
 See [Compatibility](/reference/compatibility/#host-and-toolchain-support) for
 dependency constraints and tested versions. Your application and the Atoms CLI
-use host PHP. Atom classes, Support code, bundled shared code, migrations, and
-bundled dependencies execute in the Worker's PHP 8.3 interpreter and must use
-PHP 8.3-compatible syntax.
+use host PHP. The Worker defaults to PHP 8.3. Set `"php": "8.4"` or
+`"php": "8.5"` in `atoms.json` to select a newer interpreter for Atom classes,
+Support code, migrations, and bundled dependencies. Shared code must run on
+both your host and your selected Worker version.
 
 ## PHP
 

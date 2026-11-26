@@ -13,7 +13,7 @@
  * `test/pdo-expected.json` (the pin file), render, print to stdout.
  *
  * Determinism: the rendered doc contains ONLY the guest PHP
- * version, the case list (sorted by id within each group, groups in the
+ * versions, the case list (sorted by id within each group, groups in the
  * order they first appear in the report — which is Cases::groups()'s
  * declaration order, since that is how the report was assembled), each
  * case's member/title/class, and — for non-match cases — the pinned `why`.
@@ -25,6 +25,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PHP_RUNTIMES } from './lib/php-runtimes.mjs';
 
 /**
  * Internal taxonomy -> published name. Renamed in exactly this
@@ -94,11 +95,16 @@ function escapePipes(s) {
 
 /**
  * @param {{php: string, cases: Array<{id: string, group: string, member: string, title: string, class: string}>}} report
- * @param {{cases?: Record<string, {class: string, why: string}>}} pins
+ * @param {{cases: Record<string, {class: string, why: string}>, overrides?: Record<string, Record<string, {class: string, why: string}>>}} pins
  * @returns {string}
  */
 export function renderMatrixDoc(report, pins) {
-    const pinCases = (pins && pins.cases) || {};
+    const pinCases = pins.cases;
+    const guestVersions = Object.values(PHP_RUNTIMES).map(runtime => runtime.version);
+    if (!guestVersions.includes(report.php)) {
+        throw new Error(`Unexpected guest PHP version in PDO report: ${report.php}`);
+    }
+    const measuredSeries = report.php.split('.').slice(0, 2).join('.');
 
     // Group order: the order groups first appear in report.cases, which is
     // the order check 28 assembled them in (Cases::groups() declaration
@@ -122,7 +128,7 @@ export function renderMatrixDoc(report, pins) {
         '**Generated — do not edit by hand.** Produced by ' +
             '`cloudflare/worker/scripts/gen-pdo-matrix.mjs` from a conformance run\'s differential ' +
             'report; conformance check 30 fails if this file and a fresh run disagree. Measured on ' +
-            `php-wasm PHP ${report.php}, against \`ctx.storage.sql\`, with a native in-guest ` +
+            `php-wasm PHP ${guestVersions.join(', ')}, against \`ctx.storage.sql\`, with a native in-guest ` +
             '`pdo_sqlite` connection as the comparator.'
     );
     lines.push('');
@@ -144,13 +150,28 @@ export function renderMatrixDoc(report, pins) {
         lines.push('|---|---|---|---|');
 
         for (const c of cases) {
-            const status = PUBLISHED_CLASS[c.class] ?? c.class;
+            let status = PUBLISHED_CLASS[c.class] ?? c.class;
             let notes = '';
             if (c.class === 'informational') {
                 notes = informationalNote(c.id);
             } else if (c.class !== 'match') {
                 const pin = pinCases[c.id];
                 notes = pin && typeof pin.why === 'string' ? pin.why : '';
+            }
+            // Render distinct native behavior in the same row. For the series under
+            // test the classification always comes from the live measurement.
+            const versions = Object.entries(pins.overrides ?? {}).filter(([, cases]) => cases[c.id]);
+            if (versions.length) {
+                const defaultSeries = Object.keys(PHP_RUNTIMES).filter(series => !pins.overrides?.[series]?.[c.id]);
+                const variants = [
+                    [defaultSeries, pinCases[c.id]],
+                    ...versions.map(([series, cases]) => [[series], cases[c.id]]),
+                ];
+                status = variants.map(([series, pin]) => {
+                    const cls = series.includes(measuredSeries) ? c.class : pin.class;
+                    return `PHP ${series.join('/')}: ${PUBLISHED_CLASS[cls]}`;
+                }).join('<br>');
+                notes = variants.map(([, pin]) => pin.why).join('<br>');
             }
             lines.push(
                 `| \`${escapePipes(c.member)}\` | ${escapePipes(c.title)} | ${status} | ${escapePipes(notes)} |`
