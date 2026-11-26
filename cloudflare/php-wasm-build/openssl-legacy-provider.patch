@@ -18,3 +18,45 @@
 +	OSSL_PROVIDER_unload(atoms_legacy_provider);
 +	atoms_legacy_provider = NULL;
 +#endif
+@@ -1873,0 +1889,30 @@
++/* OpenSSL 3.4 removed the SHAKE defaults returned by the PHP 8.3 guest. */
++static unsigned int atoms_shake_length(const EVP_MD *method)
++{
++	switch (EVP_MD_get_type(method)) {
++		case NID_shake128: return 16;
++		case NID_shake256: return 32;
++		default: return 0;
++	}
++}
++
++static int atoms_x509_digest(X509 *cert, const EVP_MD *method, unsigned char *digest, unsigned int *length)
++{
++	*length = atoms_shake_length(method);
++	if (!*length) {
++		return X509_digest(cert, method, digest, length);
++	}
++
++	/* X509_digest hashes the certificate DER. Use the public XOF interface
++	 * for the two methods which require an explicit output length. */
++	unsigned char *der = NULL;
++	int der_len = i2d_X509(cert, &der);
++	EVP_MD_CTX *ctx = EVP_MD_CTX_new();
++	int ok = der_len > 0 && ctx && EVP_DigestInit_ex(ctx, method, NULL)
++		&& EVP_DigestUpdate(ctx, der, (size_t)der_len)
++		&& EVP_DigestFinalXOF(ctx, digest, *length);
++	EVP_MD_CTX_free(ctx);
++	OPENSSL_free(der);
++	return ok;
++}
++
+@@ -1884 +1929 @@
+-	} else if (!X509_digest(peer, mdtype, md, &n)) {
++	} else if (!atoms_x509_digest(peer, mdtype, md, &n)) {
+@@ -7387 +7432,2 @@
+-	siglen = EVP_MD_size(mdtype);
++	unsigned int xof_len = atoms_shake_length(mdtype);
++	siglen = xof_len ? xof_len : EVP_MD_size(mdtype);
+@@ -7393 +7439,2 @@
+-			EVP_DigestFinal (md_ctx, (unsigned char *)ZSTR_VAL(sigbuf), &siglen)) {
++			(xof_len ? EVP_DigestFinalXOF(md_ctx, (unsigned char *)ZSTR_VAL(sigbuf), xof_len)
++			         : EVP_DigestFinal(md_ctx, (unsigned char *)ZSTR_VAL(sigbuf), &siglen))) {

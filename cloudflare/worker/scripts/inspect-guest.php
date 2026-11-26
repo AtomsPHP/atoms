@@ -36,6 +36,13 @@ try {
     $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1', 'config' => $config]);
     $signed = $key !== false && openssl_sign('atoms', $signature, $key, OPENSSL_ALGO_SHA256);
     $verified = $signed && openssl_verify('atoms', $signature, openssl_pkey_get_details($key)['key'], OPENSSL_ALGO_SHA256) === 1;
+    $options = ['config' => $config, 'digest_alg' => 'sha256'];
+    $request = openssl_csr_new(['commonName' => 'atoms'], $key, $options);
+    $certificate = openssl_csr_sign($request, null, $key, 1, $options);
+    if (!openssl_x509_export($certificate, $pem)) {
+        throw new RuntimeException('Could not export the fingerprint fixture.');
+    }
+    $der = base64_decode(str_replace(['-----BEGIN CERTIFICATE-----', '-----END CERTIFICATE-----'], '', $pem), true);
 } finally {
     unlink($config);
 }
@@ -65,6 +72,17 @@ $behavior = [
     'openssl_ciphers' => openssl_get_cipher_methods(),
     'openssl_digests' => openssl_get_md_methods(),
 ];
+// The existing PHP guest returns these 16- and 32-byte SHAKE digests of "atoms".
+foreach ([
+    'shake128' => '795ae95781812cb57d0ff6167ec5e704',
+    'shake256' => 'cb7086fb40001dba7c4129c7ed1d571d712cbf7459881932bbcfe09633e2ed2a',
+] as $method => $vector) {
+    $behavior['openssl_' . $method] = [
+        'hex' => openssl_digest('atoms', $method),
+        'raw_matches_vector' => openssl_digest('atoms', $method, true) === hex2bin($vector),
+        'certificate_matches_der' => openssl_x509_fingerprint($certificate, $method, true) === openssl_digest($der, $method, true),
+    ];
+}
 foreach (['stream_wrappers', 'stream_transports', 'curl_protocols', 'openssl_ciphers', 'openssl_digests'] as $list) {
     sort($behavior[$list], SORT_STRING);
 }

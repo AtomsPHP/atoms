@@ -186,7 +186,10 @@ def bundle(inputs, output):
         "compiler": {"emscripten": LOCK["emscripten"], "lock": digest(RECIPE / "compiler.lock.json")},
         "php": {"version": LOCK["php"], "commit": LOCK["phpCommit"], "license": "BSD-3-Clause",
                 "patches": ["Playground patches in playground.tar",
-                            "openssl-legacy-provider.patch loads the static OpenSSL legacy provider at MINIT"],
+                            "openssl-legacy-provider.patch loads the static OpenSSL legacy provider at MINIT "
+                            "and supplies the Playground SHAKE128/256 output lengths to EVP_DigestFinalXOF "
+                            "for message digests and DER certificate fingerprints "
+                            "(https://docs.openssl.org/3.5/man7/EVP_MD-SHAKE/)"],
                 "bundled": ["Zend", "PCRE2", "libmbfl", "timelib", "libbcmath", "file/libmagic",
                             "xxHash", "libavifinfo"]},
         "playground": {"commit": LOCK["playgroundCommit"], "license": "GPL-2.0-or-later",

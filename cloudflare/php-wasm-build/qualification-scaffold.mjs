@@ -27,10 +27,16 @@ try {
 	execFileSync('npm', ['install', '--package-lock-only', '--ignore-scripts', '--offline', '--no-audit', '--no-fund'], {
 		cwd: template, stdio: 'inherit',
 	});
-	const dependency = read(join(template, 'package-lock.json')).packages[`node_modules/${pin.package}`];
+	const lockPath = join(template, 'package-lock.json');
+	const lock = read(lockPath);
+	const dependency = lock.packages[`node_modules/${pin.package}`];
 	if (dependency?.version !== pin.version || !dependency.integrity) {
 		throw new Error('The locked tarball must match the reviewed version and have npm integrity.');
 	}
+	// npm computes a relative resolved path from this temporary template.
+	// init and upgrade copy the lockfile to a different application directory.
+	dependency.resolved = manifest.dependencies[pin.package];
+	write(lockPath, lock);
 	const [packed] = JSON.parse(execFileSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', dest], {
 		cwd: stage, encoding: 'utf8',
 	}));
