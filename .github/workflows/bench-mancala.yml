@@ -1,52 +1,66 @@
-name: Deployed Mancala qualification
+name: Fixed-room Mancala runtime crossover
 on:
   push:
     branches: [bench/211-deployed-php83]
+    paths:
+      - bench/direct-crossover.py
+      - .github/workflows/bench-mancala.yml
 permissions:
+  actions: read
   contents: read
 jobs:
   compare:
     environment: atoms-211-qual-5a1fbbaa
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 160
     steps:
-      - name: Check out benchmark machinery
+      - name: Check out benchmark client
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Check out original demo
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: AtomsPHP/laravel-mancala-demo
-          ref: baadd7dc3ef0c6f7e32321cc5d00b5627bb63cee
-          path: demo
-          persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 26.7.0
-      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
-        with:
-          php-version: '8.5.4'
-          extensions: sqlite3, pdo_sqlite, mbstring, intl, curl, zip
-          tools: composer:v2
-          coverage: none
-      - name: Prepare pinned demo and browser
-        run: bash bench/setup.sh
-      - name: Share callback-only tunnel address with deployment operator
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: callback-address
-          path: bench/callback-url.txt
-          retention-days: 1
-      - name: Run alternate benchmark arms from this runner
+      - name: Retrieve frozen room history
         env:
-          BENCH_CANDIDATE: ${{ secrets.BENCH_CANDIDATE }}
-          BENCH_PLAYGROUND: ${{ secrets.BENCH_PLAYGROUND }}
-        run: python3 bench/run.py
-      - name: Save measurements and errors
-        if: always()
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45754440042 --repo AtomsPHP/atoms --name remote-mancala-samples --dir "$RUNNER_TEMP/original"
+      - name: Measure baseline assignment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          XOVER_BEARER_PLAYGROUND: ${{ secrets.XOVER_BEARER_PLAYGROUND }}
+          XOVER_BEARER_CANDIDATE: ${{ secrets.XOVER_BEARER_CANDIDATE }}
+        run: python3 -B bench/direct-crossover.py baseline "$RUNNER_TEMP/original"
+      - name: Retain baseline measurements
+        if: always() && !cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: remote-mancala-samples
-          path: bench/report/
-          retention-days: 14
+          name: xover-baseline
+          path: bench/xover-report/baseline/
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Measure switched assignment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          XOVER_BEARER_PLAYGROUND: ${{ secrets.XOVER_BEARER_PLAYGROUND }}
+          XOVER_BEARER_CANDIDATE: ${{ secrets.XOVER_BEARER_CANDIDATE }}
+        run: python3 -B bench/direct-crossover.py switched "$RUNNER_TEMP/original"
+      - name: Retain switched measurements
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: xover-switched
+          path: bench/xover-report/switched/
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Measure restored assignment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          XOVER_BEARER_PLAYGROUND: ${{ secrets.XOVER_BEARER_PLAYGROUND }}
+          XOVER_BEARER_CANDIDATE: ${{ secrets.XOVER_BEARER_CANDIDATE }}
+        run: python3 -B bench/direct-crossover.py restored "$RUNNER_TEMP/original"
+      - name: Retain restored measurements
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: xover-restored
+          path: bench/xover-report/restored/
+          if-no-files-found: ignore
+          retention-days: 30
