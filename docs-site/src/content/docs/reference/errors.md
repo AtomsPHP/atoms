@@ -1304,42 +1304,6 @@ Check that the project directory is writable and phpstan.atoms.neon is not a dir
 Pass --bundle <path> together with --manifest <path>, or omit --manifest to let `atoms deploy` build a fresh bundle and manifest.
 
 
-<a id="atoms-e115"></a>
-
-## ATOMS-E115: Invalid outbound HTTP configuration
-
-| | |
-|---|---|
-| Severity | `error` |
-| Phase | `runtime` |
-
-**Message**
-
-The outbound HTTPS origin allowlist is malformed.
-
-**Fix**
-
-Set ATOMS_HTTP_ALLOWLIST to a JSON array of exact trusted HTTPS origins.
-
-
-<a id="atoms-e116"></a>
-
-## ATOMS-E116: Outbound HTTP origin denied
-
-| | |
-|---|---|
-| Severity | `error` |
-| Phase | `runtime` |
-
-**Message**
-
-The request URL is outside the permitted HTTPS origins.
-
-**Fix**
-
-Use an approved HTTPS origin and omit credentials and fragments.
-
-
 <a id="atoms-e117"></a>
 
 ## ATOMS-E117: Outbound HTTP header denied
@@ -1369,11 +1333,11 @@ Remove routing, protocol and hop-by-hop headers from the request.
 
 **Message**
 
-The HTTP method, headers or body are invalid.
+The HTTP method, URL, headers or body are invalid.
 
 **Fix**
 
-Use a supported uppercase method, valid header fields and a null body for GET or HEAD.
+Use an absolute HTTPS URL without credentials or fragments, a supported uppercase method, valid headers and a null body for GET or HEAD.
 
 
 <a id="atoms-e119"></a>

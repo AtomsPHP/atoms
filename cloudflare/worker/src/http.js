@@ -12,17 +12,10 @@ const reservedNames = new Set([
 
 class HttpFailure extends Error {}
 
-// Validate the original authority before WHATWG normalization (including
-// empty userinfo, backslashes and empty fragments).
-function httpsUrl(raw, originOnly) {
-	if (typeof raw !== 'string' || /[\u0000-\u0020\u007f#\\]/u.test(raw)) return null;
-	const match = /^https:\/\/([a-z0-9.-]+)(?::[0-9]+)?(?=[/?]|$)/i.exec(raw);
-	if (!match || (originOnly && !['', '/'].includes(raw.slice(match[0].length)))) return null;
-	const host = match[1].toLowerCase();
-	const labels = host.split('.');
-	if (host.length > 253 || labels.length < 2 || labels.some(label =>
-		!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return null;
-	if (/(?:^|\.)(?:[0-9]+|0x[0-9a-f]*|local|localhost|internal|localdomain|home\.arpa)$/.test(host)) return null;
+function httpsUrl(raw) {
+	// Check the authority before URL normalizes empty userinfo or missing slashes.
+	if (typeof raw !== 'string' || !/^https:\/\/[^/?@]+(?:[/?]|$)/i.test(raw)
+		|| /[\u0000-\u0020\u007f#\\]/u.test(raw)) return null;
 	try {
 		return new URL(raw);
 	} catch {
@@ -30,25 +23,8 @@ function httpsUrl(raw, originOnly) {
 	}
 }
 
-export function httpAllowlist(raw) {
-	try {
-		const entries = typeof raw === 'string' ? JSON.parse(raw) : raw;
-		if (!Array.isArray(entries)) return null;
-		const allowed = new Set();
-		for (const entry of entries) {
-			const url = httpsUrl(entry, true);
-			if (!url) return null;
-			allowed.add(url.origin);
-		}
-		return allowed;
-	} catch {
-		return null;
-	}
-}
-
 function prepare(msg, url, config) {
-	if (!config.httpAllowlist) throw new HttpFailure('ATOMS-E115');
-	if (!url || !config.httpAllowlist.has(url.origin)) throw new HttpFailure('ATOMS-E116');
+	if (!url) throw new HttpFailure('ATOMS-E118');
 	if (!methods.has(msg.method) || !Array.isArray(msg.headers) ||
 		(msg.body !== null && (typeof msg.body !== 'string' || ['GET', 'HEAD'].includes(msg.method)))) {
 		throw new HttpFailure('ATOMS-E118');
@@ -151,7 +127,7 @@ async function fetchWithinWindow(msg, url, budget, config, transport) {
 
 /** Reply once to the still-parked generation, including on local refusal. */
 export async function serviceHttp(park, budget, config, transport, generationIsLive) {
-	const url = httpsUrl(park.msg.url, false);
+	const url = httpsUrl(park.msg.url);
 	let result;
 	try {
 		result = turnDeadlineFailure(budget) ?? await fetchWithinWindow(park.msg, url, budget, config, transport);

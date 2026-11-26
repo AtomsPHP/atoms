@@ -159,7 +159,7 @@ This is how the boundary is enforced: statically, at build time, before anything
 ## Calling HTTPS APIs from an Atom
 
 `$this->http()->request(...)` parks the PHP guest while the Worker fetches
-an operator-approved HTTPS origin. The Atom resumes in the same serialized
+the HTTPS URL supplied by the Atom. The Atom resumes in the same serialized
 turn with the status, headers and body. Finish database transactions before
 calling it. The harness supplies an offline recorder. Native cURL, PHP
 network streams and SOAP run in the application's Methods class or job.

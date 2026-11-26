@@ -399,9 +399,9 @@ byte-compare in-process, rather than shelling out to the CLI above.
 ## Outbound HTTP
 
 Run `node test/http-conformance.mjs` in the Worker directory after `npm ci`.
-The test starts local Wrangler instances for the normal, short-deadline and
-malformed-allowlist cases. Its Worker entry maps one approved HTTPS origin
-to an independently counted loopback HTTP server after production policy
-validation. The shipped entry uses Fetch. The test covers streaming and byte
-limits, transaction refusals, serialization, deadline sharing with callbacks,
+The test starts local Wrangler instances and routes every outbound HTTPS URL
+to a loopback recorder that counts requests and records the original URL.
+It checks caller-selected DNS names, ports and IP literals under the default
+configuration and proves that a stale destination setting has no effect.
+The shipped entry uses Fetch. The test covers streaming and byte limits, transaction refusals, serialization, deadline sharing with callbacks,
 and activation, WebSocket, timer and deactivation calls.

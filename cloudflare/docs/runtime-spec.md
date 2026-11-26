@@ -287,13 +287,8 @@ with a numeric status, a lowercase map of string lists and a base64 string
 Other repeated values may be combined by Fetch. All upstream statuses reach PHP.
 Redirects are manual. Each call starts with fresh headers and no cookie jar.
 
-`ATOMS_HTTP_ALLOWLIST` is a JSON array of exact HTTPS origins, empty by
-default. Scheme, DNS hostname and effective port must match. Use trusted
-multi-label DNS names (ASCII or punycode). The operator trusts their DNS and
-the service behind them. IP literals, local names, wildcards, URL credentials
-and fragments are refused. An entry permits only an optional root slash and
-no query. One malformed entry disables HTTP for the entire list. Validation
-never prevents the Worker from servicing other operations.
+The caller supplies an absolute HTTPS URL. The Worker passes its destination
+to Fetch. URLs with embedded credentials or fragments are invalid.
 
 GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS are supported. GET and HEAD
 require a null body. Header names are HTTP tokens and values are UTF-8
@@ -336,11 +331,15 @@ An open SqlBridge transaction (helper or PDO) refuses HTTP before the park.
 The synchronous transaction drain independently refuses a parked http.fetch.
 The pinned workerd refuses raw SQL BEGIN at the SQL call. It requires the
 transaction API, so execution never reaches a following HTTP call.
-Host errors use the catalog code as the wire reason: E115 configuration,
-E116 origin, E117 header, E118 invalid request, E119 transaction, E120
+Host errors use the catalog code as the wire reason: E117 header,
+E118 invalid request (including the URL), E119 transaction, E120
 per-call timeout, E121 byte limit, E122 request count, E123 transport.
 Turn exhaustion uses the existing turn_deadline_exceeded reply and E061.
 An unmatched offline request raises E124.
+
+Local conformance sends requests for several caller-selected hosts and ports
+through the same loopback recorder. It checks the destination received by
+the transport with default configuration and with obsolete settings present.
 
 ## The callback channel
 

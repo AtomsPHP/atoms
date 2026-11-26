@@ -7,23 +7,17 @@ import { serviceHttp } from '../src/http.js';
 
 const origin = 'https://api.example.com';
 const msg = { method: 'POST', url: origin + '/path?private=1', headers: [], body: null };
-const config = loadConfig({ ATOMS_HTTP_ALLOWLIST: [origin] });
+const config = loadConfig({});
 
 function window() {
 	const callbacks = new CallbackChannel({ config, log() {} });
 	return callbacks.beginTurn(config.turnDeadlineMs, callbacks.newCollector());
 }
 
-test('origin configuration is exact and a malformed entry closes the whole list', () => {
-	assert.deepEqual(loadConfig({}).httpAllowlist, new Set());
-	assert.deepEqual(loadConfig({ ATOMS_HTTP_ALLOWLIST: '["HTTPS://API.example.com:443/","https://api.example.com:8443"]' }).httpAllowlist,
-		new Set([origin, origin + ':8443']));
-	for (const entry of ['*', 'http://api.example.com', 'https://*.example.com', 'https://@api.example.com',
-		origin + '?', origin + '#', origin + '/a/..', 'https://localhost', 'https://db.local',
-		'https://127.0.0.1', 'https://[::1]', 'https://db.home.arpa', null]) {
-		assert.equal(loadConfig({ ATOMS_HTTP_ALLOWLIST: [origin, entry] }).httpAllowlist, null);
+test('the removed destination setting has no effect on Worker configuration', () => {
+	for (const value of [[], [origin], 'invalid']) {
+		assert.deepEqual(loadConfig({ ATOMS_HTTP_ALLOWLIST: value }), config);
 	}
-	for (const raw of ['{', '{}', '', null]) assert.equal(loadConfig({ ATOMS_HTTP_ALLOWLIST: raw }).httpAllowlist, null);
 });
 
 test('invalid wire data is refused before transport and before spending a slot', async () => {
@@ -32,7 +26,9 @@ test('invalid wire data is refused before transport and before spending a slot',
 	for (const [fields, code] of [
 		[{ body: '*' }, 'ATOMS-E118'], [{ body: 'AA=' }, 'ATOMS-E118'], [{ method: 'HEAD', body: '' }, 'ATOMS-E118'],
 		[{ headers: [['Connection', 'close']] }, 'ATOMS-E117'], [{ headers: [['x', 'v\r']] }, 'ATOMS-E118'],
-		[{ headers: [['x', 'v', 'third']] }, 'ATOMS-E118'], [{ url: origin + ':444' }, 'ATOMS-E116'],
+		[{ headers: [['x', 'v', 'third']] }, 'ATOMS-E118'], [{ url: 'http://example.com' }, 'ATOMS-E118'],
+		[{ url: 'https://@example.com' }, 'ATOMS-E118'], [{ url: origin + '#' }, 'ATOMS-E118'],
+		[{ url: 'https:///missing-host' }, 'ATOMS-E118'], [{ url: 'https://[invalid]' }, 'ATOMS-E118'],
 		[{ body: 'A'.repeat(100) }, 'ATOMS-E121'],
 	]) {
 		const replies = [];

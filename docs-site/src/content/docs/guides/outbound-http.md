@@ -1,26 +1,10 @@
 ---
 title: Outbound HTTP
-description: Call a trusted HTTPS API from an Atom and script the response in a test.
+description: Call an HTTPS API from an Atom and script the response in a test.
 ---
 
-Add trusted HTTPS origins to the top-level `vars` in your Worker project's
-`wrangler.jsonc`. The CLI carries these settings into dev and deploy.
-
-```json
-{
-  "vars": {
-    "ATOMS_HTTP_ALLOWLIST": ["https://api.example.com"]
-  }
-}
-```
-
-The default list is empty. Each entry authorizes every path on that exact
-scheme, DNS hostname and effective port. Choose services whose operators and
-DNS you trust. Use a separate entry for each origin. Wildcards, IP literals,
-local names, credentials, paths, query strings and fragments are invalid
-in this list.
-
-Inside an Atom method, read the status, headers and raw response bytes:
+Pass the HTTPS URL directly to `request()`. You can use a different destination
+on each call. For example, this Atom method returns a service's status code.
 
 ```php
 public function serviceStatus(): int

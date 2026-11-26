@@ -141,7 +141,8 @@ Supporting types in core (exact FQCNs — other packages reference these):
   `config(string $key): mixed`, `broadcast(string $channel, array $payload): void`,
   `timers(): Timers\Timers`, `http(): Http\HttpClient`.
 - `Atoms\Http\HttpClient::request(string $method, string $url, array $headers = [], ?string $body = null): HttpResponse`
-  accepts a map of header names to strings or lists of strings and raw body bytes.
+  accepts a caller-selected absolute HTTPS URL, a map of header names to strings
+  or lists of strings, and raw body bytes.
   `Atoms\Http\HttpResponse` exposes readonly `int $status`, `array $headers`
   (lowercase names to lists of strings) and `string $body` (decoded bytes).
 - `Atoms\Timers\Timers` — interface for named one-shot timers:

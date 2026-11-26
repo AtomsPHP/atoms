@@ -16,8 +16,8 @@ final class HttpAtom extends Atom
         $this->http()->request('HEAD', self::URL);
     }
 
-    public function send(array $headers = [], ?string $body = null): HttpResponse
+    public function send(array $headers = [], ?string $body = null, string $url = self::URL): HttpResponse
     {
-        return $this->http()->request('POST', self::URL, $headers, $body);
+        return $this->http()->request('POST', $url, $headers, $body);
     }
 }

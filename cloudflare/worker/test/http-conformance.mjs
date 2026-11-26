@@ -75,7 +75,7 @@ async function withWorker(overrides, test) {
 	const worker = await unstable_dev('test/http-worker.js', {
 		config: 'wrangler.jsonc', local: true, persist: false, port: 0, inspectorPort: 0, logLevel: 'error',
 		vars: {
-			RECORDER_PORT: port, ATOMS_HTTP_ALLOWLIST: [origin], ATOMS_BEARER_AUTH: 'disabled',
+			RECORDER_PORT: port, ATOMS_BEARER_AUTH: 'disabled',
 			ATOMS_SHARED_SECRET: secret.toString('base64'), ATOMS_CALLBACK_URL: 'http://127.0.0.1:' + port + '/callback',
 			ATOMS_TURN_DEADLINE_MS: '3000', ATOMS_HTTP_TIMEOUT_MS: '600',
 			ATOMS_HTTP_MAX_REQUEST_BYTES: String(byteLimit), ATOMS_HTTP_MAX_RESPONSE_BYTES: String(byteLimit),
@@ -122,9 +122,19 @@ try {
 		assert.equal(hits[1].headers.authorization, undefined);
 		assert.equal(hits[1].headers.cookie, undefined);
 
+		for (const destination of ['https://else.example.com', origin + ':8443', 'https://localhost',
+			'https://db.internal', 'https://127.0.0.1', 'https://[::1]:8443']) {
+			const url = destination + '/status?batch=2';
+			const before = hits.length;
+			assert.equal((await exchange('GET', url))[0], 204);
+			assert.equal(hits.length, before + 1);
+			assert.equal(hits.at(-1).headers['x-recorder-url'], url);
+		}
+
 		const before = hits.length;
-		for (const url of ['http://api.example.com', origin + ':8443', 'https://else.example.com', 'https://localhost', 'https://10.0.0.1', 'https://user@api.example.com', origin + '/private?secret=value#']) {
-			await assert.rejects(exchange('GET', url), /ATOMS-E116/);
+		for (const url of ['http://api.example.com', '/relative', 'https://user@api.example.com',
+			'https://@api.example.com', origin + '/private?secret=value#']) {
+			await assert.rejects(exchange('GET', url), /ATOMS-E118/);
 		}
 		for (const name of ['CF-Test', 'X-Forwarded-Host', 'X-Atoms-Signature', 'Host', 'Content-Length', 'Connection', 'Proxy-Authorization']) {
 			await assert.rejects(exchange('POST', origin, { [name]: 'value' }), /ATOMS-E117/);
@@ -226,13 +236,15 @@ try {
 			assert.equal(hits.length, before + 2, 'both calls spend the same remaining turn time');
 		}
 	});
+	// A stale setting in an existing Wrangler file cannot restrict destinations.
 	await withWorker({ ATOMS_HTTP_ALLOWLIST: [origin, origin + '/not-an-origin'] }, async invoke => {
 		const before = hits.length;
-		await assert.rejects(invoke('exchange', ['GET', origin]), /ATOMS-E115/);
-		assert.equal(await invoke('writes', []), 0);
-		assert.equal(hits.length, before);
+		const url = 'https://another.example.org/status';
+		assert.equal((await invoke('exchange', ['GET', url]))[0], 204);
+		assert.equal(hits.length, before + 1);
+		assert.equal(hits.at(-1).headers['x-recorder-url'], url);
 	});
-	console.log('Shared turn deadline and malformed allowlist isolation passed');
+	console.log('Shared turn deadline and caller-selected HTTPS destinations passed');
 } finally {
 	recorder.closeAllConnections();
 	await new Promise(resolve => recorder.close(resolve));

@@ -34,13 +34,10 @@ final class HttpRequest
         }
 
         $parts = parse_url($url);
-        $host = strtolower($parts['host'] ?? '');
-        if (!preg_match('~^https://[a-z0-9.-]+(?::[0-9]+)?(?:[/?]|$)~iD', $url)
-            || preg_match('~[\x00-\x20\x7f#\\\\]~', $url) || !preg_match('//u', $url)
-            || !str_contains($host, '.') || !filter_var($host, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)
-            || preg_match('/(?:^|\.)(?:[0-9]+|0x[0-9a-f]*|local|localhost|internal|localdomain|home\.arpa)\.?$/iD', $host)
-            || str_ends_with($host, '.') || isset($parts['user']) || isset($parts['pass'])) {
-            throw self::failure(ErrorCode::HttpOriginDenied);
+        if (!preg_match('~^https://~i', $url) || ($parts['host'] ?? '') === ''
+            || isset($parts['user']) || isset($parts['pass'])
+            || preg_match('~[\x00-\x20\x7f#\\\\]~', $url) || !preg_match('//u', $url)) {
+            throw self::failure(ErrorCode::HttpInvalidRequest);
         }
 
         $pairs = [];

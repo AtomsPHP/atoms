@@ -43,6 +43,22 @@ final class HttpTest extends TestCase
         self::assertSame("\0\xff", $requests[1]['body']);
     }
 
+    public function testCallerCanChooseADifferentDestinationOnEachRequest(): void
+    {
+        $urls = ['https://webhook.example.org/event', 'https://localhost:8443/status', 'https://[::1]/'];
+        $harness = AtomHarness::for(HttpAtom::class, 'one')
+            ->withHttp('HEAD', HttpAtom::URL, new HttpResponse(204));
+        foreach ($urls as $url) {
+            $harness->withHttp('POST', $url, new HttpResponse(202));
+        }
+
+        $atom = $harness->atom();
+        foreach ($urls as $url) {
+            self::assertSame(202, $atom->send(url: $url)->status);
+        }
+        self::assertSame([HttpAtom::URL, ...$urls], array_column($harness->httpRequests(), 'url'));
+    }
+
     public function testProtectedHttpAccessorIsUnavailableThroughInvoke(): void
     {
         $harness = AtomHarness::for(HttpAtom::class, 'one')

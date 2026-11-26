@@ -10,7 +10,6 @@
  * variable is absent or unparseable.
  */
 
-import { httpAllowlist } from './http.js';
 import { AtomsError } from './errors.js';
 
 /** @typedef {Record<string, unknown>} Env */
@@ -61,7 +60,6 @@ import { AtomsError } from './errors.js';
  * @property {number}   bundleFormat          Bundle format version this host understands.
  * @property {string}   callbackUrl           The monolith's callback endpoint. '' = unconfigured.
  * @property {number}   turnDeadlineMs        Aggregate budget for one turn's time spent awaiting the callback channel.
- * @property {Set<string>|null} httpAllowlist Null means malformed configuration.
  * @property {number} httpTimeoutMs
  * @property {number} httpMaxRequestBytes
  * @property {number} httpMaxResponseBytes
@@ -468,7 +466,6 @@ export function loadConfig(env) {
 
 		callbackUrl,
 		turnDeadlineMs: posInt(env, 'ATOMS_TURN_DEADLINE_MS', 30000),
-		httpAllowlist: httpAllowlist(env.ATOMS_HTTP_ALLOWLIST === undefined ? [] : env.ATOMS_HTTP_ALLOWLIST),
 		httpTimeoutMs: posInt(env, 'ATOMS_HTTP_TIMEOUT_MS', 5000),
 		httpMaxRequestBytes: posInt(env, 'ATOMS_HTTP_MAX_REQUEST_BYTES', 1048576),
 		httpMaxResponseBytes: posInt(env, 'ATOMS_HTTP_MAX_RESPONSE_BYTES', 1048576),

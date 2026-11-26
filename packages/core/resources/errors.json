@@ -578,22 +578,6 @@
             "phase": "cli"
         },
         {
-            "code": "ATOMS-E115",
-            "title": "Invalid outbound HTTP configuration",
-            "message": "The outbound HTTPS origin allowlist is malformed.",
-            "fix": "Set ATOMS_HTTP_ALLOWLIST to a JSON array of exact trusted HTTPS origins.",
-            "severity": "error",
-            "phase": "runtime"
-        },
-        {
-            "code": "ATOMS-E116",
-            "title": "Outbound HTTP origin denied",
-            "message": "The request URL is outside the permitted HTTPS origins.",
-            "fix": "Use an approved HTTPS origin and omit credentials and fragments.",
-            "severity": "error",
-            "phase": "runtime"
-        },
-        {
             "code": "ATOMS-E117",
             "title": "Outbound HTTP header denied",
             "message": "The request contains a reserved HTTP header.",
@@ -604,8 +588,8 @@
         {
             "code": "ATOMS-E118",
             "title": "Invalid outbound HTTP request",
-            "message": "The HTTP method, headers or body are invalid.",
-            "fix": "Use a supported uppercase method, valid header fields and a null body for GET or HEAD.",
+            "message": "The HTTP method, URL, headers or body are invalid.",
+            "fix": "Use an absolute HTTPS URL without credentials or fragments, a supported uppercase method, valid headers and a null body for GET or HEAD.",
             "severity": "error",
             "phase": "runtime"
         },

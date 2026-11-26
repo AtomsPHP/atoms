@@ -7,12 +7,13 @@ export class AtomDurableObject extends ProductionAtom {
 	constructor(ctx, env) {
 		super(ctx, env);
 		this.httpTransport = (url, init) => {
-			if (url.origin !== 'https://api.example.com') throw new Error('Unexpected test origin');
 			const local = new URL('http://127.0.0.1');
 			local.port = env.RECORDER_PORT;
 			local.pathname = url.pathname;
 			local.search = url.search;
-			return fetch(local, init);
+			const headers = new Headers(init.headers);
+			headers.set('x-recorder-url', url.href);
+			return fetch(local, { ...init, headers });
 		};
 	}
 }
