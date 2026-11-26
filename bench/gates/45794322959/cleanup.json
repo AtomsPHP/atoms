@@ -1,0 +1,13 @@
+{
+  "run_id": "45794322959",
+  "phase": "cleanup",
+  "runtimes": {
+    "playground": "playground",
+    "candidate": "original-owned83"
+  },
+  "versions": {
+    "playground": "f4b39387-f836-41a7-a4bb-9bdccda9a97c",
+    "candidate": "0015fe5c-7849-46b1-ad33-60f1efb5c5fb"
+  },
+  "operator_verified_utc": "2026-11-26T10:21:02.122903+00:00"
+}
