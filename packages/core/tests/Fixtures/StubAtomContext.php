@@ -6,6 +6,7 @@ namespace Atoms\Core\Tests\Fixtures;
 
 use Atoms\Database;
 use Atoms\Runtime\AtomContext;
+use Atoms\Http\HttpClient;
 use Atoms\Timers\Timers;
 
 /**
@@ -13,7 +14,7 @@ use Atoms\Timers\Timers;
  * Also implements {@see Timers} directly and hands back `$this`, recording
  * schedule()/cancel() calls the same way dispatch()/broadcast() do above.
  */
-final class StubAtomContext implements AtomContext, Timers
+final class StubAtomContext implements AtomContext, Timers, HttpClient
 {
     /** @var list<array{job: string, args: array<string, mixed>}> */
     public array $dispatchedJobs = [];
@@ -35,6 +36,16 @@ final class StubAtomContext implements AtomContext, Timers
         private readonly object $appProxy,
         private readonly array $configValues = [],
     ) {
+    }
+
+    public function http(): HttpClient
+    {
+        return $this;
+    }
+
+    public function request(string $method, string $url, array $headers = [], ?string $body = null): \Atoms\Http\HttpResponse
+    {
+        return new \Atoms\Http\HttpResponse(204);
     }
 
     public function db(): Database

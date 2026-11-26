@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms;
 
 use Atoms\Runtime\AtomContext;
+use Atoms\Http\HttpClient;
 use Atoms\Timers\Timers;
 use Atoms\Websocket\Connection;
 use Atoms\Websocket\Message;
@@ -29,6 +30,11 @@ abstract class Atom
     {
         $this->id = $id;
         $this->context = $context;
+    }
+
+    protected function http(): HttpClient
+    {
+        return $this->context->http();
     }
 
     protected function db(): Database

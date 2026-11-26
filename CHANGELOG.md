@@ -5,6 +5,11 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+- The next minor adds outbound HTTPS through `$this->http()->request(...)`.
+  Implementations of `Atoms\Runtime\AtomContext` must supply
+  `http(): Atoms\Http\HttpClient`. The Cloudflare runtime and testing
+  harness provide it.
+
 ## [0.10.0] - 2026-11-22
 
 - **Changed:** The Worker runtime now pins Wrangler `4.165.0` and requires

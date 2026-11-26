@@ -69,7 +69,7 @@ function host_call($door, array $req)
             'Atoms: malformed host reply for op "%s" on door "%s": %s',
             isset($req['op']) ? (string) $req['op'] : '?',
             $door,
-            substr((string) $reply, 0, HOST_ERROR_EXCERPT)
+            ($req['op'] ?? '') === 'http.fetch' ? '(HTTP response omitted)' : substr((string) $reply, 0, HOST_ERROR_EXCERPT)
         ));
     }
 

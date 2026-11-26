@@ -164,6 +164,8 @@ WebSocket seam's transaction hazard, below).
   `{"ok":true,"rolledBack":true}`.
 - `{"op":"app.call","body":string}` — the park half of `app()`: see
   §The callback channel for the full request/reply shape.
+- `{"op":"http.fetch","method":string,"url":string,"headers":[[name,value],...],"body":string|null}`
+  performs a bounded outbound HTTPS exchange. See §Outbound HTTP.
 
 While a transaction is open, `sql.exec` runs inside the callback's scope on
 the same connection (read-your-own-writes). The host rejects any park op other
@@ -274,6 +276,70 @@ this can only ever fire on a guest runtime bug, and it fails the op with
 the complete wire frame with `json_encode()` and the host only fans the
 string out, so a wide integer in a broadcast payload reaches the browser
 exactly as PHP wrote it.
+
+## Outbound HTTP
+
+A guest parks with `{"op":"http.fetch","method":"POST","url":"https://api.example.com/status","headers":[["accept","application/json"]],"body":"AP8="}`.
+Headers are ordered name/value pairs. The body is null or padded standard
+base64 of opaque bytes. Success returns `{ok:true,status,headers,body}`
+with a numeric status, a lowercase map of string lists and a base64 string
+(empty for a bodyless response). The host preserves separate Set-Cookie lines.
+Other repeated values may be combined by Fetch. All upstream statuses reach PHP.
+Redirects are manual. Each call starts with fresh headers and no cookie jar.
+
+The caller supplies an absolute HTTPS URL. The Worker passes its destination
+to Fetch. URLs with embedded credentials or fragments are invalid.
+
+GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS are supported. GET and HEAD
+require a null body. Header names are HTTP tokens and values are UTF-8
+strings free of control characters. The host rejects Host, Content-Length,
+hop-by-hop and proxy headers, CF-*, Forwarded and routing overrides,
+and Atoms protocol headers. Only explicitly supplied headers are forwarded,
+including caller-supplied third-party Authorization. The Worker supplies no
+inbound credentials, callback signature or secrets. Failures carry fixed
+reason codes. Request paths, queries, credentials and payloads stay out of
+host diagnostics. The bootstrap sets `zend.exception_ignore_args=1` so
+PHP exception traces retain call sites without exposing arguments. A host
+HTTP error can include the validated HTTPS origin.
+
+`ATOMS_HTTP_MAX_REQUEST_BYTES` and `ATOMS_HTTP_MAX_RESPONSE_BYTES` default
+to 1048576 each. Count the raw body and UTF-8 bytes of method plus original
+URL (decimal status on response), and each transmitted header name and value
+once per pair, without separators or base64 overhead. The guest checks before
+encoding. The host checks again before fetch and reads the response stream up
+to the remaining allowance. The boot payload supplies both byte limits.
+`ATOMS_HTTP_MAX_REQUESTS_PER_TURN` defaults to 8. An actual fetch consumes
+one slot even on failure. Refusals consume none. Atoms invokes Fetch once per attempt. Transport
+failures give no exactly-once delivery guarantee. With the pinned local
+Wrangler transport and a one-fetch cap, a responder that closed a warm
+connection before headers observed two GETs for one Fetch call. The next
+call in the turn returned E122. The caller owns idempotency for writes
+whose outcome is unknown after timeout or disconnect.
+
+HTTP holds the turn mutex and shares the live app() budget. The earlier of
+the turn deadline and `ATOMS_HTTP_TIMEOUT_MS` (default 5000) bounds the
+wait through the last response byte. Only turn exhaustion latches E061
+for subsequent HTTP and app() calls. Activation has its own window.
+Each invoke, WebSocket event, timer and resident deactivation gets a fresh
+budget and count. Discard aborts pending I/O and invalidates its reply.
+Uncaught HTTP exceptions use the existing event failure path. Uncaught
+activation errors fail boot, and failed resident deactivation still proceeds
+with destruction. Destroying a cold Atom never activates it. Prior committed
+writes persist.
+
+An open SqlBridge transaction (helper or PDO) refuses HTTP before the park.
+The synchronous transaction drain independently refuses a parked http.fetch.
+The pinned workerd refuses raw SQL BEGIN at the SQL call. It requires the
+transaction API, so execution never reaches a following HTTP call.
+Host errors use the catalog code as the wire reason: E117 header,
+E118 invalid request (including the URL), E119 transaction, E120
+per-call timeout, E121 byte limit, E122 request count, E123 transport.
+Turn exhaustion uses the existing turn_deadline_exceeded reply and E061.
+An unmatched offline request raises E124.
+
+Local conformance sends requests for several caller-selected hosts and ports
+through the same loopback recorder. It checks the destination received by
+the transport with default configuration and with obsolete settings present.
 
 ## The callback channel
 
@@ -464,11 +530,11 @@ as an RFC 3339 string, and a backed enum as its backing value.
 
 ## The turn deadline
 
-**The contract, in three sentences:** a turn has a budget for time spent
-*awaiting the callback channel*. When the budget is exhausted, the in-flight
-callback is aborted and `app()` throws `Atoms\Cf\TurnDeadlineExceeded` in the
-Atom; every later `app()` in the same turn fails immediately with the same
-exception. **Everything the turn wrote before that point stays durable**,
+A turn has one deadline for synchronous callbacks and outbound HTTP.
+When the budget is exhausted, the in-flight request is aborted and the
+guest throws `Atoms\Cf\TurnDeadlineExceeded`. Every later `app()` or HTTP
+request in the same window fails immediately with the same exception.
+**Everything the turn wrote before that point stays durable**,
 including writes from transactions that had already committed. If the
 exception is not caught, the turn reports `turn_deadline_exceeded` and the
 Atom stays resident and healthy.
@@ -498,8 +564,8 @@ Atom stays resident and healthy.
     whatever wasm boot and the migrations left of it: `activate()` resets
     `budget.startedAt` to `Date.now()` at the first park the guest reaches,
     which — because no park happens during boot or migrations (the SQL bridge
-    is a sync op) — is the first guest checkpoint after them, either
-    `onActivation()`'s own `app.call` or its `turn.await`. Without the reset a
+    is a sync op) — is the first guest checkpoint after them, for example
+    `onActivation()`'s `app.call`, `http.fetch` or its first `turn.await`. Without the reset a
     slow boot could hand `onActivation()`'s `app()` an already-thin budget on
     the very activation whose latency is least predictable.
   - **Operator invariant — the activation window must fit under the platform's
@@ -507,7 +573,7 @@ Atom stays resident and healthy.
     `blockConcurrencyWhile`, whose worst case on defaults is
     `ATOMS_ACTIVATION_TIMEOUT_MS` (20000) waiting for the first park **plus**
     `ATOMS_CALLBACK_TIMEOUT_MS` (10000) settling activation deliveries — and, if
-    `onActivation()` calls `app()`, a further `ATOMS_TURN_DEADLINE_MS` of
+    `onActivation()` calls `app()` or HTTP, a further `ATOMS_TURN_DEADLINE_MS` of
     callback awaiting on top. Cloudflare resets a Durable Object whose
     `blockConcurrencyWhile` runs past roughly 30s **rather than surfacing a
     clean activation error** (the documented ceiling; the CPU-limit reset in

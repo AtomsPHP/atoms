@@ -395,3 +395,13 @@ node scripts/gen-pdo-matrix.mjs > ../docs/pdo-compatibility.md
 `scripts/gen-pdo-matrix.mjs` also exports `renderMatrixDoc(report, pins)` as a
 pure function (no filesystem, no clock) — this is what check 30 imports to
 byte-compare in-process, rather than shelling out to the CLI above.
+
+## Outbound HTTP
+
+Run `node test/http-conformance.mjs` in the Worker directory after `npm ci`.
+The test starts local Wrangler instances and routes every outbound HTTPS URL
+to a loopback recorder that counts requests and records the original URL.
+It checks caller-selected DNS names, ports and IP literals under the default
+configuration and proves that a stale destination setting has no effect.
+The shipped entry uses Fetch. The test covers streaming and byte limits, transaction refusals, serialization, deadline sharing with callbacks,
+and activation, WebSocket, timer and deactivation calls.

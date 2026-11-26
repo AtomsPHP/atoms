@@ -1302,3 +1302,147 @@ Check that the project directory is writable and phpstan.atoms.neon is not a dir
 **Fix**
 
 Pass --bundle <path> together with --manifest <path>, or omit --manifest to let `atoms deploy` build a fresh bundle and manifest.
+
+
+<a id="atoms-e117"></a>
+
+## ATOMS-E117: Outbound HTTP header denied
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `runtime` |
+
+**Message**
+
+The request contains a reserved HTTP header.
+
+**Fix**
+
+Remove routing, protocol and hop-by-hop headers from the request.
+
+
+<a id="atoms-e118"></a>
+
+## ATOMS-E118: Invalid outbound HTTP request
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `runtime` |
+
+**Message**
+
+The HTTP method, URL, headers or body are invalid.
+
+**Fix**
+
+Use an absolute HTTPS URL without credentials or fragments, a supported uppercase method, valid headers and a null body for GET or HEAD.
+
+
+<a id="atoms-e119"></a>
+
+## ATOMS-E119: Outbound HTTP in a transaction
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `runtime` |
+
+**Message**
+
+A database transaction is open.
+
+**Fix**
+
+Commit or roll back the transaction before making the HTTP request.
+
+
+<a id="atoms-e120"></a>
+
+## ATOMS-E120: Outbound HTTP request timed out
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `runtime` |
+
+**Message**
+
+The HTTP response did not finish before the per-call timeout.
+
+**Fix**
+
+Check the upstream response time and confirm the outcome before retrying a write.
+
+
+<a id="atoms-e121"></a>
+
+## ATOMS-E121: Outbound HTTP byte limit exceeded
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `runtime` |
+
+**Message**
+
+The request or response exceeds its byte limit.
+
+**Fix**
+
+Reduce the body or headers, paginate the response, or adjust the configured HTTP byte limit.
+
+
+<a id="atoms-e122"></a>
+
+## ATOMS-E122: Too many outbound HTTP requests
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `runtime` |
+
+**Message**
+
+The window has used all available HTTP requests.
+
+**Fix**
+
+Make fewer requests per turn or adjust ATOMS_HTTP_MAX_REQUESTS_PER_TURN.
+
+
+<a id="atoms-e123"></a>
+
+## ATOMS-E123: Outbound HTTP transport failed
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `runtime` |
+
+**Message**
+
+The Worker could not complete the HTTP exchange.
+
+**Fix**
+
+Check the upstream service and confirm the outcome before retrying a write.
+
+
+<a id="atoms-e124"></a>
+
+## ATOMS-E124: Unstubbed outbound HTTP request
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `runtime` |
+
+**Message**
+
+The request did not match the next scripted HTTP exchange.
+
+**Fix**
+
+Register the expected method, URL and result on the harness before boot.
