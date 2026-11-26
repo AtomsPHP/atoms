@@ -1,5 +1,5 @@
 """Callback-only tunnel ingress and original measurement script's loopback /debug proxy."""
-import json,re,sys,time,http.client
+import base64,hashlib,hmac,json,re,sys,time,http.client
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
@@ -13,6 +13,14 @@ class Handler(BaseHTTPRequestHandler):
         if mode!='callback':return self.reply(405)
         arm=self.path.split('/')[1]
         if arm not in ('playground','candidate') or self.path!='/'+arm+'/callback':return self.reply(404)
+        proof=self.headers.get('x-atoms-qualification-ready')
+        if arm=='candidate' and proof:
+            if not (root/'expected-gate.json').is_file():return self.reply(503)
+            try: supplied=base64.b64decode(proof,validate=True)
+            except ValueError:return self.reply(401)
+            expected=json.loads((root/'expected-gate.json').read_text())
+            if not hmac.compare_digest(hashlib.sha256(supplied).hexdigest(),expected['digest']):return self.reply(401)
+            (root/'ready').write_text(expected['run']);return self.reply(204)
         if not all(self.headers.get('x-atoms-'+k) for k in ('signature','timestamp','nonce','kind')):return self.reply(401)
         try:length=int(self.headers.get('Content-Length','0'))
         except ValueError:return self.reply(400)

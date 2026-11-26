@@ -1,7 +1,7 @@
 """Run the two original Board programs, alternating both arms on one runner."""
 from pathlib import Path
 from contextlib import contextmanager
-import json,os,re,signal,socket,subprocess,time,sys,statistics,urllib.request,urllib.error,datetime
+import base64,hashlib,hmac,json,os,re,signal,socket,subprocess,time,sys,statistics,urllib.request,urllib.error,datetime
 r=Path(__file__).resolve().parent;report=r/'report';report.mkdir(exist_ok=True);demo=Path(os.environ['GITHUB_WORKSPACE'])/'demo';cfg=json.loads((r/'config.json').read_text());secrets={a:os.environ.pop('BENCH_'+a.upper()) for a in cfg};assert len(set(secrets.values()))==2
 @contextmanager
 def server(args,env):
@@ -17,20 +17,19 @@ def get(url,auth=None):
     except urllib.error.HTTPError as e:return e.code,b'',e.headers.get('cf-ray')
 
 def run(cmd,env):subprocess.run(cmd,cwd=demo,env=env,stdout=subprocess.DEVNULL,check=True)
-context='atoms-211/benchmark-'+os.environ['GITHUB_RUN_ID']
-status_url='https://api.github.com/repos/AtomsPHP/atoms/commits/'+os.environ['GITHUB_SHA']+'/status'
-for attempt in range(80):
-    try:
-        status,body,_=get(status_url);states=json.loads(body).get('statuses',[])
-        if any(x['context']==context and x['state']=='success' for x in states):break
-    except (OSError,ValueError):pass
-    time.sleep(15)
-else:raise RuntimeError('Local operator did not acknowledge both matching callback deployments')
+run_id=os.environ['GITHUB_RUN_ID']
+challenge=hmac.new(base64.b64decode(secrets['candidate'],validate=True),('atoms-211/deployment-ready/'+run_id).encode(),hashlib.sha256).digest()
+(r/'expected-gate.json').write_text(json.dumps({'run':run_id,'digest':hashlib.sha256(challenge).hexdigest()}))
+for attempt in range(240):
+    if (r/'ready').is_file() and (r/'ready').read_text()==run_id:break
+    time.sleep(3)
+else:raise RuntimeError('The operator did not confirm deployment')
 for arm in cfg:
     deadline=time.monotonic()+1200
     while time.monotonic()<deadline:
         try:status,body,ray=get(cfg[arm]+'/healthz'); ready=status==200 and json.loads(body).get('ok')==True
         except (OSError,ValueError):ready=False
+        if not ready:(report/'readiness-error.txt').write_text(arm+' status '+str(locals().get('status','connection'))+'\n')
         if ready:break
         time.sleep(5)
     else:raise RuntimeError('Waiting for benchmark deployment timed out: '+arm)
