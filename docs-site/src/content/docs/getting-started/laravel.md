@@ -5,7 +5,7 @@ description: Create, call, migrate, test, and run an Atom locally from a Laravel
 
 ## Play a game of Mancala
 
-Open the [Laravel Mancala demo](https://laravel-mancala-demo-production-jbscam.laravel.cloud/) and select **Start a new game**. Use **Copy game link** to invite a friend, or open the link in a private window for the second seat. Two tabs in the same browser profile share a seat.
+Open the [Laravel Mancala demo](https://mancala.atomsphp.dev/) and select **Start a new game**. Use **Copy game link** to invite a friend, or open the link in a private window for the second seat. Two tabs in the same browser profile share a seat.
 
 When both players have joined, choose a pit on your side. The move goes to `MancalaGame::onMessage()`. It finds your seat, calls `play()` to check the turn and save the board, then broadcasts the move to both players. [Read the PHP move handler](https://github.com/AtomsPHP/laravel-mancala-demo/blob/c9cd08019dee9806d040645840e3d3601e83d8ff/app/Atoms/MancalaGame.php#L100-L140).
 
