@@ -810,6 +810,95 @@ final class AtomsClientTest extends TestCase
         self::assertSame(7, $client->call('Counter', 'reused-1', 'getValue'), 'recreated Atom B must remain intact at value 7');
     }
 
+    public function testDestroyResponseBodyReadFailureAfterCommitMapsToNonRetryableUnknownOutcome(): void
+    {
+        // Stateful in-memory PSR-18 double: commits the first DELETE, recreates
+        // the ID at value 7, and returns HTTP 200 with a PSR-7 body that fails
+        // on first read (simulating a truncated/dropped response stream).
+        $state = new class {
+            public ?int $counterValue = 1;
+            public int $deleteCalls = 0;
+        };
+        $streamCause = new \RuntimeException('connection reset while reading response body');
+
+        $http = new class($state, $streamCause) implements \Psr\Http\Client\ClientInterface {
+            public function __construct(
+                private readonly object $state,
+                private readonly \RuntimeException $cause,
+            ) {}
+
+            public function sendRequest(\Psr\Http\Message\RequestInterface $request): \Psr\Http\Message\ResponseInterface
+            {
+                if ($request->getMethod() === 'DELETE') {
+                    $this->state->deleteCalls++;
+                    $this->state->counterValue = null;
+
+                    if ($this->state->deleteCalls === 1) {
+                        $this->state->counterValue = 7;
+
+                        $failingBody = new \GuzzleHttp\Psr7\FnStream([
+                            '__toString' => function (): string {
+                                throw $this->cause;
+                            },
+                            'getContents' => function (): string {
+                                throw $this->cause;
+                            },
+                        ]);
+
+                        return new \GuzzleHttp\Psr7\Response(
+                            200,
+                            ['Content-Type' => 'application/json'],
+                            $failingBody,
+                        );
+                    }
+
+                    return new \GuzzleHttp\Psr7\Response(200, ['Content-Type' => 'application/json'], '{"destroyed":true}');
+                }
+
+                return new \GuzzleHttp\Psr7\Response(
+                    200,
+                    ['Content-Type' => 'application/json'],
+                    (string) json_encode(['result' => $this->state->counterValue]),
+                );
+            }
+        };
+
+        $sleeps = [];
+        $factory = new HttpFactory();
+        $client = new AtomsClient(
+            AtomsConfig::fromArray([
+                'endpoint' => 'https://atoms.example.workers.dev/',
+                'sharedSecret' => self::SECRET,
+                'maxAttempts' => 5,
+                'backoffBaseMs' => 50,
+                'backoffJitter' => false,
+            ]),
+            $http,
+            $factory,
+            $factory,
+            null,
+            static function (int $ms) use (&$sleeps): void {
+                $sleeps[] = $ms;
+            },
+        );
+
+        try {
+            $client->destroy('Counter', 'reused-body-1');
+            self::fail('expected AtomsRequestFailed');
+        } catch (AtomsRequestFailed $e) {
+            self::assertSame('transport', $e->platformCode);
+            self::assertFalse($e->retryable, 'body-read failure on destroy must be non-retryable');
+            self::assertSame(200, $e->httpStatus);
+            self::assertSame($streamCause, $e->getPrevious(), 'original body-read cause must be preserved');
+            self::assertStringContainsString('outcome unknown', $e->getMessage());
+            self::assertStringContainsString('Counter/reused-body-1', $e->getMessage());
+        }
+
+        self::assertSame(1, $state->deleteCalls, 'only one DELETE may be sent');
+        self::assertSame([], $sleeps);
+        self::assertSame(7, $client->call('Counter', 'reused-body-1', 'getValue'), 'recreated Atom B must remain intact at value 7');
+    }
+
     public function testDestroyNeverAutoRetriesRetryablePlatformErrors(): void
     {
         $cases = [

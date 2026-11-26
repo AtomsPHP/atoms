@@ -1585,9 +1585,11 @@ export class AtomDurableObject extends DurableObject {
 	}
 
 	/**
-	 * Residency info for `GET /debug/:type/:id/info`. Deliberately read-only
-	 * and does not activate: safe on an empty database, never creates tables or
-	 * alarms, and usable to observe an evicted or destroyed residency.
+	 * Residency info for `GET /debug/:type/:id/info`. `info()` itself performs
+	 * no writes and never activates PHP: safe on an empty database, leaves
+	 * absent/deleted/scaffolding IDs with zero tables or alarms, and usable to
+	 * observe evicted or destroyed residencies (cold DO construction persists
+	 * `__atoms_meta.constructions` only when `atom_type` already exists).
 	 *
 	 * @param {string} [type]
 	 * @param {string} [id]

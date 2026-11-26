@@ -942,8 +942,8 @@ test('queued runAlarm() delivered during A teardown with B reuse queued ahead ne
 // 12. Literal reserved-prefix matching in inspectStorage()
 // ---------------------------------------------------------------------------
 
-test('inspectStorage() matches reserved prefixes literally (sqlitecache, acf_users, abminiflareX count as customer data)', async () => {
-	for (const tableName of ['sqlitecache', 'acf_users', 'abminiflareX']) {
+test('inspectStorage() matches reserved prefixes literally and excludes only __miniflare_do_name (sqlitecache, acf_users, abminiflareX, __miniflare_reports count as customer data)', async () => {
+	for (const tableName of ['sqlitecache', 'acf_users', 'abminiflareX', '__miniflare_reports']) {
 		const fake = makeFakeCtx();
 		fake.tables.add('__miniflare_do_name');
 		fake.tables.add('_cf_KV');
