@@ -37,11 +37,10 @@ so application and Worker installs are repeatable.
 | Node.js | `>=22.12.0` | Node.js 22, 24 and 26 |
 | Wrangler | `4.165.0` | Wrangler 4.165.0 |
 
-Host PHP runs your application and CLI. The Worker release supplies its own
-PHP 8.3 interpreter compiled to WebAssembly.
-Atom classes, Support code, shared code included in the bundle, migrations,
-and bundled dependencies must use PHP 8.3-compatible syntax,
-even when the application host uses a newer PHP version.
+Host PHP runs your application and CLI. The Worker supports PHP 8.3, 8.4 and 8.5.
+The top-level `php` field in `atoms.json` selects the interpreter for all Atoms
+in the project. Its default is `"8.3"`. Atom classes, Support
+code, bundled shared code, migrations and dependencies run on that interpreter.
 
 ## Worker PHP extensions
 
@@ -50,6 +49,8 @@ extensions. `atoms build` uses their versions when Composer resolves dependencie
 in `atoms-composer.json`.
 
 `bcmath`, `calendar`, `core`, `ctype`, `curl`, `date`, `dom`, `exif`, `fileinfo`, `filter`, `gd`, `hash`, `iconv`, `json`, `libxml`, `mbstring`, `openssl`, `pcre`, `pdo`, `pdo_sqlite`, `phar`, `random`, `reflection`, `session`, `simplexml`, `soap`, `spl`, `sqlite3`, `standard`, `tokenizer`, `xml`, `xmlreader`, `xmlwriter`, `zend opcache`, `zip`, `zlib`.
+
+PHP 8.5 also includes `lexbor`, `uri`.
 
 Composer includes `core` and `standard` in the `php` package. To require
 `zend opcache`, use `ext-zend-opcache`.

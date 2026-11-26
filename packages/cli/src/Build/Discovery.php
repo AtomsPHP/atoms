@@ -48,7 +48,7 @@ final class Discovery
             try {
                 $file = $this->parser->parse($absolute, $relative);
             } catch (Error $error) {
-                $violations[] = TargetSyntax::parseFailure($relative, $error);
+                $violations[] = TargetSyntax::parseFailure($relative, $error, $config->phpPlatform()->version);
                 continue;
             }
             $fileClasses = [];

@@ -7,10 +7,12 @@ description: Write Atom classes, Methods, jobs, shared payloads, and SQLite migr
 
 ## Worker and application code
 
-An `Atoms\Atom` subclass runs in the Worker's PHP 8.3 runtime. It can use
+An `Atoms\Atom` subclass runs on the guest PHP version selected by `php` in
+`atoms.json`. Choose `8.3` (the default), `8.4`, or `8.5`. Atom code can use
 `atoms/core`, other Atom-side classes under the Atoms path, dependencies in
 `atoms-composer.json`, and PHP functions available in the runtime. Keep models,
-framework classes, facades, and framework helpers in the application.
+framework classes, facades, and framework helpers in the application. Shared
+classes must also run on the application’s PHP version.
 
 `AtomMethods` and `AtomJob` subclasses run in the application. The build checks
 their signatures. Call a Methods method with `$this->app()->getPlayer($id)`.

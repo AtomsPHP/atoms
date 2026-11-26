@@ -209,7 +209,12 @@ try {
 	writeFileSync(manifestPath, `${JSON.stringify(baseManifest)}\n`);
 	run('node', [join(target, 'scripts', 'bundle-from-cli.mjs'), bundle, manifestPath, workerBundle]);
 	assert.ok(existsSync(workerBundle), 'a release-matched bundle should stage');
+	// Older prebuilt manifests may omit the guest minor.
+	const legacyManifest = { ...baseManifest, toolchain: { core_version: release.version } };
+	writeFileSync(manifestPath, JSON.stringify(legacyManifest));
+	run('node', [join(target, 'scripts', 'bundle-from-cli.mjs'), bundle, manifestPath, workerBundle]);
 	const emittedBundle = readFileSync(workerBundle, 'utf8');
+	assert.match(emittedBundle, /\.php-wasm\/php_8_3\.js/, 'legacy bundles must retain PHP 8.3');
 	assert.ok(emittedBundle.includes('"/atoms/core/src/Atom.php"'), 'scaffolded bundle must embed atoms/core from template php/atoms-core/');
 	assert.ok(emittedBundle.includes('"/atoms/core/resources/errors.json"'), 'scaffolded bundle must embed errors.json from template php/atoms-core/');
 	assert.ok(!emittedBundle.includes('SqliteDatabase.php'), 'scaffolded bundle must omit Sqlite/SqliteDatabase.php');
@@ -221,27 +226,37 @@ try {
 	// with the same tool wrangler uses and fail on any unresolved import.
 	const esbuild = join(workerRoot, 'node_modules', '.bin', 'esbuild');
 	assert.ok(existsSync(esbuild), 'the resolution gate needs esbuild: run `npm ci` in cloudflare/worker');
-	// `npm ci` runs prepare-runtime.mjs, which stages the php-wasm artifact from
-	// npm into .php-wasm/. Stub it: this gate measures the package's own module
-	// graph, and the staged runtime is neither packaged nor redistributable.
-	mkdirSync(join(target, '.php-wasm', '8_3_32'), { recursive: true });
-	writeFileSync(join(target, '.php-wasm', 'php_8_3.js'), 'export const dependencyFilename = null;\n');
-	writeFileSync(join(target, '.php-wasm', '8_3_32', 'php_8_3.wasm'), '');
-	const resolution = run(esbuild, [
-		join(target, 'src', 'index.js'),
-		'--bundle',
-		'--format=esm',
-		'--platform=neutral',
-		'--packages=external',
-		'--loader:.wasm=binary',
-		`--outfile=${join(temporaryRoot, 'resolution-check.js')}`,
-	], { expectFailure: true });
-	assert.equal(
-		resolution.status,
-		0,
-		`the scaffolded worker's module graph does not resolve — a module imported by shipped `
-			+ `code is missing from the package:\n${resolution.stderr}`,
-	);
+	// Use the dependencies already installed by CI. Run the scaffold's own staging
+	// and bundling scripts, then inspect the module graph Wrangler will receive.
+	symlinkSync(join(workerRoot, 'node_modules'), join(target, 'node_modules'), 'dir');
+	run('node', [join(target, 'scripts', 'prepare-runtime.mjs')]);
+	const metafile = join(temporaryRoot, 'resolution.json');
+	for (const php of release.runtime.guest_php_tested) {
+		const manifest = { ...baseManifest, toolchain: { ...baseManifest.toolchain, php } };
+		writeFileSync(manifestPath, JSON.stringify(manifest));
+		run('node', [join(target, 'scripts', 'bundle-from-cli.mjs'), bundle, manifestPath, workerBundle]);
+		run(esbuild, [
+			join(target, 'src', 'index.js'),
+			'--bundle',
+			'--format=esm',
+			'--platform=neutral',
+			'--packages=external',
+			'--loader:.wasm=file',
+			`--metafile=${metafile}`,
+			`--outfile=${join(temporaryRoot, 'resolution-check.js')}`,
+		]);
+		const { inputs } = JSON.parse(readFileSync(metafile, 'utf8'));
+		const wasm = Object.keys(inputs).filter(path => path.endsWith('.wasm'));
+		assert.equal(wasm.length, 1, `PHP ${php} must bundle one interpreter: ${wasm.join(', ')}`);
+		assert.ok(wasm[0].endsWith(`/php_${php.replace('.', '_')}.wasm`), `PHP ${php} linked ${wasm[0]}`);
+	}
+
+	const workingBundle = readFileSync(workerBundle, 'utf8');
+	writeFileSync(manifestPath, JSON.stringify({ ...baseManifest, toolchain: { ...baseManifest.toolchain, php: '9.0' } }));
+	const unsupported = run('node', [join(target, 'scripts', 'bundle-from-cli.mjs'), bundle, manifestPath, workerBundle], { expectFailure: true });
+	assert.notEqual(unsupported.status, 0);
+	assert.match(unsupported.stderr, /Unsupported Worker PHP version.*9\.0/);
+	assert.equal(readFileSync(workerBundle, 'utf8'), workingBundle, 'invalid target must preserve the prior bundle');
 
 	rmSync(workerBundle);
 	writeFileSync(

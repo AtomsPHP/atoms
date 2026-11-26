@@ -21,6 +21,7 @@
  *
  * Config via env:
  *   ATOMS_BASE_URL (required)
+ *   ATOMS_TEST_GUEST_PHP (selected guest minor, default 8.3; check 26 verifies the exact patch)
  *   ATOMS_SHARED_SECRET (base64, exactly 32 bytes once decoded; defaults to
  *     the value recorded in test/.dev-secret.json by `npm run dev:callback`)
  *   ATOMS_BEARER_TOKEN (the derived bearer, for runs that hold no root)
@@ -79,9 +80,11 @@ import { dirname, join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { renderMatrixDoc } from '../scripts/gen-pdo-matrix.mjs';
+import { phpRuntime } from '../scripts/lib/php-runtimes.mjs';
 import { isRequired, recordMissingLeg } from './required-capabilities.mjs';
 
 const BASE_URL = process.env.ATOMS_BASE_URL;
+const GUEST_PHP = process.env.ATOMS_TEST_GUEST_PHP ?? '8.3';
 const EVICTION_WAIT_MS = parseInt(process.env.ATOMS_EVICTION_WAIT_MS || '12500');
 const TURN_DEADLINE_MS = process.env.ATOMS_TURN_DEADLINE_MS ? parseInt(process.env.ATOMS_TURN_DEADLINE_MS, 10) : null;
 // Must match the values the Worker was started with (never defaulted here,
@@ -3191,8 +3194,9 @@ check(26, 'pdo surface tripwire', async ({ num: checkNum, name }) => {
         problems.push('members_checked is empty (the audit enumerated nothing)');
     }
 
-    if (typeof result.php !== 'string' || !result.php.startsWith('8.3.')) {
-        problems.push(`php=${JSON.stringify(result.php)} (expected to start with "8.3.")`);
+    const expectedPhp = phpRuntime(GUEST_PHP).version;
+    if (result.php !== expectedPhp) {
+        problems.push(`php=${JSON.stringify(result.php)} (expected pinned ${expectedPhp})`);
     }
 
     // Every allowlist entry must have run its assertion and passed.
@@ -3290,7 +3294,7 @@ check(28, 'pdo differential matrix', async ({ num: checkNum, name }) => {
         fail(checkNum, name, `could not read/parse ${pinPath}: ${err.message}`);
         return;
     }
-    const pins = pinFile.cases || {};
+    const pins = { ...pinFile.cases, ...pinFile.overrides?.[GUEST_PHP] };
 
     let groupsRes;
     try {

@@ -8,9 +8,9 @@ package and this document disagree, the package is wrong.
 - Vendor prefix: **`atoms/*`** — `atoms/core`, `atoms/client`, `atoms/laravel`,
   `atoms/symfony`, `atoms/testing`, `atoms/phpstan-rules`, `atoms/cli`,
   `atoms/database-illuminate`.
-- PHP baseline: **`^8.3`**. No 8.4-only features (no property hooks, no
-  asymmetric visibility) anywhere — `atoms/core` executes inside the platform's
-  PHP 8.3 runtime image.
+- PHP baseline: **`^8.3`**. All packages and the shared Worker bootstrap must
+  run on PHP 8.3. Customer Atom code can use the PHP version selected in
+  `atoms.json`. Code that also runs in the application must support its host PHP.
 - All packages: `declare(strict_types=1);`, final classes unless the class is
   explicitly designed for extension (`Atom`, `AtomMethods`, `AtomJob`).
 - Monorepo package versions and inter-package constraints are coordinated from

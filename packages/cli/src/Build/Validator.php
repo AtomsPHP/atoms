@@ -43,7 +43,8 @@ final class Validator
         $violations = [...$violations, ...$migrations->violations()];
 
         $bundleFiles = BundleFileSet::collect($config, $discovered);
-        $functions = new FunctionIndex();
+        $platform = $config->phpPlatform();
+        $functions = new FunctionIndex(new TargetSyntax($platform->version));
         /** @var array<string, list<\PhpParser\Node>> $fileAsts */
         $fileAsts = [];
         foreach ($bundleFiles->files as $file) {
@@ -65,7 +66,8 @@ final class Validator
             if ($resolveVendor !== null && !$hasEarlierErrors) {
                 $vendor = $resolveVendor($composer);
             } else {
-                $vendor = (new VendorStage(new SymfonyProcessRunner()))->cached($config->rootDir);
+                $stage = new VendorStage(new SymfonyProcessRunner(), $platform->version, $platform->extensionsFile);
+                $vendor = $stage->cached($config->rootDir);
             }
             if ($vendor !== null) {
                 $violations = [...$violations, ...$functions->addVendorEntries($vendor->entries, $vendor->autoloadFiles)];
@@ -73,7 +75,13 @@ final class Validator
         }
 
         // Stages 2–3: closure walk + symbol classification.
-        $classifier = new SymbolClassifier($discovered, $allowed, $composer->approvedNamespaces($allowed), functions: $functions);
+        $classifier = new SymbolClassifier(
+            $discovered,
+            $allowed,
+            $composer->approvedNamespaces($allowed),
+            functions: $functions,
+            platform: $platform,
+        );
         $violations = [...$violations, ...(new ClosureWalker($discovered, $classifier, $fileAsts))->walk()];
 
         // Stage 6: manifest.

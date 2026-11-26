@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Atoms\Cli\Build;
 
 use Atoms\Cli\Config\AllowedPackages;
+use Atoms\Cli\Config\WorkerPhpPlatform;
 use Atoms\Errors\ErrorCode;
 
 /**
@@ -47,11 +48,12 @@ final class SymbolClassifier
         array $approvedNamespaces,
         ?string $extensionsResource = null,
         ?FunctionIndex $functions = null,
+        private readonly ?WorkerPhpPlatform $platform = null,
     ) {
         $this->approvedNamespaces = $approvedNamespaces;
-        $this->extensionInventory = self::loadExtensions($extensionsResource);
+        $this->extensionInventory = self::loadExtensions($extensionsResource ?? $platform?->extensionsFile);
         $this->functions = $functions ?? new FunctionIndex();
-        $path = __DIR__ . '/../../resources/runtime-functions.json';
+        $path = $platform->functionsFile ?? __DIR__ . '/../../resources/runtime-functions.json';
         $raw = @file_get_contents($path);
         if ($raw === false) {
             throw new \RuntimeException("Could not read runtime-functions.json at {$path}");
@@ -153,7 +155,7 @@ final class SymbolClassifier
 
         return new Violation(ErrorCode::UnavailableWorkerFunction, $file, $line, [
             'symbol' => $name,
-            'target' => TargetSyntax::PHP_VERSION,
+            'target' => $this->platform->version ?? TargetSyntax::PHP_VERSION,
         ], $name);
     }
 

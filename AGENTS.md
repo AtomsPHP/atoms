@@ -12,7 +12,7 @@ Cloudflare Worker runtime their Atoms actually execute inside.
 
 An **Atom** is a persistent PHP object with its own SQLite database. The
 framework packages let a Laravel or Symfony monolith call one like a local
-object; the Worker hosts it as a PHP 8.3 interpreter compiled to WebAssembly,
+object; the Worker hosts it in a PHP 8.3, 8.4, or 8.5 interpreter compiled to WebAssembly,
 parked inside a SQLite-backed Durable Object.
 
 | Directory | What it is | Guidance |
@@ -94,8 +94,9 @@ convenient it looks.
 ## Hard rules — `cloudflare/`
 
 - **The php-wasm runtime binary is never committed.** `npm ci` fetches it from
-  `@php-wasm/web-8-3`, and `scripts/prepare-runtime.mjs` stages it into a
-  gitignored `worker/.php-wasm/` after verifying the upstream size and SHA-256
+  Playground's pinned `@php-wasm/web-8-*` packages.
+  `scripts/prepare-runtime.mjs` stages each into the gitignored
+  `worker/.php-wasm/` after verifying the upstream size and SHA-256
   of both the wasm and the JS glue. It is a large generated upstream artifact,
   not repository source. Never soften or skip the hash check either — a
   mismatch is a real finding, not CI noise.

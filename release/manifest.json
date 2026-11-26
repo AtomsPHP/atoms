@@ -13,7 +13,12 @@
             "26"
         ],
         "wrangler": "4.165.0",
-        "guest_php": "8.3"
+        "guest_php": "8.3",
+        "guest_php_tested": [
+            "8.3",
+            "8.4",
+            "8.5"
+        ]
     },
     "php": {
         "constraint": "^8.3",

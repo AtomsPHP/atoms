@@ -42,19 +42,10 @@ final class Allowlist
                 'kind' => 'property',
                 'parent' => \PDOStatement::class,
                 'member' => 'queryString',
-                'why' => 'It is the only public property on either parent (measured: \\PDO has none, '
-                    . '\\PDOStatement has exactly one, non-readonly). PHP 8.3 has no property hooks, so a '
-                    . 'subclass cannot intercept reads; the only available guarantee is that we assign it. '
-                    . 'The CONSTRUCTOR\'s own first write, to a '
-                    . 'property PHP has never seen written before, succeeds unconditionally. What was measured '
-                    . 'on 8.4 desktop but is NOT what this build\'s own in-guest harness (Comparator, checks '
-                    . '27-28) observes is a difference in POST-CONSTRUCTION EXTERNAL reassignment: on THIS '
-                    . 'php-wasm 8.3 build, a second write from OUTSIDE the class is refused on BOTH sides '
-                    . '(`stmt.queryString.is_writable` observes `match`, not the deviation the 8.4 desktop '
-                    . 'measurement predicted). The assertion below checks only what this allowlist entry can '
-                    . 'promise universally — that the constructor\'s own write is set — never the '
-                    . 'external-reassignment behaviour, which is the differential matrix\'s job, not the '
-                    . 'tripwire\'s.',
+                'why' => 'PDOStatement owns the public queryString property. The managed statement '
+                    . 'sets it to the original SQL in its constructor. This assertion checks that value, '
+                    . 'including named placeholders. The differential case stmt.queryString.is_writable '
+                    . 'checks external reassignment on each guest.',
                 'assert' => static function (array $ctx): ?string {
                     $pdo = $ctx['pdo'];
                     $stmt = $pdo->prepare('SELECT 1 AS one');

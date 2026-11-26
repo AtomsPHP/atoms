@@ -301,6 +301,7 @@ rather than asserting a wrong cap fired.
 
 Environment variables:
 
+- `ATOMS_TEST_GUEST_PHP` — guest minor selected when building the fixture (default `8.3`). Check 26 reads `PHP_VERSION` inside the running Worker and compares it with the patch pinned for that minor.
 - `ATOMS_BASE_URL` (required) — URL of the running worker, e.g. `http://localhost:8787`
 - `ATOMS_SHARED_SECRET` (optional) — the root, base64, exactly 32 bytes once decoded. The full-capability form: the runner derives its bearer, issues tickets locally (the Worker no longer mints them), and verifies callbacks. Defaults to the value in `test/.dev-secret.json`
 - `ATOMS_BEARER_TOKEN` (optional) — the derived bearer (what `atoms token` prints), for a run that must not carry the root. Used verbatim
@@ -377,7 +378,16 @@ cd cloudflare/worker
 node scripts/build-bundle.mjs fixtures/counter src/bundle.generated.js
 ```
 
-This generates `src/bundle.generated.js`, which the worker loads on startup; never commit it.
+The third argument selects a guest minor for the conformance fixture. For example, to run the PHP 8.4 checks with callbacks:
+
+```bash
+node scripts/build-bundle.mjs fixtures/counter src/bundle.generated.js 8.4
+node scripts/dev-with-callback.mjs --port 8787
+# In another terminal:
+ATOMS_BASE_URL=http://127.0.0.1:8787 ATOMS_TEST_GUEST_PHP=8.4 npm test
+```
+
+The Worker loads the generated module on startup. Keep it out of Git.
 
 ## Regenerating the PDO Compatibility Doc
 

@@ -17,6 +17,8 @@ final class RuntimeVersion
 
     public const CORE_VERSION = '0.10.0';
 
+    public const GUEST_PHP = ['8.3', '8.4', '8.5'];
+
     /** The committed Worker directory, relative to atoms.json. */
     public const WORKER_DIR = 'atoms-worker';
 

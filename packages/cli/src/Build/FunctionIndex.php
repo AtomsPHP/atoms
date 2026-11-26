@@ -39,7 +39,7 @@ final class FunctionIndex
         try {
             $ast = array_values($traverser->traverse($ast));
         } catch (Error $error) {
-            return TargetSyntax::parseFailure($path, $error);
+            return TargetSyntax::parseFailure($path, $error, $this->syntax->version);
         }
 
         foreach ((new NodeFinder())->findInstanceOf($ast, Stmt\Function_::class) as $function) {

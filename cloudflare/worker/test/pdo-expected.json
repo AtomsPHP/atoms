@@ -1,5 +1,5 @@
 {
-  "$comment": "Pinned non-match/non-informational classifications for the PDO differential matrix. Entries may only be REMOVED (a gap filled) or have their class changed by a deliberate edit reviewed alongside the code change. Adding an entry documents a limitation and requires `why` (>= 40 chars) to explain WHY it currently refuses/differs and, where applicable, what a customer should do instead. Populated from a real conformance run (check 28) against cloudflare/worker/fixtures/counter/app/Probe.php on php-wasm PHP 8.3.32 — see cloudflare/worker/scripts/gen-pdo-matrix.mjs (a later step) for how this becomes cloudflare/docs/pdo-compatibility.md.",
+  "$comment": "Pinned non-match/non-informational classifications for the PDO differential matrix. Entries may only be REMOVED (a gap filled) or have their class changed by a deliberate edit reviewed alongside the code change. Adding an entry documents a limitation and requires `why` (>= 40 chars) to explain WHY it currently refuses/differs and, where applicable, what a customer should do instead. Check 28 compares Probe.php against native PDO SQLite on each pinned guest. The cases map contains the shared expectations. The overrides map records measured changes for individual PHP minors. Check 30 compares the rendered report with cloudflare/docs/pdo-compatibility.md.",
   "cases": {
     "bind.execute_array.types": {
       "class": "deviation",
@@ -187,7 +187,7 @@
     },
     "pdo.quote.nul_byte": {
       "class": "refused_by_us",
-      "why": "quote(\"a\\0b\") now THROWS a \\PDOException on our side (quote() always quotes and ignores $type, EXCEPT this one case); real pdo_sqlite silently TRUNCATES the value at the NUL byte and returns \"'a'\" (measured). This is a deliberate posture, not a gap: silently truncating a value is the one thing this surface must not do, so ours refuses loudly rather than reproducing the truncation — encode NUL-bearing data (e.g. base64) before quoting it."
+      "why": "On PHP 8.3 and 8.4 native PDO SQLite truncates the string at its first NUL byte. The Atoms handle raises PDOException. Encode NUL-bearing values before quoting them."
     },
     "pdo.quote.param_bool": {
       "class": "refused_by_both",
@@ -227,7 +227,7 @@
     },
     "stmt.set_attribute": {
       "class": "refused_by_both",
-      "why": "Both sides refuse PDOStatement::setAttribute() with the SAME SQLSTATE now, for the same reason as getAttribute(): real answers SQLSTATE[IM001] (measured) and ours throws AtomsNotSupported constructed with 'IM001' — refused_by_both with a matching triple, not merely a matching family."
+      "why": "On PHP 8.3 and 8.4 native PDO SQLite and the Atoms handle both raise SQLSTATE IM001 when setting ATTR_CURSOR on a statement."
     },
     "stmt.sqlite_create_aggregate": {
       "class": "refused_by_us",
@@ -284,6 +284,18 @@
     "mode.conn.default_into": {
       "class": "refused_by_us",
       "why": "Native accepts this mode as a connection-level default; our shim does not list it in FetchMode::supported() and refuses the default loudly. The statement-level path is implemented and matches native. Widening supported() is a deliberate follow-up."
+    }
+  },
+  "overrides": {
+    "8.5": {
+      "pdo.quote.nul_byte": {
+        "class": "refused_by_both",
+        "why": "On PHP 8.5 both the Atoms handle and native PDO SQLite throw PDOException for a string containing a NUL byte."
+      },
+      "stmt.set_attribute": {
+        "class": "refused_by_us",
+        "why": "On PHP 8.5 native PDO SQLite returns false for ATTR_CURSOR on a statement. The Atoms handle raises AtomsNotSupported with SQLSTATE IM001 because the Durable Object exposes no configurable statement cursor."
+      }
     }
   }
 }

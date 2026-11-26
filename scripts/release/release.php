@@ -567,6 +567,10 @@ function validateManifest(array $manifest): array
     }
     try {
         $hostPhp = hostPhpVersions($manifest);
+        $guestPhp = phpVersionList($manifest['runtime']['guest_php_tested'] ?? null, 'runtime.guest_php_tested');
+        if (!in_array($manifest['runtime']['guest_php'] ?? null, $guestPhp, true)) {
+            $errors[] = 'runtime.guest_php_tested must include the default guest';
+        }
         if (!in_array($manifest['runtime']['guest_php'] ?? null, $hostPhp, true)) {
             $errors[] = 'php.tested must include runtime.guest_php to retain baseline coverage';
         }
@@ -633,12 +637,27 @@ function renderCompatibility(string $root, array $manifest): string
             . formatMajors(array_map(static fn (string $v): string => 'PHP ' . $v, $entry['php'])) . ' |',
         $compatibility['ci'],
     ));
-    $inventory = readJson("{$root}/packages/cli/resources/runtime-extensions.json");
-    $extensionNames = array_keys(arrayValue($inventory, 'extensions'));
-    $workerExtensions = implode(', ', array_map(static fn (string $name): string => "`{$name}`", $extensionNames));
+    $extensionsByGuest = [];
+    foreach ($runtime['guest_php_tested'] as $series) {
+        $suffix = $series === $runtime['guest_php'] ? '' : "-{$series}";
+        $inventory = readJson("{$root}/packages/cli/resources/runtime-extensions{$suffix}.json");
+        $extensionsByGuest[$series] = array_keys(arrayValue($inventory, 'extensions'));
+    }
+    $commonExtensions = array_intersect(...array_values($extensionsByGuest));
+    $formatExtensions = static fn (array $names): string => implode(', ', array_map(
+        static fn (string $name): string => "`{$name}`", $names,
+    ));
+    $workerExtensions = $formatExtensions($commonExtensions) . '.';
+    foreach ($extensionsByGuest as $series => $names) {
+        $additional = array_diff($names, $commonExtensions);
+        if ($additional !== []) {
+            $workerExtensions .= "\n\nPHP {$series} also includes " . $formatExtensions($additional) . '.';
+        }
+    }
     [$major, $minor] = explode('.', $version, 3);
     $releaseLine = "{$major}.{$minor}";
     $testedNode = formatMajors($runtime['node_tested']);
+    $guestPhp = formatMajors($runtime['guest_php_tested']);
 
     return <<<MARKDOWN
 ---
@@ -680,11 +699,10 @@ so application and Worker installs are repeatable.
 | Node.js | `>={$runtime['node']}` | Node.js {$testedNode} |
 | Wrangler | `{$runtime['wrangler']}` | Wrangler {$runtime['wrangler']} |
 
-Host PHP runs your application and CLI. The Worker release supplies its own
-PHP {$runtime['guest_php']} interpreter compiled to WebAssembly.
-Atom classes, Support code, shared code included in the bundle, migrations,
-and bundled dependencies must use PHP {$runtime['guest_php']}-compatible syntax,
-even when the application host uses a newer PHP version.
+Host PHP runs your application and CLI. The Worker supports PHP {$guestPhp}.
+The top-level `php` field in `atoms.json` selects the interpreter for all Atoms
+in the project. Its default is `"{$runtime['guest_php']}"`. Atom classes, Support
+code, bundled shared code, migrations and dependencies run on that interpreter.
 
 ## Worker PHP extensions
 
@@ -692,7 +710,7 @@ even when the application host uses a newer PHP version.
 extensions. `atoms build` uses their versions when Composer resolves dependencies
 in `atoms-composer.json`.
 
-{$workerExtensions}.
+{$workerExtensions}
 
 Composer includes `core` and `standard` in the `php` package. To require
 `zend opcache`, use `ext-zend-opcache`.
@@ -867,11 +885,16 @@ function compatibilityBlocks(string $root, array $manifest): array
 /** @param array<string, mixed> $manifest @return list<string> */
 function hostPhpVersions(array $manifest): array
 {
-    $versions = arrayValue($manifest, 'php')['tested'] ?? null;
+    return phpVersionList(arrayValue($manifest, 'php')['tested'] ?? null, 'php.tested');
+}
+
+/** @return list<string> */
+function phpVersionList(mixed $versions, string $field): array
+{
     if (!is_array($versions) || !array_is_list($versions) || $versions === []
         || array_filter($versions, static fn ($v): bool => !is_string($v) || !preg_match('/^[0-9]+\.[0-9]+$/', $v))
         || count(array_unique($versions)) !== count($versions)) {
-        throw new RuntimeException('php.tested must be a non-empty list of unique PHP major.minor versions');
+        throw new RuntimeException("{$field} must be a non-empty list of unique PHP major.minor versions");
     }
 
     return $versions;
@@ -906,6 +929,10 @@ function renderRuntimeVersion(array $manifest): string
     $runtime = arrayValue($manifest, 'runtime');
     $package = stringValue($runtime, 'package');
     $runtimeVersion = stringValue($runtime, 'version');
+    $guestPhp = implode(', ', array_map(
+        static fn (string $v): string => var_export($v, true),
+        phpVersionList($runtime['guest_php_tested'] ?? null, 'runtime.guest_php_tested'),
+    ));
 
     return <<<PHP
 <?php
@@ -926,6 +953,8 @@ final class RuntimeVersion
     public const VERSION = '{$runtimeVersion}';
 
     public const CORE_VERSION = '{$version}';
+
+    public const GUEST_PHP = [{$guestPhp}];
 
     /** The committed Worker directory, relative to atoms.json. */
     public const WORKER_DIR = 'atoms-worker';

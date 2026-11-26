@@ -924,7 +924,7 @@ export class AtomDurableObject extends DurableObject {
 		this.identity = { type, id };
 		this.incarnation = incarnation;
 
-		const php = await bootPHP({
+		const php = await bootPHP(bundle.asyncifyLoader, {
 			onSync: (msg) => this.bridge.handleSync(msg),
 			onPark: (msg, reply) => this.handlePark(msg, reply),
 		});

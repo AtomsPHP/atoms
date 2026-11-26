@@ -16,8 +16,10 @@ cd .. && git add atoms-worker
 
 `atoms init` prints this command with the version that matches your Atoms
 packages. `init` refuses a non-empty directory. `npm ci` fetches the exact
-php-wasm dependency in the committed lockfile, verifies its size and SHA-256,
-and stages it in the gitignored `.php-wasm/` directory.
+php-wasm packages in the committed lockfile, verifies each binary and its
+JavaScript glue, and stages them in the gitignored `.php-wasm/` directory.
+Set the top-level `php` field in `atoms.json` to `"8.3"` (default), `"8.4"`
+or `"8.5"`. `atoms dev` and `atoms deploy` bundle the selected interpreter.
 
 `atoms-worker/` beside `atoms.json` is where the Atoms CLI and the deploy
 Action look. Keep it somewhere else if you must, and pass `--worker-dir` to
@@ -84,7 +86,8 @@ npm exec --yes --package=@atomsphp/runtime-cloudflare@@VERSION@ -- \
 cd atoms-worker && npm ci
 ```
 
-Then review `git diff`, and commit. `upgrade` prints how many files it
+Run `atoms dev --env <environment>` once after upgrading to rebuild the staged
+application before using `--no-build`. Then review `git diff`, and commit. `upgrade` prints how many files it
 wrote, which it removed, and which it left alone. If a release needs
 something from your `wrangler.jsonc` — a new compatibility flag, a new
 migration tag — its changelog entry says so. The version check is exact: a

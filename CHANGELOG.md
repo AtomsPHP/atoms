@@ -5,6 +5,10 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+- Set `"php": "8.4"` or `"php": "8.5"` in `atoms.json` to run Atoms on
+  that Playground interpreter. PHP 8.3 remains the default. The CLI uses the
+  selected guest for validation, dependency resolution, and Worker packaging.
+
 ## [0.10.0] - 2026-11-22
 
 - **Changed:** The Worker runtime now pins Wrangler `4.165.0` and requires

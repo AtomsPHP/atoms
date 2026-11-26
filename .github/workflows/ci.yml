@@ -12,7 +12,7 @@ jobs:
   release-metadata:
     runs-on: ubuntu-latest
     outputs:
-      node-versions: ${{ steps.versions.outputs.node-versions }}
+      worker-versions: ${{ steps.versions.outputs.worker-versions }}
       php-versions: ${{ steps.versions.outputs.php-versions }}
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,13 @@ jobs:
       - name: Read versions for the PHP and Worker tests
         id: versions
         run: |
-          jq -r '"node-versions=\(.runtime.node_tested | tojson)", "php-versions=\(.php.tested | tojson)"' release/manifest.json >> "$GITHUB_OUTPUT"
+          jq -r '"php-versions=\(.php.tested | tojson)"' release/manifest.json >> "$GITHUB_OUTPUT"
+          # Run the default guest on every supported Node release, and all guests on the first.
+          jq -rc '.runtime | . as $runtime | [
+            .node_tested[] as $node | .guest_php_tested[] as $php
+            | select($php == $runtime.guest_php or $node == $runtime.node_tested[0])
+            | {node: $node, php: $php}
+          ] | "worker-versions=\(tojson)"' release/manifest.json >> "$GITHUB_OUTPUT"
 
   tests:
     runs-on: ubuntu-latest
@@ -298,7 +304,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ${{ fromJSON(needs.release-metadata.outputs.node-versions) }}
+        include: ${{ fromJSON(needs.release-metadata.outputs.worker-versions) }}
     # Check 12 waits out a real Durable Object eviction (~12.5s), so the suite
     # is minutes, not seconds, and the job restarts the Worker several times (one
     # per configuration). Twelve minutes leaves room for a slow runner while still
@@ -308,6 +314,7 @@ jobs:
       run:
         working-directory: cloudflare/worker
     env:
+      ATOMS_TEST_GUEST_PHP: ${{ matrix.php }}
       CI: 'true'
       # Wrangler asks about telemetry the first time it runs somewhere new;
       # a CI runner is always somewhere new.
@@ -391,8 +398,8 @@ jobs:
       - name: Check CLI runtime inventory against the Worker
         run: node scripts/gen-runtime-functions.mjs --check
 
-      - name: Bundle the fixture app
-        run: npm run bundle
+      - name: Bundle the fixture for the selected PHP interpreter
+        run: npm run bundle -- fixtures/counter src/bundle.generated.js "$ATOMS_TEST_GUEST_PHP"
 
       # One root per run for the whole app <-> Worker boundary
       # (docs/shared-secret.md): 32 random bytes, base64, from which the
@@ -435,7 +442,7 @@ jobs:
           ATOMS_SHARED_SECRET: ${{ env.RUN_SECRET }}
           ATOMS_BEARER_AUTH: disabled
         run: |
-          npm run dev:callback -- --port "$WORKER_PORT" > wrangler.log 2>&1 &
+          node scripts/dev-with-callback.mjs --port "$WORKER_PORT" > wrangler.log 2>&1 &
           echo $! > wrangler.pid
 
       # Poll rather than sleep. Startup here is dominated by workerd compiling

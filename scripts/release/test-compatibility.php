@@ -13,10 +13,9 @@ $paths = ['laravel', 'database-illuminate'];
 foreach ($paths as $path) {
     copy("{$source}/packages/{$path}/composer.json", "{$temp}/packages/{$path}/composer.json");
 }
-copy(
-    "{$source}/packages/cli/resources/runtime-extensions.json",
-    "{$temp}/packages/cli/resources/runtime-extensions.json",
-);
+foreach (glob("{$source}/packages/cli/resources/runtime-extensions*.json") as $inventory) {
+    copy($inventory, "{$temp}/packages/cli/resources/" . basename($inventory));
+}
 $manifest = readJson("{$source}/release/manifest.json");
 
 function expect(bool $condition, string $message): void
@@ -40,11 +39,13 @@ try {
     $changedToolchain['runtime']['node_tested'] = ['24', '26'];
     $changedToolchain['runtime']['wrangler'] = '5.2.1';
     $changedToolchain['runtime']['guest_php'] = '9.0';
+    $changedToolchain['runtime']['guest_php_tested'] = ['9.0', '9.1'];
+    copy("{$temp}/packages/cli/resources/runtime-extensions.json", "{$temp}/packages/cli/resources/runtime-extensions-9.1.json");
     $toolchainPage = renderCompatibility($temp, $changedToolchain);
     expect(str_contains($toolchainPage, '| Host PHP | `^9.0` | PHP 9.1 and PHP 9.2 |'), 'Host PHP constraint and tested versions must come from the manifest');
     expect(str_contains($toolchainPage, '| Node.js | `>=24` | Node.js 24 and 26 |'), 'Node constraint and tested versions must come from the manifest');
     expect(str_contains($toolchainPage, '| Wrangler | `5.2.1` | Wrangler 5.2.1 |'), 'Wrangler pin must come from the manifest');
-    expect(str_contains($toolchainPage, 'PHP 9.0 interpreter compiled to WebAssembly'), 'Guest interpreter version must come from the manifest');
+    expect(str_contains($toolchainPage, 'The Worker supports PHP 9.0 and 9.1.'), 'Guest interpreter version must come from the manifest');
 
     $patchFloorNode = $manifest;
     $patchFloorNode['runtime']['node'] = '22.12.0';
@@ -70,7 +71,7 @@ try {
     expect(validateManifest($expandedPhp) === [], 'Host PHP coverage must be configurable without changing the guest target');
     $expandedPage = renderCompatibility($temp, $expandedPhp);
     expect(str_contains($expandedPage, '| Host PHP | `^8.3` | PHP 8.3, PHP 8.4, PHP 8.5 and PHP 8.6 |'), 'Host table must list all tested PHP versions');
-    expect(str_contains($expandedPage, 'PHP 8.3 interpreter compiled to WebAssembly'), 'Expanding host coverage must leave the guest on PHP 8.3');
+    expect(str_contains($expandedPage, 'The Worker supports PHP 8.3, 8.4 and 8.5.'), 'Guest coverage must be independent of host coverage');
     $expandedMatrix = compatibilityBlocks($temp, $expandedPhp)['.github/workflows/ci.yml'][2];
     expect(str_contains($expandedMatrix, "php-version: ['8.3', '8.4', '8.5', '8.6']"), 'Every tested host PHP version must run in CI');
     foreach ($expandedPhp['laravel']['ci'] as $entry) {
@@ -127,6 +128,11 @@ try {
         $invalidManifest = $expandedPhp;
         $invalidManifest['php'] = array_replace($expandedPhp['php'], $invalidPhp);
         expect(validateManifest($invalidManifest) !== [], 'Invalid host PHP metadata must fail release validation: ' . json_encode($invalidPhp));
+    }
+    foreach ([[], ['8.3', '8.3'], ['8.4', '8.5'], ['8.3', '8.5-dev']] as $invalidGuests) {
+        $invalidManifest = $manifest;
+        $invalidManifest['runtime']['guest_php_tested'] = $invalidGuests;
+        expect(validateManifest($invalidManifest) !== [], 'Invalid guest PHP metadata must fail validation');
     }
     $adapterPath = "{$temp}/packages/laravel/composer.json";
     $adapter = readJson($adapterPath);
@@ -247,7 +253,9 @@ MD;
         unlink("{$temp}/packages/{$path}/composer.json");
         rmdir("{$temp}/packages/{$path}");
     }
-    unlink("{$temp}/packages/cli/resources/runtime-extensions.json");
+    foreach (glob("{$temp}/packages/cli/resources/*.json") as $inventory) {
+        unlink($inventory);
+    }
     rmdir("{$temp}/packages/cli/resources");
     rmdir("{$temp}/packages/cli");
     rmdir("{$temp}/packages");

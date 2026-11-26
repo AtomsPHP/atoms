@@ -237,10 +237,14 @@ is `cloudflare/docs/pdo-compatibility.md` (check 30) — prefer it to any prose
 list, including this one.** What follows is the short list of what stays
 permanently refused, not the whole surface:
 
-- `getColumnMeta()`, `nextRowset()`, `PDOStatement::getAttribute()`/
-  `setAttribute()` — no driver-owned statement handle exists to answer any of
-  these from (the latter three refuse with the same `SQLSTATE[IM001]` real
-  pdo_sqlite itself answers, so they are a genuine `refused_by_both`, not a gap).
+- `getColumnMeta()`, `nextRowset()`, `PDOStatement::getAttribute()` and
+  `setAttribute()` require a driver-owned statement handle. The managed
+  statement raises SQLSTATE `IM001` for the latter three. Native PDO SQLite
+  raises `IM001` for `setAttribute(ATTR_CURSOR, CURSOR_FWDONLY)` on PHP
+  8.3 and 8.4 and returns `false` on 8.5.
+- PHP 8.4 introduced `PDO::connect()`. Use `$this->db()->pdo()` to obtain
+  the current Atom's PDO. Calling `connect()` on the managed handle raises
+  SQLSTATE `0A000`. The native factory creates a separate in-guest connection.
 - Scrollable cursors (`FETCH_ORI_*` other than the default `FETCH_ORI_NEXT`,
   `ATTR_CURSOR => CURSOR_SCROLL`) — real pdo_sqlite has none either (measured:
   it silently *ignores* the orientation on a forward-only cursor rather than
@@ -282,14 +286,10 @@ matrix for exactly what each one does.
 
 Other differences worth knowing, not omissions:
 
-- `PDOStatement::$queryString` is asserted **set** by the reflection
-  tripwire's allowlist (entry A1): the constructor's own first write, to a
-  property PHP has never seen written before, always succeeds (there are no
-  property hooks in 8.3 to intercept it). Measured on THIS 8.3 build: a
-  *second* write from outside the class — after the property already holds a
-  value — is refused, matching a real driver statement's read-only property
-  exactly (`stmt.queryString.is_writable` observes `match`, not the deviation
-  an 8.4 measurement predicted; see the differential matrix).
+- `PDOStatement::$queryString` contains the original prepared SQL, including
+  named placeholders. Check 26 reads it from a fresh managed statement.
+  The differential case `stmt.queryString.is_writable` also verifies that
+  the managed and native statements both reject external reassignment.
 - Statement error state is scoped to the statement that failed, not the
   connection: after a statement's `execute()` fails, that statement's
   `errorCode()`/`errorInfo()` report the failure and the connection's own

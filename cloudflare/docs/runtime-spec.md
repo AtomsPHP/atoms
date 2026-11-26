@@ -24,12 +24,17 @@ never silent no-ops.
 
 ## Runtime artifact
 
-The pinned artifact is `php_8_3.asyncify.{js,wasm}` (WordPress Playground PHP
-8.3 build, 64-bit ints, Asyncify). It is **not in the repository**: `npm ci`
-installs `@php-wasm/web-8-3@3.1.48` and
-`worker/scripts/prepare-runtime.mjs` stages both files into a gitignored
-`worker/.php-wasm/`, verifying their upstream sizes and SHA-256 digests and
-applying the one required patch `Module['Asyncify'] = Asyncify;` to the glue.
+The Worker supports the WordPress Playground 3.1.48 Asyncify builds of
+PHP 8.3.32, 8.4.23 and 8.5.8, all with 64-bit integers. The project's
+`atoms.json` selects the PHP minor and defaults to 8.3. The bundle bridge
+uses the build manifest's `toolchain.php` to import that guest. Each deployed
+Worker contains one interpreter.
+
+`npm ci` installs the pinned `@php-wasm/web-8-3`, `web-8-4` and `web-8-5`
+packages. `worker/scripts/prepare-runtime.mjs` verifies the upstream sizes
+and SHA-256 digests of each Wasm and JavaScript pair before staging it in the
+gitignored `worker/.php-wasm/` and adding `Module['Asyncify'] = Asyncify;`
+to the glue.
 JSPI is not shipped — the transaction seam
 requires synchronous guest re-entry, which only Asyncify provides. Boot uses
 `@php-wasm/universal`'s `loadPHPRuntime` with an `instantiateWasm` hook that
@@ -669,7 +674,7 @@ cloudflare/worker/
     counter/        # fixture "customer app": manifest.json + Atom classes
                     #   + migrations (Counter, Vault, Room, Scheduler,
                     #   Jobs/Notify)
-  .php-wasm/        # php_8_3.asyncify.{js,wasm}  (pinned; staged by
+  .php-wasm/        # Playground Asyncify loaders and Wasm (staged by
                     #   scripts/prepare-runtime.mjs, gitignored, never committed)
   scripts/          # build-bundle.mjs (assemble fixtures into the gitignored
                     #   src/bundle.generated.js), dev-with-callback.mjs
@@ -1052,6 +1057,10 @@ can interrupt in-flight events; it does not undo committed SQLite writes.
   `tx.begin` → `$fn($this)` → `tx.commit`, catching to `tx.rollback` +
   rethrow.
 - `pdo()` returns `Atoms\Cf\AtomsPDO extends \PDO`.
+  On PHP 8.4 and 8.5, calling `AtomsPDO::connect()` throws a `PDOException`
+  with SQLSTATE `0A000`. The managed handle can only access the Atom's database.
+  PHP's native `PDO::connect('sqlite::memory:')` creates a separate in-memory
+  connection in the guest.
   The surface is machine-verified rather than hand-audited: a
   reflection tripwire (conformance check 26) asserts every public member of
   the runtime's own `\PDO`/`\PDOStatement` is genuinely declared on the
@@ -1431,8 +1440,9 @@ implemented in `src/timers.js`'s `TimersHost`.
 ## Bundle format
 
 `scripts/build-bundle.mjs` walks a fixture app directory and emits the
-gitignored, build-generated `src/bundle.generated.js`: `export default {manifest, files}`
-where `files` maps guest paths (`/app/...`, `/atoms/...`) to file contents, and
+gitignored, build-generated `src/bundle.generated.js`: `export default {asyncifyLoader, manifest, files}`
+where `asyncifyLoader` is the statically imported Playground loader,
+`files` maps guest paths (`/app/...`, `/atoms/...`) to file contents, and
 `manifest` is `{"atoms":{"Counter":{"class":"App\\Atoms\\Counter","file":"/app/Counter.php",
 "migrations":["/app/migrations/001_init.sql", ...]}}, "abi":{"php":"8.3"}}`.
 `src/bundle.generated.js` is never committed; in the monorepo it is generated

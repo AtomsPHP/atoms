@@ -8,13 +8,13 @@ a future owned build rather than as archaeology over this one, and pretending
 an incomplete inventory is a complete one would be worse than admitting the
 gap.
 
-The interpreter is fetched from WordPress Playground's npm package at install
+The interpreters are fetched from WordPress Playground's npm packages at install
 time and staged into a gitignored directory. This inventory records component
 identity, upstream license metadata, and provenance.
 
 ## The short version
 
-`cloudflare/worker/` builds against a prebuilt PHP 8.3 WebAssembly interpreter
+`cloudflare/worker/` bundles the selected PHP 8.3, 8.4 or 8.5 WebAssembly interpreter
 compiled by the WordPress Playground project. It contains Playground-authored
 extensions and patches, PHP and Zend portions, libiconv, mbstring code, and
 other components listed below. Each entry reports that component's own
@@ -33,23 +33,14 @@ to this repository; both arrive from npm.
 | Copyright | WordPress Playground contributors |
 | Licence | `GPL-2.0-or-later` — [text](https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt) |
 | Upstream | `WordPress/wordpress-playground`, commit `53d5c3030702e1edb3f82e7dbc308fcac27c3d0a` (`v3.1.48`) |
-| Package | `@php-wasm/web-8-3@3.1.48` |
+| Packages | `@php-wasm/web-8-3`, `@php-wasm/web-8-4`, `@php-wasm/web-8-5`, each at `3.1.48` |
 
-The staged `.wasm` is that package's `asyncify/8_3_32/php_8_3.wasm`,
-unmodified — SHA-256
-`eca478d2bad4cae984cd5b5ec39ce42311fcc4d31cf48fce7293e9a5034f1c98`,
-18,309,089 bytes, checked on every build by
-`worker/scripts/prepare-runtime.mjs`, which refuses to proceed on a mismatch.
-
-The staged glue is that package's `asyncify/php_8_3.js` with exactly one Atoms
-modification, applied by the same script: `Module['Asyncify'] = Asyncify;`,
-which exposes Emscripten's otherwise module-private Asyncify object so the
-host can own the `wakeUp` callback and resume the guest from a chosen JS stack
-frame. The script documents the change at its patch site and fails loudly if
-the anchor moves or upstream starts exposing Asyncify itself.
-
-The preparation script is the record of the one-line glue change and fails
-loudly if the patch anchor moves or upstream begins exposing Asyncify itself.
+The deployed Worker includes one Asyncify Wasm binary and its loader.
+`worker/scripts/prepare-runtime.mjs` checks their sizes and SHA-256 digests.
+It stages the Wasm bytes unchanged and adds `Module['Asyncify'] = Asyncify;`
+to the loader so the host can resume the guest from a synchronous transaction.
+The exact sizes, hashes, package paths, and matching source archive for all
+three builds are recorded in [corresponding source](corresponding-source/README.md).
 
 At runtime the Worker also imports `@php-wasm/universal`, which pulls in
 `@php-wasm/logger`, `@php-wasm/util` and `@php-wasm/stream-compression`. All
@@ -59,7 +50,7 @@ which omits the `license` field but ships the same full GPLv2 text as its
 grant, so `util` is treated here as GPL-2.0-or-later, which is also the
 conservative reading.
 
-Complete corresponding source for the binary: see `corresponding-source/`.
+The component survey below was performed on the PHP 8.3.32 binary.
 
 ### Playground's own C extensions and PHP patch — GPL-2.0-or-later
 
@@ -74,21 +65,21 @@ it is visible in the binary. The strings dump of
 the PHP/WebAssembly runtime contains the module banners
 `post_message_to_js support`, `dns_polyfill support` and
 `wasm_memory_storage support`, which are the three extensions named in
-Playground's compile tree. The patch is `php8.3.patch` in the same tree.
+Playground's compile tree. The version-specific PHP patches are `php8.3.patch`, `php8.4.patch` and
+`php8.5.patch` in the same tree.
 
 | | |
 |---|---|
 | Copyright | WordPress Playground contributors |
 | Licence | `GPL-2.0-or-later` — [text](https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt) |
 
-### PHP 8.3.32 and the Zend Engine — elected to BSD-3-Clause
+### PHP 8.3.32, 8.4.23, 8.5.8 and the Zend Engine — elected to BSD-3-Clause
 
 The interpreter itself, and the engine under it. Confirmed in the binary:
 `X-Powered-By: PHP/8.3.32` and
 `Zend Engine v4.3.32, Copyright (c) Zend Technologies`.
 
-PHP 8.3.32 shipped under PHP License 3.01 and Zend Engine License 2.00, and
-those are the licences in its source tree. Both contain a successor-version
+These releases shipped under PHP License 3.01 and Zend Engine License 2.00. Both contain a successor-version
 clause — PHP License 3.01 §5 and Zend Engine License 2.00 §4 — under which a
 user of already-published covered code "may also choose to use such covered
 code under the terms of any subsequent version of the license published by"

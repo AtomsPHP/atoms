@@ -22,9 +22,9 @@ final class TargetSyntax
 
     private readonly Parser $parser;
 
-    public function __construct()
+    public function __construct(public readonly string $version = self::PHP_VERSION)
     {
-        $this->parser = (new ParserFactory())->createForVersion(PhpVersion::fromString(self::PHP_SERIES));
+        $this->parser = (new ParserFactory())->createForVersion(PhpVersion::fromString($this->version));
     }
 
     public function check(string $source, string $file): ?Violation
@@ -40,53 +40,48 @@ final class TargetSyntax
         try {
             $ast = $this->parser->parse($source) ?? [];
         } catch (Error $error) {
-            return self::parseFailure($file, $error);
+            return self::parseFailure($file, $error, $this->version);
         }
 
-        // PHP-Parser 5.8 accepts some PHP 8.4/8.5 constructs in 8.3 mode.
+        // The parser accepts some constructs introduced after the requested grammar.
         $tokens = $this->parser->getTokens();
-        $newer = (new NodeFinder())->findFirst($ast, static fn (Node $node): bool => self::requiresNewerPhp($node, $tokens));
+        $newer = (new NodeFinder())->findFirst($ast, fn (Node $node): bool =>
+            version_compare(self::minimumVersion($node, $tokens), $this->version, '>'));
         if ($newer !== null) {
-            return self::violation($file, $newer->getStartLine(), 'This syntax requires PHP 8.4 or later.');
+            $minimum = self::minimumVersion($newer, $tokens);
+            return self::violation($file, $newer->getStartLine(), "This syntax requires PHP {$minimum} or later.", $this->version);
         }
 
         return $ast;
     }
 
-    public static function parseFailure(string $file, Error $error): Violation
+    public static function parseFailure(string $file, Error $error, string $version = self::PHP_VERSION): Violation
     {
-        return self::violation($file, $error->getStartLine(), $error->getRawMessage() . '.');
+        return self::violation($file, $error->getStartLine(), $error->getRawMessage() . '.', $version);
     }
 
-    private static function violation(string $file, int $line, string $reason): Violation
+    private static function violation(string $file, int $line, string $reason, string $version): Violation
     {
         return new Violation(ErrorCode::IncompatibleWorkerSyntax, $file, max(1, $line), [
-            'target' => self::PHP_VERSION,
+            'target' => $version,
             'reason' => $reason,
         ]);
     }
 
     /** @param list<Token> $tokens */
-    private static function requiresNewerPhp(Node $node, array $tokens): bool
+    private static function minimumVersion(Node $node, array $tokens): string
     {
-        if ($node instanceof Node\PropertyHook
-            || ($node instanceof Node\Stmt\Const_ && $node->attrGroups !== [])) {
-            return true;
+        if ($node instanceof Node\Expr\BinaryOp\Pipe || $node instanceof Node\Expr\Cast\Void_
+            || ($node instanceof Node\Stmt\Const_ && $node->attrGroups !== [])
+            || ($node instanceof Node\Stmt\Property && $node->isStatic() && ($node->flags & Modifiers::VISIBILITY_SET_MASK))
+            || ($node instanceof Node\Param && ($node->flags & Modifiers::FINAL))) {
+            return '8.5';
         }
-
-        if ($node instanceof Node\Stmt\Property || $node instanceof Node\Param) {
-            $php83Flags = Modifiers::PUBLIC | Modifiers::PROTECTED | Modifiers::PRIVATE
-                | Modifiers::STATIC | Modifiers::READONLY;
-            if (($node->flags & ~$php83Flags) !== 0) {
-                return true;
-            }
-        }
-
         // PHP-Parser gives the PHP 8.3 forms of clone, exit and die their own
         // nodes; unqualified FuncCall forms require PHP 8.4/8.5.
         if ($node instanceof Node\Expr\FuncCall && $node->name instanceof Node\Name && $node->name->isUnqualified()
             && \in_array(strtolower($node->name->toString()), ['clone', 'exit', 'die'], true)) {
-            return true;
+            return strtolower($node->name->toString()) === 'clone' ? '8.5' : '8.4';
         }
         if ($node instanceof Node\Expr\Exit_ && $tokens[$node->getEndTokenPos()]->text === ')') {
             $pos = $node->getEndTokenPos() - 1;
@@ -94,7 +89,7 @@ final class TargetSyntax
                 --$pos;
             }
             if ($pos >= 0 && $tokens[$pos]->text === ',') {
-                return true;
+                return '8.4';
             }
         }
 
@@ -108,7 +103,7 @@ final class TargetSyntax
             default => null,
         };
         if ($receiver instanceof Node\Expr\New_ && $node->getStartFilePos() === $receiver->getStartFilePos()) {
-            return true;
+            return '8.4';
         }
 
         $constant = match (true) {
@@ -121,10 +116,25 @@ final class TargetSyntax
 
         // Casts, closures and first-class callables in constant expressions
         // require PHP 8.5.
-        return $constant !== null && (new NodeFinder())->findFirst($constant, static fn (Node $value): bool =>
+        if ($constant !== null && (new NodeFinder())->findFirst($constant, static fn (Node $value): bool =>
             $value instanceof Node\Expr\Cast
             || $value instanceof Node\Expr\Closure
             || $value instanceof Node\Expr\ArrowFunction
-            || ($value instanceof Node\Expr\CallLike && $value->isFirstClassCallable())) !== null;
+            || ($value instanceof Node\Expr\CallLike && $value->isFirstClassCallable())) !== null) {
+            return '8.5';
+        }
+
+        if ($node instanceof Node\PropertyHook) {
+            return '8.4';
+        }
+        if ($node instanceof Node\Stmt\Property || $node instanceof Node\Param) {
+            $php83Flags = Modifiers::PUBLIC | Modifiers::PROTECTED | Modifiers::PRIVATE
+                | Modifiers::STATIC | Modifiers::READONLY;
+            if (($node->flags & ~$php83Flags) !== 0) {
+                return '8.4';
+            }
+        }
+
+        return '8.3';
     }
 }

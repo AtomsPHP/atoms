@@ -35,8 +35,8 @@ vendor/bin/atoms dev --env staging --callback-url http://127.0.0.1:8000/atoms/ca
 ```
 
 `dev` builds the bundle and starts the Worker. `validate` and `build` check
-bundled PHP code, including PHP migrations, against the Worker's PHP 8.3
-runtime. Methods and Jobs run on your application's PHP version.
+bundled PHP code, including PHP migrations, against the PHP version selected
+in `atoms.json`. Methods and Jobs run on your application's PHP version.
 
 For a direct function call, the CLI looks for a Worker built-in or a
 declaration in a bundled project file or eager vendor `autoload.files` entry.

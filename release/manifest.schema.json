@@ -22,7 +22,7 @@
         "runtime": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["package", "version", "node", "node_tested", "wrangler", "guest_php"],
+            "required": ["package", "version", "node", "node_tested", "wrangler", "guest_php", "guest_php_tested"],
             "properties": {
                 "package": { "const": "@atomsphp/runtime-cloudflare" },
                 "version": { "type": "string" },
@@ -34,7 +34,8 @@
                     "items": { "type": "string", "pattern": "^[1-9][0-9]*$" }
                 },
                 "wrangler": { "type": "string" },
-                "guest_php": { "type": "string" }
+                "guest_php": { "type": "string" },
+                "guest_php_tested": { "$ref": "#/properties/php/properties/tested" }
             }
         },
         "php": {

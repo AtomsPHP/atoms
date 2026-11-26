@@ -1,6 +1,6 @@
 # PDO compatibility for the Atoms Cloudflare runtime
 
-**Generated — do not edit by hand.** Produced by `cloudflare/worker/scripts/gen-pdo-matrix.mjs` from a conformance run's differential report; conformance check 30 fails if this file and a fresh run disagree. Measured on php-wasm PHP 8.3.32, against `ctx.storage.sql`, with a native in-guest `pdo_sqlite` connection as the comparator.
+**Generated — do not edit by hand.** Produced by `cloudflare/worker/scripts/gen-pdo-matrix.mjs` from a conformance run's differential report; conformance check 30 fails if this file and a fresh run disagree. Measured on php-wasm PHP 8.3.32, 8.4.23, 8.5.8, against `ctx.storage.sql`, with a native in-guest `pdo_sqlite` connection as the comparator.
 
 ## How to read this
 
@@ -61,7 +61,7 @@
 |---|---|---|---|
 | `PDO::quote()` | a string containing an apostrophe is doubled, not backslash-escaped | supported |  |
 | `PDO::quote()` | the empty string | supported |  |
-| `PDO::quote()` | quote() on a value containing a NUL byte | refused | quote("a\0b") now THROWS a \PDOException on our side (quote() always quotes and ignores $type, EXCEPT this one case); real pdo_sqlite silently TRUNCATES the value at the NUL byte and returns "'a'" (measured). This is a deliberate posture, not a gap: silently truncating a value is the one thing this surface must not do, so ours refuses loudly rather than reproducing the truncation — encode NUL-bearing data (e.g. base64) before quoting it. |
+| `PDO::quote()` | quote() on a value containing a NUL byte | PHP 8.3/8.4: refused<br>PHP 8.5: refused by both | On PHP 8.3 and 8.4 native PDO SQLite truncates the string at its first NUL byte. The Atoms handle raises PDOException. Encode NUL-bearing values before quoting them.<br>On PHP 8.5 both the Atoms handle and native PDO SQLite throw PDOException for a string containing a NUL byte. |
 | `PDO::quote()` | quote() with PARAM_BOOL | refused by both | AtomsPDO::quote() declares the SAME parameter type real \PDO::quote() does (`string $string, int $type = PARAM_STR`). Under Cases.php's declare(strict_types=1), passing the raw PHP bool `true` for that `string $string` parameter throws \TypeError at the argument boundary on BOTH sides — real's before its own $type-ignoring quote logic ever runs, ours before its always-quote body ever runs. Same mechanism, same family, on both sides: a genuine refused_by_both, not a comparator-only quirk. Coerce to string yourself (e.g. `$b ? '1' : '0'`) before calling quote() if you need a boolean quoted. |
 | `PDO::quote()` | quote() with PARAM_INT | supported |  |
 | `PDO::quote()` | quote() with PARAM_LOB | supported |  |
@@ -258,7 +258,7 @@
 | `PDOStatement::columnCount()` | columnCount() on an intercepted PRAGMA result | supported |  |
 | `PDOStatement::$queryString` | the SQL as prepared, :name placeholders intact (allowlist A1) | supported |  |
 | `PDOStatement::$queryString` | post-construction EXTERNAL reassignment of $queryString, measured on this build: refused on BOTH sides (not a pinned deviation) | supported |  |
-| `PDOStatement::setAttribute()` | setAttribute(ATTR_CURSOR, CURSOR_FWDONLY) on a prepared statement | refused by both | Both sides refuse PDOStatement::setAttribute() with the SAME SQLSTATE now, for the same reason as getAttribute(): real answers SQLSTATE[IM001] (measured) and ours throws AtomsNotSupported constructed with 'IM001' — refused_by_both with a matching triple, not merely a matching family. |
+| `PDOStatement::setAttribute()` | setAttribute(ATTR_CURSOR, CURSOR_FWDONLY) on a prepared statement | PHP 8.3/8.4: refused by both<br>PHP 8.5: refused | On PHP 8.3 and 8.4 native PDO SQLite and the Atoms handle both raise SQLSTATE IM001 when setting ATTR_CURSOR on a statement.<br>On PHP 8.5 native PDO SQLite returns false for ATTR_CURSOR on a statement. The Atoms handle raises AtomsNotSupported with SQLSTATE IM001 because the Durable Object exposes no configurable statement cursor. |
 | `PDO::sqliteCreateAggregate()` | same reasoning as sqlite_create_function | refused | Same permanent reasoning as stmt.sqlite_create_function — an aggregate callback is equally unreachable from the Durable Object's SQL engine. |
 | `PDO::sqliteCreateCollation()` | same reasoning as sqlite_create_function | refused | Same permanent reasoning as stmt.sqlite_create_function — a collation callback is equally unreachable from the Durable Object's SQL engine. |
 | `PDO::sqliteCreateFunction()` | a real sqlite_create_function extension the guest cannot register a callback with | refused | sqliteCreateFunction() throws unconditionally and PERMANENTLY: statements execute in the Durable Object, not in the guest, so a PHP callback registered here could never actually be invoked by the engine running the SQL. Real pdo_sqlite (same process as the SQL engine) supports it natively. |

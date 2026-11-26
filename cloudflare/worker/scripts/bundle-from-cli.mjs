@@ -12,7 +12,7 @@
  *   customer's app and nothing else.
  *
  *   The Worker loads `src/bundle.generated.js`, an ES module exporting
- *   `{manifest, files}`. That is the DEPLOY artifact: it has to be a JS module
+ *   `{asyncifyLoader, manifest, files}`. That is the DEPLOY artifact: it has to be a JS module
  *   because the Worker script is what `wrangler deploy` uploads, and it has to
  *   carry the `Atoms\Cf` runtime and the verbatim `atoms/core` sources
  *   as well — neither of which `atoms build` has any business knowing about.

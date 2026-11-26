@@ -29,6 +29,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { coreSourceEntries } from './lib/bundle-module.mjs';
+import { PHP_RUNTIMES, PLAYGROUND_VERSION, phpRuntime } from './lib/php-runtimes.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const workerRoot = resolve(here, '..');
@@ -176,8 +177,15 @@ export function stageRuntimePackage(stageRoot) {
 	if (release.runtime.package !== '@atomsphp/runtime-cloudflare') {
 		throw new Error(`unexpected runtime package in release manifest: ${release.runtime.package}`);
 	}
-	if (developmentManifest.dependencies['@php-wasm/web-8-3'] !== '3.1.48') {
-		throw new Error('the php-wasm pin moved; update and re-audit prepare-runtime.mjs before packaging');
+	const seriesWithPins = Object.keys(PHP_RUNTIMES);
+	if (JSON.stringify(release.runtime.guest_php_tested) !== JSON.stringify(seriesWithPins)) {
+		throw new Error('release/manifest.json guest_php_tested must match the pinned Playground PHP runtimes');
+	}
+	for (const series of seriesWithPins) {
+		const { packageName } = phpRuntime(series);
+		if (developmentManifest.dependencies[packageName] !== PLAYGROUND_VERSION) {
+			throw new Error(`the ${packageName} pin moved; re-audit its interpreter before packaging`);
+		}
 	}
 	if (developmentManifest.devDependencies.wrangler !== release.runtime.wrangler) {
 		throw new Error('Wrangler differs between cloudflare/worker and release/manifest.json');
