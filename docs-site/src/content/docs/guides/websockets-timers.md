@@ -83,6 +83,63 @@ Ticket claims, such as `client_id` above, are merged over the browser's own
 query parameters, so a browser cannot replace them in the `$params` passed to
 `onConnect()`. A ticket holds at most 16 claims totaling 2048 bytes.
 
+### Reconnecting to a game
+
+Keep the player's seat and the last accepted move in the Atom's database.
+Mint every ticket for this game with a `client_id` from the authenticated
+user or an ID stored in the application's session. A new socket gets a new
+connection ID. In `onConnect()`, look up the seat by `client_id`, associate
+it with the new connection, and send the current game and revision to that
+socket. The [two-player example](https://github.com/AtomsPHP/atoms/tree/main/examples/reconnecting-room)
+shows the migration and handlers. When you create a room, call
+`Atoms::get(Turns::class, $roomId)->start($firstPlayerId, $secondPlayerId)`
+once to assign the two seats. Each player then requests their own ticket for
+that room.
+
+The `atoms/client` Composer package includes a browser module. Import it from
+your application's JavaScript bundle. This example uses a Laravel POST route
+that returns the signed URL above and a page with a CSRF token.
+
+```js title="resources/js/room.js"
+import { reconnectSocket } from '../../vendor/atoms/client/resources/reconnect-socket.mjs';
+
+const stop = reconnectSocket(async (signal) => {
+    const response = await fetch(`/rooms/${encodeURIComponent(roomId)}/socket`, {
+        method: 'POST',
+        headers: {
+            Accept: 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+        },
+        signal,
+    });
+    if ([401, 403, 404, 419].includes(response.status)) {
+        showRoomUnavailable();
+        return null;
+    }
+    if (!response.ok) throw new Error('Could not get a connection ticket');
+    return (await response.json()).url;
+}, (socket) => {
+    socket.addEventListener('message', ({ data }) => {
+        const frame = JSON.parse(data);
+        if (frame.kind === 'welcome') resumeGame(frame.seat, frame.game, socket);
+        if (frame.kind === 'broadcast') updateGame(frame.payload);
+    });
+    socket.addEventListener('close', () => disableMoves());
+});
+```
+
+After a network failure or Worker restart, the helper requests a fresh ticket.
+The delay starts at one second and doubles to a maximum of 15 seconds. Receiving
+a message resets the delay. Normal closure, policy errors, and game-specific
+close codes end the retries. Return `null` from the ticket request to stop after
+a refusal. Call `stop()` when leaving the room to close the socket and cancel a
+pending request or retry.
+
+Enable moves after the welcome frame arrives. Send the displayed revision with
+each move and check it before updating the game. A move may have reached the
+Atom just before the socket closed. The snapshot tells both players which move
+the Atom accepted.
+
 ### Sending and receiving messages
 
 `Connection` exposes `id()`, `send(string $payload)`, `sendJson(array $payload)`, and `close()`.
