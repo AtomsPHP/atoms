@@ -1122,6 +1122,14 @@ can interrupt in-flight events; it does not undo committed SQLite writes.
 - `transaction(callable)` mirrors `SqliteDatabase`'s nesting guard, then
   `tx.begin` → `$fn($this)` → `tx.commit`, catching to `tx.rollback` +
   rethrow.
+- When a statement binds values both by name and by position, it can use
+  `:name` and `?` placeholders together.
+  SQLite numbers them from left to right. Repeated names share their first slot.
+  A numeric key in `execute($params)` starts at zero, while `bindValue()` and
+  `bindParam()` start at one. The guest sends one value per occurrence to the host.
+- `fetchAll(PDO::FETCH_GROUP | PDO::FETCH_NAMED)` groups rows by their first
+  column and returns the remaining columns by name. `PDO::FETCH_UNIQUE` returns
+  one such row per key. Both require distinct column names.
 - `pdo()` returns `Atoms\Cf\AtomsPDO extends \PDO`.
   On PHP 8.4 and 8.5, calling `AtomsPDO::connect()` throws a `PDOException`
   with SQLSTATE `0A000`. The managed handle can only access the Atom's database.

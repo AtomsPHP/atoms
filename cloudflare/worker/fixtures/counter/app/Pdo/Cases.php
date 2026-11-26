@@ -1017,21 +1017,61 @@ final class Cases
                 'PDOStatement::execute()',
                 'a named and a positional placeholder bound in the SAME statement',
                 static function (\PDO $p) {
-                    // Real PDO's ordinal model is deliberately NOT
-                    // implemented here: real PDO executes
-                    // this via SQLite's own shared ordinal sequence (:k is
-                    // ordinal 1, the sole ? is ordinal 2 — the same fact
-                    // debugDumpParams()'s docblock measures for NUMBERING
-                    // purposes only). NamedParams::rewrite() treats a
-                    // bindings array with BOTH an int key and a string key as
-                    // entirely named (isPositional() requires every key be
-                    // int), so the ? placeholder is left unresolved and its
-                    // bound value (keyed 2) is reported as an unused named
-                    // binding — refused, not the ordinal answer.
+                    // The repeated :k shares the first slot. The question mark takes the second.
                     $stmt = $p->prepare('SELECT :k AS k, ? AS v FROM probe_rows WHERE k = :k LIMIT 1');
                     $stmt->bindValue(':k', 'a', \PDO::PARAM_STR);
                     $stmt->bindValue(2, 'positional-val', \PDO::PARAM_STR);
                     $stmt->execute();
+
+                    return $stmt->fetch(\PDO::FETCH_ASSOC);
+                }
+            ),
+            self::c(
+                'bind.mixed_aliases',
+                $g,
+                'PDOStatement::execute()',
+                'bindParam and bindValue address the same slot by position and by name',
+                static function (\PDO $p) {
+                    $stmt = $p->prepare("SELECT ? AS first, :last AS second, :last AS third, '?' AS quoted /* ? */");
+                    $value = 'before';
+                    $stmt->bindValue(1, 'first');
+                    $stmt->bindValue(2, 'replaced');
+                    $stmt->bindParam(':last', $value);
+                    $value = 'after';
+                    $stmt->execute();
+
+                    $first = $stmt->fetch(\PDO::FETCH_NUM);
+                    $stmt->bindValue(2, 'rebound');
+                    $stmt->execute();
+
+                    return [$first, $stmt->fetch(\PDO::FETCH_NUM)];
+                }
+            ),
+            self::c(
+                'bind.numeric_name',
+                $g,
+                'PDOStatement::bindValue()',
+                'a numeric name cannot bind an anonymous placeholder',
+                static function (\PDO $p) {
+                    $stmt = $p->prepare('SELECT ?');
+                    try {
+                        $stmt->bindValue(':1', 'unexpected');
+                        $stmt->execute();
+                    } catch (\PDOException) {
+                        return 'refused';
+                    }
+
+                    return $stmt->fetchColumn();
+                }
+            ),
+            self::c(
+                'bind.mixed_execute_array',
+                $g,
+                'PDOStatement::execute()',
+                'numeric keys in an execute array start at zero',
+                static function (\PDO $p) {
+                    $stmt = $p->prepare('SELECT :first AS a, ? AS b, :first AS c');
+                    $stmt->execute([1 => 'second', 'first' => 'first']);
 
                     return $stmt->fetch(\PDO::FETCH_ASSOC);
                 }
@@ -1289,6 +1329,20 @@ final class Cases
                 'PDOStatement::fetchAll()',
                 'FETCH_GROUP | FETCH_ASSOC',
                 static fn (\PDO $p) => $p->query('SELECT k, i FROM probe_rows ORDER BY k')->fetchAll(\PDO::FETCH_GROUP | \PDO::FETCH_ASSOC)
+            ),
+            self::c(
+                'fetch.group_named',
+                $g,
+                'PDOStatement::fetchAll()',
+                'FETCH_GROUP | FETCH_NAMED retains the column names in each group',
+                static fn (\PDO $p) => $p->query("SELECT 'group' AS label, k, i FROM probe_rows ORDER BY k")->fetchAll(\PDO::FETCH_GROUP | \PDO::FETCH_NAMED)
+            ),
+            self::c(
+                'fetch.unique_named',
+                $g,
+                'PDOStatement::fetchAll()',
+                'FETCH_UNIQUE | FETCH_NAMED retains the column names for each key',
+                static fn (\PDO $p) => $p->query('SELECT k AS label, k, i FROM probe_rows ORDER BY k')->fetchAll(\PDO::FETCH_UNIQUE | \PDO::FETCH_NAMED)
             ),
             self::c(
                 'fetch.group.num',
@@ -2355,6 +2409,24 @@ final class Cases
                         ob_end_clean();
 
                         throw $e;
+                    }
+                }
+            ),
+            self::c(
+                'stmt.debug_dump_params.mixed_execute',
+                $g,
+                'PDOStatement::debugDumpParams()',
+                'debugDumpParams() lists mixed bindings by their SQLite slot',
+                static function (\PDO $p) {
+                    $stmt = $p->prepare('SELECT :a, ?');
+                    $stmt->execute([1 => 'second', 'a' => 'first']);
+                    ob_start();
+                    try {
+                        $stmt->debugDumpParams();
+
+                        return ob_get_contents();
+                    } finally {
+                        ob_end_clean();
                     }
                 }
             ),

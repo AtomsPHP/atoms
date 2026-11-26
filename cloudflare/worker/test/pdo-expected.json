@@ -9,10 +9,6 @@
       "class": "refused_by_us",
       "why": "execute([]) is treated as an explicit (empty) replacement of any bound values, so the placeholder is left unsupplied. An 8.4-desktop measurement suggested the OPPOSITE fix (reuse bound values), but measured IN-GUEST — against this build's own real pdo_sqlite, the referee this milestone uses — execute([]) does NOT reuse a bound value either (it answers the unbound placeholder as NULL, its own SQLite default); the desktop measurement does not hold here. What differs is what workerd does with the resulting placeholder-count mismatch: ctx.storage.sql.exec() throws (sql_error) when given fewer bindings than '?' marks, where real SQLite's C API silently binds NULL for an unsupplied parameter. This is the SAME failure family as bind.named.missing: SQLite's own silent-NULL leniency here is a silent-wrong-answer risk, so refusing is not merely unfilled — pass execute(null) (no arguments) to keep bound values, which does match."
     },
-    "bind.mixed_named_and_positional": {
-      "class": "refused_by_us",
-      "why": "A statement binding both a named (:k) and a positional (?) placeholder throws SQLSTATE[HY093] on our side: NamedParams::rewrite() treats a bindings array containing ANY non-int key as entirely named, so the sole ? is never resolved and its bound value is reported as an unused named binding. Real pdo_sqlite executes this via SQLite's own shared ordinal sequence (named and positional placeholders share one ordinal, left to right in the SQL text) and answers a row. Implementing that ordinal model is deliberately out of scope; bind every placeholder in a statement the SAME way (all positional, or all named) to avoid this refusal."
-    },
     "bind.named.extra": {
       "class": "refused_by_both",
       "why": "An extra, unused named binding throws on both sides, but with different SQLSTATEs: ours reports HY093 (\"not present in the statement\") at rewrite time, real reports HY000 (\"column index out of range\", measured) at bind time. Both refuse the ambiguous input; only the SQLSTATE differs."

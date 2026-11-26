@@ -50,31 +50,10 @@ class AtomsStatement extends \PDOStatement
     /** @var string the SQL as prepared, with `:name` placeholders intact */
     private $sql;
 
-    /** @var array<int|string, mixed> values bound with bindValue() */
-    private $boundValues = [];
+    /** @var array<int|string, array{mixed, int}> Bound values or references and their PDO types. */
+    private $bindings = [];
 
-    /** @var array<int|string, mixed> references bound with bindParam(), read at execute() time */
-    private $boundRefs = [];
-
-    /** @var array<int|string, int> PDO::PARAM_* given at bind time, keyed like boundValues/boundRefs */
-    private $boundTypes = [];
-
-    /**
-     * @var list<int|string> keys in the order they were FIRST bound
-     *     (bindValue()/bindParam()) — debugDumpParams() must
-     *     list params in bind order, which boundValues/boundRefs alone
-     *     cannot reconstruct once bindValue()/bindParam() calls interleave
-     *     (a param moves between those two arrays on rebind but keeps its
-     *     original array position; a SEPARATE array can't recover cross-array
-     *     chronology). Measured against real PDO: rebinding an already-bound
-     *     param does NOT move it — first-bind position wins — so this never
-     *     removes a key once added.
-     *
-     *     A key counts as bound if it is present in either map (audit F24:
-     *     PHP coerces '1' and 1 to the same array key, so a strict in_array()
-     *     against THIS list would double-count a rebind through the other
-     *     spelling).
-     */
+    /** @var array<int|string, int|string> Parameter names and positions in debugDumpParams() order. */
     private $boundOrder = [];
 
     /** @var array<int, mixed> bindColumn() targets, keyed by 0-based column index */
@@ -83,18 +62,7 @@ class AtomsStatement extends \PDOStatement
     /** @var array<int, int> bindColumn() PDO::PARAM_* types, same keys as $boundColumns */
     private $boundColumnTypes = [];
 
-    /**
-     * @var list<array{param: int|string, type: int, paramno: int|null, positional: bool}>|null
-     *     debugDumpParams() bookkeeping for the MOST RECENT execute($params)
-     *     call ONLY — null means "derive from
-     *     boundOrder/boundValues/boundRefs/boundTypes instead" (the
-     *     bindValue()/bindParam() path unchanged from before). Deliberately a
-     *     SEPARATE array from boundValues/boundTypes/boundOrder: those feed
-     *     {@see currentBindings()}, which is the pinned native-typed
-     *     execute() binding path — this array must never be read from there,
-     *     or debugDumpParams()'s bookkeeping-only PARAM_STR retype would
-     *     silently become a REAL retype of what actually gets bound.
-     */
+    /** @var list<array{param: int|string, type: int, paramno: int|null, positional: bool}>|null */
     private $executeParamsDebug;
 
     /** @var list<array<string, mixed>> rows from the most recent execute() */
@@ -182,20 +150,20 @@ class AtomsStatement extends \PDOStatement
         // proposal.
         $bindings = $params === null ? $this->currentBindings() : $params;
 
-        // debugDumpParams() bookkeeping ONLY — never
-        // read by currentBindings() or anything that reaches the bridge, so
-        // this cannot affect the pinned native-typed execute() binding.
-        // Recorded from $params (not $bindings — currentBindings() coerces,
-        // and this must reflect what execute() was actually GIVEN) whenever
-        // an explicit array is passed; left alone (falls back to the
-        // bindValue()/bindParam() bookkeeping) on execute(null).
-        if ($params !== null) {
-            $this->recordExecuteParamsForDebug($params);
-        } else {
-            $this->executeParamsDebug = null;
+        $names = [];
+        try {
+            list($sql, $positional) = NamedParams::rewrite($this->sql, $bindings, $params === null ? 1 : 0, $names);
+        } finally {
+            $this->executeParamsDebug = $params === null ? null : [];
+            foreach ($params ?? [] as $key => $ignored) {
+                $this->executeParamsDebug[] = [
+                    'param' => $key,
+                    'type' => \PDO::PARAM_STR,
+                    'paramno' => is_int($key) ? $key : ($names[ltrim($key, ':')] ?? -1),
+                    'positional' => is_int($key),
+                ];
+            }
         }
-
-        list($sql, $positional) = NamedParams::rewrite($this->sql, $bindings);
 
         try {
             $result = $this->bridge->exec($sql, $positional, SqlBridge::MODE_ROWS);
@@ -226,50 +194,6 @@ class AtomsStatement extends \PDOStatement
     }
 
     /**
-     * debugDumpParams() bookkeeping for an execute($params) array
-     * (measured): real PDO registers every element execute()
-     * was given, REPLACING whatever bindValue()/bindParam() had bound
-     * before (matching this shim's own actual-binding semantics — an array
-     * passed to execute() already replaces bound values)
-     * and reports EVERY one of them as PARAM_STR regardless of its bind-time
-     * type or PHP type — the debug-dump mirror of real PDO's
-     * stringify-everything behaviour, kept OUT of actual binding on purpose
-     * (see the pinned-deviation note in execute() above). A NAMED key
-     * arriving via execute()
-     * (`:name` or bare `name`) is measured to dump with `paramno` = its
-     * 0-based position in the array, NOT `-1` — `-1` is what a NAMED param
-     * bound directly via bindValue()/bindParam() dumps with instead; this is
-     * a genuine, measured difference between the two entry points, not an
-     * inconsistency to paper over.
-     *
-     * @param array<int|string, mixed> $params
-     */
-    private function recordExecuteParamsForDebug(array $params)
-    {
-        $positional = true;
-        foreach ($params as $key => $ignored) {
-            if (!is_int($key)) {
-                $positional = false;
-                break;
-            }
-        }
-
-        $out = [];
-        $index = 0;
-        foreach ($params as $key => $ignored) {
-            $out[] = [
-                'param' => $key,
-                'type' => \PDO::PARAM_STR,
-                'paramno' => $index,
-                'positional' => $positional,
-            ];
-            $index++;
-        }
-
-        $this->executeParamsDebug = $out;
-    }
-
-    /**
      * Merge bindValue() values and bindParam() references (read NOW, at
      * execute() time) into one bindings array, each coerced
      * per its bind-time PDO::PARAM_* type.
@@ -280,14 +204,9 @@ class AtomsStatement extends \PDOStatement
     {
         $out = [];
 
-        foreach ($this->boundValues as $param => $value) {
-            $out[$param] = self::coerce($value, $this->boundTypes[$param] ?? \PDO::PARAM_STR);
+        foreach ($this->bindings as $param => [$value, $type]) {
+            $out[$param] = self::coerce($value, $type);
         }
-
-        foreach ($this->boundRefs as $param => &$ref) {
-            $out[$param] = self::coerce($ref, $this->boundTypes[$param] ?? \PDO::PARAM_STR);
-        }
-        unset($ref);
 
         return $out;
     }
@@ -347,18 +266,7 @@ class AtomsStatement extends \PDOStatement
             );
         }
 
-        // A param already present in either map is a rebind, not a new
-        // binding: PHP coerces '1' and 1 to the same array key, so checking
-        // the maps (not a strict in_array against boundOrder) is what makes
-        // a rebind through the other spelling update in place rather than
-        // dump twice (audit F24).
-        if (!array_key_exists($param, $this->boundValues) && !array_key_exists($param, $this->boundRefs)) {
-            $this->boundOrder[] = $param;
-        }
-
-        unset($this->boundRefs[$param]);
-        $this->boundValues[$param] = $value;
-        $this->boundTypes[$param] = $type;
+        $this->recordBinding($param, [$value, $type]);
 
         return true;
     }
@@ -393,16 +301,21 @@ class AtomsStatement extends \PDOStatement
             );
         }
 
-        // Same rebind rule as bindValue() above.
-        if (!array_key_exists($param, $this->boundValues) && !array_key_exists($param, $this->boundRefs)) {
-            $this->boundOrder[] = $param;
-        }
-
-        unset($this->boundValues[$param]);
-        $this->boundRefs[$param] =& $var;
-        $this->boundTypes[$param] = $type;
+        $this->recordBinding($param, [&$var, $type]);
 
         return true;
+    }
+
+    /** @param array{mixed, int} $binding */
+    private function recordBinding($param, array $binding): void
+    {
+        $key = is_string($param) && !ctype_digit($param) ? ':' . ltrim($param, ':') : $param;
+        $this->boundOrder[$key] ??= $param;
+        // PDO moves a rebound numeric key after earlier bindings for the same slot.
+        if (is_int($param)) {
+            unset($this->bindings[$key]);
+        }
+        $this->bindings[$key] = $binding;
     }
 
     /**
@@ -602,25 +515,14 @@ class AtomsStatement extends \PDOStatement
             return $out;
         }
 
-        // Measured, directly against the in-guest
-        // comparator: FETCH_GROUP groups by the FIRST
-        // column's value into a LIST per key (several rows can share a
-        // group); FETCH_UNIQUE keys by the first column directly, ONE value
-        // per key (the caller is asserting uniqueness). Both reshape the
-        // REMAINING columns per the base mode (ASSOC/NUM/BOTH/COLUMN).
+        // The first column supplies the group key. The fetch mode shapes the remaining columns.
         if ($hasUnique || $hasGroup) {
-            if (!in_array($base, [\PDO::FETCH_ASSOC, \PDO::FETCH_NUM, \PDO::FETCH_BOTH, \PDO::FETCH_COLUMN], true)) {
+            if (!in_array($base, [\PDO::FETCH_ASSOC, \PDO::FETCH_NAMED, \PDO::FETCH_NUM, \PDO::FETCH_BOTH, \PDO::FETCH_COLUMN], true)) {
                 throw new AtomsNotSupported(
                     sprintf('PDOStatement::fetchAll() with FETCH_GROUP/FETCH_UNIQUE and mode %d', $base),
-                    'Only FETCH_ASSOC, FETCH_NUM, FETCH_BOTH and FETCH_COLUMN combine with FETCH_GROUP/FETCH_UNIQUE.'
+                    'Use FETCH_ASSOC, FETCH_NAMED, FETCH_NUM, FETCH_BOTH or FETCH_COLUMN for the grouped rows.'
                 );
             }
-            // The grouping/unique KEY is
-            // `$values[0]` — the FIRST column, always taken positionally —
-            // regardless of $base, including FETCH_ASSOC, so this refuses
-            // for EVERY base mode FETCH_GROUP/FETCH_UNIQUE can combine with,
-            // strictly more than the NEEDS_TRUE_ARITY table checks for the
-            // plain per-row modes elsewhere.
             FetchMode::refuseDuplicateColumns($hasUnique ? 'PDO::FETCH_UNIQUE' : 'PDO::FETCH_GROUP', $this->columns);
 
             $remaining = array_slice($this->rows, $this->cursor);
@@ -635,6 +537,7 @@ class AtomsStatement extends \PDOStatement
 
                 switch ($base) {
                     case \PDO::FETCH_ASSOC:
+                    case \PDO::FETCH_NAMED:
                         $shaped = $restAssoc;
                         break;
                     case \PDO::FETCH_NUM:
@@ -1162,18 +1065,9 @@ class AtomsStatement extends \PDOStatement
      * it and it dumps as `Position #1`/`paramno=1` (2 - 1). No SQL parsing
      * is needed to reproduce this: the bound key already IS the ordinal.
      *
-     * This ordinal fact is used ONLY for the bindValue()/bindParam()
-     * numbering above — it does NOT mean this runtime implements real PDO's
-     * general ordinal placeholder model for MIXING named and positional
-     * placeholders at execute() time: a statement
-     * bound with both a `:name` and a positional key is refused
-     * (`NamedParams::rewrite()`, HY093 — see `bind.mixed_named_and_positional`,
-     * pinned `refused_by_us`), not resolved via SQLite's shared ordinal
-     * sequence.
-     *
      * Measured: params supplied via an execute()
      * array are ALSO dumped. `$this->executeParamsDebug`
-     * (set by {@see recordExecuteParamsForDebug()}) takes over the WHOLE
+     * takes over the WHOLE
      * dump when the most recent `execute()` call was given an explicit
      * array — matching this shim's own actual-binding semantics, where an
      * array passed to execute() replaces bound values entirely — and
@@ -1192,15 +1086,13 @@ class AtomsStatement extends \PDOStatement
         if ($this->executeParamsDebug !== null) {
             $entries = $this->executeParamsDebug;
         } else {
-            foreach ($this->boundOrder as $param) {
-                if (array_key_exists($param, $this->boundValues) || array_key_exists($param, $this->boundRefs)) {
-                    $entries[] = [
-                        'param' => $param,
-                        'type' => $this->boundTypes[$param] ?? \PDO::PARAM_STR,
-                        'paramno' => null, // bindValue()/bindParam()'s own numbering, computed below
-                        'positional' => is_int($param),
-                    ];
-                }
+            foreach ($this->boundOrder as $key => $param) {
+                $entries[] = [
+                    'param' => $param,
+                    'type' => $this->bindings[$key][1],
+                    'paramno' => null,
+                    'positional' => is_int($param),
+                ];
             }
         }
 
@@ -1222,10 +1114,7 @@ class AtomsStatement extends \PDOStatement
             }
 
             $name = ($param !== '' && $param[0] === ':') ? $param : (':' . $param);
-            // Measured: a NAMED key arriving via an
-            // execute() array dumps with its ARRAY POSITION as paramno, not
-            // -1 — bindValue()/bindParam()'s own bookkeeping (entry['paramno']
-            // === null here) is the only path that still dumps -1.
+            // An executed named key has a SQLite slot. A bound name starts at -1.
             $paramno = $entry['paramno'] !== null ? $entry['paramno'] : -1;
             $text .= 'Key: Name: [' . strlen($name) . '] ' . $name . "\n";
             $text .= 'paramno=' . $paramno . "\n";
