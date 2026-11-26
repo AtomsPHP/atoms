@@ -28,7 +28,7 @@ class Handler(BaseHTTPRequestHandler):
         config=json.loads((root/'config.json').read_text());arm=(root/'active').read_text().strip();name=urlparse(config[arm]).hostname
         start=time.perf_counter()
         with self.connection_to(name,443,True) as c:
-            c.request('GET',self.path,headers={'Authorization':self.headers.get('Authorization','')});res=c.getresponse();body=res.read();status=res.status;ray=res.getheader('cf-ray');info=json.loads(body).get('info',{})
+            c.request('GET',self.path,headers={'Authorization':self.headers.get('Authorization',''),'User-Agent':'Atoms-Mancala-Qualification/1.0'});res=c.getresponse();body=res.read();status=res.status;ray=res.getheader('cf-ray');info=json.loads(body).get('info',{})
         with (root/'report'/((root/'label').read_text().strip()+'-debug.ndjson')).open('a') as f:
             print(json.dumps({'room':m[1],'do_id':info.get('do_id'),'constructions':info.get('constructions'),'resident_ms':info.get('resident_ms'),'booted':info.get('php_booted'),'boot_ms':info.get('php_boot_ms'),'ray':ray,'status':status,'ms':round((time.perf_counter()-start)*1000)}),file=f)
         self.reply(status,body)

@@ -10,12 +10,22 @@ def server(args,env):
     finally:
         if p.poll() is None:os.killpg(p.pid,signal.SIGTERM);p.wait(timeout=10)
 def get(url,auth=None):
-    h={'Authorization':'Bearer '+auth} if auth else {}
+    h={'User-Agent':'Atoms-Mancala-Qualification/1.0'}
+    if auth:h['Authorization']='Bearer '+auth
     try:
         with urllib.request.urlopen(urllib.request.Request(url,headers=h),timeout=10) as res:return res.status,res.read(),res.headers.get('cf-ray')
     except urllib.error.HTTPError as e:return e.code,b'',e.headers.get('cf-ray')
 
 def run(cmd,env):subprocess.run(cmd,cwd=demo,env=env,stdout=subprocess.DEVNULL,check=True)
+context='atoms-211/benchmark-'+os.environ['GITHUB_RUN_ID']
+status_url='https://api.github.com/repos/AtomsPHP/atoms/commits/'+os.environ['GITHUB_SHA']+'/status'
+for attempt in range(80):
+    try:
+        status,body,_=get(status_url);states=json.loads(body).get('statuses',[])
+        if any(x['context']==context and x['state']=='success' for x in states):break
+    except (OSError,ValueError):pass
+    time.sleep(15)
+else:raise RuntimeError('Local operator did not acknowledge both matching callback deployments')
 for arm in cfg:
     deadline=time.monotonic()+1200
     while time.monotonic()<deadline:
