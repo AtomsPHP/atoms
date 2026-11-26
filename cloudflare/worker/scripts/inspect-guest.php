@@ -28,6 +28,17 @@ $cipher = openssl_encrypt('atoms', 'aes-128-cbc', str_repeat('k', 16), OPENSSL_R
 if ($cipher === false) {
     throw new RuntimeException('AES-128-CBC encryption failed.');
 }
+$random = openssl_random_pseudo_bytes(32, $strong);
+// Supply the same minimal OpenSSL configuration in MEMFS on both guests.
+$config = tempnam(sys_get_temp_dir(), 'openssl-');
+file_put_contents($config, "[req]\ndefault_bits = 2048\ndistinguished_name = dn\n[dn]\n");
+try {
+    $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1', 'config' => $config]);
+    $signed = $key !== false && openssl_sign('atoms', $signature, $key, OPENSSL_ALGO_SHA256);
+    $verified = $signed && openssl_verify('atoms', $signature, openssl_pkey_get_details($key)['key'], OPENSSL_ALGO_SHA256) === 1;
+} finally {
+    unlink($config);
+}
 $behavior = [
     'php' => PHP_VERSION,
     'sapi' => PHP_SAPI,
@@ -45,6 +56,9 @@ $behavior = [
     'zip_aes256_decode' => ZipArchive::isEncryptionMethodSupported(ZipArchive::EM_AES_256, false),
     'curl_protocols' => curl_version()['protocols'],
     'openssl_version' => OPENSSL_VERSION_TEXT,
+    'openssl_cert_locations' => openssl_get_cert_locations(),
+    'openssl_random' => strlen($random) === 32 && $strong,
+    'openssl_ec_sign_verify' => $verified,
     'openssl_ciphertext' => bin2hex($cipher),
     'openssl_plaintext' => openssl_decrypt($cipher, 'aes-128-cbc', str_repeat('k', 16), OPENSSL_RAW_DATA, str_repeat('v', 16)),
     'openssl_sha256' => openssl_digest('atoms', 'sha256'),

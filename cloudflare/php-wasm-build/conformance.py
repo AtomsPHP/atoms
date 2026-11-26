@@ -4,6 +4,7 @@
 import argparse
 import base64
 import contextlib
+import http.client
 import os
 from pathlib import Path
 import re
@@ -15,7 +16,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.request
 
 import yaml
 
@@ -109,9 +109,10 @@ def execute(worker, results, env, variables, spec):
             while time.monotonic() < deadline:
                 if server.poll() is not None:
                     raise RuntimeError(f'{name} Worker exited before serving /healthz')
-                with contextlib.suppress(OSError):
-                    with urllib.request.urlopen(variables['ATOMS_BASE_URL'] + '/healthz', timeout=1) as response:
-                        if response.status == 200:
+                with contextlib.suppress(OSError, http.client.HTTPException):
+                    with contextlib.closing(http.client.HTTPConnection('127.0.0.1', env['WORKER_PORT'], timeout=1)) as conn:
+                        conn.request('GET', '/healthz')
+                        if conn.getresponse().status == 200:
                             break
                 time.sleep(.5)
             else:
@@ -140,7 +141,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix='atoms-conformance-') as temp:
         work = Path(temp)
         env = {k: v for k, v in os.environ.items()
-               if not k.startswith(('ATOMS_', 'CLOUDFLARE_', 'CF_', 'WRANGLER_'))}
+               if not k.startswith(('ATOMS_', 'CLOUDFLARE_', 'CF_', 'WRANGLER_'))
+               and k not in ('RUN_SECRET', 'RUN_SECRET_NEXT')}
         env.update(job['env'], XDG_CONFIG_HOME=str(work / 'config'))
         with socket.socket() as a, socket.socket() as b:
             a.bind(('127.0.0.1', 0))
@@ -150,6 +152,7 @@ def main():
         for key in ('RUN_SECRET', 'RUN_SECRET_NEXT'):
             variables[key] = base64.b64encode(secrets.token_bytes(32)).decode()
         worker = prepare(args.scaffold, work, env)
+        shutil.copyfile(worker / 'release/interpreter.json', args.results / 'interpreter.json')
         passed = True
         for spec in postures(job, env, variables):
             try:

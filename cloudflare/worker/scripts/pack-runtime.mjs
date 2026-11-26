@@ -178,8 +178,9 @@ export function stageRuntimePackage(stageRoot) {
 		throw new Error(`unexpected runtime package in release manifest: ${release.runtime.package}`);
 	}
 	const interpreter = readJson(join(workerRoot, 'release', 'interpreter.json'));
+	const locked = lock.packages[`node_modules/${interpreter.package}`];
 	if (developmentManifest.dependencies[interpreter.package] !== interpreter.version ||
-		lock.packages[`node_modules/${interpreter.package}`]?.version !== interpreter.version) {
+		locked?.version !== interpreter.version || !locked.integrity) {
 		throw new Error('the Worker dependencies and lock must match release/interpreter.json');
 	}
 	if (developmentManifest.devDependencies.wrangler !== release.runtime.wrangler) {

@@ -6,18 +6,25 @@ import hashlib
 import json
 from pathlib import Path
 import tarfile
+import sys
 from tempfile import TemporaryDirectory
 
 from build import BUILD_RECIPE_FILES, LOCK, RECIPE, locked_files
 from libraries import library_lock
 
+SOURCE_RELEASE_FILES = ("source-bundle.py", "pack.mjs", "README.md")
+
+
+def digest_stream(stream):
+    h = hashlib.sha256()
+    while chunk := stream.read(1024 * 1024):
+        h.update(chunk)
+    return h.hexdigest()
+
 
 def digest(path):
-    h = hashlib.sha256()
     with path.open("rb") as stream:
-        while chunk := stream.read(1024 * 1024):
-            h.update(chunk)
-    return h.hexdigest()
+        return digest_stream(stream)
 
 
 def read_notices(archive, names, strip_root=True):
@@ -60,12 +67,9 @@ def add_file(archive, name, path):
     return sha.hexdigest()
 
 
-def bundle(inputs, output):
-    locked_files(inputs)
-    libraries = library_lock()
+def build_record(output):
     metadata_path = output / "build-metadata.json"
-    metadata_bytes = metadata_path.read_bytes()
-    metadata = json.loads(metadata_bytes)
+    metadata = json.loads(metadata_path.read_bytes())
     expected_outputs = {"php_8_3.js", "php_8_3.wasm"}
     if (metadata.get("schema") != 1 or set(metadata.get("recipe", {})) != set(BUILD_RECIPE_FILES)
             or set(metadata.get("outputs", {})) != expected_outputs):
@@ -73,6 +77,56 @@ def bundle(inputs, output):
     for name in expected_outputs:
         if digest(output / name) != metadata["outputs"][name]:
             raise ValueError(f"Output differs from the compiled file: {name}")
+    return metadata
+
+
+def expected_sources(libraries, metadata):
+    pins = {f"inputs/{s['file']}": s["sha256"] for s in LOCK["downloads"]
+            if not s["file"].startswith("debs/")}
+    pins.update({f"inputs/{name}": sha for name, sha in LOCK["playgroundFiles"].items()})
+    pins.update({f"inputs/libraries/{c['file']}": c["sha256"] for c in libraries})
+    pins.update({f"php-wasm-build/{name}": sha for name, sha in metadata["recipe"].items()})
+    return pins
+
+
+def verify_bundle(output):
+    metadata = build_record(output)
+    inventory = json.loads((output / "components.json").read_bytes())
+    if inventory["build"] != metadata:
+        raise ValueError("Component inventory differs from build-metadata.json")
+    expected = inventory["sourceFiles"].copy()
+    pins = expected_sources(library_lock(), metadata)
+    pins["build-metadata.json"] = digest(output / "build-metadata.json")
+    allowed = set(pins)
+    allowed.add("LICENSE-MIT")
+    allowed.update(f"php-wasm-build/{name}" for name in SOURCE_RELEASE_FILES)
+    if set(expected) != allowed:
+        raise ValueError("Source inventory does not match the expected release file list")
+    for name, sha in pins.items():
+        if expected.get(name) != sha:
+            raise ValueError(f"Component inventory differs from the release pins for {name}")
+    for name in ("components.json", "THIRD_PARTY_NOTICES.txt"):
+        expected[name] = digest(output / name)
+
+    with gzip.open(output / "corresponding-source.tar.gz", "rb") as compressed:
+        with tarfile.open(fileobj=compressed, mode="r|") as source:
+            for member in source:
+                if not member.isfile() or member.name not in expected:
+                    raise ValueError(f"Unexpected or repeated source archive member: {member.name}")
+                if digest_stream(source.extractfile(member)) != expected.pop(member.name):
+                    raise ValueError(f"Source archive contents differ for {member.name}")
+        # tar ends before gzip's CRC. Require the complete gzip trailer, too.
+        while compressed.read(1024 * 1024):
+            pass
+    if expected:
+        raise ValueError(f"Missing source archive files: {sorted(expected)}")
+
+
+def bundle(inputs, output):
+    locked_files(inputs)
+    libraries = library_lock()
+    metadata = build_record(output)
+    metadata_path = output / "build-metadata.json"
     files = {"build-metadata.json": metadata_path}
     notices = [
         "Atoms PHP Worker interpreter\n\n"
@@ -123,7 +177,7 @@ def bundle(inputs, output):
 
     files["LICENSE-MIT"] = RECIPE.parent / "LICENSE-MIT"
     # Only build source and maintainer instructions enter the source release.
-    for name in [*BUILD_RECIPE_FILES, "source-bundle.py", "pack.mjs", "README.md"]:
+    for name in [*BUILD_RECIPE_FILES, *SOURCE_RELEASE_FILES]:
         files["php-wasm-build/" + name] = RECIPE / name
 
     inventory = {
@@ -147,11 +201,8 @@ def bundle(inputs, output):
     with TemporaryDirectory(dir=output) as scratch:
         tmp = Path(scratch)
         (tmp / "THIRD_PARTY_NOTICES.txt").write_text("\n\n".join(notices) + "\n")
-        expected = {f"inputs/{item['file']}": item["sha256"] for item in LOCK["downloads"]}
-        expected["build-metadata.json"] = hashlib.sha256(metadata_bytes).hexdigest()
-        expected.update({f"inputs/{file}": sha for file, sha in LOCK["playgroundFiles"].items()})
-        expected.update({f"inputs/libraries/{c['file']}": c["sha256"] for c in libraries})
-        expected.update({f"php-wasm-build/{name}": sha for name, sha in metadata["recipe"].items()})
+        expected = expected_sources(libraries, metadata)
+        expected["build-metadata.json"] = digest(metadata_path)
         source = tmp / "corresponding-source.tar.gz"
         with source.open("wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0,
                                                     compresslevel=1) as compressed:
@@ -170,7 +221,12 @@ def bundle(inputs, output):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("inputs", type=Path)
-    parser.add_argument("output", type=Path)
-    args = parser.parse_args()
-    bundle(args.inputs.resolve(), args.output.resolve())
+    if sys.argv[1:2] == ["verify"]:
+        parser.add_argument("operation", choices=["verify"])
+        parser.add_argument("output", type=Path)
+        verify_bundle(parser.parse_args().output.resolve())
+    else:
+        parser.add_argument("inputs", type=Path)
+        parser.add_argument("output", type=Path)
+        args = parser.parse_args()
+        bundle(args.inputs.resolve(), args.output.resolve())

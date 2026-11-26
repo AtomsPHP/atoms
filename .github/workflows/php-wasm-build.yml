@@ -38,11 +38,13 @@ jobs:
       - name: Record final file sizes and hashes
         run: |
           cd "$RUNNER_TEMP/output"
-          { wc -c php_8_3.wasm php_8_3.js; sha256sum php_8_3.wasm php_8_3.js build-metadata.json; } | tee "$RUNNER_TEMP/identity.txt"
+          { wc -c php_8_3.wasm php_8_3.js; sha256sum php_8_3.wasm php_8_3.js build-metadata.json; } | tee identity.txt
       - uses: actions/upload-artifact@v4
         with:
           name: identity-${{ matrix.build }}
-          path: ${{ runner.temp }}/identity.txt
+          path: |
+            ${{ runner.temp }}/output/identity.txt
+            ${{ runner.temp }}/output/build-metadata.json
           if-no-files-found: error
   compare:
     needs: build
@@ -54,4 +56,5 @@ jobs:
       - name: Compare both independent builds
         run: |
           diff -u identity-first/identity.txt identity-second/identity.txt
+          cmp identity-first/build-metadata.json identity-second/build-metadata.json
           cat identity-first/identity.txt >> "$GITHUB_STEP_SUMMARY"

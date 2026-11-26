@@ -53,7 +53,7 @@ compile install
 unpack openssl
 # Wasm supplies secure random bytes through Emscripten's getentropy/getrandom.
 # Keep the built-in default provider and the standard EVP/PHP API.
-./Configure linux-generic32 --prefix="$prefix" --libdir=lib \
+./Configure linux-generic32 --prefix="$prefix" --libdir=lib --openssldir=/root/install/ssl \
     no-shared no-module no-threads no-asm no-tests no-apps no-async \
     no-afalgeng no-dso no-engine -DOPENSSL_NO_SECURE_MEMORY
 compile build_generated

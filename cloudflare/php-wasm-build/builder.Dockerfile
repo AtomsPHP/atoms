@@ -14,10 +14,11 @@ RUN dpkg -i /tmp/debs/*.deb
 FROM tools AS libraries
 COPY recipe/build-libraries.sh recipe/libraries.py recipe/libraries.lock.json /recipe/
 RUN --mount=type=bind,source=libraries,target=/archives \
+    test ! -e /em-cache && test "$(em-config CACHE)" = /em-cache && \
     bash /recipe/build-libraries.sh /archives /work /libs
 
 FROM tools AS php-source
-RUN ln -s /libs /root/lib && ln -s /emsdk /root/emsdk
+RUN test ! -e /em-cache && ln -s /libs /root/lib && ln -s /emsdk /root/emsdk
 COPY compile/base-image/replace*.sh compile/base-image/emcc-for-php-wasm.sh /root/
 RUN chmod +x /root/replace*.sh && \
     /root/replace.sh "s/src_files\s*\+=\s*glob_in_path\(profile_src_dir,\s*'\*\.cpp'\)//g" /emsdk/upstream/emscripten/tools/system_libs.py && \
