@@ -28,6 +28,76 @@ final class LaravelExampleTest extends TestCase
         $fake->assertInvoked(GameRoom::class, 'join');
     }
 
+    public function testSupportCanRestoreOneRoomWhileAnotherGameContinues(): void
+    {
+        $room = AtomHarness::for(GameRoom::class, 'final');
+        $other = AtomHarness::for(GameRoom::class, 'semifinal');
+        $room->invoke('setScore', [12, 9]);
+        $room->invoke('setScore', [0, 0]);
+        $preview = $room->invoke('scoreboard');
+        self::assertSame([0, 0, 12, 9], [
+            $preview['home'], $preview['away'], $preview['previous_home'], $preview['previous_away'],
+        ]);
+        self::assertIsString($preview['clear_id']);
+
+        $room->invoke('setScore', [0, 0]);
+        $other->invoke('setScore', [6, 5]);
+        $other->invoke('setScore', [0, 0]);
+        self::assertFalse($other->invoke('restoreScore', [$preview['clear_id']]));
+        $other->invoke('setScore', [1, 0]);
+
+        self::assertTrue($room->invoke('restoreScore', [$preview['clear_id']]));
+        self::assertFalse($room->invoke('restoreScore', [$preview['clear_id']]));
+        $score = $room->invoke('scoreboard');
+        self::assertSame([12, 9, null], [$score['home'], $score['away'], $score['clear_id']]);
+        self::assertSame([
+            ['channel' => 'room', 'payload' => ['kind' => 'score', 'home' => 12, 'away' => 9]],
+            ['channel' => 'room', 'payload' => ['kind' => 'score', 'home' => 0, 'away' => 0]],
+            ['channel' => 'room', 'payload' => ['kind' => 'score', 'home' => 12, 'away' => 9]],
+        ], $room->broadcasts());
+        $otherScore = $other->invoke('scoreboard');
+        self::assertSame([1, 0], [$otherScore['home'], $otherScore['away']]);
+    }
+
+    public function testAStalePreviewCannotReplaceNewPointsOrUndoALaterClear(): void
+    {
+        $room = AtomHarness::for(GameRoom::class, 'final');
+        $room->invoke('setScore', [4, 2]);
+        $room->invoke('setScore', [0, 0]);
+        $old = $room->invoke('scoreboard')['clear_id'];
+
+        $room->invoke('setScore', [1, 2]);
+        self::assertFalse($room->invoke('restoreScore', [$old]));
+        $room->invoke('setScore', [0, 0]);
+        self::assertFalse($room->invoke('restoreScore', [$old]));
+        $preview = $room->invoke('scoreboard');
+        self::assertSame([1, 2], [$preview['previous_home'], $preview['previous_away']]);
+    }
+
+    public function testSupportCommandConfirmsThePreviewBeforeRestoring(): void
+    {
+        require __DIR__ . '/../../examples/laravel/routes/console.php';
+        $fake = Atoms::fake([GameRoom::class => [
+            'scoreboard' => ['home' => 0, 'away' => 0, 'previous_home' => 5, 'previous_away' => 3, 'clear_id' => 'abc'],
+            'restoreScore' => true,
+        ]]);
+
+        $this->artisan('scoreboard:recover final')
+            ->expectsOutput('Room final. Current score: 0 to 0.')
+            ->expectsOutput('Score before the clear: 5 to 3.')
+            ->expectsConfirmation('Restore this score?', 'no')
+            ->assertSuccessful();
+        $fake->assertNotInvoked(GameRoom::class, 'restoreScore');
+
+        $this->artisan('scoreboard:recover final')
+            ->expectsConfirmation('Restore this score?', 'yes')
+            ->expectsOutput('Score restored.')
+            ->assertSuccessful();
+        self::assertSame([
+            'type' => 'GameRoom', 'id' => 'final', 'method' => 'restoreScore', 'args' => ['abc'],
+        ], $fake->invocations()[2]);
+    }
+
     public function testExampleAtomSpeaksStructuredWebSocketFrames(): void
     {
         $room = AtomHarness::for(GameRoom::class, 'room-7');

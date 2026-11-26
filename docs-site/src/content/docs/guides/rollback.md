@@ -34,6 +34,12 @@ Keep the application compatible with both versions and check its behavior afterw
 
 ## Data recovery
 
+For an application action such as clearing a scoreboard, save the previous
+value in the same SQL update that clears it. The Laravel example has an
+Artisan command that previews the score for one game and asks support to
+confirm the restore. It checks that the same clear is still current before
+writing. [Restore a cleared scoreboard](https://github.com/AtomsPHP/atoms/tree/main/examples/laravel#restore-a-cleared-scoreboard).
+
 Atoms has no point-in-time recovery command. Cloudflare's SQLite restore APIs
 run inside the Durable Object, so using them means maintaining your own custom
 Worker.

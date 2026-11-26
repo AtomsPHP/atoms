@@ -82,6 +82,34 @@ workers. Use WSL2 for both processes, or Nginx with a PHP-FPM pool allowing at
 least two simultaneous requests. See the [Laravel quickstart](https://docs.atomsphp.dev/getting-started/laravel/#run-it-locally)
 for platform and callback-address details.
 
+## Restore a cleared scoreboard
+
+A game host records the home and away scores through the room's Atom. Setting
+both scores to zero saves the previous score in that room's SQLite database.
+
+```php
+use App\Atoms\GameRoom;
+use Atoms\Laravel\Facades\Atoms;
+
+$room = Atoms::get(GameRoom::class, 'room-7');
+$room->setScore(12, 9);
+$room->setScore(0, 0);
+```
+
+From the application console, enter the ID of the game the host reported:
+
+```sh
+php artisan scoreboard:recover room-7
+```
+
+The command shows the current score and the score before the clear. Confirm
+to restore it, or press Enter to leave the score alone. If someone records a
+new score while you review it, the command refuses the restore. Each score
+change sends a `score` frame on that room's `room` broadcast channel.
+
+The example keeps one cleared score per room. It remains available until
+someone restores it or records a new score. A second clear at zero preserves it.
+
 ## Test without Cloudflare
 
 ```sh

@@ -17,6 +17,50 @@ use Atoms\Websocket\Message;
  */
 class GameRoom extends Atom
 {
+    public function setScore(int $home, int $away): void
+    {
+        if ($home === 0 && $away === 0) {
+            $changed = $this->db()->execute(
+                'UPDATE scoreboard SET previous_home = home, previous_away = away,
+                    clear_id = hex(randomblob(16)), home = 0, away = 0
+                 WHERE home <> 0 OR away <> 0',
+            );
+        } else {
+            $changed = $this->db()->execute(
+                'UPDATE scoreboard SET home = ?, away = ?, previous_home = NULL, previous_away = NULL,
+                    clear_id = NULL WHERE home <> ? OR away <> ?',
+                [$home, $away, $home, $away],
+            );
+        }
+
+        if ($changed === 1) {
+            $this->broadcast('room', ['kind' => 'score', 'home' => $home, 'away' => $away]);
+        }
+    }
+
+    /** @return array<string, mixed> */
+    public function scoreboard(): array
+    {
+        return $this->db()->query('SELECT home, away, previous_home, previous_away, clear_id FROM scoreboard')[0];
+    }
+
+    public function restoreScore(string $clearId): bool
+    {
+        $rows = $this->db()->query(
+            'UPDATE scoreboard SET home = previous_home, away = previous_away,
+                previous_home = NULL, previous_away = NULL, clear_id = NULL
+             WHERE clear_id = ? RETURNING home, away',
+            [$clearId],
+        );
+        if ($rows === []) {
+            return false;
+        }
+
+        $this->broadcast('room', ['kind' => 'score', ...$rows[0]]);
+
+        return true;
+    }
+
     public function appLabel(): string
     {
         return $this->app()->appLabel();
