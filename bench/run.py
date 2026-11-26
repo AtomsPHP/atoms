@@ -40,7 +40,7 @@ for round_num,arms in enumerate([('playground','candidate'),('candidate','playgr
     for arm in arms:
         label=f'round{round_num}-{arm}'; (r/'active').write_text(arm); (r/'label').write_text(label)
         request_log=report/f'{label}-laravel.ndjson';db=r/(label+'.sqlite');db.touch(mode=0o600)
-        env=dict(os.environ,ATOMS_ENDPOINT=cfg[arm],ATOMS_SHARED_SECRET=secrets[arm],APP_URL='http://127.0.0.1:18000',DB_CONNECTION='sqlite',DB_DATABASE=str(db),BENCH_REQUESTS=str(request_log),MANCALA_TICKET_MINTS_PER_MINUTE='1000',QUEUE_CONNECTION='sync',SESSION_DRIVER='database',CACHE_STORE='database',ATOMS_CALLBACK_NONCE_DRIVER='database',ATOMS_CALLBACK_NONCE_NAMESPACE=label,APP_DEBUG='false')
+        env=dict(os.environ,ATOMS_ENDPOINT=cfg[arm],ATOMS_SHARED_SECRET=secrets[arm],APP_URL='http://127.0.0.1:18000',DB_CONNECTION='sqlite',DB_DATABASE=str(db),BENCH_REQUESTS=str(request_log),MANCALA_TICKET_MINTS_PER_MINUTE='1000',QUEUE_CONNECTION='sync',SESSION_DRIVER='file',CACHE_STORE='file',ATOMS_CALLBACK_NONCE_DRIVER='database',ATOMS_CALLBACK_NONCE_NAMESPACE=label,APP_DEBUG='false')
         run(['php','artisan','migrate','--force'],env)
         measurements={}; started=datetime.datetime.now(datetime.timezone.utc).isoformat()
         with server(['php','-S','127.0.0.1:18000','-t','public',str(r/'proxy-router.php')],env) as php:
