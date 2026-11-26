@@ -27,7 +27,7 @@ PHP 8.3-compatible syntax.
 Supports Laravel 11, 12 and 13 (tested in CI). See [Laravel and Illuminate compatibility](/reference/compatibility/#laravel-and-illuminate).
 <!-- END generated Laravel compatibility -->
 
-To create an application, follow [New Laravel application](/getting-started/laravel/#new-laravel-application).
+To try Atoms before installing it, [play a game of Mancala and read the PHP that handles a move](/getting-started/laravel/#play-a-game-of-mancala). To create an application, follow [New Laravel application](/getting-started/laravel/#new-laravel-application).
 
 Choose the adapter for the application you already have:
 
