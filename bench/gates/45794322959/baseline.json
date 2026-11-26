@@ -1,0 +1,13 @@
+{
+  "run_id": "45794322959",
+  "phase": "baseline",
+  "runtimes": {
+    "playground": "owned83",
+    "candidate": "owned86"
+  },
+  "versions": {
+    "playground": "0e1d4f1f-939b-47ec-a663-d2f310715399",
+    "candidate": "9a4c78e9-8f7f-4183-adb9-e7f5602648b4"
+  },
+  "operator_verified_utc": "2026-11-26T09:42:48.723467+00:00"
+}
