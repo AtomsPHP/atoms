@@ -1331,6 +1331,20 @@ final class Cases
                 static fn (\PDO $p) => $p->query('SELECT k, i FROM probe_rows ORDER BY k')->fetchAll(\PDO::FETCH_GROUP | \PDO::FETCH_ASSOC)
             ),
             self::c(
+                'fetch.group_named',
+                $g,
+                'PDOStatement::fetchAll()',
+                'FETCH_GROUP | FETCH_NAMED retains the column names in each group',
+                static fn (\PDO $p) => $p->query("SELECT 'group' AS label, k, i FROM probe_rows ORDER BY k")->fetchAll(\PDO::FETCH_GROUP | \PDO::FETCH_NAMED)
+            ),
+            self::c(
+                'fetch.unique_named',
+                $g,
+                'PDOStatement::fetchAll()',
+                'FETCH_UNIQUE | FETCH_NAMED retains the column names for each key',
+                static fn (\PDO $p) => $p->query('SELECT k AS label, k, i FROM probe_rows ORDER BY k')->fetchAll(\PDO::FETCH_UNIQUE | \PDO::FETCH_NAMED)
+            ),
+            self::c(
                 'fetch.group.num',
                 $g,
                 'PDOStatement::fetchAll()',

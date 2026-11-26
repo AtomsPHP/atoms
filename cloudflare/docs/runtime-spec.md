@@ -1049,6 +1049,9 @@ can interrupt in-flight events; it does not undo committed SQLite writes.
   SQLite numbers them from left to right. Repeated names share their first slot.
   A numeric key in `execute($params)` starts at zero, while `bindValue()` and
   `bindParam()` start at one. The guest sends one value per occurrence to the host.
+- `fetchAll(PDO::FETCH_GROUP | PDO::FETCH_NAMED)` groups rows by their first
+  column and returns the remaining columns by name. `PDO::FETCH_UNIQUE` returns
+  one such row per key. Both require distinct column names.
 - `pdo()` returns `Atoms\Cf\AtomsPDO extends \PDO`.
   The surface is machine-verified rather than hand-audited: a
   reflection tripwire (conformance check 26) asserts every public member of

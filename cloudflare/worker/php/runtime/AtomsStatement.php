@@ -515,25 +515,14 @@ class AtomsStatement extends \PDOStatement
             return $out;
         }
 
-        // Measured, directly against the in-guest
-        // comparator: FETCH_GROUP groups by the FIRST
-        // column's value into a LIST per key (several rows can share a
-        // group); FETCH_UNIQUE keys by the first column directly, ONE value
-        // per key (the caller is asserting uniqueness). Both reshape the
-        // REMAINING columns per the base mode (ASSOC/NUM/BOTH/COLUMN).
+        // The first column supplies the group key. The fetch mode shapes the remaining columns.
         if ($hasUnique || $hasGroup) {
-            if (!in_array($base, [\PDO::FETCH_ASSOC, \PDO::FETCH_NUM, \PDO::FETCH_BOTH, \PDO::FETCH_COLUMN], true)) {
+            if (!in_array($base, [\PDO::FETCH_ASSOC, \PDO::FETCH_NAMED, \PDO::FETCH_NUM, \PDO::FETCH_BOTH, \PDO::FETCH_COLUMN], true)) {
                 throw new AtomsNotSupported(
                     sprintf('PDOStatement::fetchAll() with FETCH_GROUP/FETCH_UNIQUE and mode %d', $base),
-                    'Only FETCH_ASSOC, FETCH_NUM, FETCH_BOTH and FETCH_COLUMN combine with FETCH_GROUP/FETCH_UNIQUE.'
+                    'Use FETCH_ASSOC, FETCH_NAMED, FETCH_NUM, FETCH_BOTH or FETCH_COLUMN for the grouped rows.'
                 );
             }
-            // The grouping/unique KEY is
-            // `$values[0]` — the FIRST column, always taken positionally —
-            // regardless of $base, including FETCH_ASSOC, so this refuses
-            // for EVERY base mode FETCH_GROUP/FETCH_UNIQUE can combine with,
-            // strictly more than the NEEDS_TRUE_ARITY table checks for the
-            // plain per-row modes elsewhere.
             FetchMode::refuseDuplicateColumns($hasUnique ? 'PDO::FETCH_UNIQUE' : 'PDO::FETCH_GROUP', $this->columns);
 
             $remaining = array_slice($this->rows, $this->cursor);
@@ -548,6 +537,7 @@ class AtomsStatement extends \PDOStatement
 
                 switch ($base) {
                     case \PDO::FETCH_ASSOC:
+                    case \PDO::FETCH_NAMED:
                         $shaped = $restAssoc;
                         break;
                     case \PDO::FETCH_NUM:

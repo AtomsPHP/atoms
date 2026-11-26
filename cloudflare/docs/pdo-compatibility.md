@@ -154,6 +154,7 @@
 | `PDOStatement::fetchAll()` | FETCH_GROUP \| FETCH_ASSOC | supported |  |
 | `PDOStatement::fetchAll()` | FETCH_GROUP \| FETCH_COLUMN | supported |  |
 | `PDOStatement::fetchAll()` | FETCH_GROUP \| FETCH_NUM | supported |  |
+| `PDOStatement::fetchAll()` | FETCH_GROUP \| FETCH_NAMED retains the column names in each group | supported |  |
 | `PDOStatement::setFetchMode() / fetch()` | FETCH_INTO hydrates an existing object in place | supported |  |
 | `PDOStatement::getIterator()` | a plain foreach over the statement, using whatever the connection's default fetch mode is | supported |  |
 | `PDOStatement::fetchAll()` | FETCH_KEY_PAIR over exactly two columns | supported |  |
@@ -174,6 +175,7 @@
 | `PDOStatement::setFetchMode()` | FETCH_INTO with an object argument | supported |  |
 | `PDOStatement::fetchAll()` | FETCH_UNIQUE \| FETCH_ASSOC — first column is the key, row is the value | supported |  |
 | `PDOStatement::fetchAll()` | FETCH_UNIQUE \| FETCH_COLUMN | supported |  |
+| `PDOStatement::fetchAll()` | FETCH_UNIQUE \| FETCH_NAMED retains the column names for each key | supported |  |
 
 ## Fetch-mode defaults
 
