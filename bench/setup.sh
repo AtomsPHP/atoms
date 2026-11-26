@@ -4,7 +4,8 @@ root=$GITHUB_WORKSPACE/bench
 mkdir -p "$root/report" "$RUNNER_TEMP/browser"
 cd "$GITHUB_WORKSPACE/demo"
 cp .env.example .env
-composer install --no-dev --prefer-dist --no-interaction --no-progress
+composer install --prefer-dist --no-interaction --no-progress
+test -x vendor/bin/atoms
 php artisan key:generate --force
 npm ci --no-audit --no-fund
 npm run build

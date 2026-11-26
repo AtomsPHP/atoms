@@ -55,10 +55,10 @@ for round_num,arms in enumerate([('playground','candidate'),('candidate','playgr
                 p=subprocess.Popen(['node',str(r/(name+'.cjs'))],cwd=demo,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
                 with (report/f'{label}-{name}.log').open('w') as safe:
                     for line in p.stdout:
-                        if re.match(r'^(prepared [0-9]+|Idling|sample [0-9]+|fresh [0-9]+|RESULTS |PASS:)',line):
+                        if re.match(r'^(HTTP [0-9]{3} /[A-Za-z0-9_/-]*$|prepared [0-9]+|Idling|sample [0-9]+|fresh [0-9]+|RESULTS |PASS:)',line):
                             safe.write(line);safe.flush()
                             if line.startswith('RESULTS '):measurements[name]=json.loads(line[8:])
-                        elif line.startswith('FAILED'):safe.write(re.sub(r'https?://\S+','[URL]',line.splitlines()[0])+'\n');safe.flush()
+                        elif re.search(r'ENOENT|MODULE_NOT_FOUND|spawnSync|^FAIL(?:ED)? |^node:internal',line):safe.write(re.sub(r'https?://\S+','[URL]',line.splitlines()[0])+'\n');safe.flush()
                 if p.wait():raise RuntimeError('Browser test failed: '+label+' '+name)
         rooms=sorted(set(m[1] for m in (re.fullmatch(r'/games/([a-f0-9]{32})',json.loads(line)['path']) for line in request_log.read_text().splitlines()) if m));assert len(rooms)>=41,(label,len(rooms));(report/f'{label}-rooms.json').write_text(json.dumps(rooms)+'\n')
         assert len(measurements['cold'])==20 and len(measurements['fresh']['creation'])==20 and len(measurements['fresh']['revisit'])==20
