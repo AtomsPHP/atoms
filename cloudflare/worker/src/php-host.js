@@ -1,5 +1,5 @@
 // Atoms-authored MIT source. It imports `@php-wasm/universal` and boots the
-// WordPress Playground runtime staged into `../.php-wasm/`; component license
+// pinned PHP runtime staged into `../.php-wasm/`; component license
 // and provenance details live in ../THIRD_PARTY_NOTICES.md.
 
 /**
@@ -40,12 +40,9 @@
  */
 import { loadPHPRuntime, PHP, __private__dont__use } from '@php-wasm/universal';
 
-// Staged out of node_modules by scripts/prepare-runtime.mjs, which verifies
-// the artifact's hash and applies the one-line Asyncify patch. `.php-wasm/` is
-// generated and gitignored; the interpreter is fetched from Playground's npm
-// package.
-import * as asyncifyLoader from '../.php-wasm/php_8_3.js';
-import asyncifyWasm from '../.php-wasm/8_3_32/php_8_3.wasm';
+// Wrangler resolves the verified loader’s Wasm import to a precompiled module.
+import * as asyncifyLoader from '../.php-wasm/runtime.js';
+const asyncifyWasm = asyncifyLoader.dependencyFilename;
 
 import { AtomsError } from './errors.js';
 

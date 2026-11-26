@@ -1,0 +1,101 @@
+{
+  "builder": "emscripten/emsdk@sha256:5e56ae2aa3f847c79f5939c13e1de21600a96e7d6934b2dc563904754cfd3ca2",
+  "platform": "linux/amd64",
+  "emscripten": "4.0.19",
+  "php": "8.3.32",
+  "phpCommit": "3e35b370570577e6277f8b46a0e73cdf616921fb",
+  "playgroundCommit": "53d5c3030702e1edb3f82e7dbc308fcac27c3d0a",
+  "sourceDateEpoch": 1704067200,
+  "downloads": [
+    {
+      "file": "php.tar.gz",
+      "source": "https://codeload.github.com/php/php-src/tar.gz/3e35b370570577e6277f8b46a0e73cdf616921fb",
+      "sha256": "84e2e6f7ed409cd3d75c1817a63b273211d5a503fe094942d2fb7bfb0a1f97f8"
+    },
+    {
+      "file": "emscripten.tar.gz",
+      "source": "https://codeload.github.com/emscripten-core/emscripten/tar.gz/refs/tags/4.0.19",
+      "sha256": "b64eb9a050e4f7b3549de45714a553baf4b10c9196c9cb1cf67a22847aed39d2"
+    },
+    {
+      "file": "debs/libsigsegv2_2.13-1ubuntu3_amd64.deb",
+      "source": "https://archive.ubuntu.com/ubuntu/pool/main/libs/libsigsegv/libsigsegv2_2.13-1ubuntu3_amd64.deb",
+      "sha256": "894fcb0804df54dca59edbd0860d6f3eeac25d1555aebd3fa99d80665969f891"
+    },
+    {
+      "file": "debs/m4_1.4.18-5ubuntu2_amd64.deb",
+      "source": "https://archive.ubuntu.com/ubuntu/pool/main/m/m4/m4_1.4.18-5ubuntu2_amd64.deb",
+      "sha256": "572a544d2c18bf49d25c465720c570cd8e6e38731386ac9c0a7f29bed2486f3e"
+    },
+    {
+      "file": "debs/flex_2.6.4-8build2_amd64.deb",
+      "source": "https://archive.ubuntu.com/ubuntu/pool/main/f/flex/flex_2.6.4-8build2_amd64.deb",
+      "sha256": "980674f410fa6cb5e41d1bdf434a9391dcec0ac8fae5194cd90f9598ae074d8d"
+    },
+    {
+      "file": "debs/libmagic-mgc_1%3a5.41-3_amd64.deb",
+      "source": "https://archive.ubuntu.com/ubuntu/pool/main/f/file/libmagic-mgc_5.41-3_amd64.deb",
+      "sha256": "eb830d7815da6afc317d176f6b88a856cda42d157f842b22a859957c5be5672d"
+    },
+    {
+      "file": "debs/libmagic1_1%3a5.41-3_amd64.deb",
+      "source": "https://archive.ubuntu.com/ubuntu/pool/main/f/file/libmagic1_5.41-3_amd64.deb",
+      "sha256": "c2cb62402d49f88627ba12aed260cf232cf251f0a61cc5074b895a83c1d229ce"
+    },
+    {
+      "file": "debs/file_1%3a5.41-3_amd64.deb",
+      "source": "https://archive.ubuntu.com/ubuntu/pool/main/f/file/file_5.41-3_amd64.deb",
+      "sha256": "d8b53217d0be8c758e398efbb11457a5c351d39749c0544a8b833bd7075812fe"
+    },
+    {
+      "file": "debs/autoconf_2.71-2_all.deb",
+      "source": "https://archive.ubuntu.com/ubuntu/pool/main/a/autoconf/autoconf_2.71-2_all.deb",
+      "sha256": "96b528889794c4134015a63c75050f93d8aecdf5e3f2a20993c1433f4c61b80e"
+    },
+    {
+      "file": "debs/autotools-dev_20220109.1_all.deb",
+      "source": "https://archive.ubuntu.com/ubuntu/pool/main/a/autotools-dev/autotools-dev_20220109.1_all.deb",
+      "sha256": "d909f0327b09d9a9136239caca975df89782fa28efd721c4eb4caea422d3fc5a"
+    },
+    {
+      "file": "debs/automake_1%3a1.16.5-1.3_all.deb",
+      "source": "https://archive.ubuntu.com/ubuntu/pool/main/a/automake-1.16/automake_1.16.5-1.3_all.deb",
+      "sha256": "59e3890fc8407bcf8ccc9f709d6513156346d5c942e8c624dc90435e58f6f978"
+    },
+    {
+      "file": "debs/bison_2%3a3.8.2+dfsg-1build1_amd64.deb",
+      "source": "https://archive.ubuntu.com/ubuntu/pool/main/b/bison/bison_3.8.2%2bdfsg-1build1_amd64.deb",
+      "sha256": "fdc67291b88b5e28d43687c391a04f088c753de673e791db6ee64e32a3abcb38"
+    },
+    {
+      "file": "debs/libtool_2.4.6-15build2_all.deb",
+      "source": "https://archive.ubuntu.com/ubuntu/pool/main/libt/libtool/libtool_2.4.6-15build2_all.deb",
+      "sha256": "fb994bc0152f4e77a791b51bc54fd5e38963aa6473e60c45369ef373b6119124"
+    },
+    {
+      "file": "debs/pkg-config_0.29.2-1ubuntu3_amd64.deb",
+      "source": "https://archive.ubuntu.com/ubuntu/pool/main/p/pkg-config/pkg-config_0.29.2-1ubuntu3_amd64.deb",
+      "sha256": "69da4190d948d0bf7444ead040791b7924bd1a08a10ec13cd7f0bb9baab09c53"
+    },
+    {
+      "file": "debs/re2c_3.0-1_amd64.deb",
+      "source": "https://archive.ubuntu.com/ubuntu/pool/main/r/re2c/re2c_3.0-1_amd64.deb",
+      "sha256": "3e23845ba0e8ec5979dc921e9a2a034a99da8783d0fb586b4eea8fe2ce5b5d12"
+    },
+    {
+      "file": "notices/PHP-LICENSE-4.0",
+      "source": "https://www.php.net/license/4_0.txt",
+      "sha256": "e66a38e0a83f49b6ad6ec72f6c0d7600cfa35ba95ee1a67eeeae676cd4416789"
+    },
+    {
+      "file": "notices/sqlite-src-3510000.zip",
+      "source": "https://sqlite.org/2025/sqlite-src-3510000.zip",
+      "sha256": "5330719b8b80bf563991ff7a373052943f5357aae76cd1f3367eab845d3a75b7"
+    }
+  ],
+  "playgroundFiles": {
+    "playground.tar": "79492dff555a86464d101b9f27a87fcf473cbe3b3e62456c9a9e166a5edee127",
+    "js-exports.txt": "d7d9c6a3b7ffba3a1524bfac3d243d269c8b5461f269f196bdb1198baef3d1c6",
+    "wasm-exports.txt": "8a8df7a103018ab8617e920db08431287056c4f575be8187d13935d77473db4a"
+  }
+}

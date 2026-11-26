@@ -14,7 +14,7 @@ signed callback channel to the monolith; WebSockets (`onConnect`/`onMessage`/
 fixture app; a local conformance suite against `wrangler dev`; a real deploy +
 remote smoke.
 
-Out of scope: an owned php-wasm build and a native `pdo_atoms`. The `atoms`
+The native `pdo_atoms` driver is separate work. The `atoms`
 CLI and the deploy Action are specified in `docs/cloudflare-toolchain.md`,
 not here. `AtomsPDO`/`AtomsStatement` throw a typed `AtomsNotSupported`
 PDO-style exception for the unsupported corners of the PDO surface documented
@@ -30,6 +30,12 @@ installs `@php-wasm/web-8-3@3.1.48` and
 `worker/scripts/prepare-runtime.mjs` stages both files into a gitignored
 `worker/.php-wasm/`, verifying their upstream sizes and SHA-256 digests and
 applying the one required patch `Module['Asyncify'] = Asyncify;` to the glue.
+The scaffold's `release/interpreter.json` pins the exact npm package, version,
+paths, sizes and hashes. Staging verifies both buffers before publishing a
+single module entry point. The loader's own Wasm import supplies Wrangler's
+precompiled module. An Atoms-built candidate ships the final glue with
+Asyncify already exposed. Maintainers can qualify that package in a locally
+packed scaffold as described in [the build runbook](../php-wasm-build/README.md).
 JSPI is not shipped — the transaction seam
 requires synchronous guest re-entry, which only Asyncify provides. Boot uses
 `@php-wasm/universal`'s `loadPHPRuntime` with an `instantiateWasm` hook that

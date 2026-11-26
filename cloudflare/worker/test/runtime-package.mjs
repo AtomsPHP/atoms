@@ -152,6 +152,7 @@ try {
 		'package/template/php/atoms-core/Atom.php',
 		'package/template/php/atoms-core/resources/errors.json',
 		'package/template/release/supported-core',
+		'package/template/release/interpreter.json',
 		'package/template/scripts/prepare-runtime.mjs',
 		'package/template/scripts/bundle-from-cli.mjs',
 		'package/template/scripts/lib/bundle-module.mjs',
@@ -224,9 +225,8 @@ try {
 	// `npm ci` runs prepare-runtime.mjs, which stages the php-wasm artifact from
 	// npm into .php-wasm/. Stub it: this gate measures the package's own module
 	// graph, and the staged runtime is neither packaged nor redistributable.
-	mkdirSync(join(target, '.php-wasm', '8_3_32'), { recursive: true });
-	writeFileSync(join(target, '.php-wasm', 'php_8_3.js'), 'export const dependencyFilename = null;\n');
-	writeFileSync(join(target, '.php-wasm', '8_3_32', 'php_8_3.wasm'), '');
+	mkdirSync(join(target, '.php-wasm'), { recursive: true });
+	writeFileSync(join(target, '.php-wasm', 'runtime.js'), 'export const dependencyFilename = null;\n');
 	const resolution = run(esbuild, [
 		join(target, 'src', 'index.js'),
 		'--bundle',

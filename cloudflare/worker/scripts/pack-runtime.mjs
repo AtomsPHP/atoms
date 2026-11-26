@@ -65,6 +65,7 @@ const STATIC_FILES = [
 	'gitignore.scaffold',
 	'php/runtime',
 	'release/supported-core',
+	'release/interpreter.json',
 	// Ships as the template's wrangler.jsonc. The repository's own
 	// wrangler.jsonc is the conformance-harness config (debug endpoints on,
 	// name atoms-conformance) and deliberately never enters the tarball.
@@ -176,8 +177,10 @@ export function stageRuntimePackage(stageRoot) {
 	if (release.runtime.package !== '@atomsphp/runtime-cloudflare') {
 		throw new Error(`unexpected runtime package in release manifest: ${release.runtime.package}`);
 	}
-	if (developmentManifest.dependencies['@php-wasm/web-8-3'] !== '3.1.48') {
-		throw new Error('the php-wasm pin moved; update and re-audit prepare-runtime.mjs before packaging');
+	const interpreter = readJson(join(workerRoot, 'release', 'interpreter.json'));
+	if (developmentManifest.dependencies[interpreter.package] !== interpreter.version ||
+		lock.packages[`node_modules/${interpreter.package}`]?.version !== interpreter.version) {
+		throw new Error('the Worker dependencies and lock must match release/interpreter.json');
 	}
 	if (developmentManifest.devDependencies.wrangler !== release.runtime.wrangler) {
 		throw new Error('Wrangler differs between cloudflare/worker and release/manifest.json');

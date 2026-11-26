@@ -1,0 +1,18 @@
+{
+  "package": "@php-wasm/web-8-3",
+  "version": "3.1.48",
+  "wasm": {
+    "path": "asyncify/8_3_32/php_8_3.wasm",
+    "bytes": 18309089,
+    "sha256": "eca478d2bad4cae984cd5b5ec39ce42311fcc4d31cf48fce7293e9a5034f1c98"
+  },
+  "glue": {
+    "path": "asyncify/php_8_3.js",
+    "bytes": 268881,
+    "sha256": "719346ea1827cc48c8dd298974649503b7a227a7c0e5c12827db1c993dccf3ac"
+  },
+  "stagedGlue": {
+    "bytes": 268913,
+    "sha256": "c71bc8e2c00cea5c30a17c42d3c6f2c03ae237ad7c2da6693a01dad07136fa44"
+  }
+}

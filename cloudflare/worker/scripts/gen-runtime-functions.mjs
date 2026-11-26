@@ -23,6 +23,19 @@ const { bootPHP } = await import('../src/php-host.js');
 const php = await bootPHP({ onSync() {}, onPark() {} });
 
 try {
+	if (process.argv.includes('--inspect')) {
+		const code = readFileSync(new URL('./inspect-guest.php', import.meta.url), 'utf8');
+		const report = await php.run({ code });
+		if (report.exitCode !== 0 || report.errors) throw new Error(report.errors || 'PHP probe failed');
+		process.stdout.write(report.text);
+	} else {
+		await generateInventory();
+	}
+} finally {
+	php.exit();
+}
+
+async function generateInventory() {
 	const response = await php.run({ code: `<?php
 		// These modules implement the php-wasm host bridge and must not be
 		// exposed to Atom code or Composer's platform map.
@@ -94,6 +107,4 @@ try {
 			writeFileSync(path, content);
 		}
 	}
-} finally {
-	php.exit();
 }

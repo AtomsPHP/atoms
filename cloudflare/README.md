@@ -17,7 +17,7 @@ from WordPress Playground's npm package, and
 `worker/scripts/prepare-runtime.mjs` stages it into the gitignored
 `worker/.php-wasm/` directory after verifying its size and SHA-256.
 
-This is the only runtime Atoms targets.
+Playground is the shipping interpreter. The [maintainer runbook](php-wasm-build/README.md) covers building and qualifying the Atoms-owned PHP 8.3 candidate.
 
 ## Running it
 

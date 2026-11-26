@@ -40,11 +40,11 @@ enforce the second half.
 
 | | |
 |---|---|
-| Artifact | `asyncify/8_3_32/php_8_3.wasm`, staged as `../worker/.php-wasm/8_3_32/php_8_3.wasm` |
+| Artifact | `asyncify/8_3_32/php_8_3.wasm`, staged with its package-relative path under `../worker/.php-wasm/<pair hashes>/` |
 | SHA-256 | `eca478d2bad4cae984cd5b5ec39ce42311fcc4d31cf48fce7293e9a5034f1c98` |
 | Bytes | 18,309,089 |
 | Package it comes from | `@php-wasm/web-8-3@3.1.48` |
-| Hash and size pinned in | `../worker/scripts/prepare-runtime.mjs` |
+| Hash and size pinned in | `../worker/release/interpreter.json` |
 | Upstream repository | `github.com/WordPress/wordpress-playground` |
 | Upstream commit | `53d5c3030702e1edb3f82e7dbc308fcac27c3d0a` |
 | Commit subject | `v3.1.48` |
@@ -54,7 +54,7 @@ enforce the second half.
 The accompanying JavaScript glue is `asyncify/php_8_3.js` from the same
 package — SHA-256
 `719346ea1827cc48c8dd298974649503b7a227a7c0e5c12827db1c993dccf3ac`,
-268,881 bytes, likewise pinned in `prepare-runtime.mjs`. It needs no
+268,881 bytes, likewise pinned in `release/interpreter.json`. It needs no
 separate archive: it is already human-readable source, so its
 corresponding source is the file itself, and it is a file anyone can
 fetch from the same npm package.
