@@ -1,4 +1,4 @@
-name: Fixed-room Mancala runtime crossover
+name: Deployed owned PHP 8.3 and 8.6 Mancala crossover
 on:
   push:
     branches: [bench/211-deployed-php83]
@@ -12,7 +12,7 @@ jobs:
   compare:
     environment: atoms-211-qual-5a1fbbaa
     runs-on: ubuntu-24.04
-    timeout-minutes: 160
+    timeout-minutes: 200
     steps:
       - name: Check out benchmark client
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -25,8 +25,8 @@ jobs:
       - name: Measure baseline assignment
         env:
           GH_TOKEN: ${{ github.token }}
-          XOVER_BEARER_PLAYGROUND: ${{ secrets.XOVER_BEARER_PLAYGROUND }}
-          XOVER_BEARER_CANDIDATE: ${{ secrets.XOVER_BEARER_CANDIDATE }}
+          PERF86_BEARER_PLAYGROUND: ${{ secrets.PERF86_BEARER_PLAYGROUND }}
+          PERF86_BEARER_CANDIDATE: ${{ secrets.PERF86_BEARER_CANDIDATE }}
         run: python3 -B bench/direct-crossover.py baseline "$RUNNER_TEMP/original"
       - name: Retain baseline measurements
         if: always() && !cancelled()
@@ -39,8 +39,8 @@ jobs:
       - name: Measure switched assignment
         env:
           GH_TOKEN: ${{ github.token }}
-          XOVER_BEARER_PLAYGROUND: ${{ secrets.XOVER_BEARER_PLAYGROUND }}
-          XOVER_BEARER_CANDIDATE: ${{ secrets.XOVER_BEARER_CANDIDATE }}
+          PERF86_BEARER_PLAYGROUND: ${{ secrets.PERF86_BEARER_PLAYGROUND }}
+          PERF86_BEARER_CANDIDATE: ${{ secrets.PERF86_BEARER_CANDIDATE }}
         run: python3 -B bench/direct-crossover.py switched "$RUNNER_TEMP/original"
       - name: Retain switched measurements
         if: always() && !cancelled()
@@ -53,8 +53,8 @@ jobs:
       - name: Measure restored assignment
         env:
           GH_TOKEN: ${{ github.token }}
-          XOVER_BEARER_PLAYGROUND: ${{ secrets.XOVER_BEARER_PLAYGROUND }}
-          XOVER_BEARER_CANDIDATE: ${{ secrets.XOVER_BEARER_CANDIDATE }}
+          PERF86_BEARER_PLAYGROUND: ${{ secrets.PERF86_BEARER_PLAYGROUND }}
+          PERF86_BEARER_CANDIDATE: ${{ secrets.PERF86_BEARER_CANDIDATE }}
         run: python3 -B bench/direct-crossover.py restored "$RUNNER_TEMP/original"
       - name: Retain restored measurements
         if: always() && !cancelled()
@@ -62,5 +62,19 @@ jobs:
         with:
           name: xover-restored
           path: bench/xover-report/restored/
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Measure cleanup assignment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PERF86_BEARER_PLAYGROUND: ${{ secrets.PERF86_BEARER_PLAYGROUND }}
+          PERF86_BEARER_CANDIDATE: ${{ secrets.PERF86_BEARER_CANDIDATE }}
+        run: python3 -B bench/direct-crossover.py cleanup "$RUNNER_TEMP/original"
+      - name: Retain cleanup measurements
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: xover-cleanup
+          path: bench/xover-report/cleanup/
           if-no-files-found: ignore
           retention-days: 30

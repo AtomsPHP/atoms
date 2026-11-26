@@ -1,7 +1,6 @@
 """Read snapshots from the frozen #113 rooms. Keep the same Actions runner across deployments."""
 import argparse
-from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import http.client
 import json
@@ -15,13 +14,16 @@ from urllib.parse import urlparse
 
 HERE = Path(__file__).resolve().parent
 NAMESPACES = ('playground', 'candidate')
-BASELINE = {'playground': 'f4b39387-f836-41a7-a4bb-9bdccda9a97c', 'candidate': '0015fe5c-7849-46b1-ad33-60f1efb5c5fb'}
+ORIGINAL_VERSIONS = {'playground': 'f4b39387-f836-41a7-a4bb-9bdccda9a97c', 'candidate': '0015fe5c-7849-46b1-ad33-60f1efb5c5fb'}
 ROOM_LIST_DIGESTS = {
     'playground': '3498a94c0ce1bec713fa54b574cfca80eb683e3562837ec351282c698c8ad310',
     'candidate': '776ff3acee321e0b1668f3a8cb4415148cd417dcc7746e6d9554c7c6a1912b0a',
 }
 WAIT_SECONDS = 65
 PHASES = ('baseline', 'switched', 'restored')
+FROZEN_IDENTITIES = 'a0223c791aec8869656c546756a0d4b7c06bc9ec7559c5e5c928dad3380cb8cb'
+CLEANUP_RUNTIMES = {'playground':'playground','candidate':'original-owned83'}
+RUNTIMES = ('owned83','owned86')
 GATES = 'bench/211-xover-gates'
 RESULTS = HERE / 'xover-report'
 
@@ -52,8 +54,6 @@ def load_rooms(artifact):
 
 def read_gate(phase):
     run_id = os.environ['GITHUB_RUN_ID']
-    if phase == 'baseline':
-        return {'run_id': run_id, 'phase': phase, 'versions': BASELINE, 'runtimes': dict(zip(NAMESPACES, NAMESPACES))}
     path = f'repos/AtomsPHP/atoms/contents/bench/gates/{run_id}/{phase}.json?ref={GATES}'
     end = time.monotonic() + 40 * 60
     while time.monotonic() < end:
@@ -65,12 +65,22 @@ def read_gate(phase):
             for value in gate['versions'].values():
                 if not re.fullmatch('[a-f0-9-]{36}', value):
                     raise ValueError(f'Invalid {phase} version')
-            expected = dict(zip(NAMESPACES, reversed(NAMESPACES))) if phase == 'switched' else dict(zip(NAMESPACES, NAMESPACES))
+            expected = dict(zip(NAMESPACES, reversed(RUNTIMES) if phase=='switched' else RUNTIMES))
+            if phase=='cleanup':
+                expected = CLEANUP_RUNTIMES
+                if gate['versions'] != ORIGINAL_VERSIONS:
+                    raise ValueError('Original benchmark versions were not restored')
+            if phase=='restored' and gate['versions'] != read(RESULTS/'baseline/assignment.json')['versions']:
+                raise ValueError('Restored measurement assignment differs from its initial immutable versions')
             if gate['runtimes'] != expected:
                 raise ValueError(f'Wrong runtime assignment for {phase}')
             return gate
         time.sleep(8)
     raise TimeoutError(f'Deployment operator gate timed out for {phase}')
+
+
+class TransientRequest(Exception):
+    pass
 
 
 class Client:
@@ -79,17 +89,19 @@ class Client:
         self.version = version
         self.runtime = runtime
         self.out = out
-        self.bearer = os.environ['XOVER_BEARER_' + ns.upper()]
+        self.bearer = os.environ['PERF86_BEARER_' + ns.upper()]
         url = urlparse(endpoint)
         if url.scheme != 'https' or url.username or url.password or url.path not in ('', '/'):
             raise ValueError('Expected isolated HTTPS benchmark origin')
         self.conn = http.client.HTTPSConnection(url.hostname, timeout=35)
 
-    def request(self, phase, number, attempt, room, role):
+    def request(self, phase, number, attempt, room, role, args=None):
         method, path, body = 'GET', '/healthz', None
         if room is not None:
             if role.startswith('info-'):
                 path = f'/debug/MancalaGame/{room}/info'
+            elif role=='new-create':
+                method, path, body = 'POST', f'/invoke/MancalaGame/{room}/create', json.dumps({'args':args}).encode()
             else:
                 method, path, body = 'POST', f'/invoke/MancalaGame/{room}/snapshot', b'{"args":[]}'
         fields = {'phase': phase, 'round': number, 'attempt': attempt, 'namespace': self.ns,
@@ -105,6 +117,8 @@ class Client:
                           server_date=response.getheader('date'), server_timing=response.getheader('server-timing'),
                           placement=response.getheader('cf-placement'), cache_status=response.getheader('cf-cache-status'),
                           response_version=response.getheader('cf-worker-version'))
+            if response.status in (408,429) or response.status >= 500:
+                raise TransientRequest(f'HTTP {response.status}')
             if response.status != 200:
                 raise RuntimeError(f'{role} HTTP {response.status}')
             data = json.loads(raw)
@@ -112,14 +126,23 @@ class Client:
                 info = data['info']
                 fields['info'] = {key:info[key] for key in ('do_id','constructions','php_booted','php_boot_ms','resident_ms','activations_this_residency','turns_this_residency','user_version','stored')}
                 fields['alarm_at_ms'] = info['storage']['alarm_at_ms']
+                expected_php='8.6' if self.runtime=='owned86' else '8.3'
+                if info['stored']['abi_php'] != expected_php or info['user_version'] != 3:
+                    raise ValueError('Unexpected stored application ABI or migration version')
                 if not info['do_id'] or info['stored']['id'] != room or not isinstance(info['constructions'], int) or info['constructions'] < 1:
                     raise ValueError('Unexpected physical room, persisted key or construction counter')
             elif room is not None:
                 state = data['result']
-                if state.get('id') != room or state.get('status') != 'active' or state.get('players') != 2:
+                fresh_room=role in ('new-create','read-create')
+                wanted=('waiting',1) if fresh_room else ('active',2)
+                if state.get('id') != room or (state.get('status'),state.get('players'))!=wanted or (fresh_room and (state['revision']!=0 or state['stores']!=[0,0] or state['pits']!=[4]*12)):
                     raise ValueError('Fixed room is not an active two-player game')
                 fields['state_sha256'] = digest(state)
                 fields['state'] = state
+        except (OSError, http.client.HTTPException, TransientRequest) as exc:
+            fields['error_type'] = type(exc).__name__
+            self.conn.close()
+            raise TransientRequest(f'Transient {role} failure') from exc
         except Exception as exc:
             fields['error_type'] = type(exc).__name__
             self.conn.close()
@@ -134,7 +157,7 @@ class Client:
 
 def ordered(rooms, phase, number):
     # Counterbalance which namespace and which room index is visited first.
-    phase_index = PHASES.index(phase)
+    phase_index = (PHASES+('cleanup',)).index(phase)
     indices = range(19,-1,-1) if (phase_index+number)%2 else range(20)
     for i in indices:
         lanes = NAMESPACES[::-1] if (i+phase_index+number)%2 else NAMESPACES
@@ -145,7 +168,47 @@ def ordered(rooms, phase, number):
 def identity(probe, state):
     info = probe['info']
     return {'do_id':info['do_id'], 'state_sha256':state['state_sha256'], 'user_version':info['user_version'],
-            'room_id':info['stored']['id'],'abi_php':info['stored']['abi_php']}
+            'room_id':info['stored']['id']}
+
+
+def untimed(client, phase, number, attempt, room, role):
+    for index in range(3):
+        try:
+            return client.request(phase,number,attempt,room,role)
+        except TransientRequest:
+            if index==2: raise
+            time.sleep(1+index)
+
+
+def measure_creates(phase,rooms,clients,out):
+    # Each call initializes a new, never-listed one-seat game and its expiry timer.
+    # Precedence alternates between namespace names, both within and across phases.
+    expiry=(datetime.now(timezone.utc)+timedelta(hours=24)).isoformat(timespec='microseconds')
+    used=set(rooms['playground'])|set(rooms['candidate'])
+    for index in range(40):
+        order=NAMESPACES[::-1] if (index+PHASES.index(phase)) % 2 else NAMESPACES
+        for ns in order:
+            client=clients[ns]
+            for attempt in range(1,4):
+                tag=f"atoms211-owned-php86/{os.environ['GITHUB_RUN_ID']}/{phase}/{index}/{ns}/{attempt}"
+                room=hashlib.sha256(tag.encode()).hexdigest()[:32]
+                if room in used: raise ValueError('New-room key collision')
+                used.add(room)
+                base={'phase':phase,'namespace':ns,'runtime':client.runtime,'expected_version':client.version,'index':index,'attempt':attempt,'room':room}
+                try:
+                    created=client.request(phase,0,attempt,room,'new-create',['benchmark-seat-'+room,expiry])
+                except TransientRequest:
+                    # A timed-out write may have reached the room. Never resend it to the same key.
+                    out.write(json.dumps(base|{'valid':False,'invalid_reasons':['create response missing or transient error']})+'\n');out.flush()
+                    if attempt==3: raise
+                    continue
+                info=untimed(client,phase,0,attempt,room,'info-create')['info']
+                checked=untimed(client,phase,0,attempt,room,'read-create')
+                if created['state_sha256']!=checked['state_sha256'] or info['stored']['id']!=room or info['user_version']!=3:
+                    raise ValueError('Create state verification failed')
+                result=base|{'valid':True,'duration_ms':created['duration_ms'],'cf_ray':created['cf_ray'],'wall_start_ms':created['wall_start_ms'],'do_id':info['do_id'],'user_version':info['user_version'],'construction_count':info['constructions'],'state_sha256':created['state_sha256'],'status':created['state']['status'],'players':created['state']['players']}
+                out.write(json.dumps(result,separators=(',',':'))+'\n');out.flush()
+                break
 
 
 def measure(phase, rooms):
@@ -162,8 +225,8 @@ def measure(phase, rooms):
     with (phase_dir/'raw.ndjson').open('x') as out, (phase_dir/'samples.ndjson').open('x') as samples:
         clients = {ns:Client(ns,endpoints[ns],gate['versions'][ns],gate['runtimes'][ns],out) for ns in NAMESPACES}
         for ns, room in ordered(rooms,phase,0):
-            state = clients[ns].request(phase,0,0,room,'preflight')
-            probe = clients[ns].request(phase,0,0,room,'info-preflight')
+            state = untimed(clients[ns],phase,0,0,room,'preflight')
+            probe = untimed(clients[ns],phase,0,0,room,'info-preflight')
             key=ns+'/'+room
             identities[key]=identity(probe,state)
             if previous and previous[key] != identities[key]:
@@ -175,8 +238,8 @@ def measure(phase, rooms):
             key = ns+'/'+room
             client = clients[ns]
             for _ in range(3):
-                state = client.request(phase,number,attempt,room,'reprime')
-                probe = client.request(phase,number,attempt,room,'info-reprime')
+                state = untimed(client,phase,number,attempt,room,'reprime')
+                probe = untimed(client,phase,number,attempt,room,'info-reprime')
                 if identity(probe,state) != identities[key]:
                     raise ValueError('Fixed room identity changed while re-priming')
                 counts[key] = probe['info']['constructions']
@@ -186,7 +249,13 @@ def measure(phase, rooms):
         for ns,room in ordered(rooms,phase,0):
             if ns+'/'+room in need_prime:
                 prime(ns,room,0,0)
+        if digest(identities)!=FROZEN_IDENTITIES:
+            raise ValueError('Persisted room identities or game state differ from the frozen 8.3 crossover')
         save(phase_dir/'identity.json',identities)
+        if phase=='cleanup':
+            for client in clients.values():client.conn.close()
+            print('All 40 original rooms verified after restoring both pre-experiment Workers.',flush=True)
+            return
         print(f'{phase}: preflight passed for all 40 rooms; starting two measurement rounds.',flush=True)
         for number in (1,2):
             pending=list(ordered(rooms,phase,number))
@@ -196,15 +265,22 @@ def measure(phase, rooms):
                 # debug request after the idle would itself construct the DO.
                 time.sleep(WAIT_SECONDS if attempt==1 else WAIT_SECONDS*2)
                 for client in clients.values():
-                    client.request(phase,number,attempt,None,'transport-health')
+                    client.conn.close()
+                    untimed(client,phase,number,attempt,None,'transport-health')
                 retry=[]
                 for ns,room in pending:
                     key=ns+'/'+room
                     client=clients[ns]
-                    cold=client.request(phase,number,attempt,room,'cold')
-                    cp=client.request(phase,number,attempt,room,'info-cold')
-                    warm=client.request(phase,number,attempt,room,'warm')
-                    wp=client.request(phase,number,attempt,room,'info-warm')
+                    try:
+                        cold=client.request(phase,number,attempt,room,'cold')
+                        cp=client.request(phase,number,attempt,room,'info-cold')
+                        warm=client.request(phase,number,attempt,room,'warm')
+                        wp=client.request(phase,number,attempt,room,'info-warm')
+                    except TransientRequest as err:
+                        samples.write(json.dumps({'phase':phase,'round':number,'namespace':ns,'runtime':client.runtime,'attempt':attempt,'room':room,'eviction_verified':False,'invalid_reasons':[str(err)]})+'\n');samples.flush()
+                        prime(ns,room,number,attempt)
+                        retry.append((ns,room))
+                        continue
                     if identity(cp,cold)!=identities[key] or identity(wp,warm)!=identities[key]:
                         raise ValueError('Snapshot or DO identity changed during a sample')
                     before=counts[key]
@@ -231,13 +307,15 @@ def measure(phase, rooms):
                 print(f'{phase} round {number} attempt {attempt}: {len(pending)-len(retry)} confirmed; {len(retry)} left.',flush=True)
                 pending=retry
             if pending:raise RuntimeError(f'{len(pending)} rooms lacked a verified eviction in round {number}')
+        with (phase_dir/'creates.ndjson').open('x') as created:
+            measure_creates(phase,rooms,clients,created)
         for client in clients.values():client.conn.close()
     print(f'{phase}: complete.',flush=True)
 
 
 if __name__ == '__main__':
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('phase',choices=PHASES)
+    parser.add_argument('phase',choices=PHASES+('cleanup',))
     parser.add_argument('artifact',type=Path)
     args=parser.parse_args()
     measure(args.phase,load_rooms(args.artifact))
