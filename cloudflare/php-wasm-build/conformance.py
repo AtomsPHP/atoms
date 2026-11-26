@@ -5,6 +5,7 @@ import argparse
 import base64
 import contextlib
 import http.client
+import json
 import os
 from pathlib import Path
 import re
@@ -95,28 +96,56 @@ def process(cmd, cwd, env, log):
                 os.killpg(child.pid, signal.SIGKILL)
 
 
+def require_available_port(port):
+    with socket.socket() as probe:
+        if probe.connect_ex(('127.0.0.1', int(port))) == 0:
+            raise RuntimeError(f'Loopback port {port} is already serving')
+
+
+def wait_ready(server, port, name):
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        if server.poll() is not None:
+            raise RuntimeError(f'{name} Worker exited before serving /healthz')
+        with contextlib.suppress(OSError, http.client.HTTPException):
+            with contextlib.closing(http.client.HTTPConnection('127.0.0.1', port, timeout=1)) as conn:
+                conn.request('GET', '/healthz')
+                if conn.getresponse().status == 200:
+                    break
+        time.sleep(.5)
+    else:
+        raise RuntimeError(f'{name} Worker readiness timed out')
+
+
+def inspect_guest(worker, results, env):
+    shutil.copyfile(Path(__file__).with_name('inspect-worker.mjs'), worker / 'inspect-worker.mjs')
+    shutil.copyfile(HARNESS / 'scripts/inspect-guest.php', worker / 'scripts/inspect-guest.php')
+    port = env['WORKER_PORT']
+    require_available_port(port)
+    cmd = ['node_modules/.bin/wrangler', 'dev', 'inspect-worker.mjs', '--local',
+           '--ip', '127.0.0.1', '--port', port, '--persist-to', 'inventory-state']
+    with process(cmd, worker, env, results / 'inventory.worker.log') as server:
+        wait_ready(server, port, 'inventory')
+        with contextlib.closing(http.client.HTTPConnection('127.0.0.1', port, timeout=60)) as conn:
+            conn.request('GET', '/')
+            response = conn.getresponse()
+            if response.status != 200:
+                raise RuntimeError(f'Guest inspection returned HTTP {response.status}. See inventory.worker.log.')
+            report = json.load(response)
+    if not all(key in report for key in ('behavior', 'extensions', 'classes', 'functions', 'ini', 'constants')):
+        raise RuntimeError('Guest inspection returned an incomplete capability report')
+    (results / 'guest-capabilities.json').write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n')
+
+
 def execute(worker, results, env, variables, spec):
     name, command, server_env, suite_env = spec
     print(f'Running {name}', flush=True)
     for port in ('WORKER_PORT', 'ATOMS_CALLBACK_PORT'):
-        with socket.socket() as probe:
-            if probe.connect_ex(('127.0.0.1', int(env[port]))) == 0:
-                raise RuntimeError(f'Loopback port {env[port]} is already serving')
+        require_available_port(env[port])
     logs = [worker / f'{name}.worker.log', worker / f'{name}.log']
     try:
         with process(command, worker, env | server_env, logs[0]) as server:
-            deadline = time.monotonic() + 120
-            while time.monotonic() < deadline:
-                if server.poll() is not None:
-                    raise RuntimeError(f'{name} Worker exited before serving /healthz')
-                with contextlib.suppress(OSError, http.client.HTTPException):
-                    with contextlib.closing(http.client.HTTPConnection('127.0.0.1', env['WORKER_PORT'], timeout=1)) as conn:
-                        conn.request('GET', '/healthz')
-                        if conn.getresponse().status == 200:
-                            break
-                time.sleep(.5)
-            else:
-                raise RuntimeError(f'{name} Worker readiness timed out')
+            wait_ready(server, env['WORKER_PORT'], name)
             with process(['node', 'test/conformance.mjs'], worker, env | suite_env, logs[1]) as suite:
                 return suite.wait(timeout=720) == 0
     finally:
@@ -132,7 +161,8 @@ def execute(worker, results, env, variables, spec):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('scaffold', type=Path, help='scaffold directory after npm ci')
-    parser.add_argument('results', type=Path, help='new directory for the four suite and Worker logs')
+    parser.add_argument('results', type=Path, help='new directory for the inventory and logs')
+    parser.add_argument('--inspect-only', action='store_true', help='collect the workerd guest inventory only')
     args = parser.parse_args()
     if not (args.scaffold / 'php/atoms-core').is_dir():
         parser.error('expected an installed runtime scaffold containing php/atoms-core')
@@ -154,6 +184,13 @@ def main():
         worker = prepare(args.scaffold, work, env)
         shutil.copyfile(worker / 'release/interpreter.json', args.results / 'interpreter.json')
         passed = True
+        try:
+            inspect_guest(worker, args.results, env)
+        except (OSError, RuntimeError, ValueError, http.client.HTTPException) as error:
+            print(f'Inventory failed: {error}', file=sys.stderr)
+            passed = False
+        if args.inspect_only:
+            return 0 if passed else 1
         for spec in postures(job, env, variables):
             try:
                 ok = execute(worker, args.results, env, variables, spec)

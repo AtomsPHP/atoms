@@ -77,10 +77,11 @@ foreach ([
     'shake128' => '795ae95781812cb57d0ff6167ec5e704',
     'shake256' => 'cb7086fb40001dba7c4129c7ed1d571d712cbf7459881932bbcfe09633e2ed2a',
 ] as $method => $vector) {
+    $derDigest = openssl_digest($der, $method, true);
     $behavior['openssl_' . $method] = [
         'hex' => openssl_digest('atoms', $method),
         'raw_matches_vector' => openssl_digest('atoms', $method, true) === hex2bin($vector),
-        'certificate_matches_der' => openssl_x509_fingerprint($certificate, $method, true) === openssl_digest($der, $method, true),
+        'certificate_matches_der' => is_string($derDigest) && openssl_x509_fingerprint($certificate, $method, true) === $derDigest,
     ];
 }
 foreach (['stream_wrappers', 'stream_transports', 'curl_protocols', 'openssl_ciphers', 'openssl_digests'] as $list) {

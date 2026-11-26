@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'cloudflare/php-wasm-build/*.lock.json'
+      - 'cloudflare/php-wasm-build/candidate.json'
       - 'cloudflare/php-wasm-build/*.py'
       - 'cloudflare/php-wasm-build/*.sh'
       - 'cloudflare/php-wasm-build/*.patch'
@@ -50,6 +51,9 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           pattern: identity-*
@@ -58,3 +62,16 @@ jobs:
           diff -u identity-first/identity.txt identity-second/identity.txt
           cmp identity-first/build-metadata.json identity-second/build-metadata.json
           cat identity-first/identity.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Check the clean builds against the candidate scaffold pin
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          pin = json.loads(Path('cloudflare/php-wasm-build/candidate.json').read_text())
+          identity = Path('identity-first/identity.txt').read_text().splitlines()
+          entries = {tuple(line.split()) for line in identity}
+          for file in (pin['wasm'], pin['glue']):
+              for expected in (str(file['bytes']), file['sha256']):
+                  if (expected, file['path']) not in entries:
+                      raise SystemExit(f"Candidate pin differs from clean builds for {file['path']}: {expected}")
+          PY

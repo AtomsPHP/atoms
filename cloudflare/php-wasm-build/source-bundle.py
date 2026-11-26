@@ -42,6 +42,9 @@ def read_notices(archive, names, strip_root=True):
                 if name.endswith("pcre2_compile.c"):
                     start = raw.index("/* PCRE")
                     raw = raw[start:]
+                if name.endswith("crypt_freesec.c"):
+                    start = raw.index("/*\n * FreeSec: libcrypt")
+                    raw = raw[start:]
                 raw = raw[:raw.index(marker) + len(marker)]
             result[name] = raw
     if missing := set(names) - set(result):
@@ -157,6 +160,10 @@ def bundle(inputs, output):
             "ext/date/lib/LICENSE.rst", "ext/mbstring/libmbfl/LICENSE", "ext/fileinfo/libmagic/LICENSE",
             "ext/pcre/pcre2lib/pcre2_compile.c", "ext/hash/xxhash/xxhash.h",
             "ext/standard/libavifinfo/LICENSE", "ext/standard/libavifinfo/PATENTS",
+            "Zend/zend_strtod.c", "ext/calendar/dow.c", "ext/hash/murmur/PMurHash.c",
+            "ext/hash/sha3/generic32lc/KeccakHash.c", "ext/hash/sha3/generic32lc/brg_endian.h",
+            "ext/standard/crypt_freesec.c", "ext/standard/crypt_blowfish.c",
+            "ext/standard/crypt_sha256.c", "ext/standard/crypt_sha512.c", "ext/standard/strnatcmp.c",
         ]),
         read_notices(inputs / "emscripten.tar.gz", ["LICENSE", "system/lib/libc/musl/COPYRIGHT",
             "system/lib/compiler-rt/LICENSE.TXT", "system/lib/libcxx/LICENSE.TXT",
@@ -191,7 +198,9 @@ def bundle(inputs, output):
                             "for message digests and DER certificate fingerprints "
                             "(https://docs.openssl.org/3.5/man7/EVP_MD-SHAKE/)"],
                 "bundled": ["Zend", "PCRE2", "libmbfl", "timelib", "libbcmath", "file/libmagic",
-                            "xxHash", "libavifinfo"]},
+                            "xxHash", "libavifinfo", "Lucent strtod", "Scott E. Lee calendar",
+                            "MurmurHash3", "Keccak Code Package", "FreeSec", "crypt_blowfish",
+                            "SHA-crypt", "strnatcmp"]},
         "playground": {"commit": LOCK["playgroundCommit"], "license": "GPL-2.0-or-later",
                        "components": ["web SAPI", "PHP patches", "opcache changes", "dns_polyfill",
                                       "post_message_to_js", "wasm_memory_storage", "JavaScript glue"]},
