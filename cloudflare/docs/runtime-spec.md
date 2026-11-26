@@ -777,8 +777,12 @@ them as plaintext `vars`.
 - `GET /debug/:type/:id/info` → residency info (constructions, turns, php
   boot ms, user_version, memory high-water, plus the `storage`/`ws`/`timers`/callback
   debug blocks described below). Enabled only when `ATOMS_DEBUG_ENDPOINTS=1`.
-  Purely read-only: safe on an empty database, never activates PHP, and never
-  creates SQLite tables, rows, or alarms.
+  Safe on an empty database and never activates PHP: `info()` itself performs no
+  writes, so inspecting a never-used, deleted, or legacy constructor-only ID
+  creates no SQLite tables, rows, or alarms. When a cold debug request
+  reconstructs a Durable Object for an already-existing Atom (`__atoms_meta`
+  already carries `atom_type`), the DO constructor updates
+  `__atoms_meta.constructions` so consecutive cold evictions remain observable.
 - `GET /ws/:type/:id?channels=a,b,c&...` `Upgrade: websocket` → `101` carrying
   `webSocket`, or `4xx/5xx {"error":{...}}` in the same envelope shape as
   `/invoke`. Validated in this order, all of it in `src/index.js` before
@@ -884,14 +888,17 @@ in PHP against the manifest.
 - Wrangler config uses the declarative class export with
   `storage: "sqlite"` and binding name `ATOMS` (shape from the production
   plan §"One generic Durable Object class").
-- **Zero-write construction and empty-database reads.** The DO constructor
-  creates no SQLite tables and writes no metadata rows: it reads
-  `__atoms_meta.constructions` only if `__atoms_meta` already exists, deriving
-  an in-memory construction count without mutating storage. `ensureSchema()`
-  runs during activation (`activate()`), not in the constructor. Both
+- **Zero-write construction for absent IDs and empty-database reads.** The DO
+  constructor creates no SQLite tables and performs zero writes for never-used,
+  deleted, legacy constructor-only, or partial-activation IDs (whenever
+  `__atoms_meta.atom_type` is absent). When an Atom already exists
+  (`__atoms_meta.atom_type` is present), the constructor persists the
+  incremented `__atoms_meta.constructions` diagnostic counter without booting
+  PHP so consecutive cold evictions remain countable. `ensureSchema()` runs
+  during activation (`activate()`), not in the constructor. Both
   `DELETE /atoms/:type/:id` and `GET /debug/:type/:id/info` probe storage
-  read-only without booting PHP, so inspecting or deleting a never-seen ID
-  leaves zero SQLite tables, zero rows, and no alarm.
+  without booting PHP, so inspecting or deleting a never-seen ID leaves zero
+  SQLite tables, zero rows, and no alarm.
 - First event of a residency runs the activation gate inside
   `blockConcurrencyWhile`: boot PHP (instantiateWasm), install doors, write
   runtime + bundle files into MEMFS, create host tables (`__atoms_meta`,
@@ -2239,9 +2246,11 @@ for each of them. They are recorded rather than worked around silently.
      table.** Measured on a brand-new, never-written SQLite Durable Object under
      `wrangler dev`: `sqlite_master` already contains a `__miniflare_do_name`
      table (`database_size: 8192`). `Bridge.inspectStorage()` therefore excludes
-     `__miniflare_%` alongside `sqlite_%` and `_cf_%` so absent IDs genuinely
-     report `exists: false` and `DELETE` returns `{"destroyed":false}` without
-     writing to storage.
+     that specific `__miniflare_do_name` table alongside the SQLite/Cloudflare
+     reserved prefixes `sqlite_` and `_cf_` (never a blanket `__miniflare_*`
+     prefix, so customer tables like `__miniflare_reports` still count as
+     customer data) so absent IDs genuinely report `exists: false` and `DELETE`
+     returns `{"destroyed":false}` without writing to storage.
    - **Local `workerd`/Miniflare defers TCP FIN after a Hibernation-API
      WebSocket close until DO idle teardown (~10s).** Measured directly on the
      wire: server-initiated `ws.close(1000, "Atom destroyed")` delivers the RFC

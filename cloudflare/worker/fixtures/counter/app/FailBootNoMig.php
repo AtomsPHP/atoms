@@ -29,6 +29,15 @@ final class FailBootNoMig extends Atom
             $this->db()->execute('INSERT INTO sqlitecache (val) VALUES (?)', ['customer-row']);
         }
 
+        // When addressed with a `miniflare-reports-` prefix, create a customer
+        // table sharing the `__miniflare_` prefix (but not Miniflare's own
+        // `__miniflare_do_name`) before throwing, proving inspectStorage()
+        // excludes only the specific Miniflare-owned table.
+        if (str_starts_with($this->id, 'miniflare-reports-')) {
+            $this->db()->execute('CREATE TABLE IF NOT EXISTS __miniflare_reports (id INTEGER PRIMARY KEY, val TEXT NOT NULL)');
+            $this->db()->execute('INSERT INTO __miniflare_reports (val) VALUES (?)', ['customer-row']);
+        }
+
         throw new \RuntimeException('deliberate no-migration activation failure');
     }
 

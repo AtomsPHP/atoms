@@ -143,14 +143,19 @@ export class Bridge {
 	 * }}
 	 */
 	inspectStorage() {
-		// Filter platform-internal prefixes literally in JS rather than via
-		// SQLite LIKE, where '_' is a single-character wildcard that would
-		// accidentally match customer tables such as `sqlitecache` or `acf_x`.
+		// Filter SQLite/Cloudflare reserved prefixes literally in JS (avoiding
+		// SQLite LIKE's '_' wildcard) and exclude only Miniflare's specific
+		// local DO-name table (`__miniflare_do_name`), never blanket
+		// `__miniflare_*` customer tables.
 		const objects = this.sql
 			.exec('SELECT type, name FROM sqlite_master ORDER BY type ASC, name ASC')
 			.toArray()
 			.map((/** @type {any} */ r) => ({ type: String(r.type), name: String(r.name) }))
-			.filter((o) => !/^(sqlite_|_cf_|__miniflare_)/i.test(o.name));
+			.filter(
+				(o) =>
+					!/^(sqlite_|_cf_)/i.test(o.name) &&
+					!(o.type === 'table' && o.name.toLowerCase() === '__miniflare_do_name')
+			);
 
 		const tables = objects.filter((o) => o.type === 'table').map((o) => o.name);
 		const hasMetaTable = tables.includes(META_TABLE);

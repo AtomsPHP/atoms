@@ -357,7 +357,27 @@ final class AtomsClient
             }
 
             $status = $response->getStatusCode();
-            $decoded = $this->decodeBody((string) $response->getBody());
+            try {
+                $rawBody = (string) $response->getBody();
+            } catch (\RuntimeException|\Psr\Http\Client\ClientExceptionInterface $e) {
+                $message = $allowRetry
+                    ? 'Transport failure reading response from the Atoms platform: ' . $e->getMessage()
+                    : sprintf(
+                        'Transport failure reading response from the Atoms platform while destroying %s/%s (outcome unknown): %s',
+                        $ctx['type'],
+                        $ctx['id'],
+                        $e->getMessage(),
+                    );
+
+                throw new AtomsRequestFailed(
+                    $message,
+                    'transport',
+                    false,
+                    $status,
+                    $e,
+                );
+            }
+            $decoded = $this->decodeBody($rawBody);
             $frame = ErrorFrame::fromBody($decoded);
 
             if ($status >= 200 && $status < 300) {

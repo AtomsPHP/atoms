@@ -4888,6 +4888,34 @@ check(47, 'destroy: route contract, absent ID leaves no storage, partial activat
         problems.push(`sqlitecache storage survived DELETE: ${JSON.stringify(cacheAfter.storage)}`);
     }
 
+    // Specific Miniflare table exclusion on real SQLite: a customer table named
+    // `__miniflare_reports` (sharing the `__miniflare_` prefix, not
+    // `__miniflare_do_name`) MUST count as customer data and return {destroyed: true}.
+    const mfReportId = `miniflare-reports-${RUN}`;
+    const mfReportInvoke = await invoke('FailBootNoMig', mfReportId, 'ping');
+    if (mfReportInvoke.status === 200) {
+        problems.push(`miniflare-reports FailBootNoMig unexpectedly succeeded: ${JSON.stringify(mfReportInvoke.data)}`);
+    }
+    const mfReportBefore = await debugInfo('FailBootNoMig', mfReportId);
+    if (
+        mfReportBefore.storage?.exists !== true ||
+        !(mfReportBefore.storage?.user_tables ?? []).includes('__miniflare_reports')
+    ) {
+        problems.push(
+            `__miniflare_reports customer table was hidden by inspectStorage: ${JSON.stringify(mfReportBefore.storage)}`
+        );
+    }
+    const mfReportDel = await destroyAtom('FailBootNoMig', mfReportId);
+    if (mfReportDel.status !== 200 || mfReportDel.data?.destroyed !== true) {
+        problems.push(
+            `DELETE on __miniflare_reports partial Atom gave ${mfReportDel.status} ${JSON.stringify(mfReportDel.data)} (expected 200 {destroyed:true})`
+        );
+    }
+    const mfReportAfter = await debugInfo('FailBootNoMig', mfReportId);
+    if (mfReportAfter.storage?.exists !== false || (mfReportAfter.storage?.tables ?? []).length !== 0) {
+        problems.push(`__miniflare_reports storage survived DELETE: ${JSON.stringify(mfReportAfter.storage)}`);
+    }
+
     // Partial first activation that persisted customer data (migrations + SQL
     // writes before onActivation threw) MUST report {destroyed: true} and wipe.
     const partialId = `partial-fail-${RUN}`;
@@ -5194,11 +5222,11 @@ check(49, 'destroy: immediate same-ID reuse fences hostile onDeactivation, stale
     }
 
     // Connect fresh sockB, enable independent callback timer audit on Atom B
-    // (positive control for b-timer alongside negative check for a-soon and
-    // deact-timer), and test echo + broadcast + Atom B's own timer.
+    // (positive control for b-timer alongside negative check for any stale A
+    // timer across the ENTIRE post-DELETE window — do NOT clear listener here,
+    // so early stale deliveries right after DELETE are retained and fail).
     const auditB = `reuse-b-${RUN}`;
     if (listener) {
-        listener.clear();
         await invoke('Destructible', reuseId, 'configureDeactivation', ['normal', auditB]);
     }
     const sockB = await openSocket(`/ws/Destructible/${reuseId}?channels=lobby`);
@@ -5243,7 +5271,15 @@ check(49, 'destroy: immediate same-ID reuse fences hostile onDeactivation, stale
             if (!cbTimerNotes.includes(`timer:${auditB}:b-timer`)) {
                 problems.push(`independent callback timer audit missed Atom B positive control (saw ${JSON.stringify(cbTimerNotes)})`);
             }
-            if (cbTimerNotes.some((n) => n.includes('a-soon') || n.includes('deact-timer') || n.includes(hostileAudit))) {
+            if (
+                cbTimerNotes.some(
+                    (n) =>
+                        n !== `timer:${auditB}:b-timer` ||
+                        n.includes('a-soon') ||
+                        n.includes('deact-timer') ||
+                        n.includes(hostileAudit)
+                )
+            ) {
                 problems.push(`independent callback timer audit observed stale Atom A timer: ${JSON.stringify(cbTimerNotes)}`);
             }
         }
