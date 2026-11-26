@@ -4,7 +4,7 @@ The shipping scaffold selects WordPress Playground 3.1.48. This directory builds
 
 ## Rebuild and identify the candidate
 
-From this directory, use Python 3, Node, Git, tar, patch, Docker with Buildx, and npm. Choose an absolute work directory outside the repository on a filesystem with room for two independent compiler builds. Use an approved exact npm version when packing.
+From this directory, use Python 3, Node, Git, tar, patch, Docker with Buildx, and npm. Choose an absolute work directory outside the repository on a filesystem with room for two independent compiler builds. Set `version` to the exact npm version intended for this candidate before packing.
 
 ```sh
 work=/absolute/path/to/build-work
@@ -35,7 +35,7 @@ The packer requires identical build records from both clean builds and verifies 
 
 For a PHP, extension or toolchain change, update the source locks, review upstream source changes and refresh the Worker target patch. Audit the Asyncify selection, linked extension features and license texts. Rebuild twice, compare final bytes, regenerate corresponding source and qualify the exact new tarball. A failed or missing gate blocks promotion.
 
-For an approved promotion, configure the artifact package's trusted publisher for AtomsPHP/atoms, its protected release workflow and the release environment. The approved publishing job needs `id-token: write` and publishes the retained, integrity-checked tarball with npm provenance. Use a new immutable npm version for any changed bytes. Retain the prior tarball and source. The current release workflow publishes the scaffold; enabling artifact publication is a separate release change. [Repository release procedure](../../release/README.md) · [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/)
+For an approved promotion, configure the artifact package's trusted publisher for AtomsPHP/atoms, its protected release workflow and the release environment. In the approved publishing job, grant `id-token: write`, verify the retained tarball against the recorded npm integrity, then run `npm publish "$tarball" --access public --provenance`. Use a new immutable npm version for any changed bytes. Retain the prior tarball and source. The current release workflow publishes the scaffold; enabling artifact publication is a separate release change. [Repository release procedure](../../release/README.md) · [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/)
 
 In the coordinated scaffold release, install the exact published npm version and check the registry lock integrity against the qualified tarball. Commit the reviewed interpreter pin, dependency and lock, synchronize the CLI's target syntax and vendor PHP pins, regenerate the extension/function inventories, review the version-bearing PDO matrix, and update the scaffold stamp through the existing packer. Use the release tool to prepare the coordinated release manifest. Customers upgrade the scaffold with its normal installer and run `npm ci`.
 

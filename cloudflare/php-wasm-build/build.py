@@ -110,6 +110,8 @@ def compile_snapshot(inputs, output):
             "--build-arg", f"SOURCE_DATE_EPOCH={LOCK['sourceDateEpoch']}",
             "--build-arg", f"PHP_VERSION={LOCK['php']}", "--build-arg", "STACK_SIZE=1MB",
             "--build-arg", "WITH_JSPI=no", "--build-arg", "WITH_MYSQL=no", "--build-arg", "WITH_IMAGICK=no",
+            "--build-arg", "WITH_SOURCEMAPS=no", "--build-arg", "WITH_DEBUG=no",
+            "--build-arg", "OUTPUT_DIR_ON_HOST=/build/output", "--build-arg", "DEBUG_DWARF_COMPILATION_DIR=/root",
             *args, "--output", f"type=local,dest={shipped}", context)
         metadata = {
             "schema": 1,
