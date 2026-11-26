@@ -58,6 +58,9 @@ function core_files()
         'Websocket/JsonFrame.php',
         'Websocket/Connection.php',
         'Websocket/Message.php',
+        'Http/HttpResponse.php',
+        'Http/HttpClient.php',
+        'Http/HttpRequest.php',
         'Timers/Timers.php',
         'Runtime/AtomContext.php',
         'Atom.php',
@@ -116,6 +119,7 @@ function runtime_files()
         'InvalidTimerName.php',
         'TimerLimitExceeded.php',
         'CfTimers.php',
+        'CfHttpClient.php',
         'CfAtomContext.php',
     ];
 }
@@ -1017,7 +1021,8 @@ function activate(array $cfg)
 
     $bridge = new SqlBridge();
     $db = new BridgeDatabase($bridge);
-    $context = new CfAtomContext($db, $bridge, $identity);
+    $http = new CfHttpClient($bridge, $cfg['http']['max_request_bytes'], $cfg['http']['max_response_bytes']);
+    $context = new CfAtomContext($db, $bridge, $identity, $http);
 
     $ownMigrations = isset($entry['migrations']) && is_array($entry['migrations'])
         ? array_map('strval', array_values($entry['migrations']))
@@ -1112,6 +1117,9 @@ try {
         throw new \RuntimeException('Atoms: the host did not define $CFG before requiring bootstrap.php.');
     }
 
+    // Exception traces reach Worker logs, including PHP's fatal boot diagnostic.
+    // Call arguments can contain outbound URLs, credentials and opaque bodies.
+    ini_set('zend.exception_ignore_args', '1');
     activate($CFG);
 } catch (\Throwable $__atoms_boot_error) {
     // No turn-result envelope exists yet, so the failure is reported on the log

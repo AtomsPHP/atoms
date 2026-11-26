@@ -74,6 +74,8 @@ function concatBytes(a, b) {
  * @typedef {object} TurnBudget
  * @property {number} startedAt        `Date.now()` at the top of the turn, before the guest sees the envelope.
  * @property {number} deadlineMs       `ATOMS_TURN_DEADLINE_MS` at the time the turn began.
+ * @property {number} httpRequests
+ * @property {AbortController|null} httpController
  * @property {boolean} exhausted       Latched true once `turn_deadline_exceeded` has been produced once this turn.
  * @property {number} [exhaustedElapsedMs] Elapsed-at-exhaustion, cached so a later latched call reports it
  *                                          without another clock read.
@@ -84,6 +86,17 @@ function concatBytes(a, b) {
  * @property {Promise<void>[]} promises  This turn's in-flight dispatch deliveries.
  * @property {number} dispatchCount      Jobs dispatched so far this turn, against ATOMS_MAX_DISPATCHES_PER_TURN.
  */
+
+/** Returns the same failure for both park operations until the window closes. */
+export function turnDeadlineFailure(budget) {
+	const elapsed = budget.exhaustedElapsedMs ?? (Date.now() - budget.startedAt);
+	if (!budget.exhausted && elapsed < budget.deadlineMs) return null;
+	budget.exhausted = true;
+	budget.exhaustedElapsedMs = elapsed;
+	return fail('turn_deadline_exceeded', 'the turn budget is exhausted', {
+		elapsed_ms: elapsed, budget_ms: budget.deadlineMs,
+	});
+}
 
 export class CallbackChannel {
 	/**
@@ -159,7 +172,7 @@ export class CallbackChannel {
 	beginTurn(deadlineMs, collector) {
 		this.collector = collector;
 		this.txBuffer = [];
-		return { startedAt: Date.now(), deadlineMs, exhausted: false };
+		return { startedAt: Date.now(), deadlineMs, exhausted: false, httpRequests: 0, httpController: null };
 	}
 
 	/**
@@ -217,6 +230,12 @@ export class CallbackChannel {
 			parked.reply(replyJson);
 		};
 
+		const deadline = turnDeadlineFailure(budget);
+		if (deadline) {
+			reply(deadline);
+			return;
+		}
+
 		const channelFailure = this.checkChannel();
 		if (channelFailure) {
 			reply(channelFailure);
@@ -229,32 +248,6 @@ export class CallbackChannel {
 			return;
 		}
 		const bodyString = /** @type {string} */ (parked.msg.body);
-
-		if (budget.exhausted) {
-			// Latched: no clock read, no fetch. This is what stops a caught-and-
-			// retried app() loop from hammering the monolith once the turn is
-			// already out of time (checked by conformance check 15b).
-			reply(
-				fail('turn_deadline_exceeded', 'the turn budget is already exhausted', {
-					elapsed_ms: budget.exhaustedElapsedMs ?? budget.deadlineMs,
-					budget_ms: budget.deadlineMs,
-				})
-			);
-			return;
-		}
-
-		const elapsedAtStart = Date.now() - budget.startedAt;
-		const remaining = budget.deadlineMs - elapsedAtStart;
-		if (remaining <= 0) {
-			this.latch(budget, elapsedAtStart);
-			reply(
-				fail('turn_deadline_exceeded', 'the turn budget is exhausted', {
-					elapsed_ms: elapsedAtStart,
-					budget_ms: budget.deadlineMs,
-				})
-			);
-			return;
-		}
 
 		/** @type {{bodyBytes: Uint8Array, headers: Record<string, string>}} */
 		let signed;
@@ -272,14 +265,7 @@ export class CallbackChannel {
 		// residency — which is exactly the one where the derivation cost is paid.
 		const remainingAtFetch = budget.deadlineMs - (Date.now() - budget.startedAt);
 		if (remainingAtFetch <= 0) {
-			const elapsed = Date.now() - budget.startedAt;
-			this.latch(budget, elapsed);
-			reply(
-				fail('turn_deadline_exceeded', 'the turn budget was exhausted before app() could be sent', {
-					elapsed_ms: elapsed,
-					budget_ms: budget.deadlineMs,
-				})
-			);
+			reply(turnDeadlineFailure(budget));
 			return;
 		}
 		const perCallMs = Math.min(remainingAtFetch, this.config.callbackTimeoutMs);
@@ -322,14 +308,9 @@ export class CallbackChannel {
 		} catch (e) {
 			const elapsed = Date.now() - budget.startedAt;
 			if (isTimeout(e)) {
-				if (elapsed >= budget.deadlineMs) {
-					this.latch(budget, elapsed);
-					reply(
-						fail('turn_deadline_exceeded', 'the turn budget was exhausted while awaiting app()', {
-							elapsed_ms: elapsed,
-							budget_ms: budget.deadlineMs,
-						})
-					);
+				const deadline = turnDeadlineFailure(budget);
+				if (deadline) {
+					reply(deadline);
 				} else {
 					reply(
 						fail(
@@ -549,19 +530,6 @@ export class CallbackChannel {
 	}
 
 	// -------------------------------------------------------------- helpers
-
-	/**
-	 * Once `turn_deadline_exceeded` has been produced, latch the budget for
-	 * the rest of the turn and cache the elapsed time it was latched at, so a
-	 * later latched call can report without another clock read.
-	 *
-	 * @param {TurnBudget} budget
-	 * @param {number} elapsedMs
-	 */
-	latch(budget, elapsedMs) {
-		budget.exhausted = true;
-		budget.exhaustedElapsedMs = elapsedMs;
-	}
 
 	/** @returns {string|null} a `callback_not_configured`/`callback_unsigned` reply, or null when usable */
 	checkChannel() {

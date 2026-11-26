@@ -217,6 +217,11 @@ try {
 	assert.match(emittedBundle, /\.php-wasm\/php_8_3\.js/, 'legacy bundles must retain PHP 8.3');
 	assert.ok(emittedBundle.includes('"/atoms/core/src/Atom.php"'), 'scaffolded bundle must embed atoms/core from template php/atoms-core/');
 	assert.ok(emittedBundle.includes('"/atoms/core/resources/errors.json"'), 'scaffolded bundle must embed errors.json from template php/atoms-core/');
+	for (const path of ['/atoms/core/src/Http/HttpClient.php', '/atoms/core/src/Http/HttpResponse.php', '/atoms/runtime/CfHttpClient.php']) {
+		assert.ok(emittedBundle.includes(JSON.stringify(path)), `scaffolded CLI bundle must embed ${path}`);
+	}
+	assert.ok(emittedBundle.includes('ATOMS-E124'));
+	assert.ok(!existsSync(join(target, 'test', 'http-worker.js')));
 	assert.ok(!emittedBundle.includes('SqliteDatabase.php'), 'scaffolded bundle must omit Sqlite/SqliteDatabase.php');
 
 	// The scaffolded worker must actually build. Asserting that a list of paths

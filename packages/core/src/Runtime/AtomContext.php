@@ -6,6 +6,7 @@ namespace Atoms\Runtime;
 
 use Atoms\AtomJob;
 use Atoms\Database;
+use Atoms\Http\HttpClient;
 use Atoms\Timers\Timers;
 
 /**
@@ -15,6 +16,8 @@ use Atoms\Timers\Timers;
  */
 interface AtomContext
 {
+    public function http(): HttpClient;
+
     public function db(): Database;
 
     /**

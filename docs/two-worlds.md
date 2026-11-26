@@ -155,3 +155,11 @@ When you `atoms build`:
 4. The manifest records what shipped and what the runtime must provide.
 
 This is how the boundary is enforced: statically, at build time, before anything is deployed. `atoms validate` runs stages 1–3 in seconds — that's your fast CI entry point.
+
+## Calling HTTPS APIs from an Atom
+
+`$this->http()->request(...)` parks the PHP guest while the Worker fetches
+the HTTPS URL supplied by the Atom. The Atom resumes in the same serialized
+turn with the status, headers and body. Finish database transactions before
+calling it. The harness supplies an offline recorder. Native cURL, PHP
+network streams and SOAP run in the application's Methods class or job.

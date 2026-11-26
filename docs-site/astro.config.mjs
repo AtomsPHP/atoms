@@ -42,6 +42,7 @@ export default defineConfig({
         { label: 'Writing Atoms', items: [
           { label: 'Callbacks', slug: 'guides/callbacks' },
           { label: 'Methods', slug: 'guides/methods' },
+          { label: 'Outbound HTTP', slug: 'guides/outbound-http' },
           { label: 'Jobs', slug: 'guides/jobs' },
           { label: 'WebSockets and timers', slug: 'guides/websockets-timers' },
           { label: 'Eloquent and the query builder', slug: 'guides/eloquent' },

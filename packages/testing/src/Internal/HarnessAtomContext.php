@@ -7,6 +7,7 @@ namespace Atoms\Testing\Internal;
 use Atoms\Database;
 use Atoms\Runtime\AtomContext;
 use Atoms\Testing\FakeTimers;
+use Atoms\Http\HttpClient;
 use Atoms\Timers\Timers;
 
 /**
@@ -31,7 +32,13 @@ final class HarnessAtomContext implements AtomContext
         private readonly \Closure $onDispatch,
         private readonly \Closure $onBroadcast,
         private readonly FakeTimers $timers,
+        private readonly HttpClient $http,
     ) {
+    }
+
+    public function http(): HttpClient
+    {
+        return $this->http;
     }
 
     public function db(): Database

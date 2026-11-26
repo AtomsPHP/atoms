@@ -60,6 +60,10 @@ import { AtomsError } from './errors.js';
  * @property {number}   bundleFormat          Bundle format version this host understands.
  * @property {string}   callbackUrl           The monolith's callback endpoint. '' = unconfigured.
  * @property {number}   turnDeadlineMs        Aggregate budget for one turn's time spent awaiting the callback channel.
+ * @property {number} httpTimeoutMs
+ * @property {number} httpMaxRequestBytes
+ * @property {number} httpMaxResponseBytes
+ * @property {number} httpMaxRequestsPerTurn
  * @property {number}   callbackTimeoutMs     Per-POST abort bound for one callback.
  * @property {number}   callbackMaxRequestBytes  Reject an app()/dispatch() request body larger than this.
  * @property {number}   callbackMaxResponseBytes Reject an app() response body larger than this (it is copied into guest memory).
@@ -462,6 +466,10 @@ export function loadConfig(env) {
 
 		callbackUrl,
 		turnDeadlineMs: posInt(env, 'ATOMS_TURN_DEADLINE_MS', 30000),
+		httpTimeoutMs: posInt(env, 'ATOMS_HTTP_TIMEOUT_MS', 5000),
+		httpMaxRequestBytes: posInt(env, 'ATOMS_HTTP_MAX_REQUEST_BYTES', 1048576),
+		httpMaxResponseBytes: posInt(env, 'ATOMS_HTTP_MAX_RESPONSE_BYTES', 1048576),
+		httpMaxRequestsPerTurn: posInt(env, 'ATOMS_HTTP_MAX_REQUESTS_PER_TURN', 8),
 		callbackTimeoutMs: posInt(env, 'ATOMS_CALLBACK_TIMEOUT_MS', 10000),
 		callbackMaxRequestBytes: posInt(env, 'ATOMS_CALLBACK_MAX_REQUEST_BYTES', 1024 * 1024),
 		callbackMaxResponseBytes: posInt(env, 'ATOMS_CALLBACK_MAX_RESPONSE_BYTES', 1024 * 1024),

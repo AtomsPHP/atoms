@@ -6,6 +6,7 @@ namespace Atoms\Testing;
 
 use Atoms\Atom;
 use Atoms\Database;
+use Atoms\Http\HttpResponse;
 use Atoms\Migrations\MigrationSet;
 use Atoms\Migrations\Migrator;
 use Atoms\Runtime\LifecycleInvoker;
@@ -75,6 +76,26 @@ final class AtomHarness
     private array $broadcasts = [];
 
     private FakeTimers $timers;
+
+    /** @var list<array{string, string, HttpResponse|\Throwable}> */
+    private array $httpScript = [];
+
+    private FakeHttpClient $httpClient;
+
+    /** @return self<TAtom> */
+    public function withHttp(string $method, string $url, HttpResponse|\Throwable $result): self
+    {
+        $this->assertNotBooted();
+        $this->httpScript[] = [$method, $url, $result];
+
+        return $this;
+    }
+
+    /** @return list<array{method: string, url: string, headers: list<array{string, string}>, body: ?string}> */
+    public function httpRequests(): array
+    {
+        return isset($this->httpClient) ? $this->httpClient->requests() : [];
+    }
 
     /**
      * @param class-string<TAtom> $atomClass
@@ -183,6 +204,7 @@ final class AtomHarness
         $this->timers = new FakeTimers($database);
         $appProxy = new FakeAppProxy($this->resolveMethodsInstance(), $this->serializer, $database->pdo());
 
+        $this->httpClient = new FakeHttpClient($database->pdo(), $this->httpScript);
         $context = new HarnessAtomContext(
             $database,
             $appProxy,
@@ -198,6 +220,7 @@ final class AtomHarness
                 $this->broadcasts[] = ['channel' => $channel, 'payload' => $payload];
             },
             $this->timers,
+            $this->httpClient,
         );
 
         $atomClass = $this->atomClass;
@@ -233,7 +256,7 @@ final class AtomHarness
         $atom = $this->atom;
         $reflection = new \ReflectionMethod($atom, $method);
         $coerced = Boundary::roundTripArgs($args, $reflection, $this->serializer);
-        $result = $reflection->invoke($atom, ...$coerced);
+        $result = $atom->{$method}(...$coerced);
 
         return Boundary::roundTripReturn($result, $reflection->getReturnType(), $this->serializer);
     }
@@ -421,7 +444,7 @@ final class AtomHarness
     private function assertNotBooted(): void
     {
         if ($this->booted || $this->booting) {
-            throw new \LogicException('AtomHarness is already booted; call withMethods()/withMigrations()/withConfig() before first use (boot(), invoke(), db(), atom(), connect()...).');
+            throw new \LogicException('AtomHarness is already booted; call withMethods()/withMigrations()/withConfig()/withHttp() before first use (boot(), invoke(), db(), atom(), connect()...).');
         }
     }
 

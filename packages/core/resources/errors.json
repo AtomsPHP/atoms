@@ -592,6 +592,70 @@
             "fix": "Run `atoms dev --env <environment>` without `--no-build` to build and stage the PHP version selected in atoms.json.",
             "severity": "error",
             "phase": "cli"
+        },
+        {
+            "code": "ATOMS-E117",
+            "title": "Outbound HTTP header denied",
+            "message": "The request contains a reserved HTTP header.",
+            "fix": "Remove routing, protocol and hop-by-hop headers from the request.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E118",
+            "title": "Invalid outbound HTTP request",
+            "message": "The HTTP method, URL, headers or body are invalid.",
+            "fix": "Use an absolute HTTPS URL without credentials or fragments, a supported uppercase method, valid headers and a null body for GET or HEAD.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E119",
+            "title": "Outbound HTTP in a transaction",
+            "message": "A database transaction is open.",
+            "fix": "Commit or roll back the transaction before making the HTTP request.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E120",
+            "title": "Outbound HTTP request timed out",
+            "message": "The HTTP response did not finish before the per-call timeout.",
+            "fix": "Check the upstream response time and confirm the outcome before retrying a write.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E121",
+            "title": "Outbound HTTP byte limit exceeded",
+            "message": "The request or response exceeds its byte limit.",
+            "fix": "Reduce the body or headers, paginate the response, or adjust the configured HTTP byte limit.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E122",
+            "title": "Too many outbound HTTP requests",
+            "message": "The window has used all available HTTP requests.",
+            "fix": "Make fewer requests per turn or adjust ATOMS_HTTP_MAX_REQUESTS_PER_TURN.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E123",
+            "title": "Outbound HTTP transport failed",
+            "message": "The Worker could not complete the HTTP exchange.",
+            "fix": "Check the upstream service and confirm the outcome before retrying a write.",
+            "severity": "error",
+            "phase": "runtime"
+        },
+        {
+            "code": "ATOMS-E124",
+            "title": "Unstubbed outbound HTTP request",
+            "message": "The request did not match the next scripted HTTP exchange.",
+            "fix": "Register the expected method, URL and result on the harness before boot.",
+            "severity": "error",
+            "phase": "runtime"
         }
     ]
 }

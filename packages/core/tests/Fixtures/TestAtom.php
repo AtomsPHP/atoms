@@ -23,6 +23,11 @@ final class TestAtom extends Atom
     /** @var list<string> */
     public array $timerFires = [];
 
+    public function callHttp(): \Atoms\Http\HttpClient
+    {
+        return $this->http();
+    }
+
     public function callDb(): Database
     {
         return $this->db();

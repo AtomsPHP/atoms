@@ -87,6 +87,7 @@ Rules for the composed script:
   "protocol": 1,                                           // boot-payload version
   "bundle_format": 0,
   "host": "cloudflare-do",
+  "http": { "max_request_bytes": 1048576, "max_response_bytes": 1048576 },
   "atom":     { "type": "Counter", "id": "counter-1" },   // required, both strings
   "manifest": {                                            // the bundle manifest
     "bundle_format": 0,
@@ -212,7 +213,7 @@ Load order matters and is encoded in `bootstrap.php`; this is what each file is.
 | `BridgeDatabase.php` | `Atoms\Database`: `query`/`execute`/`transaction`/`pdo` |
 | `CallbackError.php` | Base `\RuntimeException` for the callback channel's typed failures, formatted through `ErrorCatalog::format()` |
 | `CallbackNotConfigured.php` / `CallbackUnsigned.php` / `CallbackInTransaction.php` / `CallbackFailed.php` / `JobNotEncodable.php` | ATOMS-E080–E084 — see `runtime-spec.md` §The callback channel |
-| `TurnDeadlineExceeded.php` | Reuses ATOMS-E061; thrown by `CallbackAppProxy` on an `app()` deadline overrun |
+| `TurnDeadlineExceeded.php` | ATOMS-E061 when HTTP or `app()` exhausts the turn deadline |
 | `CallbackChannel.php` | The one place that maps a host door failure onto the typed exception above, shared by `app()` and `dispatch()` |
 | `CallbackAppProxy.php` | `app()`'s `__call()` proxy: the transaction guard, body encoding, the `app.call` park, result decoding |
 | `ConnectionClosed.php` | Thrown by `CfConnection::send()` on `ws_conn_gone` — not a catalog code (see below) |
@@ -220,7 +221,8 @@ Load order matters and is encoded in `bootstrap.php`; this is what each file is.
 | `CfMessage.php` | `Atoms\Websocket\Message`: the decoded bytes + `isBinary()` of one inbound frame; `json()` decodes them through `JsonFrame`, throwing `\JsonException` for malformed input and for a top-level non-object |
 | `InvalidTimerName.php` / `TimerLimitExceeded.php` | ATOMS-E085 / ATOMS-E086 |
 | `CfTimers.php` | `Atoms\Timers\Timers`: `schedule()`/`cancel()`/`scheduledAt()` over `timer.schedule`/`timer.cancel`/`timer.get` |
-| `CfAtomContext.php` | `Atoms\Runtime\AtomContext`: `db()`, `config()`, `app()`, `dispatch()`, `broadcast()`, `timers()` — all real |
+| `CfHttpClient.php` | Validates request data and transaction state, parks on `http.fetch` and decodes the bounded response. |
+| `CfAtomContext.php` | `Atoms\Runtime\AtomContext`: `db()`, `config()`, `app()`, `dispatch()`, `broadcast()`, `timers()`, `http()` |
 | `bootstrap.php` | Activation + the parked turn loop (`run_turn()`/`run_ws_turn()`/`run_timer_turn()`); the only file the host requires by name |
 
 ### Documented leaks and limits
