@@ -112,8 +112,8 @@ class Client:
                 info = data['info']
                 fields['info'] = {key:info[key] for key in ('do_id','constructions','php_booted','php_boot_ms','resident_ms','activations_this_residency','turns_this_residency','user_version','stored')}
                 fields['alarm_at_ms'] = info['storage']['alarm_at_ms']
-                if not info['php_booted'] or not info['do_id'] or info['stored']['id'] != room:
-                    raise ValueError('Room was not resident after an invoke')
+                if not info['do_id'] or info['stored']['id'] != room or not isinstance(info['constructions'], int) or info['constructions'] < 1:
+                    raise ValueError('Unexpected physical room, persisted key or construction counter')
             elif room is not None:
                 state = data['result']
                 if state.get('id') != room or state.get('status') != 'active' or state.get('players') != 2:
@@ -157,6 +157,7 @@ def measure(phase, rooms):
     previous = {} if phase == 'baseline' else read(RESULTS/'baseline/identity.json')
     identities = {}
     counts = {}
+    need_prime = set()
     endpoints = read(HERE/'config.json')
     with (phase_dir/'raw.ndjson').open('x') as out, (phase_dir/'samples.ndjson').open('x') as samples:
         clients = {ns:Client(ns,endpoints[ns],gate['versions'][ns],gate['runtimes'][ns],out) for ns in NAMESPACES}
@@ -168,6 +169,23 @@ def measure(phase, rooms):
             if previous and previous[key] != identities[key]:
                 raise ValueError('Room state, migration, or DO identity changed across assignment')
             counts[key]=probe['info']['constructions']
+            if not probe['info']['php_booted']:
+                need_prime.add(key)
+        def prime(ns, room, number, attempt):
+            key = ns+'/'+room
+            client = clients[ns]
+            for _ in range(3):
+                state = client.request(phase,number,attempt,room,'reprime')
+                probe = client.request(phase,number,attempt,room,'info-reprime')
+                if identity(probe,state) != identities[key]:
+                    raise ValueError('Fixed room identity changed while re-priming')
+                counts[key] = probe['info']['constructions']
+                if probe['info']['php_booted']:
+                    return
+            raise RuntimeError('Could not establish a resident reference before idle')
+        for ns,room in ordered(rooms,phase,0):
+            if ns+'/'+room in need_prime:
+                prime(ns,room,0,0)
         save(phase_dir/'identity.json',identities)
         print(f'{phase}: preflight passed for all 40 rooms; starting two measurement rounds.',flush=True)
         for number in (1,2):
@@ -192,13 +210,24 @@ def measure(phase, rooms):
                     before=counts[key]
                     cold_count=cp['info']['constructions']
                     warm_count=wp['info']['constructions']
-                    valid=cold_count==before+1 and cold_count==warm_count
+                    reasons=[]
+                    if not cp['info']['php_booted']:
+                        reasons.append('post-cold debug found an unbooted residency')
+                    if not wp['info']['php_booted']:
+                        reasons.append('post-warm debug found an unbooted residency')
+                    if cold_count != before+1:
+                        reasons.append('cold observation did not advance exactly one construction')
+                    if warm_count != cold_count:
+                        reasons.append('construction count changed before warm proof')
+                    valid=not reasons
                     obs={'phase':phase,'round':number,'attempt':attempt,'namespace':ns,'runtime':client.runtime,'expected_version':client.version,
                          'room':room,**identities[key],'cold_ms':cold['duration_ms'],'warm_ms':warm['duration_ms'],'cold_wall_start_ms':cold['wall_start_ms'],'warm_wall_start_ms':warm['wall_start_ms'],
-                         'cold_cf_ray':cold['cf_ray'],'warm_cf_ray':warm['cf_ray'],'counts':[before,cold_count,warm_count],'eviction_verified':valid}
+                         'cold_cf_ray':cold['cf_ray'],'warm_cf_ray':warm['cf_ray'],'counts':[before,cold_count,warm_count],'post_cold_php_booted':cp['info']['php_booted'],'post_warm_php_booted':wp['info']['php_booted'],'eviction_verified':valid,'invalid_reasons':reasons}
                     samples.write(json.dumps(obs,separators=(',',':'))+'\n');samples.flush()
                     counts[key]=warm_count
-                    if not valid:retry.append((ns,room))
+                    if not valid:
+                        prime(ns,room,number,attempt)
+                        retry.append((ns,room))
                 print(f'{phase} round {number} attempt {attempt}: {len(pending)-len(retry)} confirmed; {len(retry)} left.',flush=True)
                 pending=retry
             if pending:raise RuntimeError(f'{len(pending)} rooms lacked a verified eviction in round {number}')
