@@ -24,7 +24,7 @@ const BEARER = 'Dx6RY9LS43pOQhM4PMdaUWx3lk9mfyiiJZFfJtvl9E0=';
 const STUBS = {
 	'atoms-test:cloudflare-workers': 'export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }\n',
 	'atoms-test:bundle':
-		'export default { manifest: { abi: { php: "8.3" }, atoms: { Counter: { websocket: false }, Room: { websocket: true }, Destructible: { websocket: true } } }, files: {} };\n',
+		'export default { asyncifyLoader: {}, manifest: { abi: { php: "8.3" }, atoms: { Counter: { websocket: false }, Room: { websocket: true }, Destructible: { websocket: true } } }, files: {} };\n',
 	'atoms-test:php-host': [
 		'export let bootCalls = 0;',
 		'export function resetBootCalls() { bootCalls = 0; }',

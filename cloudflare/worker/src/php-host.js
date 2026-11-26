@@ -98,10 +98,6 @@ function writeReply(M, responseBufferPtr, str) {
  * @returns {Promise<any>} the PHP instance (with `__atoms` bookkeeping attached)
  */
 export async function bootPHP(asyncifyLoader, { onSync, onPark }) {
-	if (!asyncifyLoader) {
-		throw new AtomsError('misconfigured',
-			'The staged Atom bundle predates PHP version selection. Run atoms dev without --no-build to rebuild it.');
-	}
 	if (typeof onSync !== 'function' || typeof onPark !== 'function') {
 		throw new AtomsError('internal', 'bootPHP requires both onSync and onPark handlers');
 	}
