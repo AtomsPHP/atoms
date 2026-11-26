@@ -4,7 +4,7 @@ Atoms lets you deploy PHP objects as persistent, hibernatable servers. Each Atom
 
 Atoms bundles your Atom classes and their dependencies with a WebAssembly-based PHP runtime. Each Atom instance runs in its own Cloudflare Durable Object.
 
-While your Atoms objects are running inside of Cloudflare, your monolith treats them just like ordinary PHP objects. Think any entity in your app that could use its own database and its own direct channel of communication with your end users - a game room, a document, a chat thread - and it could become an Atom.
+While your Atoms objects are running inside of Cloudflare, your monolith treats them just like ordinary PHP objects. Think of any entity in your app that could use its own database and its own direct channel of communication with your end users - a game room, a document, a chat thread - and it could become an Atom.
 
 ```php
 namespace App\Atoms;
