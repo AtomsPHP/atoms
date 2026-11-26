@@ -88,6 +88,22 @@ text; SQLite BLOB values and `PDO::PARAM_LOB` are not supported. WebSocket
 messages are the exception: `send()` delivers bytes that are not valid UTF-8 as
 a binary frame.
 
+## RSA padding in the candidate PHP Worker
+
+The shipping Worker uses WordPress Playground and accepts
+`OPENSSL_SSLV23_PADDING` (numeric value `2`). The Atoms-owned PHP 8.3
+candidate uses OpenSSL 3, which removed this RSA mode. On the candidate,
+referencing the constant raises a PHP error. Passing `2` to
+`openssl_public_encrypt()` or `openssl_private_decrypt()` returns `false`.
+[OpenSSL removal decision](https://github.com/openssl/openssl/issues/14283)
+
+Before testing the candidate, check those calls in your Atom code and bundled
+dependencies. If they use SSLv23 padding, keep the Playground build while you
+migrate. For stored ciphertext, read it with the existing implementation,
+re-encrypt a copy in the new format and verify that it decrypts correctly.
+For a wire protocol, agree on the new format with each peer and test both
+directions before switching.
+
 ## See also
 
 - [PDO compatibility](/reference/pdo/) for how `$this->db()->pdo()` differs

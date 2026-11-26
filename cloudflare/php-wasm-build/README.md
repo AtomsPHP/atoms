@@ -4,7 +4,7 @@ The shipping scaffold selects WordPress Playground 3.1.48. This directory builds
 
 ## OpenSSL compatibility
 
-Playground exposes SSLv23 RSA padding through `OPENSSL_SSLV23_PADDING`. OpenSSL removed this mode in 3.0. Existing PHP code that references that constant fails on the candidate. A numeric mode of 2 also fails for previously working public encryption and private decryption calls. The OpenSSL 3 legacy provider restores the older symmetric ciphers and digests but has no implementation of this RSA mode. Full application compatibility remains a promotion blocker. [Upstream removal decision](https://github.com/openssl/openssl/issues/14283)
+The Atoms candidate adopts OpenSSL 3’s removal of SSLv23 RSA padding. On the shipping Playground interpreter, `OPENSSL_SSLV23_PADDING` has the value `2`. On the candidate, referencing the constant raises an undefined-constant error. Passing numeric mode `2` to `openssl_public_encrypt()` or `openssl_private_decrypt()` returns `false`. This is an accepted compatibility change for the candidate. Before upgrading an affected application, identify both ends of its encryption protocol and migrate them together. Existing ciphertext requires a reader that supports its original format. [Upstream removal decision](https://github.com/openssl/openssl/issues/14283)
 
 ## Rebuild and identify the candidate
 
@@ -12,7 +12,7 @@ From this directory, use Python 3, Node, Git, tar, patch, Docker with Buildx, an
 
 ```sh
 work=/absolute/path/to/build-work
-version=8.3.32-atoms.1
+version=8.3.32-atoms.2
 python3 -B build.py fetch "$work/inputs"
 python3 -B build.py verify "$work/inputs"
 python3 -B build.py build "$work/inputs" "$work/first"

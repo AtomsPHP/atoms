@@ -197,6 +197,11 @@ def bundle(inputs, output):
                             "and supplies the Playground SHAKE128/256 output lengths to EVP_DigestFinalXOF "
                             "for message digests and DER certificate fingerprints "
                             "(https://docs.openssl.org/3.5/man7/EVP_MD-SHAKE/)"],
+                "acceptedCompatibilityChanges": [
+                    "The candidate follows OpenSSL 3 for the removed SSLv23 RSA padding mode. "
+                    "PHP omits OPENSSL_SSLV23_PADDING and rejects numeric mode 2. "
+                    "https://github.com/openssl/openssl/issues/14283"
+                ],
                 "bundled": ["Zend", "PCRE2", "libmbfl", "timelib", "libbcmath", "file/libmagic",
                             "xxHash", "libavifinfo", "Lucent strtod", "Scott E. Lee calendar",
                             "MurmurHash3", "Keccak Code Package", "FreeSec", "crypt_blowfish",

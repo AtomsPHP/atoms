@@ -1,6 +1,6 @@
 {
   "package": "@atomsphp/php-wasm-8-3",
-  "version": "8.3.32-atoms.1",
+  "version": "8.3.32-atoms.2",
   "wasm": {
     "path": "php_8_3.wasm",
     "bytes": 19248410,
