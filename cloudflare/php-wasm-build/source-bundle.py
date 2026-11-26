@@ -8,7 +8,7 @@ from pathlib import Path
 import tarfile
 from tempfile import TemporaryDirectory
 
-from build import LOCK, RECIPE, locked_files
+from build import BUILD_RECIPE_FILES, LOCK, RECIPE, locked_files
 from libraries import library_lock
 
 
@@ -42,10 +42,38 @@ def read_notices(archive, names, strip_root=True):
     return "\n".join(f"\n{archive.name} / {name}\n\n{result[name]}" for name in names)
 
 
+def add_file(archive, name, path):
+    # Hash the same bytes that tar receives. A concurrent recipe edit cannot
+    # leave components.json describing an older copy of a packaged file.
+    sha = hashlib.sha256()
+    with path.open("rb") as stream:
+        class Reader:
+            def read(self, size):
+                data = stream.read(size)
+                sha.update(data)
+                return data
+
+        info = tarfile.TarInfo(name)
+        info.size = path.stat().st_size
+        info.mode = 0o755 if path.suffix == ".sh" else 0o644
+        archive.addfile(info, Reader())
+    return sha.hexdigest()
+
+
 def bundle(inputs, output):
     locked_files(inputs)
     libraries = library_lock()
-    files = {}
+    metadata_path = output / "build-metadata.json"
+    metadata_bytes = metadata_path.read_bytes()
+    metadata = json.loads(metadata_bytes)
+    expected_outputs = {"php_8_3.js", "php_8_3.wasm"}
+    if (metadata.get("schema") != 1 or set(metadata.get("recipe", {})) != set(BUILD_RECIPE_FILES)
+            or set(metadata.get("outputs", {})) != expected_outputs):
+        raise ValueError("Incomplete compiler build-metadata.json")
+    for name in expected_outputs:
+        if digest(output / name) != metadata["outputs"][name]:
+            raise ValueError(f"Output differs from the compiled file: {name}")
+    files = {"build-metadata.json": metadata_path}
     notices = [
         "Atoms PHP Worker interpreter\n\n"
         "The combined interpreter and matching JavaScript glue are offered under GPL version 3. "
@@ -54,6 +82,19 @@ def bundle(inputs, output):
         "PHP and Zend are used under the successor terms published by the PHP Group. "
         "Upstream copyright notices and grants for individual parts follow. "
         "This software is based in part on the work of the Independent JPEG Group.",
+        "WordPress Playground v3.1.48 declares GPL-2.0-or-later for its web interpreter. "
+        "Atoms elects version 3 for the combined work. The release links OpenSSL 3.5.9 "
+        "from the Apache-2.0 source identified by libraries.lock.json. OpenSSL records "
+        "the change in grant for 3.x, and the Apache Software Foundation documents "
+        "inclusion of Apache-2.0 code in GPLv3 projects.\n"
+        "https://github.com/WordPress/wordpress-playground/blob/53d5c3030702e1edb3f82e7dbc308fcac27c3d0a/packages/php-wasm/web-builds/8-3/package.json\n"
+        "https://openssl-library.org/source/license/\n"
+        "https://www.apache.org/licenses/GPL-compatibility.html",
+        "Section 5 of PHP License 3.01 permits election of PHP License 4 for earlier covered "
+        "sources. Section 4 of Zend Engine License 2.00 permits election of Zend Engine "
+        "License 3.0. The PHP Group records both elections and publishes the consolidated "
+        "Modified BSD text with both copyright holders. Other upstream file-specific grants "
+        "are retained in the included sources.\nhttps://www.php.net/license/\nhttps://www.php.net/license/4_0.txt",
         (RECIPE.parent / "LICENSE-MIT").read_text(),
         (inputs / "notices/PHP-LICENSE-4.0").read_text(),
         read_notices(inputs / "playground.tar", ["LICENSE"], False),
@@ -82,9 +123,7 @@ def bundle(inputs, output):
 
     files["LICENSE-MIT"] = RECIPE.parent / "LICENSE-MIT"
     # Only build source and maintainer instructions enter the source release.
-    for name in ["build.py", "builder.Dockerfile", "worker-build.patch", "extension-abi.mjs",
-                 "libraries.py", "build-libraries.sh", "compiler.lock.json", "libraries.lock.json",
-                 "source-bundle.py", "pack.mjs", "README.md"]:
+    for name in [*BUILD_RECIPE_FILES, "source-bundle.py", "pack.mjs", "README.md"]:
         files["php-wasm-build/" + name] = RECIPE / name
 
     inventory = {
@@ -92,6 +131,8 @@ def bundle(inputs, output):
         "platform": LOCK["platform"],
         "compiler": {"emscripten": LOCK["emscripten"], "lock": digest(RECIPE / "compiler.lock.json")},
         "php": {"version": LOCK["php"], "commit": LOCK["phpCommit"], "license": "BSD-3-Clause",
+                "patches": ["Playground patches in playground.tar",
+                            "openssl-legacy-provider.patch loads the static OpenSSL legacy provider at MINIT"],
                 "bundled": ["Zend", "PCRE2", "libmbfl", "timelib", "libbcmath", "file/libmagic",
                             "xxHash", "libavifinfo"]},
         "playground": {"commit": LOCK["playgroundCommit"], "license": "GPL-2.0-or-later",
@@ -99,25 +140,30 @@ def bundle(inputs, output):
                                       "post_message_to_js", "wasm_memory_storage", "JavaScript glue"]},
         "emscriptenRuntime": ["JavaScript support", "musl", "compiler-rt"],
         "libraries": libraries,
-        "sourceFiles": {name: digest(path) for name, path in sorted(files.items())},
+        "build": metadata,
+        "sourceFiles": {},
     }
     output.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=output) as scratch:
         tmp = Path(scratch)
-        (tmp / "components.json").write_text(json.dumps(inventory, indent=2) + "\n")
         (tmp / "THIRD_PARTY_NOTICES.txt").write_text("\n\n".join(notices) + "\n")
-        for name in ("components.json", "THIRD_PARTY_NOTICES.txt"):
-            files[name] = tmp / name
+        expected = {f"inputs/{item['file']}": item["sha256"] for item in LOCK["downloads"]}
+        expected["build-metadata.json"] = hashlib.sha256(metadata_bytes).hexdigest()
+        expected.update({f"inputs/{file}": sha for file, sha in LOCK["playgroundFiles"].items()})
+        expected.update({f"inputs/libraries/{c['file']}": c["sha256"] for c in libraries})
+        expected.update({f"php-wasm-build/{name}": sha for name, sha in metadata["recipe"].items()})
         source = tmp / "corresponding-source.tar.gz"
         with source.open("wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0,
                                                     compresslevel=1) as compressed:
             with tarfile.open(fileobj=compressed, mode="w|", format=tarfile.GNU_FORMAT) as archive:
                 for name, path in sorted(files.items()):
-                    info = tarfile.TarInfo(name)
-                    info.size = path.stat().st_size
-                    info.mode = 0o755 if path.suffix == ".sh" else 0o644
-                    with path.open("rb") as data:
-                        archive.addfile(info, data)
+                    sha = add_file(archive, name, path)
+                    if name in expected and sha != expected[name]:
+                        raise ValueError(f"Source changed during packaging: {name}")
+                    inventory["sourceFiles"][name] = sha
+                (tmp / "components.json").write_text(json.dumps(inventory, indent=2) + "\n")
+                for name in ("components.json", "THIRD_PARTY_NOTICES.txt"):
+                    add_file(archive, name, tmp / name)
         for path in sorted(tmp.iterdir()):
             path.replace(output / path.name)
 

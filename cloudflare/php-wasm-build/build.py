@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
 """Build the single PHP 8.3 Worker target with a private, offline compiler cache."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 from libraries import fetch, library_lock, verify
 
 RECIPE = Path(__file__).resolve().parent
 LOCK = json.loads((RECIPE / "compiler.lock.json").read_text())
+# These are the complete Atoms-authored inputs to the two delivered files.
+BUILD_RECIPE_FILES = (
+    "build.py", "builder.Dockerfile", "compiler.lock.json", "worker-build.patch",
+    "openssl-legacy-provider.patch", "extension-abi.mjs", "build-libraries.sh",
+    "libraries.py", "libraries.lock.json",
+)
 COMPILE = "packages/php-wasm/compile"
 PLAYGROUND_SOURCE = [
     "LICENSE", *(f"{COMPILE}/{path}" for path in (
@@ -58,18 +66,33 @@ def locked_files(inputs, download=False):
 
 
 def build(inputs, output):
-    locked_files(inputs)
-    output.mkdir(parents=True, exist_ok=True)
-    if any(output.iterdir()):
-        raise ValueError(f"Build output must be empty: {output}")
+    # A long compile may outlive edits in the maintainer checkout. Build from
+    # a private snapshot so every hash describes the code and locks executed.
     with tempfile.TemporaryDirectory(dir=inputs.parent) as temp:
+        snapshot = Path(temp)
+        for file in BUILD_RECIPE_FILES:
+            shutil.copyfile(RECIPE / file, snapshot / file)
+        run(sys.executable, "-B", snapshot / "build.py", "--compile-snapshot", inputs, output)
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def compile_snapshot(inputs, output):
+    locked_files(inputs)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
+        raise ValueError(f"Build output must be empty: {output}")
+    with tempfile.TemporaryDirectory(dir=inputs.parent) as temp, tempfile.TemporaryDirectory(dir=output.parent) as staging:
         context = Path(temp)
+        shipped = Path(staging) / "shipped"
         # Stage only named files. Passing the containing checkout as a Docker
         # context would include unrelated project configuration and artifacts.
         run("tar", "-xf", inputs / "playground.tar", "--strip-components=2", "-C", context, COMPILE)
         for path in ["recipe", "libraries", "debs"]:
             (context / path).mkdir()
-        for file in ["build-libraries.sh", "libraries.py", "libraries.lock.json"]:
+        for file in ["build-libraries.sh", "libraries.py", "libraries.lock.json", "openssl-legacy-provider.patch"]:
             shutil.copyfile(RECIPE / file, context / "recipe" / file)
         files = ["php.tar.gz", "js-exports.txt", "wasm-exports.txt"]
         files.extend(c["file"] for c in LOCK["downloads"] if c["file"].startswith("debs/"))
@@ -87,7 +110,15 @@ def build(inputs, output):
             "--build-arg", f"SOURCE_DATE_EPOCH={LOCK['sourceDateEpoch']}",
             "--build-arg", f"PHP_VERSION={LOCK['php']}", "--build-arg", "STACK_SIZE=1MB",
             "--build-arg", "WITH_JSPI=no", "--build-arg", "WITH_MYSQL=no", "--build-arg", "WITH_IMAGICK=no",
-            *args, "--output", f"type=local,dest={output}", context)
+            *args, "--output", f"type=local,dest={shipped}", context)
+        metadata = {
+            "schema": 1,
+            "recipe": {file: digest(RECIPE / file) for file in BUILD_RECIPE_FILES},
+            "dockerfileSha256": digest(context / "Dockerfile"),
+            "outputs": {file: digest(shipped / file) for file in ("php_8_3.js", "php_8_3.wasm")},
+        }
+        (shipped / "build-metadata.json").write_text(json.dumps(metadata, sort_keys=True, indent=2) + "\n")
+        shipped.rename(output)
 
 
 def main():
@@ -110,4 +141,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) == 4 and sys.argv[1] == "--compile-snapshot":
+        compile_snapshot(Path(sys.argv[2]), Path(sys.argv[3]))
+    else:
+        main()

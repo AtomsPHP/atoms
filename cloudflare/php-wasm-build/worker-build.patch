@@ -1,27 +1,15 @@
 --- php/Dockerfile
 +++ php/Dockerfile
-@@ -1,4 +1,3 @@
+@@ -1 +0,0 @@
 -FROM playground-php-wasm:base
- 
- ARG WITH_JSPI="no"
- ENV PKG_CONFIG_PATH=/root/lib/lib/pkgconfig
-@@ -16,12 +15,6 @@
- # ./buildconf script is generated.
- ARG WITH_OPCACHE
- 
+@@ -19,6 +17,0 @@
 -RUN PHP_REF="${PHP_REF:-php-$PHP_VERSION}" && \
 -	git clone https://github.com/php/php-src.git php-src \
 -		--branch $PHP_REF \
 -		--single-branch \
 -		--depth 1;
 -
- # Work around memory leak due to PHP using Emscripten's incomplete mmap/munmap support
- COPY ./compile/php-wasm-memory-storage /root/php-src/ext/wasm_memory_storage
- 
-@@ -33,47 +26,6 @@
- 
- # Copy the opcache_module.c and php_opcache.h files.
- COPY ./compile/opcache/ /root/php-src/ext/opcache
+@@ -36,41 +28,0 @@
 -
 -# Bring in the libraries
 -RUN mkdir -p /root/lib/include /root/lib/lib /libs
@@ -63,52 +51,24 @@
 -else \
 -	cp -r /root/builds-libopenssl/asyncify/dist/root/lib /libs/libopenssl; \
 -fi
- 
- # Patch OPcache config.m4 file if needed
- RUN if [ "$WITH_OPCACHE" = "yes" ]; \
-@@ -138,11 +90,10 @@
- 	touch /root/.JS_ABI_EXPORTS && \
- 	touch /root/.WASM_ABI_EXPORTS
- 
+@@ -107,0 +60,3 @@
++FROM php-source AS interpreter
++COPY --from=libraries /libs/ /libs/
++
+@@ -141 +96 @@
 -RUN apt install -y bison;
 +# Host tools and cross-compiled libraries are provided by the locked builder.
- 
- # Add libzip and zlib files if needed
- RUN if [ "$WITH_LIBZIP" = "yes" ]; then \
+@@ -145 +99,0 @@
 -		cp -r /libs/libzip/1.9.2/* /root/lib; \
- 		# https://www.php.net/manual/en/zlib.installation.php
- 		echo -n ' --with-zlib --with-zlib-dir=/root/lib --with-zip ' >> /root/.php-configure-flags; \
- 		echo -n ' /root/lib/lib/libzip.a /root/lib/lib/libz.a ' >> /root/.emcc-php-wasm-sources; \
-@@ -207,7 +158,7 @@
- 		# Use external libgd for PHP 8.1+; fall back to bundled gd for <= 8.0 (and 7.x) to avoid missing symbols
- 		if [[ "${PHP_VERSION:0:1}" -gt "8" || ( "${PHP_VERSION:0:1}" -eq "8" && "${PHP_VERSION:2:1}" -ge "1" ) ]]; then \
- 			echo -n ' --with-external-gd=/root/lib --enable-gd  ' >> /root/.php-configure-flags; \
+@@ -210 +164 @@
 -			echo -n ' /root/lib/lib/libgd.a /root/lib/lib/libjpeg.a /root/lib/lib/libpng16.a /root/lib/lib/libwebp.a /root/lib/lib/libsharpyuv.a /root/lib/lib/libavif.a ' >> /root/.emcc-php-wasm-sources; \
 +			echo -n ' /root/lib/lib/libgd.a /root/lib/lib/libjpeg.a /root/lib/lib/libpng16.a /root/lib/lib/libwebp.a /root/lib/lib/libsharpyuv.a /root/lib/lib/libavif.a /root/lib/lib/libaom.a ' >> /root/.emcc-php-wasm-sources; \
- 			if [[ "${PHP_VERSION:0:1}" -eq "8" && "${PHP_VERSION:2:1}" -ge "1" ]]; then \
- 				echo -n ' --with-avif ' >> /root/.php-configure-flags; \
- 			fi; \
-@@ -227,7 +178,6 @@
- # Add openssl if needed
- RUN if [ "$WITH_OPENSSL" = "yes" ]; \
- 	then \
+@@ -230 +183,0 @@
 -		cp -r /libs/libopenssl/* /root/lib; \
- 		echo -n ' --with-openssl --with-openssl-dir=/root/lib ' >> /root/.php-configure-flags; \
- 		echo -n ' /root/lib/lib/libcrypto.a /root/lib/lib/libssl.a ' >> /root/.emcc-php-wasm-sources; \
- 	fi;
-@@ -510,7 +460,7 @@
- 		-fdebug-compilation-dir=${DEBUG_DWARF_COMPILATION_DIR}/ \
- 		-fdebug-prefix-map=/root/php-src/=${OUTPUT_DIR_ON_HOST}/${PHP_VERSION_ESCAPED}/php-src/ " \
- 	# ...which means we must skip all the libraries - they will be provided in the final linking step.
+@@ -513 +466 @@
 -	emmake make -j14
 +	emmake make -j"$BUILD_JOBS"
- 
- RUN cp -v /root/php-src/.libs/libphp*.la /root/lib/libphp.la
- RUN cp -v /root/php-src/.libs/libphp*.a /root/lib/libphp.a
-@@ -2319,32 +2269,10 @@
- 		} >> /root/.JS_ABI_EXPORTS; \
- 	fi;
- 
+@@ -2322,26 +2275,4 @@
 -COPY ./${EMSCRIPTEN_ENVIRONMENT}-builds/ /root/${EMSCRIPTEN_ENVIRONMENT}-builds
 -COPY ./compile/shared/ /root/shared/
 -RUN	set -eux; \
@@ -139,39 +99,16 @@
 +COPY js-exports.txt wasm-exports.txt compile/shared/intl/exported-functions.list /tmp/
 +RUN cat /tmp/js-exports.txt /tmp/exported-functions.list >> /root/.JS_ABI_EXPORTS && \
 +    cat /tmp/wasm-exports.txt >> /root/.WASM_ABI_EXPORTS
- 
- RUN set -eux; \
- 	sort -u /root/.JS_ABI_EXPORTS | \
-@@ -2597,13 +2525,14 @@
- 			echo "const dependencyFilename = path.join(currentDirPath, '${PHP_VERSION_ESCAPED}', '$WASM_FILENAME');" >> /root/output/php-module.js;\
- 			/root/replace.sh "s/scriptDirectory\s*=\s*__dirname/scriptDirectory = currentDirPath/" /root/output/php.js; \
- 		else \
+@@ -2600 +2531 @@
 -			echo "import dependencyFilename from './${PHP_VERSION_ESCAPED}/$WASM_FILENAME'; " >> /root/output/php-module.js; \
 +			echo "import dependencyFilename from './$WASM_FILENAME'; " >> /root/output/php-module.js; \
- 		fi; \
- 		echo "export { dependencyFilename }; " >> /root/output/php-module.js && \
- 		echo "export const dependenciesTotalSize = $FILE_SIZE; " >> /root/output/php-module.js && \
- 		echo "const phpVersionString = '$PHP_VERSION';" >> /root/output/php-module.js && \
- 		cat /root/esm-prefix.js >> /root/output/php-module.js && \
- 		cat /root/output/php.js >> /root/output/php-module.js && \
+@@ -2606,0 +2538 @@
 +		echo "Module['Asyncify'] = Asyncify;" >> /root/output/php-module.js && \
- 		cat /root/esm-suffix.js >> /root/output/php-module.js && \
- 		\
- 		# Remove the old php.js file
-@@ -2611,8 +2540,7 @@
- 		\
- 		# Rename the build files to their final names
- 		mv /root/output/php-module.js "/root/output/$JS_FILENAME"; \
+@@ -2614,2 +2546 @@
 -		mkdir -p /root/output/${PHP_VERSION_ESCAPED}/; \
 -		mv /root/output/php.wasm "/root/output/${PHP_VERSION_ESCAPED}/$WASM_FILENAME"; \
 +		mv /root/output/php.wasm "/root/output/$WASM_FILENAME"; \
- 		if [ "${WITH_SOURCEMAPS}" = "yes" ]; then \
- 			# Make the source map paths relative to the .wasm file, not the build directory
- 			sed -i 's#"\.\./\.\./root/#"#g' /root/output/php.wasm.map; \
-@@ -2627,3 +2555,6 @@
- 			cp -r /root/emsdk/upstream/emscripten/cache /root/output/"${PHP_VERSION_ESCAPED}"/emscripten/; \
- 			cp -r /root/emsdk/upstream/emscripten/system /root/output/"${PHP_VERSION_ESCAPED}"/emscripten/; \
- 		fi;
+@@ -2629,0 +2561,3 @@
 +
 +FROM scratch AS shipped
 +COPY --from=interpreter /root/output/php_8_3.js /root/output/php_8_3.wasm /

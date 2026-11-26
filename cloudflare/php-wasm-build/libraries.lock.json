@@ -44,7 +44,8 @@
     "license": "blessing",
     "notices": [
       "sqlite3.h"
-    ]
+    ],
+    "sourceId": "fb2c931ae597f8d00a37574ff67aeed3eced4e5547f9120744ae4bfa8e74527b"
   },
   {
     "name": "oniguruma",

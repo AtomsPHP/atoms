@@ -7,11 +7,12 @@ prefix=$(realpath -m "${3:?empty installation prefix}")
 recipe=$(cd "$(dirname "$0")" && pwd)
 python3 "$recipe/libraries.py" verify "$archives"
 mkdir -p "$build" "$prefix/include" "$prefix/lib/pkgconfig"
-export LC_ALL=C TZ=UTC SOURCE_DATE_EPOCH=1704067200 ZERO_AR_DATE=1
+export LC_ALL=C TZ=UTC SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1704067200} ZERO_AR_DATE=1
 export CC=emcc CXX=em++ AR=emar RANLIB=emranlib NM=emnm
 export CFLAGS="-O2 -fPIC" CXXFLAGS="-O2 -fPIC"
 export CPPFLAGS="-I$prefix/include" LDFLAGS="-L$prefix/lib"
 export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig" PKG_CONFIG_PATH="$prefix/lib/pkgconfig"
+export EM_PKG_CONFIG_PATH="$PKG_CONFIG_PATH"
 jobs=${BUILD_JOBS:-4}
 
 # All input archives have one top-level source directory. Bind each to its
@@ -80,6 +81,7 @@ compile -C libcharset install-lib
 cp include/iconv.h.inst "$prefix/include/iconv.h"
 
 unpack libxml2
+cp /usr/share/misc/config.sub ./config.sub
 configure --without-python --without-lzma --without-threads --without-http --without-ftp \
     --with-iconv="$prefix" --with-zlib="$prefix"
 compile libxml2.la
@@ -93,6 +95,8 @@ compile -C src install
 compile install-pkgconfigDATA
 
 unpack curl
+# curl 7.69 predates the Emscripten host tuple in GNU config.sub.
+cp /usr/share/misc/config.sub ./config.sub
 configure --with-ssl="$prefix" --with-zlib="$prefix" --without-libidn2 \
     --without-brotli --without-libssh2 --without-nghttp2 --disable-ldap --disable-ldaps \
     --disable-pop3 --disable-imap --disable-smb --disable-smtp --disable-telnet \
@@ -126,6 +130,10 @@ cmake_lib -DAVIF_CODEC_AOM=SYSTEM -DAVIF_LIBYUV=OFF -DAVIF_BUILD_APPS=OFF \
     -DAVIF_BUILD_TESTS=OFF -DAVIF_LIBSHARPYUV=OFF
 
 unpack libgd
+# The avif static build installs a pkg-config file. Its CMake export is
+# shared-only, and GD 2.3.3 requests a 0.x CONFIG file explicitly.
+sed -i -e 's/FIND_PACKAGE(libavif 0.8.2 REQUIRED CONFIG)/FIND_PACKAGE(PkgConfig REQUIRED)\n\t\tpkg_check_modules(AVIF REQUIRED IMPORTED_TARGET libavif>=0.8.2)/' \
+    -e 's/SET(AVIF_LIBRARIES avif)/SET(AVIF_LIBRARIES PkgConfig::AVIF)/' CMakeLists.txt
 # gd and PHP use the same name for two different overflow checks. Give gd's
 # implementation and callers a private name. Rename gdkanji's translation-
 # unit-local iconv fallbacks to avoid colliding with the libc and GNU symbols.

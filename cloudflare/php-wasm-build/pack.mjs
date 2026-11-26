@@ -13,6 +13,17 @@ if (!dest || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
 if (realpathSync(first) === realpathSync(second)) throw new Error('Supply two independent build outputs.');
 const name = '@atomsphp/php-wasm-8-3';
 const pin = { package: name, version };
+const metadata = readFileSync(join(first, 'build-metadata.json'));
+if (!metadata.equals(readFileSync(join(second, 'build-metadata.json')))) {
+	throw new Error('The clean builds used different recipes or produced different outputs.');
+}
+const build = JSON.parse(metadata);
+const inventory = JSON.parse(readFileSync(join(first, 'components.json'), 'utf8'));
+for (const [file, sha256] of Object.entries(build.recipe)) {
+	if (inventory.sourceFiles['php-wasm-build/' + file] !== sha256) {
+		throw new Error(`Corresponding source differs from the build for ${file}.`);
+	}
+}
 const destination = resolve(dest);
 mkdirSync(destination, { recursive: true });
 const stage = mkdtempSync(join(destination, '.pack-'));
@@ -23,13 +34,16 @@ try {
 			throw new Error(`Independent builds differ for ${path}.`);
 		}
 		pin[key] = { path, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+		if (pin[key].sha256 !== build.outputs[path]) throw new Error(`Build record differs for ${path}.`);
 		writeFileSync(join(stage, path), bytes);
 	}
 	for (const file of ['corresponding-source.tar.gz', 'THIRD_PARTY_NOTICES.txt', 'components.json']) {
 		copyFileSync(join(first, file), join(stage, file));
 	}
-	const files = ['php_8_3.wasm', 'php_8_3.js', 'corresponding-source.tar.gz', 'THIRD_PARTY_NOTICES.txt', 'components.json'];
-	const manifest = { name, version, type: 'module', license: 'SEE LICENSE IN THIRD_PARTY_NOTICES.txt', files,
+	writeFileSync(join(stage, 'build-metadata.json'), metadata);
+	const files = ['php_8_3.wasm', 'php_8_3.js', 'build-metadata.json', 'corresponding-source.tar.gz', 'THIRD_PARTY_NOTICES.txt', 'components.json'];
+	const manifest = {
+		name, version, type: 'module', license: 'SEE LICENSE IN THIRD_PARTY_NOTICES.txt', files,
 		repository: { type: 'git', url: 'git+https://github.com/AtomsPHP/atoms.git', directory: 'cloudflare/php-wasm-build' },
 		publishConfig: { access: 'public', provenance: true },
 	};
@@ -39,6 +53,14 @@ try {
 	}))[0];
 	for (const file of files) {
 		if (!result.files.some(({ path }) => path === file)) throw new Error(`Missing from npm pack: ${file}`);
+	}
+	for (const { path, bytes, sha256 } of [pin.wasm, pin.glue]) {
+		const packed = execFileSync('tar', ['-xOzf', join(destination, result.filename), 'package/' + path], {
+			maxBuffer: bytes + 1,
+		});
+		if (packed.length !== bytes || createHash('sha256').update(packed).digest('hex') !== sha256) {
+			throw new Error(`Packed ${path} differs from the clean builds.`);
+		}
 	}
 	writeFileSync(join(destination, 'interpreter.json'), JSON.stringify(pin, null, 2) + '\n');
 	console.log(JSON.stringify({ filename: result.filename, integrity: result.integrity, pin }, null, 2));

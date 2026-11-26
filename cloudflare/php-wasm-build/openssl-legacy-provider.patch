@@ -1,0 +1,20 @@
+--- ext/openssl/openssl.c
++++ ext/openssl/openssl.c
+@@ -61,0 +62,3 @@
++#include <openssl/provider.h>
++
++static OSSL_PROVIDER *atoms_legacy_provider;
+@@ -1280,0 +1284,8 @@
++#if PHP_OPENSSL_API_VERSION >= 0x30000
++	/* The shipped 1.1.1 guest exposes these algorithms. The no-module
++	 * build includes the provider in libcrypto. Retain the default provider. */
++	atoms_legacy_provider = OSSL_PROVIDER_try_load(NULL, "legacy", 1);
++	if (atoms_legacy_provider == NULL) {
++		return FAILURE;
++	}
++#endif
+@@ -1366,0 +1378,4 @@
++#if PHP_OPENSSL_API_VERSION >= 0x30000
++	OSSL_PROVIDER_unload(atoms_legacy_provider);
++	atoms_legacy_provider = NULL;
++#endif

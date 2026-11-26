@@ -1,0 +1,11 @@
+__pycache__/
+/inputs/
+/out/
+*.wasm
+php_8_3.js
+*.a
+*.deb
+*.tar
+*.tar.gz
+*.tar.xz
+*.tgz

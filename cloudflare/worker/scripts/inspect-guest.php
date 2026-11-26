@@ -38,6 +38,12 @@ $behavior = [
     'sqlite_int64' => (string) $pdo->query('SELECT id FROM sample')->fetchColumn(),
     'mbstring_upper' => mb_strtoupper('Straße', 'UTF-8'),
     'mbstring_regex' => mb_ereg_match('^[[:alpha:]]+$', 'é'),
+    'stream_wrappers' => stream_get_wrappers(),
+    'stream_transports' => stream_get_transports(),
+    'gd' => gd_info(),
+    'zip_aes256_encode' => ZipArchive::isEncryptionMethodSupported(ZipArchive::EM_AES_256, true),
+    'zip_aes256_decode' => ZipArchive::isEncryptionMethodSupported(ZipArchive::EM_AES_256, false),
+    'curl_protocols' => curl_version()['protocols'],
     'openssl_version' => OPENSSL_VERSION_TEXT,
     'openssl_ciphertext' => bin2hex($cipher),
     'openssl_plaintext' => openssl_decrypt($cipher, 'aes-128-cbc', str_repeat('k', 16), OPENSSL_RAW_DATA, str_repeat('v', 16)),
@@ -45,7 +51,8 @@ $behavior = [
     'openssl_ciphers' => openssl_get_cipher_methods(),
     'openssl_digests' => openssl_get_md_methods(),
 ];
-sort($behavior['openssl_ciphers'], SORT_STRING);
-sort($behavior['openssl_digests'], SORT_STRING);
+foreach (['stream_wrappers', 'stream_transports', 'curl_protocols', 'openssl_ciphers', 'openssl_digests'] as $list) {
+    sort($behavior[$list], SORT_STRING);
+}
 echo json_encode(compact('extensions', 'functions', 'classes', 'constants', 'ini', 'behavior'),
     JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE), "\n";

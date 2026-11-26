@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: php-wasm-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -34,7 +38,7 @@ jobs:
       - name: Record final file sizes and hashes
         run: |
           cd "$RUNNER_TEMP/output"
-          { wc -c php_8_3.wasm php_8_3.js; sha256sum php_8_3.wasm php_8_3.js; } | tee "$RUNNER_TEMP/identity.txt"
+          { wc -c php_8_3.wasm php_8_3.js; sha256sum php_8_3.wasm php_8_3.js build-metadata.json; } | tee "$RUNNER_TEMP/identity.txt"
       - uses: actions/upload-artifact@v4
         with:
           name: identity-${{ matrix.build }}

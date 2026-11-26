@@ -12,6 +12,12 @@ The interpreter is fetched from WordPress Playground's npm package at install
 time and staged into a gitignored directory. This inventory records component
 identity, upstream license metadata, and provenance.
 
+## Atoms PHP 8.3.32 candidate
+
+The candidate builds the PHP 8.3.32 sources and Playground v3.1.48 web SAPI with Emscripten 4.0.19. Its library lock identifies the source archive and SHA-256 for each external C library. The release recipe packages the verified archives, build scripts, patches, original and elected license texts, and SQLite’s full source alongside its amalgamation. The generated `components.json` identifies the files in that source archive. [Build instructions](php-wasm-build/README.md) · [Linked library sources](php-wasm-build/libraries.lock.json) · [Compiler and PHP source lock](php-wasm-build/compiler.lock.json)
+
+The candidate replaces OpenSSL 1.1.1t with OpenSSL 3.5.9, whose upstream license is Apache-2.0. The Playground interpreter package grants GPL-2.0-or-later. The candidate elects GPLv3 for the combined interpreter and glue, which permits inclusion of Apache-2.0 components. PHP 3.01 §5 and Zend 2.00 §4 allow the BSD successor terms published by the PHP Group and Zend. The source archive retains the file-specific upstream notices. [Playground package license](https://github.com/WordPress/wordpress-playground/blob/53d5c3030702e1edb3f82e7dbc308fcac27c3d0a/packages/php-wasm/web-builds/8-3/package.json) · [OpenSSL licensing](https://openssl-library.org/source/license/) · [Apache Software Foundation on GPL compatibility](https://www.apache.org/licenses/GPL-compatibility.html) · [PHP and Zend licensing](https://www.php.net/license/)
+
 ## The short version
 
 `cloudflare/worker/` builds against a prebuilt PHP 8.3 WebAssembly interpreter
