@@ -1015,6 +1015,15 @@ supplies it.**
   second. `atoms deploy` runs it (`Atoms\Cli\Cloudflare\BundleStager`) before
   invoking `wrangler deploy`.
 
+The module's first line records the selected loader's exact version, for
+example `// Atoms Worker PHP 8.4.23`. While holding the Worker-directory
+lock, the CLI reads that line without evaluating the module. A saved bundle
+deploy reports the interpreter chosen by its manifest and calls out any
+difference from the current `atoms.json` selection. `atoms dev --no-build`
+requires a staged bundle with a version header matching the project's PHP
+series. A missing, older, or mismatched bundle produces ATOMS-E115 before
+starting Wrangler.
+
 ### Why not make one side adopt the other
 
 *Teaching `atoms build` to emit the Worker module* would put the guest

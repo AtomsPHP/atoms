@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Tests\Build;
 
+use Atoms\Cli\Build\Builder;
 use Atoms\Cli\Build\VendorStage;
+use Atoms\Cli\Config\AtomsJson;
 use Atoms\Cli\Process\ProcessResult;
 use Atoms\Cli\Tests\Support\CannedComposer;
 use Atoms\Cli\Tests\Support\FakeProcessRunner;
@@ -357,6 +359,67 @@ final class VendorStageTest extends TestCase
         $reinstalled = $stage->resolve($root);
         self::assertSame(['acme/widget' => '1.0.0'], $reinstalled->packages);
         self::assertFalse($reinstalled->wroteLock);
+    }
+
+    public function testFullBuildVerifiesLockedDependenciesWhenTheGuestChanges(): void
+    {
+        $this->requireRealComposer();
+        $root = $this->tempCopy('sample-app');
+        $out = $this->freshDir();
+        $this->writePathPackage($root . '/packages/v1', 'ramsey/uuid', '1.0.0', ['php' => '^8.3']);
+        $this->writePathPackage($root . '/packages/v2', 'ramsey/uuid', '2.0.0', ['php' => '^8.5', 'ext-uri' => '*']);
+        file_put_contents($root . '/atoms-composer.json', json_encode([
+            'require' => ['ramsey/uuid' => '*'],
+            'repositories' => [
+                ['type' => 'path', 'url' => 'packages/*'],
+                ['packagist.org' => false],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $configPath = $root . '/atoms.json';
+        $default = AtomsJson::load($configPath);
+        $builder = new Builder();
+        $lockPath = $root . '/atoms-composer.lock';
+        $first = $builder->build($default, $out);
+        self::assertSame('8.3', $first->manifest['toolchain']['php']);
+        self::assertSame(['ramsey/uuid' => '1.0.0'], $first->manifest['vendor']['packages']);
+        $originalLock = file_get_contents($lockPath);
+
+        $config = json_decode((string) file_get_contents($configPath), true, 512, JSON_THROW_ON_ERROR);
+        $config['php'] = '8.5';
+        file_put_contents($configPath, json_encode($config, JSON_THROW_ON_ERROR));
+        $upgraded = AtomsJson::load($configPath);
+        $guest = $upgraded->phpPlatform();
+        $offline = new FakeProcessRunner(onPath: []);
+        $stage = new VendorStage($offline, $guest->version, $guest->extensionsFile);
+        self::assertNull($stage->cached($root), 'The 8.3 cache cannot verify a build for 8.5.');
+        $lockedBuild = $builder->build($upgraded, $out);
+        self::assertSame('8.5', $lockedBuild->manifest['toolchain']['php']);
+        self::assertSame(['ramsey/uuid' => '1.0.0'], $lockedBuild->manifest['vendor']['packages']);
+        self::assertSame($originalLock, file_get_contents($lockPath));
+        $warmBuild = (new Builder(runner: $offline))->build($upgraded, $out);
+        self::assertSame($lockedBuild->contentHash, $warmBuild->contentHash);
+        self::assertSame([], $offline->runs);
+
+        unlink($lockPath);
+        $resolved = $builder->build($upgraded, $out);
+        self::assertSame(['ramsey/uuid' => '2.0.0'], $resolved->manifest['vendor']['packages']);
+        self::assertNotSame($lockedBuild->contentHash, $resolved->contentHash);
+        $newLock = (string) file_get_contents($lockPath);
+        $lock = json_decode($newLock, true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame($guest->version, $lock['platform-overrides']['php']);
+        $manifest = file_get_contents($resolved->manifestPath);
+        $config['php'] = '8.3';
+        file_put_contents($configPath, json_encode($config, JSON_THROW_ON_ERROR));
+        try {
+            $builder->build(AtomsJson::load($configPath), $out);
+            self::fail('The PHP 8.3 build must reject the locked PHP 8.5 dependency.');
+        } catch (AtomsError $e) {
+            self::assertSame(ErrorCode::VendorResolutionFailed, $e->errorCode);
+            self::assertStringContainsString('ramsey/uuid', $e->getMessage());
+        }
+        self::assertSame($newLock, file_get_contents($lockPath));
+        self::assertSame($manifest, file_get_contents($resolved->manifestPath));
     }
 
     public function testRealComposerRejectsFreshSolveWhenPackageRequiresNewerPhpThanWorker(): void

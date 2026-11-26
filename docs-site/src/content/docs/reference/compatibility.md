@@ -42,6 +42,14 @@ The top-level `php` field in `atoms.json` selects the interpreter for all Atoms
 in the project. Its default is `"8.3"`. Atom classes, Support
 code, bundled shared code, migrations and dependencies run on that interpreter.
 
+PHPStan uses its own configured PHP version for every file in an analysis.
+Run `vendor/bin/atoms validate` to check guest syntax, built-ins and extensions
+at the selected Worker version, and PHPStan to check types and boundary rules.
+A newer PHPStan target can accept code the Worker rejects. An older PHPStan
+target can report a parse error or `class.notFound` for valid guest code.
+For separate targets, analyse Atom and Support files at the guest version,
+Methods and Jobs at the host version, and shared files at both versions.
+
 ## Worker PHP extensions
 
 `atoms validate` checks built-in function and class names against these Worker

@@ -8,9 +8,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stageRuntimePackage } from '../../cloudflare/worker/scripts/pack-runtime.mjs';
+import { phpRuntime } from '../../cloudflare/worker/scripts/lib/php-runtimes.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const workerSource = join(repo, 'cloudflare/worker');
+const baseline = phpRuntime('8.3');
 const temporary = mkdtempSync(join(tmpdir(), 'atoms-deploy-dry-run-'));
 const timeout = Number(process.env.ATOMS_SMOKE_STARTUP_MS ?? 120000);
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
@@ -63,6 +65,7 @@ try {
     ];
     // Use a working directory that differs from both --root and --worker-dir.
     const output = run('php', args, temporary);
+    assert.ok(output.includes(`Worker PHP: ${baseline.version} (current build)`));
     assert.doesNotMatch(output, /Using redirected Wrangler configuration/);
     assert.match(output, /dry-run-production/);
     assert.match(output, /--dry-run: exiting now\./);
@@ -81,12 +84,26 @@ try {
     // and letting --manifest default beside --bundle. Also accept an IDN callback URL just as the Worker does.
     const bundle = readdirSync(join(app, '.atoms/build')).find((file) => file.endsWith('.tar.gz'));
     assert.ok(bundle);
+    const project = JSON.parse(readFileSync(join(app, 'atoms.json'), 'utf8'));
+    writeFileSync(join(app, 'atoms.json'), JSON.stringify({ ...project, php: '8.5' }));
+    const staleDev = spawnSync('php', [
+        join(repo, 'packages/cli/bin/atoms'), 'dev', '--root', app, '--env', 'production',
+        '--worker-dir', runtime, '--no-build',
+    ], { cwd: temporary, env, encoding: 'utf8', timeout });
+    assert.equal(staleDev.status, 1);
+    assert.match(staleDev.stdout + staleDev.stderr, /ATOMS-E115/);
+    assert.ok(staleDev.stdout.includes(`It runs PHP ${baseline.version} and atoms.json selects PHP 8.5.`));
+    assert.ok(!existsSync(join(runtime, '.dev.vars')));
     const prebuilt = run('php', [
         ...args.slice(0, -2),
         '--bundle', join('app/.atoms/build', bundle),
         '--callback-url', 'https://münchen.example/callback',
     ], temporary);
     assert.match(prebuilt, /--dry-run: exiting now\./);
+    assert.ok(prebuilt.includes(`Worker PHP: ${baseline.version} (saved bundle)`));
+    assert.match(prebuilt, /atoms\.json selects PHP 8\.5 for new builds/);
+    const staged = readFileSync(join(runtime, 'src/bundle.generated.js'), 'utf8');
+    assert.ok(staged.includes(`import * as asyncifyLoader from "../.php-wasm/${baseline.glue}"`));
     assert.match(prebuilt, /Nothing was deployed/);
     assert.doesNotMatch(prebuilt, /Building bundle/);
     assert.equal(readFileSync(redirect, 'utf8'), 'invalid stale redirect');

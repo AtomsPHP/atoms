@@ -229,7 +229,11 @@ try {
 	// Use the dependencies already installed by CI. Run the scaffold's own staging
 	// and bundling scripts, then inspect the module graph Wrangler will receive.
 	symlinkSync(join(workerRoot, 'node_modules'), join(target, 'node_modules'), 'dir');
+	const superseded = join(target, '.php-wasm', '8_3_31');
+	mkdirSync(superseded, { recursive: true });
+	writeFileSync(join(superseded, 'php_8_3.wasm'), 'old patch');
 	run('node', [join(target, 'scripts', 'prepare-runtime.mjs')]);
+	assert.ok(!existsSync(superseded), 'staging must remove the previous patch directory');
 	const metafile = join(temporaryRoot, 'resolution.json');
 	for (const php of release.runtime.guest_php_tested) {
 		const manifest = { ...baseManifest, toolchain: { ...baseManifest.toolchain, php } };

@@ -273,7 +273,8 @@ final class VendorStage
 
     /**
      * Stage composer.lock with the current Worker platform. Composer uses
-     * the lockfile's platform-overrides to verify an existing resolution.
+     * this temporary copy to verify the locked packages on the selected
+     * guest. The project's lock records the platform that resolved them.
      *
      * @param array<string, string|false>|null $platform
      */

@@ -15,6 +15,13 @@ includes:
     - vendor/atoms/phpstan-rules/rules.neon
 ```
 
+Run `vendor/bin/atoms validate` to check syntax, built-ins and extensions
+against the Worker selected in `atoms.json`. Run PHPStan for type analysis and
+the Atoms boundary rules. PHPStan uses one PHP target per analysis, including
+host-side Methods, Jobs and shared files. When the host and Worker use different
+versions, a separate PHPStan run can analyse Atom and Support files at the guest
+version. Analyse shared code at both versions.
+
 See the [limits guide](https://docs.atomsphp.dev/reference/limits/) for the
 frozen-clock rules and their ATOMS-E101/E102 diagnostics.
 

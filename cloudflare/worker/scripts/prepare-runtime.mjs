@@ -7,7 +7,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PHP_RUNTIMES, PLAYGROUND_VERSION, phpRuntime } from './lib/php-runtimes.mjs';
@@ -62,5 +62,12 @@ if (process.argv.includes('--if-installed') && runtimes.every(({ packageName }) 
 		writeFileSync(wasmPath, wasm);
 		writeFileSync(join(outDir, runtime.glue), glue);
 		console.log(`Staged PHP ${runtime.version} from ${runtime.packageName}@${PLAYGROUND_VERSION}.`);
+	}
+
+	// Each patch version has its own Wasm directory. Prune superseded files
+	// only after every loader and binary for this release is in place.
+	const current = new Set(runtimes.flatMap(runtime => [runtime.glue, dirname(runtime.wasm)]));
+	for (const entry of readdirSync(outDir)) {
+		if (!current.has(entry)) rmSync(join(outDir, entry), { recursive: true, force: true });
 	}
 }

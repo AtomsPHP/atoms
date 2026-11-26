@@ -22,6 +22,7 @@ final class PhpstanInstallCommandTest extends TestCase
         $tester = new CommandTester((new Application())->find('phpstan:install'));
         self::assertSame(0, $tester->execute(['--root' => $dir]));
         self::assertStringContainsString('composer require --dev atoms/phpstan-rules', $tester->getDisplay());
+        self::assertStringContainsString('Worker PHP 8.3: vendor/bin/atoms validate', $tester->getDisplay());
         self::assertStringContainsString('vendor/bin/phpstan analyse --configuration=phpstan.atoms.neon', $tester->getDisplay());
 
         $edited = (string) file_get_contents($dir . '/phpstan.atoms.neon') . "# User settings\n";
@@ -30,6 +31,55 @@ final class PhpstanInstallCommandTest extends TestCase
         self::assertSame($edited, file_get_contents($dir . '/phpstan.atoms.neon'));
         foreach (['phpstan.neon', 'phpstan.neon.dist', 'phpstan.dist.neon'] as $file) {
             self::assertSame("# Application settings\nparameters:\n    level: 5\n", file_get_contents($dir . '/' . $file));
+        }
+    }
+
+    public function testBoundaryRulesRecognizeGuestBuiltinsWithAnOlderPhpstanTarget(): void
+    {
+        $dir = $this->project();
+        $config = $dir . '/atoms.json';
+        $atoms = json_decode((string) file_get_contents($config), true, 512, JSON_THROW_ON_ERROR);
+        $atoms['php'] = '8.5';
+        file_put_contents($config, json_encode($atoms, JSON_THROW_ON_ERROR));
+        mkdir($dir . '/app/Atoms', 0777, true);
+        file_put_contents($dir . '/app/Atoms/Room.php', <<<'PHP'
+            <?php
+            namespace InstallFixture;
+            /** @extends \Atoms\Atom<\Atoms\AtomMethods> */
+            final class Room extends \Atoms\Atom
+            {
+                public function value(): void {
+                    new \BcMath\Number(2);
+                    \Pdo\Sqlite::connect('sqlite::memory:');
+                    new \App\Models\User();
+                }
+            }
+            PHP);
+
+        $root = dirname(__DIR__, 4);
+        symlink($root . '/vendor', $dir . '/vendor');
+        try {
+            $tester = new CommandTester(new PhpstanInstallCommand());
+            self::assertSame(0, $tester->execute(['--root' => $dir]));
+            self::assertStringContainsString('Worker PHP 8.5: vendor/bin/atoms validate', $tester->getDisplay());
+            if (PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION !== '8.5') {
+                self::assertStringContainsString('PHPStan uses its own PHP target', $tester->getDisplay());
+            }
+            $neon = $dir . '/phpstan.atoms.neon';
+            self::assertStringNotContainsString('phpVersion:', (string) file_get_contents($neon));
+            file_put_contents($neon, "    phpVersion: 80300\n", FILE_APPEND);
+
+            $analysis = new Process([
+                PHP_BINARY, $root . '/vendor/phpstan/phpstan/phpstan', 'analyse',
+                '--configuration=' . $neon, '--no-progress', '--error-format=raw', '--debug',
+            ], $dir);
+            $analysis->run();
+            self::assertSame(1, $analysis->getExitCode(), $analysis->getOutput() . $analysis->getErrorOutput());
+            self::assertStringContainsString('ATOMS-E012: Reference to monolith class App\Models\User', $analysis->getOutput());
+            self::assertStringNotContainsString('ATOMS-E012: Reference to monolith class BcMath\Number', $analysis->getOutput());
+            self::assertStringNotContainsString('ATOMS-E012: Reference to monolith class Pdo\Sqlite', $analysis->getOutput());
+        } finally {
+            unlink($dir . '/vendor');
         }
     }
 

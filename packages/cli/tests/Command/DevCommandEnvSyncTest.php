@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atoms\Cli\Tests\Command;
 
+use Atoms\Cli\Cloudflare\BundleStager;
 use Atoms\Cli\Cloudflare\DevVars;
 use Atoms\Cli\Command\DevCommand;
 use Atoms\Cli\Process\ProcessResult;
@@ -27,6 +28,7 @@ final class DevCommandEnvSyncTest extends TestCase
         file_put_contents($dir . '/wrangler.jsonc', json_encode(['name' => 'w'], JSON_THROW_ON_ERROR));
         mkdir($dir . '/src', 0777, true);
         file_put_contents($dir . '/src/config.js', '');
+        file_put_contents($dir . '/' . BundleStager::OUTPUT, "// Atoms Worker PHP 8.3.32\n");
         file_put_contents(
             $dir . '/' . \Atoms\Cli\Cloudflare\RuntimeStamp::FILE,
             json_encode(['version' => \Atoms\Cli\Release\RuntimeVersion::VERSION], JSON_THROW_ON_ERROR),

@@ -158,6 +158,18 @@ final class DeployCommand extends AbstractCommand
             $output->writeln('Staging bundle into ' . $target->workerDir . '…');
             $this->stager->stage($target, $bundlePath, $manifestPath);
 
+            $version = BundleStager::stagedPhpVersion($target);
+            if ($version === null) {
+                throw new AtomsError(ErrorCode::WorkerDirectoryInvalid, ErrorCatalog::format(
+                    ErrorCode::WorkerDirectoryInvalid,
+                    ['environment' => $env, 'reason' => 'the staging script produced no bundle with a Worker PHP version header'],
+                ));
+            }
+            $output->writeln('  Worker PHP: ' . $version . ($bundleOpt === null ? ' (current build)' : ' (saved bundle)'));
+            if ($bundleOpt !== null && !str_starts_with($version, $config->php . '.')) {
+                $output->writeln("<comment>  atoms.json selects PHP {$config->php} for new builds.</comment>");
+            }
+
             $output->writeln(($dryRun ? 'Packaging Worker ' : 'Deploying Worker ') . $target->workerName . ' with wrangler…');
             if (!$dryRun && $target->debugEndpoints) {
                 // Debug endpoints are a second gate behind the Worker's auth

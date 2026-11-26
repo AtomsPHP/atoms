@@ -41,6 +41,7 @@ final class DeployCommandTest extends TestCase
         file_put_contents($dir . '/' . BundleStager::SCRIPT, '');
         mkdir($dir . '/src', 0777, true);
         file_put_contents($dir . '/' . CloudflareTarget::WORKER_CONFIG_MODULE, '');
+        file_put_contents($dir . '/' . BundleStager::OUTPUT, "// Atoms Worker PHP 8.3.32\n");
         self::stamp($dir);
 
         return $dir;

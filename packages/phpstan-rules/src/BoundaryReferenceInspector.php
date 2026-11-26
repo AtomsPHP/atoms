@@ -21,6 +21,7 @@ use PHPStan\Reflection\ReflectionProvider;
  *    sits under a configured Atoms path (even if its own classification is
  *    OTHER — e.g. a plain helper class colocated with an Atom), or
  *  - is a PHP builtin (resolvable and ClassReflection::isBuiltin()), or is
+ *    measured in a supported Worker, or is
  *    unresolvable and carries no namespace (assume a global builtin/polyfill
  *    rather than false-positive on it), or
  *  - matches one of the configured `allowedNamespaces`.
@@ -38,11 +39,17 @@ final class BoundaryReferenceInspector
 {
     private const FACADE_BASE = 'Illuminate\Support\Facades\Facade';
 
+    /** @var list<string> Lowercase class names measured from the supported Workers. */
+    private readonly array $namespacedWorkerBuiltins;
+
     public function __construct(
         private readonly AtomsRulesConfig $config,
         private readonly SideClassifier $classifier,
         private readonly ReflectionProvider $reflectionProvider,
     ) {
+        /** @var list<string> $builtins */
+        $builtins = json_decode((string) file_get_contents(__DIR__ . '/../resources/namespaced-worker-builtins.json'), true, 512, JSON_THROW_ON_ERROR);
+        $this->namespacedWorkerBuiltins = $builtins;
     }
 
     /**
@@ -71,7 +78,9 @@ final class BoundaryReferenceInspector
 
     private function isLegal(string $name, Scope $scope): bool
     {
-        if (str_starts_with($name, 'Atoms\\')) {
+        // PHPStan can omit a stub or resolve a host polyfill for a class
+        // provided by a Worker. The CLI checks availability on the selected guest.
+        if (str_starts_with($name, 'Atoms\\') || \in_array(strtolower($name), $this->namespacedWorkerBuiltins, true)) {
             return true;
         }
 
@@ -95,10 +104,7 @@ final class BoundaryReferenceInspector
                 return true;
             }
         } elseif (!str_contains($name, '\\')) {
-            // Unresolvable and in the global namespace: likely a builtin or
-            // polyfill this reflection provider doesn't have stubs for.
-            // Leniency here avoids false positives; genuine monolith classes
-            // are always namespaced.
+            // Keep the existing allowance for unknown global built-ins and polyfills.
             return true;
         }
 

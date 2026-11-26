@@ -80,6 +80,24 @@ Worker PHP {target} does not provide {symbol}(), and validation could not verify
 Use a Worker builtin or supply a function that loads before the call. If an Atom dependency supplies it, run atoms build to resolve its files for offline validation.
 
 
+<a id="atoms-e005"></a>
+
+## ATOMS-E005: Built-in class unavailable in the Worker
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `build` |
+
+**Message**
+
+Worker PHP {target} does not provide the built-in class {symbol}.
+
+**Fix**
+
+Select a Worker PHP version that provides this class in atoms.json, or use a class available in the selected version.
+
+
 <a id="atoms-e010"></a>
 
 ## ATOMS-E010: Framework symbol referenced inside Atom code
@@ -905,7 +923,7 @@ Could not resolve atoms-composer.json dependencies: {reason}.
 
 **Fix**
 
-`atoms build` installs atoms-composer.json's packages in an isolated directory (composer install --no-scripts --no-plugins) and ships the resulting PHP sources in the bundle. Check that composer is on PATH and the constraints are satisfiable. For reproducible builds, commit the atoms-composer.lock file the first successful resolution writes next to atoms-composer.json.
+Check that Composer is on PATH and the package constraints support the selected Worker PHP version. To resolve new versions after switching PHP, remove atoms-composer.lock, run `atoms build`, review the dependency changes, and commit the new lockfile.
 
 
 <a id="atoms-e080"></a>
@@ -1302,3 +1320,21 @@ Check that the project directory is writable and phpstan.atoms.neon is not a dir
 **Fix**
 
 Pass --bundle <path> together with --manifest <path>, or omit --manifest to let `atoms deploy` build a fresh bundle and manifest.
+
+
+<a id="atoms-e115"></a>
+
+## ATOMS-E115: Staged bundle incompatible with the selected Worker PHP
+
+| | |
+|---|---|
+| Severity | `error` |
+| Phase | `cli` |
+
+**Message**
+
+The staged Worker bundle cannot be used. {reason}
+
+**Fix**
+
+Run `atoms dev --env <environment>` without `--no-build` to build and stage the PHP version selected in atoms.json.

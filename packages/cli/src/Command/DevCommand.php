@@ -15,6 +15,7 @@ use Atoms\Cli\Config\EnvFile;
 use Atoms\Cli\Process\ProcessRunner;
 use Atoms\Cli\Process\SymfonyProcessRunner;
 use Atoms\Errors\AtomsError;
+use Atoms\Errors\ErrorCatalog;
 use Atoms\Errors\ErrorCode;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputInterface;
@@ -147,6 +148,20 @@ final class DevCommand extends AbstractCommand
 
             $generated = GeneratedWranglerConfig::generate($target, $target->runtimeVars());
             $output->writeln('  Generated config: ' . self::relativeToRoot($config->rootDir, $generated->write()));
+
+            if ($input->getOption('no-build') === true) {
+                $version = BundleStager::stagedPhpVersion($target);
+                if ($version === null || !str_starts_with($version, $config->php . '.')) {
+                    $reason = $version === null
+                        ? BundleStager::OUTPUT . ' is missing or has no Worker PHP version header.'
+                        : "It runs PHP {$version} and atoms.json selects PHP {$config->php}.";
+                    throw new AtomsError(ErrorCode::StagedBundleIncompatible, ErrorCatalog::format(
+                        ErrorCode::StagedBundleIncompatible,
+                        ['reason' => $reason],
+                    ));
+                }
+                $output->writeln('  Worker PHP: ' . $version . ' (staged bundle)');
+            }
 
             $this->ensureDevSecret($config->rootDir, $target->workerDir, $output);
 

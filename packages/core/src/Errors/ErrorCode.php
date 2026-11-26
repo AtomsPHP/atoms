@@ -21,6 +21,7 @@ enum ErrorCode: string
     case DuplicateClassDeclaration = 'ATOMS-E002';
     case IncompatibleWorkerSyntax = 'ATOMS-E003';
     case UnavailableWorkerFunction = 'ATOMS-E004';
+    case UnavailableWorkerClass = 'ATOMS-E005';
     case FrameworkSymbolInAtom = 'ATOMS-E010';
     case FrameworkHelperInAtom = 'ATOMS-E011';
     case MonolithClassInAtom = 'ATOMS-E012';
@@ -89,4 +90,5 @@ enum ErrorCode: string
     case CallbackNonceStoreUnavailable = 'ATOMS-E112';
     case PhpstanConfigurationFailed = 'ATOMS-E113';
     case ManifestWithoutBundle = 'ATOMS-E114';
+    case StagedBundleIncompatible = 'ATOMS-E115';
 }

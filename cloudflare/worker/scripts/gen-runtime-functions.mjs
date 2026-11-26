@@ -1,4 +1,4 @@
-// Run after npm run prepare-runtime to refresh the CLI inventory.
+// Run after npm run prepare-runtime to refresh the CLI and PHPStan inventories.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire, registerHooks } from 'node:module';
 import { PHP_RUNTIMES, phpRuntime } from './lib/php-runtimes.mjs';
@@ -76,6 +76,19 @@ const probe = `<?php
 	echo json_encode(compact('extensions', 'classes', 'functions'), JSON_THROW_ON_ERROR);
 `;
 
+function writeInventory(relativePath, data) {
+	const path = new URL(`../../../packages/${relativePath}`, import.meta.url);
+	const content = JSON.stringify(data, null, 4) + '\n';
+	if (process.argv.includes('--check')) {
+		if (readFileSync(path, 'utf8') !== content) {
+			throw new Error(`Run node scripts/gen-runtime-functions.mjs to refresh ${relativePath}.`);
+		}
+	} else {
+		writeFileSync(path, content);
+	}
+}
+
+const namespacedBuiltins = new Set();
 for (const series of Object.keys(PHP_RUNTIMES)) {
 	const runtime = phpRuntime(series);
 	const loader = await import(`../.php-wasm/${runtime.glue}`);
@@ -91,18 +104,13 @@ for (const series of Object.keys(PHP_RUNTIMES)) {
 	const { extensions, classes, functions } = JSON.parse(response.text);
 	if (extensions.core !== runtime.version) throw new Error(`Expected PHP ${runtime.version}, found ${extensions.core}`);
 	const suffix = series === '8.3' ? '' : `-${series}`;
-	for (const [file, data] of Object.entries({
-		[`runtime-extensions${suffix}.json`]: { extensions, classes },
-		[`runtime-functions${suffix}.json`]: functions,
-	})) {
-		const path = new URL(`../../../packages/cli/resources/${file}`, import.meta.url);
-		const content = JSON.stringify(data, null, 4) + '\n';
-		if (process.argv.includes('--check')) {
-			if (readFileSync(path, 'utf8') !== content) {
-				throw new Error(`Run node scripts/gen-runtime-functions.mjs to refresh ${file}.`);
-			}
-		} else {
-			writeFileSync(path, content);
-		}
+	writeInventory(`cli/resources/runtime-extensions${suffix}.json`, { extensions, classes });
+	writeInventory(`cli/resources/runtime-functions${suffix}.json`, functions);
+	for (const name of Object.keys(classes)) {
+		if (name.includes('\\')) namespacedBuiltins.add(name);
 	}
 }
+
+// PHPStan's boundary rules distinguish Worker built-ins from application
+// classes even if the analysis PHP version has no reflection data for them.
+writeInventory('phpstan-rules/resources/namespaced-worker-builtins.json', [...namespacedBuiltins].sort());
