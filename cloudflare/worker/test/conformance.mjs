@@ -3437,6 +3437,11 @@ check(28, 'pdo differential matrix', async ({ num: checkNum, name }) => {
         // class — a stale pin (renamed case, deleted case, or a fill that
         // landed without deleting the pin) fails here.
         const byId = new Map(allCases.map((c) => [c.id, c]));
+        for (const id of ['bind.mixed_named_and_positional', 'bind.mixed_aliases', 'bind.mixed_execute_array']) {
+            if (byId.get(id)?.class !== 'match') {
+                problems.push(`${id}: expected the same result as native PDO SQLite`);
+            }
+        }
         const stale = [];
         for (const [pinId, pin] of Object.entries(pins)) {
             const observed = byId.get(pinId);

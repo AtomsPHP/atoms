@@ -1044,6 +1044,11 @@ can interrupt in-flight events; it does not undo committed SQLite writes.
 - `transaction(callable)` mirrors `SqliteDatabase`'s nesting guard, then
   `tx.begin` → `$fn($this)` → `tx.commit`, catching to `tx.rollback` +
   rethrow.
+- When a statement binds values both by name and by position, it can use
+  `:name` and `?` placeholders together.
+  SQLite numbers them from left to right. Repeated names share their first slot.
+  A numeric key in `execute($params)` starts at zero, while `bindValue()` and
+  `bindParam()` start at one. The guest sends one value per occurrence to the host.
 - `pdo()` returns `Atoms\Cf\AtomsPDO extends \PDO`.
   The surface is machine-verified rather than hand-audited: a
   reflection tripwire (conformance check 26) asserts every public member of

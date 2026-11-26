@@ -25,62 +25,55 @@ final class NamedParams
     /**
      * @param string $sql
      * @param array<int|string, mixed> $bindings
+     * @param int $firstPosition Numeric keys start at one in bindValue() and bindParam().
+     * @param array<string, int> $names Named parameter slots for PDO's debug output.
      * @return array{0: string, 1: list<mixed>} rewritten SQL and positional bindings
-     * @throws \PDOException HY093 for a missing or unused named binding
+     * @throws \PDOException HY093 for a missing or unused binding
      */
-    public static function rewrite($sql, array $bindings)
+    public static function rewrite($sql, array $bindings, int $firstPosition = 0, array &$names = [])
     {
-        $used = [];
-
-        if (self::isPositional($bindings)) {
-            if ($bindings === [] && strpos($sql, ':') !== false) {
-                // No bindings at all, but the statement may still carry a
-                // `:name`. SQLite binds unsupplied parameters to NULL without
-                // complaining, so this has to be caught here or it becomes a
-                // silently wrong answer. The strpos() guard keeps the common
-                // no-parameter statement off the scanner.
-                return self::scan($sql, [], $used);
-            }
-
-            // PDO's positional keys are 1-based and may arrive out of order
-            // (bindValue(2, ...) before bindValue(1, ...)), so order by key.
+        $names = [];
+        if (self::isPositional($bindings) && ($bindings !== [] || strpos($sql, ':') === false)) {
             ksort($bindings, SORT_NUMERIC);
 
             return [$sql, array_values($bindings)];
         }
 
-        $lookup = [];
+        list($rewritten, $slots, $names) = self::scan($sql);
+        $last = $slots === [] ? -1 : max($slots);
+        $values = [];
         foreach ($bindings as $key => $value) {
-            $lookup[ltrim((string) $key, ':')] = $value;
+            $slot = is_int($key) ? $key - $firstPosition : ($names[ltrim($key, ':')] ?? null);
+            if ($slot === null || $slot < 0 || $slot > $last) {
+                throw new \PDOException(sprintf(
+                    'SQLSTATE[HY093] Invalid parameter number: binding %s not present in the statement.',
+                    $key
+                ));
+            }
+            $values[$slot] = $value;
         }
 
-        list($rewritten, $positional) = self::scan($sql, $lookup, $used);
-
-        $unused = array_diff(array_keys($lookup), array_keys($used));
-        if ($unused !== []) {
-            throw new \PDOException(sprintf(
-                'SQLSTATE[HY093] Invalid parameter number: binding(s) :%s not present in the statement.',
-                implode(', :', $unused)
-            ));
+        $positional = [];
+        foreach ($slots as $slot) {
+            if (!array_key_exists($slot, $values)) {
+                $name = array_search($slot, $names, true);
+                throw new \PDOException(sprintf(
+                    'SQLSTATE[HY093] Invalid parameter number: no binding supplied for %s.',
+                    $name === false ? 'position ' . ($slot + 1) : ':' . $name
+                ));
+            }
+            $positional[] = $values[$slot];
         }
 
         return [$rewritten, $positional];
     }
 
-    /**
-     * Walk the statement, replacing `:name` outside literals and comments with
-     * `?` and collecting the matching values in order.
-     *
-     * @param string $sql
-     * @param array<string, mixed> $lookup binding values by bare name
-     * @param array<string, bool> $used out-parameter: names actually referenced
-     * @return array{0: string, 1: list<mixed>}
-     * @throws \PDOException HY093 when a placeholder has no binding
-     */
-    private static function scan($sql, array $lookup, &$used)
+    /** @return array{string, list<int>, array<string, int>} SQL, slots in query order, and named slots */
+    private static function scan($sql)
     {
-        $used = [];
-        $positional = [];
+        $slots = [];
+        $names = [];
+        $next = 0;
         $out = '';
         $length = strlen($sql);
         $i = 0;
@@ -130,26 +123,25 @@ final class NamedParams
                 if (preg_match('/^:([A-Za-z_][A-Za-z0-9_]*)/', substr($sql, $i), $m) === 1) {
                     $name = $m[1];
 
-                    if (!array_key_exists($name, $lookup)) {
-                        throw new \PDOException(sprintf(
-                            'SQLSTATE[HY093] Invalid parameter number: no binding supplied for :%s.',
-                            $name
-                        ));
-                    }
-
-                    $positional[] = $lookup[$name];
-                    $used[$name] = true;
+                    $names[$name] ??= $next++;
+                    $slots[] = $names[$name];
                     $out .= '?';
                     $i += strlen($m[0]);
                     continue;
                 }
             }
 
+            if ($char === '?') {
+                if (isset($sql[$i + 1]) && ctype_digit($sql[$i + 1])) {
+                    throw new \PDOException('SQLSTATE[HY093] Use plain ? or :name placeholders.');
+                }
+                $slots[] = $next++;
+            }
             $out .= $char;
             $i++;
         }
 
-        return [$out, $positional];
+        return [$out, $slots, $names];
     }
 
     /**
