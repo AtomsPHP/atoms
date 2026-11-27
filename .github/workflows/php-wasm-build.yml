@@ -26,7 +26,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.11.1'
+      # A cached entry belongs to one independent builder, one PHP target and
+      # these exact build/source-package inputs. An expired entry compiles again.
+      - uses: actions/cache@v4
+        id: outputs
+        with:
+          path: ${{ runner.temp }}/output
+          key: wasm-v1-${{ matrix.php }}-${{ matrix.copy }}-${{ hashFiles('cloudflare/php-wasm-build/**', '!cloudflare/php-wasm-build/**/candidate.json', 'cloudflare/LICENSE-MIT') }}
       - name: Fetch verified sources and compile offline
+        if: steps.outputs.outputs.cache-hit != 'true'
         run: |
           python3 -B "$RECIPE/build.py" fetch --php "$SERIES" "$RUNNER_TEMP/inputs"
           python3 -B "$RECIPE/build.py" build --php "$SERIES" "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/output"
@@ -41,7 +49,7 @@ jobs:
             ${{ runner.temp }}/output/build-metadata.json
           if-no-files-found: error
       - name: Prepare corresponding source
-        if: matrix.copy == 'second'
+        if: matrix.copy == 'second' && steps.outputs.outputs.cache-hit != 'true'
         run: python3 -B "$RECIPE/source-bundle.py" --php "$SERIES" "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/output"
       - uses: actions/upload-artifact@v4
         if: matrix.copy == 'second'
@@ -85,11 +93,42 @@ jobs:
           version=$(jq -r .version "targets/$SERIES/candidate.json")
           node pack.mjs "$RUNNER_TEMP/output" "$RUNNER_TEMP/peer/build-metadata.json" "$version" "$RUNNER_TEMP/packed"
           cp "$RUNNER_TEMP/output/"{components.json,THIRD_PARTY_NOTICES.txt,identity.txt,build-metadata.json} "$RUNNER_TEMP/packed/"
+      - name: Check the complete tarball against the reviewed pin
+        run: cmp "$RECIPE/targets/$SERIES/candidate.json" "$RUNNER_TEMP/packed/interpreter.json"
+      - name: Boot and inspect the packed interpreter
+        run: |
+          probe="$RUNNER_TEMP/probe"
+          mkdir -p "$probe/src" "$probe/package"
+          cp cloudflare/worker/src/{php-host,errors}.js "$probe/src"
+          echo '{"type":"module"}' > "$probe/package.json"
+          universal=$(jq -r '.dependencies["@php-wasm/universal"]' cloudflare/worker/package.json)
+          npm install --prefix "$probe" --ignore-scripts --no-audit --no-fund "@php-wasm/universal@$universal"
+          tar -xzf "$RUNNER_TEMP/packed/"*.tgz --strip-components=1 -C "$probe/package"
+          pin="$RUNNER_TEMP/packed/interpreter.json"
+          node "$RECIPE/inspect.mjs" "$probe" "$probe/package/$(jq -r .glue.path "$pin")" \
+            "$(jq -r '.version | split("-")[0]' "$pin")" > "$RUNNER_TEMP/packed/guest-capabilities.json"
       - uses: actions/upload-artifact@v4
         with:
           name: interpreter-${{ matrix.php }}
           path: ${{ runner.temp }}/packed
           compression-level: 0
           if-no-files-found: error
-      - name: Check the complete tarball against the reviewed pin
-        run: cmp "$RECIPE/targets/$SERIES/candidate.json" "$RUNNER_TEMP/packed/interpreter.json"
+
+  sizes:
+    name: Interpreter package sizes
+    needs: qualify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Record the download and unpacked size
+        run: |
+          echo '| Package | Download (bytes) | Unpacked (bytes) |' >> "$GITHUB_STEP_SUMMARY"
+          echo '| --- | ---: | ---: |' >> "$GITHUB_STEP_SUMMARY"
+          for series in $(jq -r '.runtime.guest_php_tested[]' release/manifest.json); do
+            jq -c . "cloudflare/php-wasm-build/targets/$series/candidate.json"
+          done | jq -sr '
+            (.[] | "| \(.package)@\(.version) | \(.packedBytes) | \(.unpackedBytes) |"),
+            "| Total | \(map(.packedBytes) | add) | \(map(.unpackedBytes) | add) |"
+          ' >> "$GITHUB_STEP_SUMMARY"

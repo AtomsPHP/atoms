@@ -1,0 +1,138 @@
+--- php/Dockerfile
++++ php/Dockerfile
+@@ -1 +0,0 @@
+-FROM playground-php-wasm:base
+@@ -19,6 +17,0 @@
+-RUN PHP_REF="${PHP_REF:-php-$PHP_VERSION}" && \
+-	git clone https://github.com/php/php-src.git php-src \
+-		--branch $PHP_REF \
+-		--single-branch \
+-		--depth 1;
+-
+@@ -36,52 +28,0 @@
+-
+-# Bring in the libraries
+-RUN mkdir -p /root/lib/include /root/lib/lib /libs
+-COPY ./compile/libiconv/ /root/builds/libiconv
+-COPY ./compile/libcurl/ /root/builds/libcurl
+-COPY ./compile/libopenssl/ /root/builds/libopenssl
+-COPY ./compile/libpng16/ /root/builds/libpng16
+-COPY ./compile/libjpeg/ /root/builds/libjpeg
+-COPY ./compile/libwebp/ /root/builds/libwebp
+-COPY ./compile/libaom/ /root/builds/libaom
+-COPY ./compile/libavif/ /root/builds/libavif
+-COPY ./compile/libsqlite3/ /root/builds/libsqlite3
+-COPY ./compile/libxml2/ /root/builds/libxml2
+-COPY ./compile/libz/ /root/builds/libz
+-COPY ./compile/oniguruma/ /root/builds/oniguruma
+-COPY ./compile/libImageMagick/ /root/builds/libImageMagick
+-COPY ./compile/libgd/ /root/builds/libgd
+-
+-RUN if [ "$WITH_JSPI" = "yes" ]; then \
+-	find /root/builds -path '*/jspi/dist/root/lib' -type d -exec cp -r {}/. /root/lib \; ; \
+-else \
+-	find /root/builds -path '*/asyncify/dist/root/lib' -type d -exec cp -r {}/. /root/lib \; ; \
+-fi
+-
+-# PHP 8.6 uses newer curl and OpenSSL builds without changing older PHP versions.
+-RUN set -eux; \
+-	if [[ "${PHP_VERSION:0:3}" == '8.6' ]]; then \
+-		MODE=asyncify; \
+-		if [ "$WITH_JSPI" = "yes" ]; then MODE=jspi; fi; \
+-		rm -rf /root/lib/include/curl /root/lib/include/openssl \
+-			/root/lib/lib/libcurl.* /root/lib/lib/libcrypto.* /root/lib/lib/libssl.*; \
+-		cp -r /root/builds/libcurl/$MODE/dist/8.23/root/lib/. /root/lib; \
+-		cp -r /root/builds/libopenssl/$MODE/dist/3.5/root/lib/. /root/lib; \
+-	fi
+-
+-COPY ./compile/libzip/ /root/builds-libzip/
+-RUN mkdir -p /libs/libzip
+-RUN if [ "$WITH_JSPI" = "yes" ]; then \
+-	cp -r /root/builds-libzip/jspi/dist/1.9.2/root/lib /libs/libzip/1.9.2; \
+-else \
+-	cp -r /root/builds-libzip/asyncify/dist/1.9.2/root/lib /libs/libzip/1.9.2; \
+-fi
+-
+-COPY ./compile/libopenssl/ /root/builds-libopenssl/
+-RUN mkdir -p /libs/libopenssl
+-RUN MODE=asyncify; \
+-	if [ "$WITH_JSPI" = "yes" ]; then MODE=jspi; fi; \
+-	if [[ "${PHP_VERSION:0:3}" == '8.6' ]]; then \
+-		cp -r /root/builds-libopenssl/$MODE/dist/3.5/root/lib /libs/libopenssl; \
+-	else \
+-		cp -r /root/builds-libopenssl/$MODE/dist/root/lib /libs/libopenssl; \
+-	fi
+@@ -152 +93 @@
+-RUN apt install -y bison;
++# Host tools and cross-compiled libraries are provided by the locked builder.
+@@ -156 +96,0 @@
+-		cp -r /libs/libzip/1.9.2/* /root/lib; \
+@@ -226 +166 @@
+-			echo -n ' /root/lib/lib/libgd.a /root/lib/lib/libjpeg.a /root/lib/lib/libpng16.a /root/lib/lib/libwebp.a /root/lib/lib/libsharpyuv.a /root/lib/lib/libavif.a ' >> /root/.emcc-php-wasm-sources; \
++			echo -n ' /root/lib/lib/libgd.a /root/lib/lib/libjpeg.a /root/lib/lib/libpng16.a /root/lib/lib/libwebp.a /root/lib/lib/libsharpyuv.a /root/lib/lib/libavif.a /root/lib/lib/libaom.a ' >> /root/.emcc-php-wasm-sources; \
+@@ -246,2 +186 @@
+-		cp -r /libs/libopenssl/* /root/lib; \
+-		echo -n ' --with-openssl --with-openssl-dir=/root/lib ' >> /root/.php-configure-flags; \
++		echo -n ' --with-openssl --with-openssl-legacy-provider --with-openssl-dir=/root/lib ' >> /root/.php-configure-flags; \
+@@ -378,0 +318,2 @@
++FROM php-source AS interpreter
++COPY --from=libraries /libs/ /libs/
+@@ -380 +321 @@
+-RUN source /root/emsdk/emsdk_env.sh && \
++RUN test "$(em-config CACHE)" = /em-cache && \
+@@ -535 +476 @@
+-RUN source /root/emsdk/emsdk_env.sh && \
++RUN test "$(em-config CACHE)" = /em-cache && \
+@@ -544 +485 @@
+-	emmake make -j14
++	emmake make -j"$BUILD_JOBS"
+@@ -2392,26 +2333,4 @@
+-COPY ./${EMSCRIPTEN_ENVIRONMENT}-builds/ /root/${EMSCRIPTEN_ENVIRONMENT}-builds
+-COPY ./compile/shared/ /root/shared/
+-RUN	set -eux; \
+-	PHP_VERSION_DIR="$(echo "$PHP_VERSION" | cut -d. -f1,2 | tr . -)"; \
+-	ASYNCIFY_OR_JSPI_DIR=$( [ "$WITH_JSPI" = "yes" ] && echo "jspi" || echo "asyncify" ); \
+-	EXTENSIONS_DIR_PATH="/root/${EMSCRIPTEN_ENVIRONMENT}-builds/${PHP_VERSION_DIR}/${ASYNCIFY_OR_JSPI_DIR}/extensions"; \
+-	for path in "$EXTENSIONS_DIR_PATH"/*; do \
+-		extension="${path##*/}"; \
+-		# List globals symbols [ env func and globals without invoke_ and libc++(_Z) prefixed ones ]
+-		/root/emsdk/upstream/bin/wasm-dis "$EXTENSIONS_DIR_PATH/${extension}/${extension}.so" \
+-		| sed -n 's/^[[:space:]]*(import "env" "\([^"]*\)"[[:space:]]*(\(func\|global\).*/\1/p' \
+-		| sed '/^invoke_/d' \
+-		| sed '/^_Z/d' \
+-		| sed 's/^/_/' \
+-		| sort \
+-		>> /root/.JS_ABI_EXPORTS; \
+-		# List exports symbols [ GOT.mem and GOT.func globals ]
+-		/root/emsdk/upstream/bin/wasm-dis "$EXTENSIONS_DIR_PATH/${extension}/${extension}.so" \
+-		| sed -n 's/^[[:space:]]*(import "\(GOT\.mem\|GOT\.func\)" "\([^"]*\)"[[:space:]]*(global.*/\2/p' \
+-		| sort \
+-		>> /root/.WASM_ABI_EXPORTS; \
+-		# Inject extension-specific exported functions
+-		if [ -f /root/shared/${extension}/exported-functions.list ]; then \
+-			cat /root/shared/${extension}/exported-functions.list >> /root/.JS_ABI_EXPORTS; \
+-		fi; \
+-	done
++# The upstream intl module contributes import names to the link's export list.
++COPY js-exports.txt wasm-exports.txt compile/shared/intl/exported-functions.list /tmp/
++RUN cat /tmp/js-exports.txt /tmp/exported-functions.list >> /root/.JS_ABI_EXPORTS && \
++    cat /tmp/wasm-exports.txt >> /root/.WASM_ABI_EXPORTS
+@@ -2463 +2382 @@
+-	source /root/emsdk/emsdk_env.sh; \
++	test "$(em-config CACHE)" = /em-cache; \
+@@ -2559 +2478 @@
+-	source /root/emsdk/emsdk_env.sh; \
++	test "$(em-config CACHE)" = /em-cache; \
+@@ -2704 +2623 @@
+-			echo "const dependencyFilename = new URL('./${PHP_VERSION_ESCAPED}/$WASM_FILENAME', import.meta.url).href; " >> /root/output/php-module.js; \
++			echo "import dependencyFilename from './$WASM_FILENAME'; " >> /root/output/php-module.js; \
+@@ -2710,0 +2630 @@
++		echo "Module['Asyncify'] = Asyncify;" >> /root/output/php-module.js && \
+@@ -2718,2 +2638 @@
+-		mkdir -p /root/output/${PHP_VERSION_ESCAPED}/; \
+-		mv /root/output/php.wasm "/root/output/${PHP_VERSION_ESCAPED}/$WASM_FILENAME"; \
++		mv /root/output/php.wasm "/root/output/$WASM_FILENAME"; \
+@@ -2733,0 +2653,3 @@
++
++FROM scratch AS shipped
++COPY --from=interpreter /root/output/php_*.js /root/output/php_*.wasm /
