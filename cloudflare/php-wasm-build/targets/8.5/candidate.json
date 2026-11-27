@@ -1,0 +1,14 @@
+{
+  "package": "@atomsphp/php-wasm-8-5",
+  "version": "8.5.13-atoms.5",
+  "wasm": {
+    "path": "php_8_5.wasm",
+    "bytes": 22011008,
+    "sha256": "38cdccce9484f511af162aa0310e447c5a801903a7438fef13c31a910050624d"
+  },
+  "glue": {
+    "path": "php_8_5.js",
+    "bytes": 209363,
+    "sha256": "0ae63b00e2baeeba364f9d35a12acee9f6219c31582f036c7fe81648e526985a"
+  }
+}

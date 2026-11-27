@@ -1,0 +1,18 @@
+{
+  "php": "8.5.13",
+  "phpCommit": "46bcb661df53d9ded93fef239e15707bf7cea2e9",
+  "phpSourceSha256": "b14c347426e94522b99adfeb2bdfe826fcc28a83dbfc568fcebaf1fc570fdb11",
+  "playgroundCommit": "53d5c3030702e1edb3f82e7dbc308fcac27c3d0a",
+  "playgroundFiles": {
+    "playground.tar": "79492dff555a86464d101b9f27a87fcf473cbe3b3e62456c9a9e166a5edee127",
+    "js-exports.txt": "759359ee13ecf4e6643d37ffc077b4f80a1331c23eaa0fc0ed0a4ffde0c768c2",
+    "wasm-exports.txt": "8ddd76c67bccbd29f8549b4561c7b12af1e13df5911f4803642db83099ce5e96"
+  },
+  "workerPatches": [
+    "worker-build.patch",
+    "targets/worker-modern.patch",
+    "targets/builtin-opcache.patch"
+  ],
+  "cryptoPatch": "targets/openssl-85plus.patch",
+  "librariesLock": "libraries.lock.json"
+}

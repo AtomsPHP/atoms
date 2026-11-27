@@ -1,0 +1,95 @@
+name: PHP Wasm qualification
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build PHP ${{ matrix.php }} (${{ matrix.copy }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4', '8.5']
+        copy: [first, second]
+    env:
+      SERIES: ${{ matrix.php }}
+      RECIPE: cloudflare/php-wasm-build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.1'
+      - name: Fetch verified sources and compile offline
+        run: |
+          python3 -B "$RECIPE/build.py" fetch --php "$SERIES" "$RUNNER_TEMP/inputs"
+          python3 -B "$RECIPE/build.py" build --php "$SERIES" "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/output"
+          cd "$RUNNER_TEMP/output"
+          wc -c php_*.wasm php_*.js > identity.txt
+          sha256sum php_*.wasm php_*.js build-metadata.json >> identity.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: identity-${{ matrix.php }}-${{ matrix.copy }}
+          path: |
+            ${{ runner.temp }}/output/identity.txt
+            ${{ runner.temp }}/output/build-metadata.json
+          if-no-files-found: error
+      - name: Prepare corresponding source
+        if: matrix.copy == 'second'
+        run: python3 -B "$RECIPE/source-bundle.py" --php "$SERIES" "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/output"
+      - uses: actions/upload-artifact@v4
+        if: matrix.copy == 'second'
+        with:
+          name: build-${{ matrix.php }}
+          path: ${{ runner.temp }}/output
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  qualify:
+    name: Qualify PHP ${{ matrix.php }} package
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4', '8.5']
+    env:
+      SERIES: ${{ matrix.php }}
+      RECIPE: cloudflare/php-wasm-build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.1'
+      - uses: actions/download-artifact@v4
+        with:
+          name: identity-${{ matrix.php }}-first
+          path: ${{ runner.temp }}/peer
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-${{ matrix.php }}
+          path: ${{ runner.temp }}/output
+      - name: Compare the clean builds and pack the interpreter
+        run: |
+          cd "$RECIPE"
+          cmp "$RUNNER_TEMP/output/identity.txt" "$RUNNER_TEMP/peer/identity.txt"
+          version=$(jq -r .version "targets/$SERIES/candidate.json")
+          node pack.mjs "$RUNNER_TEMP/output" "$RUNNER_TEMP/peer/build-metadata.json" "$version" "$RUNNER_TEMP/packed"
+          cp "$RUNNER_TEMP/output/"{components.json,THIRD_PARTY_NOTICES.txt,identity.txt,build-metadata.json} "$RUNNER_TEMP/packed/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: interpreter-${{ matrix.php }}
+          path: ${{ runner.temp }}/packed
+          compression-level: 0
+          if-no-files-found: error
+      - name: Check the complete tarball against the reviewed pin
+        run: cmp "$RECIPE/targets/$SERIES/candidate.json" "$RUNNER_TEMP/packed/interpreter.json"

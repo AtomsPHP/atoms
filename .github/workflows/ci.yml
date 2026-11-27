@@ -9,6 +9,9 @@ permissions:
   contents: read
 
 jobs:
+  interpreters:
+    uses: ./.github/workflows/php-wasm-build.yml
+
   release-metadata:
     runs-on: ubuntu-latest
     outputs:

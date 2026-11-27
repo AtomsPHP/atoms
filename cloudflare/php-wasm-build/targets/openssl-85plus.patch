@@ -1,0 +1,39 @@
+--- ext/openssl/openssl.c
++++ ext/openssl/openssl.c
+@@ -29,2 +29,3 @@
+-#include "php_openssl.h"
+-#include "php_openssl_backend.h"
++#include "php_openssl.h"
++#include "atoms-shake.h"
++#include "php_openssl_backend.h"
+@@ -4519,3 +4520,4 @@
+-
+-	siglen = EVP_MD_size(mdtype);
+-	sigbuf = zend_string_alloc(siglen, 0);
++
++	unsigned int xof_len = atoms_shake_length(mdtype);
++	siglen = xof_len ? xof_len : EVP_MD_size(mdtype);
++	sigbuf = zend_string_alloc(siglen, 0);
+@@ -4526,3 +4528,4 @@
+-			EVP_DigestUpdate(md_ctx, (unsigned char *)data, data_len) &&
+-			EVP_DigestFinal (md_ctx, (unsigned char *)ZSTR_VAL(sigbuf), &siglen)) {
+-		if (raw_output) {
++			EVP_DigestUpdate(md_ctx, (unsigned char *)data, data_len) &&
++			(xof_len ? EVP_DigestFinalXOF(md_ctx, (unsigned char *)ZSTR_VAL(sigbuf), xof_len)
++			         : EVP_DigestFinal(md_ctx, (unsigned char *)ZSTR_VAL(sigbuf), &siglen))) {
++		if (raw_output) {
+--- ext/openssl/openssl_backend_common.c
++++ ext/openssl/openssl_backend_common.c
+@@ -17,2 +17,3 @@
+-#include "php_openssl_backend.h"
+-
++#include "php_openssl_backend.h"
++#include "atoms-shake.h"
++
+@@ -600,3 +601,3 @@
+-		return NULL;
+-	} else if (!X509_digest(peer, mdtype, md, &n)) {
+-		php_openssl_release_evp_md(mdtype);
++		return NULL;
++	} else if (!atoms_x509_digest(peer, mdtype, md, &n)) {
++		php_openssl_release_evp_md(mdtype);
