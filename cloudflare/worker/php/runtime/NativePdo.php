@@ -3,7 +3,7 @@
 namespace Atoms\Cf;
 
 /**
- * Guest entry point for the statically linked pdo_atoms prototype. All handles
+ * Guest entry point for the statically linked pdo_atoms driver. All handles
  * opened for an Atom share its SqlBridge across activation and warm turns.
  * Handles are numbered once per interpreter and may execute only while their
  * own bridge is active.
