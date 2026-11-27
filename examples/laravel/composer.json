@@ -5,13 +5,13 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
-        "atoms/laravel": "^0.10",
+        "atoms/laravel": "^0.11",
         "laravel/framework": "^11.0 || ^12.0 || ^13.0"
     },
     "require-dev": {
-        "atoms/cli": "^0.10",
-        "atoms/phpstan-rules": "^0.10",
-        "atoms/testing": "^0.10",
+        "atoms/cli": "^0.11",
+        "atoms/phpstan-rules": "^0.11",
+        "atoms/testing": "^0.11",
         "orchestra/testbench": "^9.0 || ^10.0 || ^11.0",
         "phpunit/phpunit": "^11.5"
     },

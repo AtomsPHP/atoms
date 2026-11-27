@@ -13,9 +13,9 @@ final class RuntimeVersion
 {
     public const PACKAGE = '@atomsphp/runtime-cloudflare';
 
-    public const VERSION = '0.10.0';
+    public const VERSION = '0.11.0';
 
-    public const CORE_VERSION = '0.10.0';
+    public const CORE_VERSION = '0.11.0';
 
     public const GUEST_PHP = ['8.3', '8.4', '8.5'];
 

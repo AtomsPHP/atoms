@@ -5,13 +5,27 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
-- Set `"php": "8.4"` or `"php": "8.5"` in `atoms.json` to run Atoms on
-  that Playground interpreter. PHP 8.3 remains the default. The CLI uses the
-  selected guest for validation, dependency resolution, and Worker packaging.
-- The next minor adds outbound HTTPS through `$this->http()->request(...)`.
-  Implementations of `Atoms\Runtime\AtomContext` must supply
-  `http(): Atoms\Http\HttpClient`. The Cloudflare runtime and testing
-  harness provide it.
+## [0.11.0] - 2026-11-27
+
+- An Atom can make outbound HTTPS requests with `$this->http()->request(...)`.
+  Tests can script responses with `AtomHarness`. Custom implementations of
+  `Atoms\Runtime\AtomContext` must add `http(): Atoms\Http\HttpClient`.
+- Set `"php": "8.4"` or `"php": "8.5"` in `atoms.json` to select the Worker's
+  PHP interpreter. PHP 8.3 remains the default. The CLI validates code,
+  resolves dependencies against the selected interpreter and its extensions,
+  and packages that interpreter for deployment.
+- Use `AtomsClient::destroy()` or Laravel's `Atoms::destroy()` to delete an
+  Atom's SQLite data, remove its timers, and close its WebSocket connections.
+  A subsequent invocation of the same ID starts with fresh state.
+- The Worker PDO driver accepts mixed named and positional bindings and
+  supports `PDO::FETCH_NAMED` with `PDO::FETCH_GROUP` or `PDO::FETCH_UNIQUE`
+  when selected columns have distinct names.
+- Symfony registers the Atoms Messenger handler on the default bus, resolves
+  callback Methods services, and autowires job `handle()` arguments.
+- `php artisan atoms:check` validates Laravel's shared-secret and WebSocket
+  ticket settings. CI now covers Laravel 11.
+- The docs clarify shared-secret rotation and link to the live Laravel
+  Mancala demo.
 
 ## [0.10.0] - 2026-11-22
 
@@ -659,3 +673,5 @@ deploy workflow, and the Cloudflare Durable Object PHP runtime.
 [0.9.2]: https://github.com/AtomsPHP/atoms/releases/tag/v0.9.2
 
 [0.10.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.10.0
+
+[0.11.0]: https://github.com/AtomsPHP/atoms/releases/tag/v0.11.0

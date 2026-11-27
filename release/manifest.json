@@ -1,11 +1,11 @@
 {
     "$schema": "./manifest.schema.json",
     "schema": 1,
-    "version": "0.10.0",
+    "version": "0.11.0",
     "status": "ready",
     "runtime": {
         "package": "@atomsphp/runtime-cloudflare",
-        "version": "0.10.0",
+        "version": "0.11.0",
         "node": "22.12.0",
         "node_tested": [
             "22",
@@ -30,7 +30,7 @@
         ]
     },
     "core": {
-        "supported": "^0.10"
+        "supported": "^0.11"
     },
     "composer": {
         "packages": [
