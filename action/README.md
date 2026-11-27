@@ -5,7 +5,7 @@ Worker **in your own Cloudflare account**. There is no Atoms-hosted service: the
 action installs the Atoms CLI, which shells out to a pinned, locally installed
 Wrangler and talks to Cloudflare's API directly with the credentials you supply.
 
-Use the immutable `AtomsPHP/atoms/action@v0.10.0` release tag, or pin the action
+Use the immutable `AtomsPHP/atoms/action@v0.11.0` release tag, or pin the action
 to its full commit SHA for maximum reproducibility.
 
 ## Credentials
@@ -42,7 +42,7 @@ id, and how rotation works. Two things are specific to CI:
 ## Usage
 
 ```yaml
-- uses: AtomsPHP/atoms/action@v0.10.0
+- uses: AtomsPHP/atoms/action@v0.11.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -74,7 +74,7 @@ route **except `GET /healthz`** — a green health check over a broken Worker. P
 `shared-secret` and the action configures it in the same run:
 
 ```yaml
-- uses: AtomsPHP/atoms/action@v0.10.0
+- uses: AtomsPHP/atoms/action@v0.11.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -126,7 +126,7 @@ Your Worker directory is committed. Scaffold it once, on a workstation, with
 the command `atoms init` prints:
 
 ```sh
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.10.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.11.0 -- \
   atoms-runtime-cloudflare init atoms-worker
 cd atoms-worker && npm ci
 git add atoms-worker
@@ -183,7 +183,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms/action@v0.10.0
+      - uses: AtomsPHP/atoms/action@v0.11.0
         with:
           environment: production
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -204,7 +204,7 @@ build the archive and pass its path to the Action. The deploy command reads
     out=$(mktemp -d)
     vendor/bin/atoms build --out "$out"
     printf 'bundle=%s\n' "$out"/bundle-*.tar.gz >> "$GITHUB_OUTPUT"
-- uses: AtomsPHP/atoms/action@v0.10.0
+- uses: AtomsPHP/atoms/action@v0.11.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -227,7 +227,7 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@v4
-      - uses: AtomsPHP/atoms/action@v0.10.0
+      - uses: AtomsPHP/atoms/action@v0.11.0
         with:
           environment: staging
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -238,7 +238,7 @@ jobs:
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: AtomsPHP/atoms/action@v0.10.0
+- uses: AtomsPHP/atoms/action@v0.11.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}

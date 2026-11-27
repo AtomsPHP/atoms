@@ -102,7 +102,7 @@ inside the Atom, separate from your application's own `composer.json`:
 ```json title="atoms-composer.json"
 {
     "require": {
-        "atoms/database-illuminate": "^0.10"
+        "atoms/database-illuminate": "^0.11"
     }
 }
 ```

@@ -254,7 +254,7 @@ The deploy Action wraps this. Generate once with `openssl rand -base64 32`,
 then put that one value in three places:
 
 ```yaml
-- uses: AtomsPHP/atoms/action@v0.10.0
+- uses: AtomsPHP/atoms/action@v0.11.0
   with:
     environment: production
     cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}

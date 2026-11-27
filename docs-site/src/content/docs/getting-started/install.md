@@ -77,7 +77,7 @@ The `init` command creates `atoms.json` and `atoms-composer.json`, appends `/.at
 Create the Cloudflare Worker runtime matching your CLI release (use the command `atoms init` printed if you are on another version):
 
 ```bash
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.10.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.11.0 -- \
   atoms-runtime-cloudflare init atoms-worker
 cd atoms-worker
 npm ci

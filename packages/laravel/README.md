@@ -6,7 +6,7 @@ thin wrappers around the `atoms` command-line tool. Supports Laravel 11, 12,
 and 13 on PHP 8.3 or later.
 
 ```sh
-composer require atoms/laravel:^0.10
+composer require atoms/laravel:^0.11
 php artisan atoms:install
 php artisan atoms:check
 ```

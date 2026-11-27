@@ -522,7 +522,7 @@ existed.
 version comes from the same release manifest as the CLI and the Action:
 
 ```sh
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.10.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.11.0 -- \
   atoms-runtime-cloudflare init atoms-worker
 cd atoms-worker && npm ci
 git add atoms-worker
@@ -552,7 +552,7 @@ no such check.
 **Upgrading it.** The error's command is the upgrade:
 
 ```sh
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.10.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.11.0 -- \
   atoms-runtime-cloudflare upgrade atoms-worker
 cd atoms-worker && npm ci
 ```

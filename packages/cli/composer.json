@@ -1,7 +1,7 @@
 {
     "name": "atoms/cli",
     "description": "The `atoms` command-line tool: init, make, validate, build (closure walk + vendor stage), deploy, rollback, local, ai:install.",
-    "version": "0.10.0",
+    "version": "0.11.0",
     "license": "MIT",
     "homepage": "https://atomsphp.dev",
     "support": {
@@ -18,7 +18,7 @@
     "require": {
         "php": "^8.3",
         "ext-json": "*",
-        "atoms/core": "^0.10",
+        "atoms/core": "^0.11",
         "colinodell/json5": "^2.3 || ^3.0",
         "nikic/php-parser": "^5.8",
         "symfony/console": "^6.4 || ^7.0 || ^8.0",

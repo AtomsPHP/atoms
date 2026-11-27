@@ -25,7 +25,7 @@ cd atoms-demo
 composer require atoms/laravel
 composer require --dev atoms/cli atoms/testing atoms/phpstan-rules
 php artisan atoms:install
-npm exec --yes --package=@atomsphp/runtime-cloudflare@0.10.0 -- \
+npm exec --yes --package=@atomsphp/runtime-cloudflare@0.11.0 -- \
   atoms-runtime-cloudflare init atoms-worker
 (cd atoms-worker && npm ci)
 ```
