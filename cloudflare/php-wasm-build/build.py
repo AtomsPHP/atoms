@@ -20,6 +20,7 @@ BUILD_RECIPE_FILES = (
     "openssl-legacy-provider.patch", "extension-abi.mjs", "build-libraries.sh",
     "libraries.py", "libraries.lock.json",
 )
+PDO_ATOMS_SOURCES = ("ext/pdo_atoms/config.m4", "ext/pdo_atoms/pdo_atoms.c", "ext/pdo_atoms/php_pdo_atoms.h")
 COMPILE = "packages/php-wasm/compile"
 PLAYGROUND_SOURCE = [
     "LICENSE", *(f"{COMPILE}/{path}" for path in (
@@ -51,7 +52,7 @@ def target(minor="8.3"):
         raise ValueError(f"Unsupported PHP Worker target: {minor}")
     if minor == "8.3":
         return Target(minor, LOCK, ("worker-build.patch",), "openssl-legacy-provider.patch",
-                      "libraries.lock.json", BUILD_RECIPE_FILES)
+                      "libraries.lock.json", BUILD_RECIPE_FILES + PDO_ATOMS_SOURCES)
     name = f"targets/{minor}/compiler.json"
     config = json.loads((RECIPE / name).read_text())
     commit = config["phpCommit"]
@@ -66,6 +67,8 @@ def target(minor="8.3"):
     libraries = config["librariesLock"]
     files = ("build.py", "builder.Dockerfile", "compiler.lock.json", name, "extension-abi.mjs",
              "build-libraries.sh", "libraries.py", libraries, *patches, crypto, "targets/openssl-shake.h")
+    if "worker-build.patch" in patches:
+        files += PDO_ATOMS_SOURCES
     return Target(minor, lock, patches, crypto, libraries, files)
 
 
@@ -147,6 +150,11 @@ def compile_snapshot(inputs, output, selected):
         files.extend("libraries/" + c["file"] for c in library_lock(RECIPE / selected.libraries_lock))
         for file in files:
             shutil.copyfile(inputs / file, context / file)
+        for file in selected.recipe_files:
+            if file.startswith("ext/"):
+                destination = context / file
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(RECIPE / file, destination)
         for file in selected.worker_patches:
             run("patch", "--batch", "--fuzz=0", "-p0", "-i", RECIPE / file, cwd=context / "compile")
         builder = (RECIPE / "builder.Dockerfile").read_bytes()

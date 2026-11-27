@@ -25,6 +25,7 @@ const probe = `<?php
 	// These modules implement the php-wasm host bridge and must not be
 	// exposed to Atom code or Composer's platform map.
 	$excluded = [
+		'pdo_atoms' => true,
 		'post_message_to_js' => true,
 		'dns_polyfill' => true,
 		'wasm_memory_storage' => true,

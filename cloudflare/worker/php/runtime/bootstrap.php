@@ -88,6 +88,7 @@ function runtime_files()
         'FetchMode.php',
         'NamedParams.php',
         'SqlBridge.php',
+        'NativePdo.php',
         'AtomsStatement.php',
         'AtomsPDO.php',
         'BridgeDatabase.php',
@@ -469,7 +470,7 @@ function settle_open_transaction(SqlBridge $bridge, array $identity, $method)
     $detail = '';
 
     try {
-        $bridge->rollback();
+        $bridge->rollbackOpenTransaction();
     } catch (\Throwable $e) {
         // SqlBridge::rollback() clears its own flag in a finally, so the next
         // turn still starts from a known state.
@@ -866,50 +867,55 @@ function turn_loop($atom, SqlBridge $bridge, array $identity)
             return;
         }
 
-        if ($kind === 'deactivate') {
-            $result = encodable_envelope(
-                run_deactivate_turn($atom, $bridge, $identity),
-                'onDeactivation'
+        NativePdo::enter($bridge);
+        try {
+            if ($kind === 'deactivate') {
+                $result = encodable_envelope(
+                    run_deactivate_turn($atom, $bridge, $identity),
+                    'onDeactivation'
+                );
+                continue;
+            }
+
+            if ($kind === 'invoke') {
+                $args = isset($envelope['args']) && is_array($envelope['args']) ? array_values($envelope['args']) : [];
+                $method = isset($envelope['method']) ? $envelope['method'] : null;
+
+                $result = encodable_envelope(
+                    run_turn($atom, $serializer, $bridge, $identity, $method, $args),
+                    $method
+                );
+                continue;
+            }
+
+            if ($kind === 'ws.connect' || $kind === 'ws.message' || $kind === 'ws.close') {
+                $result = encodable_envelope(
+                    run_ws_dispatch($atom, $bridge, $identity, $kind, $envelope),
+                    $kind
+                );
+                continue;
+            }
+
+            if ($kind === 'timer') {
+                $timerName = isset($envelope['name']) && is_string($envelope['name']) ? $envelope['name'] : '';
+
+                $result = encodable_envelope(
+                    run_timer_turn($atom, $bridge, $identity, $timerName),
+                    'onTimer'
+                );
+                continue;
+            }
+
+            // A host-side protocol bug. Answer it and stay resident rather than
+            // taking the whole residency down.
+            $result = error_envelope(
+                'internal',
+                sprintf('turn.await resumed with unknown envelope kind %s.', var_export($kind, true)),
+                null
             );
-            continue;
+        } finally {
+            NativePdo::leave();
         }
-
-        if ($kind === 'invoke') {
-            $args = isset($envelope['args']) && is_array($envelope['args']) ? array_values($envelope['args']) : [];
-            $method = isset($envelope['method']) ? $envelope['method'] : null;
-
-            $result = encodable_envelope(
-                run_turn($atom, $serializer, $bridge, $identity, $method, $args),
-                $method
-            );
-            continue;
-        }
-
-        if ($kind === 'ws.connect' || $kind === 'ws.message' || $kind === 'ws.close') {
-            $result = encodable_envelope(
-                run_ws_dispatch($atom, $bridge, $identity, $kind, $envelope),
-                $kind
-            );
-            continue;
-        }
-
-        if ($kind === 'timer') {
-            $timerName = isset($envelope['name']) && is_string($envelope['name']) ? $envelope['name'] : '';
-
-            $result = encodable_envelope(
-                run_timer_turn($atom, $bridge, $identity, $timerName),
-                'onTimer'
-            );
-            continue;
-        }
-
-        // A host-side protocol bug. Answer it and stay resident rather than
-        // taking the whole residency down.
-        $result = error_envelope(
-            'internal',
-            sprintf('turn.await resumed with unknown envelope kind %s.', var_export($kind, true)),
-            null
-        );
     }
 }
 
@@ -1066,6 +1072,7 @@ function activate(array $cfg)
     // rather than unwinding php.run() as an unnamed fatal — any transaction it
     // left open is settled first, and the host's activation_failed line names
     // the customer's class and message instead of reporting 'internal'.
+    NativePdo::enter($bridge);
     try {
         LifecycleInvoker::activate($atom);
     } catch (\Throwable $e) {
@@ -1081,6 +1088,8 @@ function activate(array $cfg)
             ),
             $e
         );
+    } finally {
+        NativePdo::leave();
     }
 
     // Same reasoning as in run_turn(): the first park is turn.await, which the

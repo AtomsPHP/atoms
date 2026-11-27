@@ -1,8 +1,8 @@
 --- php/Dockerfile
 +++ php/Dockerfile
-@@ -181 +181 @@
+@@ -182 +182 @@
 -		echo -n ' --with-openssl --with-openssl-dir=/root/lib ' >> /root/.php-configure-flags; \
 +		echo -n ' --with-openssl --with-openssl-legacy-provider --with-openssl-dir=/root/lib ' >> /root/.php-configure-flags; \
-@@ -2562 +2562 @@
+@@ -2572 +2572 @@
 -COPY --from=interpreter /root/output/php_8_3.js /root/output/php_8_3.wasm /
 +COPY --from=interpreter /root/output/php_*.js /root/output/php_*.wasm /

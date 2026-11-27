@@ -9,8 +9,7 @@
 -		--single-branch \
 -		--depth 1;
 -
-@@ -36,41 +28,0 @@
--
+@@ -37,41 +29,0 @@
 -# Bring in the libraries
 -RUN mkdir -p /root/lib/include /root/lib/lib /libs
 -COPY ./compile/libiconv/ /root/builds/libiconv
@@ -51,29 +50,41 @@
 -else \
 -	cp -r /root/builds-libopenssl/asyncify/dist/root/lib /libs/libopenssl; \
 -fi
-@@ -141 +93 @@
+-
+@@ -105,0 +58 @@
++COPY ext/pdo_atoms/ /root/php-src/ext/pdo_atoms/
+@@ -141 +94 @@
 -RUN apt install -y bison;
 +# Host tools and cross-compiled libraries are provided by the locked builder.
-@@ -145 +96,0 @@
+@@ -145 +97,0 @@
 -		cp -r /libs/libzip/1.9.2/* /root/lib; \
-@@ -210 +161 @@
+@@ -198 +150 @@
+-		echo -n ' --with-sqlite3 --enable-pdo --with-pdo-sqlite=/root/lib ' >> /root/.php-configure-flags; \
++		echo -n ' --with-sqlite3 --enable-pdo --enable-pdo-atoms --with-pdo-sqlite=/root/lib ' >> /root/.php-configure-flags; \
+@@ -210 +162 @@
 -			echo -n ' /root/lib/lib/libgd.a /root/lib/lib/libjpeg.a /root/lib/lib/libpng16.a /root/lib/lib/libwebp.a /root/lib/lib/libsharpyuv.a /root/lib/lib/libavif.a ' >> /root/.emcc-php-wasm-sources; \
 +			echo -n ' /root/lib/lib/libgd.a /root/lib/lib/libjpeg.a /root/lib/lib/libpng16.a /root/lib/lib/libwebp.a /root/lib/lib/libsharpyuv.a /root/lib/lib/libavif.a /root/lib/lib/libaom.a ' >> /root/.emcc-php-wasm-sources; \
-@@ -230 +180,0 @@
+@@ -230 +181,0 @@
 -		cp -r /libs/libopenssl/* /root/lib; \
-@@ -347,0 +298,2 @@
+@@ -347,0 +299,2 @@
 +FROM php-source AS interpreter
 +COPY --from=libraries /libs/ /libs/
-@@ -349 +301 @@
+@@ -349 +302 @@
 -RUN source /root/emsdk/emsdk_env.sh && \
 +RUN test "$(em-config CACHE)" = /em-cache && \
-@@ -504 +456 @@
+@@ -504 +457 @@
 -RUN source /root/emsdk/emsdk_env.sh && \
 +RUN test "$(em-config CACHE)" = /em-cache && \
-@@ -513 +465 @@
+@@ -513 +466 @@
 -	emmake make -j14
 +	emmake make -j"$BUILD_JOBS"
-@@ -2322,26 +2274,4 @@
+@@ -1220,0 +1174,5 @@
++"atoms_bridge_call",\
++"atoms_transaction",\
++"atoms_begin",\
++"atoms_commit",\
++"atoms_rollback",\
+@@ -2322,26 +2280,4 @@
 -COPY ./${EMSCRIPTEN_ENVIRONMENT}-builds/ /root/${EMSCRIPTEN_ENVIRONMENT}-builds
 -COPY ./compile/shared/ /root/shared/
 -RUN	set -eux; \
@@ -104,19 +115,27 @@
 +COPY js-exports.txt wasm-exports.txt compile/shared/intl/exported-functions.list /tmp/
 +RUN cat /tmp/js-exports.txt /tmp/exported-functions.list >> /root/.JS_ABI_EXPORTS && \
 +    cat /tmp/wasm-exports.txt >> /root/.WASM_ABI_EXPORTS
-@@ -2376 +2306 @@
+@@ -2376 +2312 @@
 -	source /root/emsdk/emsdk_env.sh; \
 +	test "$(em-config CACHE)" = /em-cache; \
-@@ -2600 +2530 @@
+@@ -2403 +2339 @@
+-	emcc $OPTIMIZATION_FLAGS \
++	emcc --emit-symbol-map $OPTIMIZATION_FLAGS \
+@@ -2451,0 +2388,4 @@
++# Validate the Asyncify allowlist against the optimized Wasm symbol map.
++RUN grep -oE '"atoms_[a-z_]+"' /root/.emcc-php-asyncify-flags | tr -d '"' | \
++    while read -r name; do grep -E "^[0-9]+:${name}$" /build/output/php.js.symbols || exit 1; done
++
+@@ -2600 +2540 @@
 -			echo "import dependencyFilename from './${PHP_VERSION_ESCAPED}/$WASM_FILENAME'; " >> /root/output/php-module.js; \
 +			echo "import dependencyFilename from './$WASM_FILENAME'; " >> /root/output/php-module.js; \
-@@ -2606,0 +2537 @@
+@@ -2606,0 +2547 @@
 +		echo "Module['Asyncify'] = Asyncify;" >> /root/output/php-module.js && \
-@@ -2614,2 +2545 @@
+@@ -2614,2 +2555 @@
 -		mkdir -p /root/output/${PHP_VERSION_ESCAPED}/; \
 -		mv /root/output/php.wasm "/root/output/${PHP_VERSION_ESCAPED}/$WASM_FILENAME"; \
 +		mv /root/output/php.wasm "/root/output/$WASM_FILENAME"; \
-@@ -2629,0 +2560,3 @@
+@@ -2629,0 +2570,3 @@
 +
 +FROM scratch AS shipped
 +COPY --from=interpreter /root/output/php_8_3.js /root/output/php_8_3.wasm /

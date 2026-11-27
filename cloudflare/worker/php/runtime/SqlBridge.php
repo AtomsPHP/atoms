@@ -31,8 +31,8 @@ final class SqlBridge
     /** SQLSTATE reported when nothing has failed yet. */
     const SQLSTATE_OK = '00000';
 
-    /** @var bool whether the host is currently parked inside transactionSync */
-    private $inTransaction = false;
+    /** Null outside transactionSync, zero for db(), or the owning native PDO handle. */
+    private ?int $transactionOwner = null;
 
     /** @var int rowid of the most recent insert, 0 if there has been none */
     private $lastInsertRowid = 0;
@@ -148,14 +148,14 @@ final class SqlBridge
      *
      * @throws \PDOException when one is already open
      */
-    public function begin()
+    public function begin(int $owner = 0)
     {
-        if ($this->inTransaction) {
+        if ($this->inTransaction()) {
             throw new \PDOException('There is already an active transaction.');
         }
 
         host_park(['op' => 'tx.begin']);
-        $this->inTransaction = true;
+        $this->transactionOwner = $owner;
     }
 
     /**
@@ -163,16 +163,16 @@ final class SqlBridge
      *
      * @throws \PDOException when none is open
      */
-    public function commit()
+    public function commit(int $owner = 0)
     {
-        $this->assertInTransaction('commit');
+        $this->assertOwner($owner, 'commit');
 
         try {
             host_park(['op' => 'tx.commit']);
         } finally {
             // Whatever happened, the guest is no longer inside cb. Leaving the
             // flag set would wedge every later transaction.
-            $this->inTransaction = false;
+            $this->transactionOwner = null;
         }
     }
 
@@ -182,14 +182,14 @@ final class SqlBridge
      *
      * @throws \PDOException when none is open
      */
-    public function rollback()
+    public function rollback(int $owner = 0)
     {
-        $this->assertInTransaction('roll back');
+        $this->assertOwner($owner, 'roll back');
 
         try {
             host_park(['op' => 'tx.rollback']);
         } finally {
-            $this->inTransaction = false;
+            $this->transactionOwner = null;
         }
     }
 
@@ -198,7 +198,20 @@ final class SqlBridge
      */
     public function inTransaction()
     {
-        return $this->inTransaction;
+        return $this->transactionOwner !== null;
+    }
+
+    public function ownedBy(int $handle): bool
+    {
+        return $this->transactionOwner === $handle;
+    }
+
+    /** The turn boundary settles an abandoned transaction regardless of who opened it. */
+    public function rollbackOpenTransaction(): void
+    {
+        if ($this->transactionOwner !== null) {
+            $this->rollback($this->transactionOwner);
+        }
     }
 
     /**
@@ -215,10 +228,14 @@ final class SqlBridge
      * @param string $what
      * @throws \PDOException
      */
-    private function assertInTransaction($what)
+    private function assertOwner(int $owner, $what)
     {
-        if (!$this->inTransaction) {
+        if (!$this->inTransaction()) {
             throw new \PDOException(sprintf('There is no active transaction to %s.', $what));
+        }
+
+        if (!$this->ownedBy($owner)) {
+            throw new \PDOException('Another connection owns the active transaction.');
         }
     }
 

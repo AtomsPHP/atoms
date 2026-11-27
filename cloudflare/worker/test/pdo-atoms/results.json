@@ -1,0 +1,555 @@
+[
+  {
+    "selected": "default",
+    "php": "8.3.32",
+    "wasmSha256": "b2280bb79d674f696059ccb1c9c62d59f2303b91b4212caec29bb5cb93b271d5",
+    "glueSha256": "d8c3fc15f515d67ee25f49268a2895f4e267b104169b422a23d75b5f72b2ef43",
+    "registration": {
+      "php": "8.3.32",
+      "drivers": [
+        "atoms",
+        "sqlite"
+      ],
+      "activation": "atoms",
+      "activationCursorClosed": true,
+      "turn": "atoms",
+      "beforeActivationRejected": true,
+      "invalidRejected": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "namedArguments": [
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ]
+    ],
+    "sqlErrors": {
+      "silent": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "warning": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "exception": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      }
+    },
+    "committed": [
+      {
+        "key": "control",
+        "value": 5000000000
+      }
+    ],
+    "rollback": {
+      "beforeDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "afterDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "callbackGuard": true,
+      "otherOwns": false,
+      "ownerOwns": true,
+      "afterRollback": [],
+      "cachedReads": [
+        [
+          0,
+          "cached"
+        ],
+        [
+          1,
+          "cached"
+        ]
+      ]
+    },
+    "yii": [
+      "2.0.53",
+      "1",
+      "0",
+      [
+        {
+          "value": 42
+        }
+      ]
+    ],
+    "abandonment": "atom_exception",
+    "recoveredOwner": {
+      "ownedAtStart": false,
+      "unread": false,
+      "nonownerRollbackRejected": true,
+      "otherOwns": true,
+      "reusedOwnerWrite": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "rows": [
+        {
+          "key": "control",
+          "value": 5000000000
+        }
+      ]
+    },
+    "cursor": {
+      "unread": [
+        false,
+        false
+      ],
+      "closedColumnCount": 1,
+      "newColumnCount": 2,
+      "newColumns": {
+        "marker": "another unread row",
+        "extra": 42
+      },
+      "oldValue": [
+        null,
+        null
+      ],
+      "oldValueAfterExecute": [
+        null,
+        null
+      ],
+      "newValue": "second-turn row",
+      "savedViewAfterFetch": "second-turn row"
+    },
+    "cache": [
+      {
+        "id": "test",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": false,
+        "nativeValue": false
+      },
+      {
+        "id": "second",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      },
+      {
+        "id": "test",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 3,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      }
+    ],
+    "trace": [
+      "resume.tx.begin inside",
+      "sql.insert inside",
+      "sql.read inside",
+      "sql.read inside",
+      "resume.tx.rollback outside",
+      "sql.read outside"
+    ]
+  },
+  {
+    "selected": "8.4",
+    "php": "8.4.28",
+    "wasmSha256": "9aaebd9aa9d8b77b8683e2843ab241eeb63ccd3033070b5f9c798f40ed92b9a3",
+    "glueSha256": "819308a8580004b6127f0b55939a916596fa0949c855d19cf659b066d983b89f",
+    "registration": {
+      "php": "8.4.28",
+      "drivers": [
+        "atoms",
+        "sqlite"
+      ],
+      "activation": "atoms",
+      "activationCursorClosed": true,
+      "turn": "atoms",
+      "beforeActivationRejected": true,
+      "invalidRejected": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "namedArguments": [
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ]
+    ],
+    "sqlErrors": {
+      "silent": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "warning": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "exception": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      }
+    },
+    "committed": [
+      {
+        "key": "control",
+        "value": 5000000000
+      }
+    ],
+    "rollback": {
+      "beforeDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "afterDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "callbackGuard": true,
+      "otherOwns": false,
+      "ownerOwns": true,
+      "afterRollback": [],
+      "cachedReads": [
+        [
+          0,
+          "cached"
+        ],
+        [
+          1,
+          "cached"
+        ]
+      ]
+    },
+    "yii": [
+      "2.0.53",
+      "1",
+      "0",
+      [
+        {
+          "value": 42
+        }
+      ]
+    ],
+    "abandonment": "atom_exception",
+    "recoveredOwner": {
+      "ownedAtStart": false,
+      "unread": false,
+      "nonownerRollbackRejected": true,
+      "otherOwns": true,
+      "reusedOwnerWrite": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "rows": [
+        {
+          "key": "control",
+          "value": 5000000000
+        }
+      ]
+    },
+    "cursor": {
+      "unread": [
+        false,
+        false
+      ],
+      "closedColumnCount": 1,
+      "newColumnCount": 2,
+      "newColumns": {
+        "marker": "another unread row",
+        "extra": 42
+      },
+      "oldValue": [
+        null,
+        null
+      ],
+      "oldValueAfterExecute": [
+        null,
+        null
+      ],
+      "newValue": "second-turn row",
+      "savedViewAfterFetch": "second-turn row"
+    },
+    "cache": [
+      {
+        "id": "test",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": false,
+        "nativeValue": false
+      },
+      {
+        "id": "second",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      },
+      {
+        "id": "test",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 3,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      }
+    ],
+    "trace": [
+      "resume.tx.begin inside",
+      "sql.insert inside",
+      "sql.read inside",
+      "sql.read inside",
+      "resume.tx.rollback outside",
+      "sql.read outside"
+    ]
+  },
+  {
+    "selected": "8.5",
+    "php": "8.5.13",
+    "wasmSha256": "636ed1556f09882d615b99fbb1e79fef07e9fee81fd53717fbfa219b1a701bec",
+    "glueSha256": "9fd80982438a10b4e0da4c30da5ea18724a9cb0d3783f494d5d094e61692e67e",
+    "registration": {
+      "php": "8.5.13",
+      "drivers": [
+        "atoms",
+        "sqlite"
+      ],
+      "activation": "atoms",
+      "activationCursorClosed": true,
+      "turn": "atoms",
+      "beforeActivationRejected": true,
+      "invalidRejected": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "namedArguments": [
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ]
+    ],
+    "sqlErrors": {
+      "silent": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "warning": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "exception": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      }
+    },
+    "committed": [
+      {
+        "key": "control",
+        "value": 5000000000
+      }
+    ],
+    "rollback": {
+      "beforeDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "afterDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "callbackGuard": true,
+      "otherOwns": false,
+      "ownerOwns": true,
+      "afterRollback": [],
+      "cachedReads": [
+        [
+          0,
+          "cached"
+        ],
+        [
+          1,
+          "cached"
+        ]
+      ]
+    },
+    "yii": [
+      "2.0.53",
+      "1",
+      "0",
+      [
+        {
+          "value": 42
+        }
+      ]
+    ],
+    "abandonment": "atom_exception",
+    "recoveredOwner": {
+      "ownedAtStart": false,
+      "unread": false,
+      "nonownerRollbackRejected": true,
+      "otherOwns": true,
+      "reusedOwnerWrite": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "rows": [
+        {
+          "key": "control",
+          "value": 5000000000
+        }
+      ]
+    },
+    "cursor": {
+      "unread": [
+        false,
+        false
+      ],
+      "closedColumnCount": 1,
+      "newColumnCount": 2,
+      "newColumns": {
+        "marker": "another unread row",
+        "extra": 42
+      },
+      "oldValue": [
+        null,
+        null
+      ],
+      "oldValueAfterExecute": [
+        null,
+        null
+      ],
+      "newValue": "second-turn row",
+      "savedViewAfterFetch": "second-turn row"
+    },
+    "cache": [
+      {
+        "id": "test",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": false,
+        "nativeValue": false
+      },
+      {
+        "id": "second",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      },
+      {
+        "id": "test",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 3,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      }
+    ],
+    "trace": [
+      "resume.tx.begin inside",
+      "sql.insert inside",
+      "sql.read inside",
+      "sql.read inside",
+      "resume.tx.rollback outside",
+      "sql.read outside"
+    ]
+  }
+]

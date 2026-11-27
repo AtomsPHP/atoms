@@ -1151,6 +1151,45 @@ can interrupt in-flight events; it does not undo committed SQLite writes.
   carrier-database answer. The dummy carrier connection (`sqlite::memory:`)
   exists only to satisfy the `\PDO` constructor.
 
+### Native PDO driver
+
+Each shipping interpreter registers `atoms:` with PDO. A connection opened
+during `onActivation()` or a dispatched turn uses that Atom's existing
+`SqlBridge`. The DSN takes no target or credentials. Persistent connections
+are refused. A library may keep its PDO connection and prepared statements on
+the Atom and use them again on a later request to that same warm Atom. The
+connection belongs to that Atom for the lifetime of its interpreter. Eviction
+or destruction ends that lifetime.
+
+Every activation or turn closes its open result sets before the guest waits
+for another event. The driver discards unread rows and keeps the prepared
+statement's column descriptions available to PDO. The application must
+execute the statement again to read more rows. A `PDO::FETCH_LAZY` row is
+a view of its statement. It loses access to the old result and can show a
+new row when the application executes the statement again and fetches from it.
+
+Prepared values go through the same named-parameter rewrite and integer
+encoding as `db()->query()`. SQL uses `!sql.exec`. When SQLite rejects a
+query or write, the connection or statement that ran it records the SQLSTATE
+and driver details. In silent mode the operation returns `false`. Warning
+mode also emits a PHP warning. Exception mode throws a `PDOException`.
+Executing a statement outside its Atom turn or with missing or unused
+placeholder bindings raises an exception in every mode. The driver
+supports bound values and leaves `PDO::quote()` unimplemented. Result
+columns need distinct names because the SQL bridge returns each row
+as a map keyed by column name.
+
+Transaction boundaries use `~tx.begin`, `~tx.commit` and `~tx.rollback`.
+While a transaction is open, Atom database reads observe its pending writes
+and the callback guard is active. Only the opening connection can commit or
+roll back through PDO. Destroying that connection rolls back its transaction.
+The runtime also settles an open transaction at the end of the window.
+
+The PHP 8.3, 8.4 and 8.5 packages compile this driver as a static extension.
+For the compiler inputs and the local workerd test, see the
+[build recipe](../php-wasm-build/README.md) and the
+[PDO and Yii fixture](../worker/test/pdo-atoms/README.md).
+
 ### PHP-side `app()` and `dispatch()`
 
 `CfAtomContext::app()` returns a lazily-built `CallbackAppProxy`
