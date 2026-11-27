@@ -91,7 +91,7 @@ function writeInventory(relativePath, data) {
 const namespacedBuiltins = new Set();
 for (const series of Object.keys(PHP_RUNTIMES)) {
 	const runtime = phpRuntime(series);
-	const loader = await import(`../.php-wasm/${runtime.glue}`);
+	const loader = await import(`../.php-wasm/${runtime.glue.path}`);
 	const php = await bootPHP(loader, { onSync() {}, onPark() {} });
 	let response;
 	try {
@@ -102,7 +102,7 @@ for (const series of Object.keys(PHP_RUNTIMES)) {
 	if (response.exitCode !== 0 || response.errors) throw new Error(response.errors || 'PHP probe failed');
 
 	const { extensions, classes, functions } = JSON.parse(response.text);
-	if (extensions.core !== runtime.version) throw new Error(`Expected PHP ${runtime.version}, found ${extensions.core}`);
+	if (extensions.core !== runtime.php) throw new Error(`Expected PHP ${runtime.php}, found ${extensions.core}`);
 	const suffix = series === '8.3' ? '' : `-${series}`;
 	writeInventory(`cli/resources/runtime-extensions${suffix}.json`, { extensions, classes });
 	writeInventory(`cli/resources/runtime-functions${suffix}.json`, functions);

@@ -11,6 +11,8 @@ use Atoms\Cli\Tests\TestCase;
 use Atoms\Errors\AtomsError;
 use Atoms\Errors\ErrorCode;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 
 final class TargetSyntaxTest extends TestCase
 {
@@ -133,6 +135,30 @@ PHP);
 
         self::assertSame([], $result->errors);
         self::assertContains($file, array_column($result->bundleFiles->files, 'relative'));
+    }
+
+    // PHPStan's rule tests load a different PHP-Parser from its PHAR.
+    // The CLI entry point resolves the application's Composer parser in its own process.
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    #[DataProvider('versionedSyntax')]
+    public function testSyntaxFollowsTheSelectedMinor(string $source, string $firstVersion): void
+    {
+        foreach (['8.3.32', '8.4.28', '8.5.13'] as $target) {
+            $error = (new TargetSyntax($target))->check('<?php ' . $source, 'Room.php');
+            self::assertSame(version_compare($target, $firstVersion, '>='), $error === null, $target . ' ' . ($error?->message() ?? ''));
+        }
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function versionedSyntax(): iterable
+    {
+        yield 'typed constant' => ['class Room { const string NAME = "a"; }', '8.3'];
+        yield 'asymmetric visibility' => ['class Room { public private(set) int $id; }', '8.4'];
+        yield 'pipe' => ['return "a" |> trim(...);', '8.5'];
+        yield 'readonly default' => ['class Room { public readonly int $a, $b = 1; }', '8.6'];
+        yield 'implicit readonly default' => ['readonly class Room { public int $id = 1; }', '8.6'];
+        yield 'partial application' => ['$append = str_pad(?, 3);', '8.6'];
     }
 
     public function testUnsupportedTargetCannotSetTheManifestPhpVersion(): void

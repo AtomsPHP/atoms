@@ -92,6 +92,15 @@ text; SQLite BLOB values and `PDO::PARAM_LOB` are not supported. WebSocket
 messages are the exception: `send()` delivers bytes that are not valid UTF-8 as
 a binary frame.
 
+## RSA padding
+
+The Worker uses OpenSSL 3.5.9. Its PHP OpenSSL extension omits
+`OPENSSL_SSLV23_PADDING`. Passing its old numeric value, `2`, to
+`openssl_public_encrypt()` or `openssl_private_decrypt()` returns `false`.
+Before upgrading from a Worker that uses this mode, migrate stored ciphertext
+using its existing reader and verify that each peer accepts the new format.
+[OpenSSL change](https://github.com/openssl/openssl/issues/14283)
+
 ## See also
 
 - [PDO compatibility](/reference/pdo/) for how `$this->db()->pdo()` differs

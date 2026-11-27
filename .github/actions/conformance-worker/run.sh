@@ -49,7 +49,7 @@ while IFS= read -r pair; do
   var_args+=("--var" "${name}:${value}")
 done < <(printf '%s\n' "$RUN_VARS")
 
-npx wrangler dev --port "$WORKER_PORT" --ip 127.0.0.1 "${var_args[@]}" > "$log_name" 2>&1 &
+node_modules/.bin/wrangler dev --port "$WORKER_PORT" --ip 127.0.0.1 "${var_args[@]}" > "$log_name" 2>&1 &
 echo $! > wrangler.pid
 
 # --- Poll /healthz, with liveness ------------------------------------------
@@ -92,4 +92,4 @@ env \
   ATOMS_BASE_URL="http://127.0.0.1:${WORKER_PORT}" \
   ATOMS_ONLY="$RUN_CHECKS" \
   ${suite_env_args[@]+"${suite_env_args[@]}"} \
-  npm test
+  node test/conformance.mjs

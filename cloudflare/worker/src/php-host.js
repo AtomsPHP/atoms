@@ -1,5 +1,5 @@
 // Atoms-authored MIT source. It imports `@php-wasm/universal` and boots the
-// WordPress Playground runtime staged into `../.php-wasm/`; component license
+// Atoms-owned PHP runtime staged into `../.php-wasm/`; component license
 // and provenance details live in ../THIRD_PARTY_NOTICES.md.
 
 /**
@@ -93,7 +93,7 @@ function writeReply(M, responseBufferPtr, str) {
 /**
  * Boot one PHP instance with the tagged doors installed.
  *
- * @param {any} asyncifyLoader Verified Playground loader selected by the bundle.
+ * @param {any} asyncifyLoader Verified interpreter loader selected by the bundle.
  * @param {PhpDoors} doors
  * @returns {Promise<any>} the PHP instance (with `__atoms` bookkeeping attached)
  */

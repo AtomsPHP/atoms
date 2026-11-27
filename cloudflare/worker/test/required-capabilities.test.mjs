@@ -18,6 +18,8 @@ for (const name of ['conformance.mjs', 'required-capabilities.mjs']) {
 }
 copyFileSync(fileURLToPath(new URL('../scripts/gen-pdo-matrix.mjs', import.meta.url)),
     join(directory, 'scripts', 'gen-pdo-matrix.mjs'));
+mkdirSync(join(directory, 'release'));
+copyFileSync(new URL('../release/interpreters.json', import.meta.url), join(directory, 'release', 'interpreters.json'));
 copyFileSync(new URL('../scripts/lib/php-runtimes.mjs', import.meta.url),
     join(directory, 'scripts', 'lib', 'php-runtimes.mjs'));
 const runner = join(directory, 'test', 'conformance.mjs');

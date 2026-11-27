@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url';
 
 const recipe = fileURLToPath(new URL('.', import.meta.url));
 const release = JSON.parse(readFileSync(resolve(recipe, '../../release/manifest.json'), 'utf8'));
-const [action, input] = process.argv.slice(2);
+const [action, input, scaffold] = process.argv.slice(2);
 if (!['seed', 'publish-interpreters', 'publish-scaffold'].includes(action) || !input) {
-	throw new Error('Usage: node artifacts.mjs seed|publish-interpreters|publish-scaffold <artifact directory or scaffold.tgz>');
+	throw new Error('Usage: node artifacts.mjs seed|publish-interpreters|publish-scaffold <directory> [scaffold.tgz]');
 }
 
 function packedJson(path, member) {
@@ -59,12 +59,20 @@ if (action === 'publish-scaffold') {
 		const path = resolve(existsSync(flat) ? flat : join(input, 'interpreter-' + series, filename));
 		return { pin, path };
 	});
+	const lock = action === 'publish-interpreters' ? packedJson(resolve(scaffold), 'template/package-lock.json') : null;
 	let packed = 0;
 	let unpacked = 0;
 	for (const { pin, path } of packages) {
 		const actual = await hashes(path);
 		if (actual.sha256 !== pin.sha256 || actual.integrity !== pin.integrity || actual.size !== pin.packedBytes) {
 			throw new Error(`Qualified tarball differs from the release pin for ${pin.package}`);
+		}
+		if (lock) {
+			const dependency = lock.packages['node_modules/' + pin.package];
+			if (lock.packages[''].dependencies[pin.package] !== pin.version ||
+				dependency?.version !== pin.version || dependency?.integrity !== pin.integrity) {
+				throw new Error(`Packed scaffold lock differs from ${pin.package}@${pin.version}`);
+			}
 		}
 		packed += actual.size;
 		unpacked += pin.unpackedBytes;

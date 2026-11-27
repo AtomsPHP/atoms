@@ -32,10 +32,22 @@ preflight is finished (as the 0.1.0 mirrors bootstrap required — see
 `ready` with `php scripts/release/release.php status ready` once the
 preflight passes.
 
+The customer recovery job in `.github/workflows/ci.yml` checks out the known
+previous release and installs its published scaffold. Advance that baseline
+commit when a new owned-interpreter release becomes the supported upgrade
+origin. The same rehearsal covers minor changes and rollback.
+
 ## Publishing credentials
 
-The release workflow holds no npm credential. `@atomsphp/runtime-cloudflare` is
-published through npm [trusted publishing]: the `publish-npm` job exchanges its
+Configure npm [trusted publishing] for `@atomsphp/php-wasm-8-3`,
+`@atomsphp/php-wasm-8-4`, `@atomsphp/php-wasm-8-5` and
+`@atomsphp/runtime-cloudflare` before tagging. The release workflow publishes
+the three qualified interpreter tarballs first. It verifies the registry
+integrities, installs the release scaffold using the registry and boots each
+interpreter before publishing the scaffold tarball. A retry verifies any
+already-published version against the expected integrity.
+
+The `publish-npm` job exchanges its
 GitHub OIDC token for a short-lived, single-publish registry credential, which
 npm grants only against the trusted publisher configured on the package —
 this repository, `.github/workflows/release.yml`, and the `release`

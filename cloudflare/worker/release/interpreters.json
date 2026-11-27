@@ -1,0 +1,56 @@
+{
+  "8.3": {
+    "package": "@atomsphp/php-wasm-8-3",
+    "version": "8.3.32-atoms.5",
+    "wasm": {
+      "path": "php_8_3.wasm",
+      "bytes": 19248410,
+      "sha256": "0b1265dae5c56b0b5551bbb5b3381cc0405cdd0928e11b8acdfb98e5f299d9c0"
+    },
+    "glue": {
+      "path": "php_8_3.js",
+      "bytes": 206822,
+      "sha256": "ed516034490faae3d1fcc9a6ca14a2d777e5ec54514037c0da640b11a3bd49f9"
+    },
+    "sha256": "2be03fec1f20e36a6e8a1a906f5d012f7e865c776696c5f0ceff3261cb299198",
+    "integrity": "sha512-Cpx+OukOfpbklxkMlAXDCY2XFQSn66UWrRQSbTRw5yZWkxh2GQoAjjJ1GuK80aYTJ7lZB4YIB5CIDia4pKDxaA==",
+    "packedBytes": 176983554,
+    "unpackedBytes": 189202649
+  },
+  "8.4": {
+    "package": "@atomsphp/php-wasm-8-4",
+    "version": "8.4.28-atoms.5",
+    "wasm": {
+      "path": "php_8_4.wasm",
+      "bytes": 20931135,
+      "sha256": "8fca14438593d5dd0e8d4d2b241bf5b2424e127381cdcc2aaad4bb6392b6cba3"
+    },
+    "glue": {
+      "path": "php_8_4.js",
+      "bytes": 209034,
+      "sha256": "a870cb4873fc7762dbe8616bafaa1a9e1309ad1df5275b02c00313e1c73b7aac"
+    },
+    "sha256": "8c2a0fd798e0ac55b982c5d5dbc7d74297f940bf05d46d3f73346ed5909d2011",
+    "integrity": "sha512-iYV7vtzeLxJuQfkRCmTzG9w1SAqT2La+2PWftf59RJGb8+av4hkUjeoMCwxzFlPiO+edF0Tz7BXvizCdv1JOuQ==",
+    "packedBytes": 180521658,
+    "unpackedBytes": 193782355
+  },
+  "8.5": {
+    "package": "@atomsphp/php-wasm-8-5",
+    "version": "8.5.13-atoms.5",
+    "wasm": {
+      "path": "php_8_5.wasm",
+      "bytes": 22011008,
+      "sha256": "38cdccce9484f511af162aa0310e447c5a801903a7438fef13c31a910050624d"
+    },
+    "glue": {
+      "path": "php_8_5.js",
+      "bytes": 209363,
+      "sha256": "0ae63b00e2baeeba364f9d35a12acee9f6219c31582f036c7fe81648e526985a"
+    },
+    "sha256": "ac4408d5744dd069384bc953cd69063d3de55656b771f3a83323b76402abc67c",
+    "integrity": "sha512-YIYWMST0jwPeJZUfqt0gzsjC1Nu6sCG1jfn1gIKINdksK7eQh2ZZ9/Qg1/1FIiiJHypl0q+ban9Bf2WUQqE5iw==",
+    "packedBytes": 181799894,
+    "unpackedBytes": 195947525
+  }
+}

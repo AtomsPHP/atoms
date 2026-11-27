@@ -159,7 +159,8 @@ jobs:
           name: release-scaffold
           path: ${{ runner.temp }}/scaffold
 
-      # Install the OIDC-capable publisher separately from Node 22’s bundled npm.
+      # Use npm 11 for OIDC publication and the Node 22 bundled npm 10 for
+      # the registry-backed customer install.
       - name: Install the trusted publishing client
         run: |
           [[ "$(npm --version)" == 10.* ]]
@@ -170,7 +171,20 @@ jobs:
       - name: Publish and verify the three qualified interpreter tarballs
         env:
           npm_config_tag: runtime
-        run: node cloudflare/php-wasm-build/artifacts.mjs publish-interpreters "$RUNNER_TEMP/interpreters"
+        run: node cloudflare/php-wasm-build/artifacts.mjs publish-interpreters "$RUNNER_TEMP/interpreters" "$SCAFFOLD"
+
+      - name: Install the scaffold from an empty npm cache and boot every registry-backed interpreter
+        env:
+          npm_config_cache: ${{ runner.temp }}/registry-cache
+        run: |
+          npm exec --yes --package="$SCAFFOLD" -- atoms-runtime-cloudflare init "$RUNNER_TEMP/worker"
+          npm ci --prefix "$RUNNER_TEMP/worker" --no-audit --no-fund
+          for series in $(jq -r '.runtime.guest_php_tested[]' release/manifest.json); do
+            pin="cloudflare/php-wasm-build/targets/$series/candidate.json"
+            node cloudflare/php-wasm-build/inspect.mjs "$RUNNER_TEMP/worker" \
+              "$RUNNER_TEMP/worker/.php-wasm/$(jq -r .glue.path "$pin")" \
+              "$(jq -r '.version | split("-")[0]' "$pin")" > "$RUNNER_TEMP/guest-$series.json"
+          done
 
       - name: Publish the tested scaffold tarball
         run: node cloudflare/php-wasm-build/artifacts.mjs publish-scaffold "$SCAFFOLD"

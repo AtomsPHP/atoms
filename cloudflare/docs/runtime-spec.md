@@ -14,7 +14,7 @@ signed callback channel to the monolith; WebSockets (`onConnect`/`onMessage`/
 fixture app; a local conformance suite against `wrangler dev`; a real deploy +
 remote smoke.
 
-Out of scope: an owned php-wasm build and a native `pdo_atoms`. The `atoms`
+Native `pdo_atoms` is outside the managed PDO interface. The `atoms`
 CLI and the deploy Action are specified in `docs/cloudflare-toolchain.md`,
 not here. `AtomsPDO`/`AtomsStatement` throw a typed `AtomsNotSupported`
 PDO-style exception for the unsupported corners of the PDO surface documented
@@ -24,19 +24,21 @@ never silent no-ops.
 
 ## Runtime artifact
 
-The Worker supports the WordPress Playground 3.1.48 Asyncify builds of
-PHP 8.3.32, 8.4.23 and 8.5.8, all with 64-bit integers. The project's
-`atoms.json` selects the PHP minor and defaults to 8.3. The bundle bridge
-uses the build manifest's `toolchain.php` to import that guest. Each deployed
-Worker contains one interpreter.
+Atoms builds PHP 8.3.32, 8.4.28 and 8.5.13 with 64-bit integers, Asyncify
+and OpenSSL 3.5.9. The top-level `php` in `atoms.json` selects the project's
+minor and defaults to 8.3. The CLI can validate and build against its measured
+guest inventories before a Worker directory exists.
 
-`npm ci` installs the pinned `@php-wasm/web-8-3`, `web-8-4` and `web-8-5`
-packages. `worker/scripts/prepare-runtime.mjs` verifies the upstream sizes
-and SHA-256 digests of each Wasm and JavaScript pair before staging it in the
-gitignored `worker/.php-wasm/` and adding `Module['Asyncify'] = Asyncify;`
-to the glue.
-JSPI is not shipped — the transaction seam
-requires synchronous guest re-entry, which only Asyncify provides. Boot uses
+The scaffold's registry lock pins `@atomsphp/php-wasm-8-3`,
+`@atomsphp/php-wasm-8-4` and `@atomsphp/php-wasm-8-5`. Installation verifies
+the package identity and both file sizes and SHA-256 digests for every
+minor before replacing the staged loader entries. Each entry points to
+one content-addressed Wasm and glue pair. The bundle bridge reads
+`toolchain.php` and emits a static import for that minor. A deploy contains
+one Wasm module. The compiler exports Asyncify for synchronous guest re-entry
+in a Durable Object transaction.
+
+Boot uses
 `@php-wasm/universal`'s `loadPHPRuntime` with an `instantiateWasm` hook that
 (a) hands Wrangler's precompiled wasm module to Emscripten and (b) replaces the
 `env.__asyncjs__js_module_onMessage` import with the tagged dispatcher below.
@@ -740,7 +742,7 @@ cloudflare/worker/
     counter/        # fixture "customer app": manifest.json + Atom classes
                     #   + migrations (Counter, Vault, Room, Scheduler,
                     #   Jobs/Notify)
-  .php-wasm/        # Playground Asyncify loaders and Wasm (staged by
+  .php-wasm/        # Atoms Asyncify loaders and Wasm (staged by
                     #   scripts/prepare-runtime.mjs, gitignored, never committed)
   scripts/          # build-bundle.mjs (assemble fixtures into the gitignored
                     #   src/bundle.generated.js), dev-with-callback.mjs
@@ -1515,7 +1517,7 @@ implemented in `src/timers.js`'s `TimersHost`.
 
 `scripts/build-bundle.mjs` walks a fixture app directory and emits the
 gitignored, build-generated `src/bundle.generated.js`: `export default {asyncifyLoader, manifest, files}`
-where `asyncifyLoader` is the statically imported Playground loader,
+where `asyncifyLoader` is the statically imported Atoms loader,
 `files` maps guest paths (`/app/...`, `/atoms/...`) to file contents, and
 `manifest` is `{"atoms":{"Counter":{"class":"App\\Atoms\\Counter","file":"/app/Counter.php",
 "migrations":["/app/migrations/001_init.sql", ...]}}, "abi":{"php":"8.3"}}`.

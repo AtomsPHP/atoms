@@ -6,10 +6,10 @@
 	"description": "Atoms on Cloudflare: one generic AtomDurableObject hosting a parked PHP loop.",
 	"license": "MIT",
 	"dependencies": {
-		"@php-wasm/universal": "3.1.48",
-		"@php-wasm/web-8-3": "3.1.48",
-		"@php-wasm/web-8-4": "3.1.48",
-		"@php-wasm/web-8-5": "3.1.48"
+		"@atomsphp/php-wasm-8-3": "8.3.32-atoms.5",
+		"@atomsphp/php-wasm-8-4": "8.4.28-atoms.5",
+		"@atomsphp/php-wasm-8-5": "8.5.13-atoms.5",
+		"@php-wasm/universal": "3.1.48"
 	},
 	"devDependencies": {
 		"wrangler": "4.165.0"
