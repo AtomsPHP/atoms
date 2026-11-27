@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   interpreters:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push'
     uses: ./.github/workflows/php-wasm-build.yml
 
   preflight:
@@ -79,7 +79,7 @@ jobs:
           fi
 
       - name: Require successful main CI for a tag
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -101,25 +101,25 @@ jobs:
         run: php scripts/release/release.php validate-splits
 
       - name: Install PHP dependencies
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         run: composer install --no-interaction --no-progress
 
       - name: Re-run PHP release gates
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         run: |
           composer test
           composer stan
 
       - uses: ./.github/actions/seed-interpreters
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
 
       - name: Install Worker dependencies
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         working-directory: cloudflare/worker
         run: npm ci
 
       - name: Verify the public runtime tarball and local scaffold
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         working-directory: cloudflare/worker
         run: |
           npm run test:package
@@ -128,14 +128,14 @@ jobs:
           npm ci --prefix "$RUNNER_TEMP/preflight-worker" --no-audit --no-fund
 
       - uses: actions/upload-artifact@v4
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         with:
           name: release-scaffold
           path: ${{ runner.temp }}/scaffold/*.tgz
           if-no-files-found: error
 
   publish-npm:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push'
     needs: preflight
     runs-on: ubuntu-latest
     environment: release
@@ -228,7 +228,7 @@ jobs:
           done
 
   github-release:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push'
     needs:
       - preflight
       - publish-npm
