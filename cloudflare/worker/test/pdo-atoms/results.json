@@ -2,8 +2,8 @@
   {
     "selected": "default",
     "php": "8.3.32",
-    "wasmSha256": "b2280bb79d674f696059ccb1c9c62d59f2303b91b4212caec29bb5cb93b271d5",
-    "glueSha256": "d8c3fc15f515d67ee25f49268a2895f4e267b104169b422a23d75b5f72b2ef43",
+    "wasmSha256": "a0eceef76416e7211c43baf53943d8b0ad52c8ab9d2ec611cc98a331bdc1373c",
+    "glueSha256": "e34aa4f63c6729536a3e76ef9eece7651b3c7e9ec0ccaf318d948d1fa8885a39",
     "registration": {
       "php": "8.3.32",
       "drivers": [
@@ -33,6 +33,76 @@
         1
       ]
     ],
+    "quotedValues": {
+      "pdo.quote.plain": [
+        "'hello'",
+        "hello"
+      ],
+      "pdo.quote.apostrophe": [
+        "'O''Reilly'",
+        "O'Reilly"
+      ],
+      "pdo.quote.empty": [
+        "''",
+        ""
+      ],
+      "pdo.quote.param_int": [
+        "'42'",
+        "42"
+      ],
+      "pdo.quote.param_bool": "TypeError",
+      "pdo.quote.param_null": "TypeError",
+      "pdo.quote.param_lob": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.unknown_type": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.nul_byte": "PDOException",
+      "pdo.quote.utf8": [
+        "'héllo €'",
+        "héllo €"
+      ],
+      "pdo.quote.weak_null": [
+        "''",
+        ""
+      ],
+      "pdo.quote.weak_bool_true": [
+        "'1'",
+        "1"
+      ],
+      "pdo.quote.weak_int": [
+        "'42'",
+        "42"
+      ],
+      "nulByErrorMode": [
+        true,
+        true,
+        true
+      ],
+      "errorAfterQuote": {
+        "exec": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ],
+        "query": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ]
+      }
+    },
     "sqlErrors": {
       "silent": {
         "exec": "HY000",
@@ -181,8 +251,8 @@
   {
     "selected": "8.3",
     "php": "8.3.32",
-    "wasmSha256": "b2280bb79d674f696059ccb1c9c62d59f2303b91b4212caec29bb5cb93b271d5",
-    "glueSha256": "d8c3fc15f515d67ee25f49268a2895f4e267b104169b422a23d75b5f72b2ef43",
+    "wasmSha256": "a0eceef76416e7211c43baf53943d8b0ad52c8ab9d2ec611cc98a331bdc1373c",
+    "glueSha256": "e34aa4f63c6729536a3e76ef9eece7651b3c7e9ec0ccaf318d948d1fa8885a39",
     "registration": {
       "php": "8.3.32",
       "drivers": [
@@ -212,6 +282,76 @@
         1
       ]
     ],
+    "quotedValues": {
+      "pdo.quote.plain": [
+        "'hello'",
+        "hello"
+      ],
+      "pdo.quote.apostrophe": [
+        "'O''Reilly'",
+        "O'Reilly"
+      ],
+      "pdo.quote.empty": [
+        "''",
+        ""
+      ],
+      "pdo.quote.param_int": [
+        "'42'",
+        "42"
+      ],
+      "pdo.quote.param_bool": "TypeError",
+      "pdo.quote.param_null": "TypeError",
+      "pdo.quote.param_lob": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.unknown_type": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.nul_byte": "PDOException",
+      "pdo.quote.utf8": [
+        "'héllo €'",
+        "héllo €"
+      ],
+      "pdo.quote.weak_null": [
+        "''",
+        ""
+      ],
+      "pdo.quote.weak_bool_true": [
+        "'1'",
+        "1"
+      ],
+      "pdo.quote.weak_int": [
+        "'42'",
+        "42"
+      ],
+      "nulByErrorMode": [
+        true,
+        true,
+        true
+      ],
+      "errorAfterQuote": {
+        "exec": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ],
+        "query": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ]
+      }
+    },
     "sqlErrors": {
       "silent": {
         "exec": "HY000",
@@ -360,8 +500,8 @@
   {
     "selected": "8.4",
     "php": "8.4.28",
-    "wasmSha256": "9aaebd9aa9d8b77b8683e2843ab241eeb63ccd3033070b5f9c798f40ed92b9a3",
-    "glueSha256": "819308a8580004b6127f0b55939a916596fa0949c855d19cf659b066d983b89f",
+    "wasmSha256": "11a66c8fef2f2b9489ddc0e4a32b1abbe21229aa90b2c53709f46bbe9b103ba8",
+    "glueSha256": "20f3ec72b87ef9c08adac8c345b35061e54c2a8bbfcf95eb4d771dac4e4d6fb3",
     "registration": {
       "php": "8.4.28",
       "drivers": [
@@ -399,6 +539,76 @@
         1
       ]
     ],
+    "quotedValues": {
+      "pdo.quote.plain": [
+        "'hello'",
+        "hello"
+      ],
+      "pdo.quote.apostrophe": [
+        "'O''Reilly'",
+        "O'Reilly"
+      ],
+      "pdo.quote.empty": [
+        "''",
+        ""
+      ],
+      "pdo.quote.param_int": [
+        "'42'",
+        "42"
+      ],
+      "pdo.quote.param_bool": "TypeError",
+      "pdo.quote.param_null": "TypeError",
+      "pdo.quote.param_lob": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.unknown_type": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.nul_byte": "PDOException",
+      "pdo.quote.utf8": [
+        "'héllo €'",
+        "héllo €"
+      ],
+      "pdo.quote.weak_null": [
+        "''",
+        ""
+      ],
+      "pdo.quote.weak_bool_true": [
+        "'1'",
+        "1"
+      ],
+      "pdo.quote.weak_int": [
+        "'42'",
+        "42"
+      ],
+      "nulByErrorMode": [
+        true,
+        true,
+        true
+      ],
+      "errorAfterQuote": {
+        "exec": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ],
+        "query": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ]
+      }
+    },
     "sqlErrors": {
       "silent": {
         "exec": "HY000",
@@ -547,8 +757,8 @@
   {
     "selected": "8.5",
     "php": "8.5.13",
-    "wasmSha256": "636ed1556f09882d615b99fbb1e79fef07e9fee81fd53717fbfa219b1a701bec",
-    "glueSha256": "9fd80982438a10b4e0da4c30da5ea18724a9cb0d3783f494d5d094e61692e67e",
+    "wasmSha256": "c154db1d463155e6378dab7850f2a43a9d7d4ea1bc998cb8ab8ac29dfb0b8e20",
+    "glueSha256": "91da3a09392626e412c9565b8188b5dfd72ea34adbec22117e7dfb671a14f9c8",
     "registration": {
       "php": "8.5.13",
       "drivers": [
@@ -586,6 +796,76 @@
         1
       ]
     ],
+    "quotedValues": {
+      "pdo.quote.plain": [
+        "'hello'",
+        "hello"
+      ],
+      "pdo.quote.apostrophe": [
+        "'O''Reilly'",
+        "O'Reilly"
+      ],
+      "pdo.quote.empty": [
+        "''",
+        ""
+      ],
+      "pdo.quote.param_int": [
+        "'42'",
+        "42"
+      ],
+      "pdo.quote.param_bool": "TypeError",
+      "pdo.quote.param_null": "TypeError",
+      "pdo.quote.param_lob": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.unknown_type": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.nul_byte": "PDOException",
+      "pdo.quote.utf8": [
+        "'héllo €'",
+        "héllo €"
+      ],
+      "pdo.quote.weak_null": [
+        "''",
+        ""
+      ],
+      "pdo.quote.weak_bool_true": [
+        "'1'",
+        "1"
+      ],
+      "pdo.quote.weak_int": [
+        "'42'",
+        "42"
+      ],
+      "nulByErrorMode": [
+        true,
+        true,
+        true
+      ],
+      "errorAfterQuote": {
+        "exec": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ],
+        "query": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ]
+      }
+    },
     "sqlErrors": {
       "silent": {
         "exec": "HY000",
