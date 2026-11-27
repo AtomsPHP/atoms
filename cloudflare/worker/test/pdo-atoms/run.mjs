@@ -132,6 +132,24 @@ async function exercise(url, version) {
     const factories = version.startsWith('8.3.') ? 2 : 4;
     assert.deepEqual(namedArguments, Array.from({ length: factories }, () => ['atoms', 1]));
 
+    const quotedValues = await invoke('quotedValues');
+    assert.deepEqual(quotedValues, {
+        'pdo.quote.plain': ["'hello'", 'hello'],
+        'pdo.quote.apostrophe': ["'O''Reilly'", "O'Reilly"],
+        'pdo.quote.empty': ["''", ''],
+        'pdo.quote.param_int': ["'42'", '42'],
+        'pdo.quote.param_bool': 'TypeError',
+        'pdo.quote.param_null': 'TypeError',
+        'pdo.quote.param_lob': ["'x'", 'x'],
+        'pdo.quote.unknown_type': ["'x'", 'x'],
+        'pdo.quote.nul_byte': 'PDOException',
+        'pdo.quote.utf8': ["'héllo €'", 'héllo €'],
+        'pdo.quote.weak_null': ["''", ''],
+        'pdo.quote.weak_bool_true': ["'1'", '1'],
+        'pdo.quote.weak_int': ["'42'", '42'],
+        connectionError: ['HY000', '00000', ['00000', null, null]],
+    });
+
     assert.equal(await invoke('commitControl'), true);
     const sqlErrors = checkSqlErrors(await invoke('sqlErrors'));
     const committed = await invoke('rows');
@@ -195,7 +213,7 @@ async function exercise(url, version) {
         ...(yii && { samePdo: true, yiiValue: nativeValue === false ? false : String(nativeValue) }),
     })));
     return {
-        registration, namedArguments, sqlErrors, committed, rollback, yii: yiiCase,
+        registration, namedArguments, quotedValues, sqlErrors, committed, rollback, yii: yiiCase,
         abandonment: abandoned.code, recoveredOwner, cursor, cache,
     };
 }
@@ -250,6 +268,9 @@ async function runFixture(selection, cliResource) {
     assert.equal(scaffoldPackage.dependencies[pin.package], pin.version);
     const project = join(scratch, 'project-' + (selection ?? 'default'));
     cpSync(join(here, 'project'), project, { recursive: true });
+    for (const file of ['QuoteCases.php', 'CasesWeak.php']) {
+        copyFileSync(join(worker, 'fixtures/counter/app/Pdo', file), join(project, 'app/Atoms/PdoProbe/Support', file));
+    }
     if (yii) {
         cpSync(join(here, 'yii-project'), project, { recursive: true });
         const atoms = join(project, 'app/Atoms');

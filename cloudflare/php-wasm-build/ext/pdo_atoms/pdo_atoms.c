@@ -453,6 +453,36 @@ static zend_long atoms_exec(pdo_dbh_t *dbh, const zend_string *sql)
     return Z_LVAL(result);
 }
 
+/* SQLite string literals are delimited with apostrophes. The PDO type
+ * argument does not change the representation of the supplied string. */
+static zend_string *atoms_quote(pdo_dbh_t *dbh, const zend_string *input, enum pdo_param_type type)
+{
+    size_t apostrophes = 0;
+    for (size_t i = 0; i < ZSTR_LEN(input); ++i) {
+        if (ZSTR_VAL(input)[i] == '\0') {
+            atoms_error("PDO::quote() refuses a value containing a NUL byte.");
+            return NULL;
+        }
+        if (ZSTR_VAL(input)[i] == '\'') {
+            ++apostrophes;
+        }
+    }
+    zend_string *quoted = zend_string_safe_alloc(1, ZSTR_LEN(input), apostrophes + 2, 0);
+    char *out = ZSTR_VAL(quoted);
+    *out++ = '\'';
+    for (size_t i = 0; i < ZSTR_LEN(input); ++i) {
+        char ch = ZSTR_VAL(input)[i];
+        if (ch == '\'') {
+            *out++ = ch;
+        }
+        *out++ = ch;
+    }
+    *out++ = '\'';
+    *out = '\0';
+    atoms_clear_diagnostics(&((atoms_handle *)dbh->driver_data)->error);
+    return quoted;
+}
+
 static zend_string *atoms_last_id(pdo_dbh_t *dbh, const zend_string *name)
 {
     zval result;
@@ -481,6 +511,7 @@ static const struct pdo_dbh_methods atoms_methods = {
     .closer = atoms_close,
     .preparer = atoms_prepare,
     .doer = atoms_exec,
+    .quoter = atoms_quote,
     .begin = atoms_begin,
     .commit = atoms_commit,
     .rollback = atoms_rollback,

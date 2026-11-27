@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Atoms;
 
 use App\Atoms\PdoProbe\Support\SqlErrors;
+use App\Pdo\CasesWeak;
+use App\Pdo\QuoteCases;
 use Atoms\Atom;
 use PDO;
 use PDOException;
@@ -83,6 +85,37 @@ final class PdoProbe extends Atom
             $pdo->getAttribute(PDO::ATTR_DRIVER_NAME),
             $pdo->getAttribute(PDO::ATTR_ERRMODE),
         ], $handles);
+    }
+
+    public function quotedValues(): array
+    {
+        $pdo = new PDO('atoms:');
+        $cases = [];
+        foreach (QuoteCases::all() as $id => [$title, $run]) {
+            $cases[$id] = $run;
+        }
+        foreach (CasesWeak::all() as $case) {
+            if (str_starts_with($case['id'], 'pdo.quote.')) {
+                $cases[$case['id']] = $case['run'];
+            }
+        }
+
+        $results = [];
+        foreach ($cases as $id => $run) {
+            try {
+                $literal = $run($pdo);
+                $results[$id] = [$literal, $pdo->query('SELECT ' . $literal)->fetchColumn()];
+            } catch (PDOException | \TypeError $error) {
+                $results[$id] = $error::class;
+            }
+        }
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_SILENT);
+        $pdo->exec('DELETE FROM missing_quote_table');
+        $before = $pdo->errorCode();
+        $pdo->quote('ok');
+        $results['connectionError'] = [$before, $pdo->errorCode(), $pdo->errorInfo()];
+
+        return $results;
     }
 
     public function sqlErrors(): array

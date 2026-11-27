@@ -470,68 +470,12 @@ final class Cases
 
     private static function connectionQuoting(): array
     {
-        $g = 'Connection — quoting';
+        $cases = [];
+        foreach (QuoteCases::all() as $id => [$title, $run]) {
+            $cases[] = self::c($id, 'Connection — quoting', 'PDO::quote()', $title, $run);
+        }
 
-        return [
-            self::c('pdo.quote.plain', $g, 'PDO::quote()', 'a plain string', static fn (\PDO $p) => $p->quote('hello')),
-            self::c(
-                'pdo.quote.apostrophe',
-                $g,
-                'PDO::quote()',
-                'a string containing an apostrophe is doubled, not backslash-escaped',
-                static fn (\PDO $p) => $p->quote("O'Reilly")
-            ),
-            self::c('pdo.quote.empty', $g, 'PDO::quote()', 'the empty string', static fn (\PDO $p) => $p->quote('')),
-            self::c(
-                'pdo.quote.param_int',
-                $g,
-                'PDO::quote()',
-                'quote() with PARAM_INT',
-                static fn (\PDO $p) => $p->quote('42', \PDO::PARAM_INT)
-            ),
-            self::c(
-                'pdo.quote.param_bool',
-                $g,
-                'PDO::quote()',
-                'quote() with PARAM_BOOL',
-                static fn (\PDO $p) => $p->quote(true, \PDO::PARAM_BOOL)
-            ),
-            self::c(
-                'pdo.quote.param_null',
-                $g,
-                'PDO::quote()',
-                'quote() with PARAM_NULL',
-                static fn (\PDO $p) => $p->quote(null, \PDO::PARAM_NULL)
-            ),
-            self::c(
-                'pdo.quote.param_lob',
-                $g,
-                'PDO::quote()',
-                'quote() with PARAM_LOB',
-                static fn (\PDO $p) => $p->quote('x', \PDO::PARAM_LOB)
-            ),
-            self::c(
-                'pdo.quote.unknown_type',
-                $g,
-                'PDO::quote()',
-                'quote() with an unrecognized $type',
-                static fn (\PDO $p) => $p->quote('x', 999)
-            ),
-            self::c(
-                'pdo.quote.nul_byte',
-                $g,
-                'PDO::quote()',
-                'quote() on a value containing a NUL byte',
-                static fn (\PDO $p) => $p->quote("a\0b")
-            ),
-            self::c(
-                'pdo.quote.utf8',
-                $g,
-                'PDO::quote()',
-                'multi-byte UTF-8 content survives byte for byte',
-                static fn (\PDO $p) => $p->quote('héllo €')
-            ),
-        ];
+        return $cases;
     }
 
     // -------------------------------------------------------- transactions

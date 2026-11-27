@@ -1174,9 +1174,12 @@ query or write, the connection or statement that ran it records the SQLSTATE
 and driver details. In silent mode the operation returns `false`. Warning
 mode also emits a PHP warning. Exception mode throws a `PDOException`.
 Executing a statement outside its Atom turn or with missing or unused
-placeholder bindings raises an exception in every mode. The driver
-supports bound values and leaves `PDO::quote()` unimplemented. Result
-columns need distinct names because the SQL bridge returns each row
+placeholder bindings raises an exception in every mode. The driver supports bound values.
+`PDO::quote()` returns a SQLite string literal, doubling each apostrophe and
+preserving the other bytes, including UTF-8. Its optional parameter type
+does not change the literal. A string containing NUL raises `PDOException`.
+A successful quote clears the previous connection error. Result columns
+need distinct names because the SQL bridge returns each row
 as a map keyed by column name.
 
 Transaction boundaries use `~tx.begin`, `~tx.commit` and `~tx.rollback`.
