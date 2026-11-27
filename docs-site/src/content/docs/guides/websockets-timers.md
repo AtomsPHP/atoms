@@ -83,6 +83,33 @@ Ticket claims, such as `client_id` above, are merged over the browser's own
 query parameters, so a browser cannot replace them in the `$params` passed to
 `onConnect()`. A ticket holds at most 16 claims totaling 2048 bytes.
 
+### Reconnecting
+
+The `atoms/client` package includes `reconnectSocket(getUrl, onSocket)` for
+browser clients. It connects immediately and calls `getUrl(signal)` on each
+attempt. Supply a function that requests a fresh ticket URL from your
+application for the same Atom. Pass the signal to `fetch` so the request can
+be canceled. Return `null` to stop trying, or throw to retry.
+
+```js title="resources/js/connection.js"
+import { reconnectSocket } from '../../vendor/atoms/client/resources/reconnect-socket.mjs';
+
+const stop = reconnectSocket(getUrl, (socket) => {
+    socket.addEventListener('message', handleMessage);
+});
+```
+
+The helper calls `onSocket` with each new WebSocket before it opens. Attach
+your event listeners there. A failed connection attempt or a close with code
+`1001`, `1005`, `1006`, `1011`, `1012`, `1013`, or `1014` triggers a retry.
+Other close codes end retries. The delay starts at one second and doubles
+to a maximum of 15 seconds. The first message on a new socket resets it.
+Call `stop()` to close the socket and cancel a pending request or retry.
+
+Each connection has its own `Connection::id()`. If the Atom needs to recognize
+a returning client, include a stable identifier in the signed ticket claims.
+Use `onConnect()` to send any state the client needs after reconnecting.
+
 ### Sending and receiving messages
 
 `Connection` exposes `id()`, `send(string $payload)`, `sendJson(array $payload)`, and `close()`.

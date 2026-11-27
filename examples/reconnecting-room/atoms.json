@@ -1,0 +1,4 @@
+{
+    "project": "reconnecting-room",
+    "paths": { "atoms": "app/Atoms", "shared": "app/Atoms/Shared" }
+}

@@ -24,6 +24,11 @@ name through a signed callback. No Cloudflare account is needed.
 `broadcast-dashboard.test.mjs` builds the guide's broadcast-only Atom, connects
 with a signed WebSocket ticket, and checks that publishing delivers an update.
 
+`reconnect-room.test.mjs` starts the two-player example, replaces its Worker
+bundle after a move, and checks that both players resume their seats and the
+second player can move. `reconnect-socket.test.mjs` checks when ticket requests
+retry or stop.
+
 `deploy-dry-run.test.mjs` packages a generated Worker project through `atoms deploy
 --dry-run`, using both a fresh build and a prebuilt bundle. It needs no
 Cloudflare credentials and checks packaged files, explicit configuration, and cleanup.
