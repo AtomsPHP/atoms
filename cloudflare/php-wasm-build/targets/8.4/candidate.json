@@ -1,18 +1,18 @@
 {
   "package": "@atomsphp/php-wasm-8-4",
-  "version": "8.4.28-atoms.6",
+  "version": "8.4.28-atoms.7",
   "wasm": {
     "path": "php_8_4.wasm",
-    "bytes": 20937369,
-    "sha256": "9aaebd9aa9d8b77b8683e2843ab241eeb63ccd3033070b5f9c798f40ed92b9a3"
+    "bytes": 20937750,
+    "sha256": "11a66c8fef2f2b9489ddc0e4a32b1abbe21229aa90b2c53709f46bbe9b103ba8"
   },
   "glue": {
     "path": "php_8_4.js",
     "bytes": 209034,
-    "sha256": "819308a8580004b6127f0b55939a916596fa0949c855d19cf659b066d983b89f"
+    "sha256": "20f3ec72b87ef9c08adac8c345b35061e54c2a8bbfcf95eb4d771dac4e4d6fb3"
   },
-  "sha256": "488184fa7a94ec2cd07b806e320b2b6ea62df8c519c9b73c39ab406a6a823e5a",
-  "integrity": "sha512-cELFoTroFTpfk+9wCk/gzLleczbnwsGZmXNAdabYFaslkzxzJQaev84uMYQZJyy+VyNEB3HAbs63+/mt35qN7Q==",
-  "packedBytes": 180573719,
-  "unpackedBytes": 193796576
+  "sha256": "dd410179c197ee3e62ac23435374d0f408619ca0e7fc6c42bda2c71b9794bb7f",
+  "integrity": "sha512-CXklYouJIkxHTFGHtQV3zsexul3ePXcVp9HGTPh9RweigxXU3gHZxgp3H6Mw8pJXKkyxb3s+DohpY8AQBXklUQ==",
+  "packedBytes": 180574046,
+  "unpackedBytes": 193797594
 }
