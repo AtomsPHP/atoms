@@ -168,6 +168,8 @@ jobs:
           echo "SCAFFOLD=$RUNNER_TEMP/scaffold/atomsphp-runtime-cloudflare-${{ needs.preflight.outputs.version }}.tgz" >> "$GITHUB_ENV"
 
       - name: Publish and verify the three qualified interpreter tarballs
+        env:
+          npm_config_tag: runtime
         run: node cloudflare/php-wasm-build/artifacts.mjs publish-interpreters "$RUNNER_TEMP/interpreters"
 
       - name: Publish the tested scaffold tarball

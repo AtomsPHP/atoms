@@ -43,6 +43,11 @@ environment. Change any of those three and publishing stops until the package's
 trusted-publisher entry on npmjs.com is updated to match. There is no
 `NPM_TOKEN` secret to rotate, and provenance is attested automatically.
 
+The protected job publishes interpreter versions such as `8.3.32-atoms.5`
+with the npm dist-tag `runtime`. npm 11 requires an explicit tag for these
+prerelease version strings. Scaffold lockfiles select each exact version and
+integrity.
+
 The eight Composer mirrors are a separate credential path, an installation
 token scoped to those repositories — see `MIRRORS.md`.
 
