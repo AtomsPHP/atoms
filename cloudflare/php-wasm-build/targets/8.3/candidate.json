@@ -10,5 +10,9 @@
     "path": "php_8_3.js",
     "bytes": 206822,
     "sha256": "ed516034490faae3d1fcc9a6ca14a2d777e5ec54514037c0da640b11a3bd49f9"
-  }
+  },
+  "sha256": "2be03fec1f20e36a6e8a1a906f5d012f7e865c776696c5f0ceff3261cb299198",
+  "integrity": "sha512-Cpx+OukOfpbklxkMlAXDCY2XFQSn66UWrRQSbTRw5yZWkxh2GQoAjjJ1GuK80aYTJ7lZB4YIB5CIDia4pKDxaA==",
+  "packedBytes": 176983554,
+  "unpackedBytes": 189202649
 }
