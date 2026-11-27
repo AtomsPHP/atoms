@@ -58,6 +58,12 @@ final class VersionRoom extends Atom
 {
     DECLARATION
 
+    public function pdoRows(): array
+    {
+        $pdo = new \PDO('atoms:');
+        return $pdo->query('SELECT phase FROM visits ORDER BY id')->fetchAll(\PDO::FETCH_COLUMN);
+    }
+
     public function state(): array
     {
         return [
@@ -234,7 +240,11 @@ def exercise(old_package, package, old_cli, results, *, fresh):
             with dev(current_cli, app, env, results / (phase + ".dev.log"), rebuild=phase in ("fresh-default", "default")) as port:
                 route = "/invoke/VersionRoom/persistent/"
                 before = request(port, route + "state", [])["result"]
+                if not old:
+                    assert request(port, route + "pdoRows", [])["result"] == before["rows"]
                 after = request(port, route + "append", [phase])["result"]
+                if not old:
+                    assert request(port, route + "pdoRows", [])["result"] == after["rows"]
                 info = request(port, "/debug/VersionRoom/persistent/info")["info"]
             assert before["rows"] == rows and after == dict(before, rows=[*rows, phase])
             assert before["syntax"] == FEATURES[minor][2] and before["intBytes"] == 8

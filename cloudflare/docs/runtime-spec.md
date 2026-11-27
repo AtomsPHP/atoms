@@ -14,7 +14,7 @@ signed callback channel to the monolith; WebSockets (`onConnect`/`onMessage`/
 fixture app; a local conformance suite against `wrangler dev`; a real deploy +
 remote smoke.
 
-Native `pdo_atoms` is outside the managed PDO interface. The `atoms`
+The native `pdo_atoms` driver and the managed PDO adapter both use the active Atom database. The `atoms`
 CLI and the deploy Action are specified in `docs/cloudflare-toolchain.md`,
 not here. `AtomsPDO`/`AtomsStatement` throw a typed `AtomsNotSupported`
 PDO-style exception for the unsupported corners of the PDO surface documented

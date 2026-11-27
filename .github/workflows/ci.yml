@@ -642,3 +642,14 @@ jobs:
         with:
           name: customer-recovery
           path: ${{ runner.temp }}/recovery
+
+      - name: Exercise native PDO on each installed guest
+        run: |
+          npm exec --yes --package="$(realpath cloudflare/worker/dist/*.tgz)" -- atoms-runtime-cloudflare init "$RUNNER_TEMP/native-worker"
+          npm ci --prefix "$RUNNER_TEMP/native-worker"
+          node cloudflare/worker/test/pdo-atoms/run.mjs "$RUNNER_TEMP/native-worker" > "$RUNNER_TEMP/native-pdo.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-pdo
+          path: ${{ runner.temp }}/native-pdo.json
+          if-no-files-found: error
