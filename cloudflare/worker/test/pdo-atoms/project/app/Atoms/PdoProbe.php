@@ -109,11 +109,22 @@ final class PdoProbe extends Atom
                 $results[$id] = $error::class;
             }
         }
+        foreach ([PDO::ERRMODE_SILENT, PDO::ERRMODE_WARNING, PDO::ERRMODE_EXCEPTION] as $mode) {
+            $pdo->setAttribute(PDO::ATTR_ERRMODE, $mode);
+            try {
+                $pdo->quote("a\0b");
+                $results['nulByErrorMode'][] = false;
+            } catch (PDOException) {
+                $results['nulByErrorMode'][] = true;
+            }
+        }
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_SILENT);
-        $pdo->exec('DELETE FROM missing_quote_table');
-        $before = $pdo->errorCode();
-        $pdo->quote('ok');
-        $results['connectionError'] = [$before, $pdo->errorCode(), $pdo->errorInfo()];
+        foreach (['exec', 'query'] as $operation) {
+            $pdo->$operation('SELECT * FROM missing_quote_table');
+            $before = $pdo->errorCode();
+            $pdo->quote('ok');
+            $results['errorAfterQuote'][$operation] = [$before, $pdo->errorCode(), $pdo->errorInfo()];
+        }
 
         return $results;
     }

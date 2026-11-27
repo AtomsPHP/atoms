@@ -147,7 +147,11 @@ async function exercise(url, version) {
         'pdo.quote.weak_null': ["''", ''],
         'pdo.quote.weak_bool_true': ["'1'", '1'],
         'pdo.quote.weak_int': ["'42'", '42'],
-        connectionError: ['HY000', '00000', ['00000', null, null]],
+        nulByErrorMode: [true, true, true],
+        errorAfterQuote: {
+            exec: ['HY000', '00000', ['00000', null, null]],
+            query: ['HY000', '00000', ['00000', null, null]],
+        },
     });
 
     assert.equal(await invoke('commitControl'), true);
