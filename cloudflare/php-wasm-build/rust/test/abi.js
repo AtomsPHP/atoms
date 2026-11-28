@@ -1,5 +1,6 @@
 import init from './php.mjs';
 import wasm from './php.wasm';
+import {precompiledModule} from './loader.js';
 import script from './guest.php';
 import timestamps from './timestamps.php';
 import parity from './parity.php';
@@ -16,11 +17,7 @@ export class Probe {
     const errors = [];
     let hostCalls = 0;
     const php = await init({
-      instantiateWasm(imports, ready) {
-        const instance = new WebAssembly.Instance(wasm, imports);
-        ready(instance, wasm);
-        return instance.exports;
-      },
+      ...precompiledModule(wasm),
       atomsRoundtripI64(value) {
         if (value !== 9223372036854775807n) throw Error('Expected INT64_MAX at the Wasm import');
         hostCalls++;

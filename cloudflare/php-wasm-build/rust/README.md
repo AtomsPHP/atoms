@@ -10,6 +10,8 @@ python3 build.py fetch /tmp/atoms-php-inputs
 python3 build.py build /tmp/atoms-php-inputs /tmp/atoms-php-build --jobs 4
 python3 test.py /tmp/atoms-php-build
 python3 test.py /tmp/atoms-php-build --turns
+python3 test.py /tmp/atoms-php-build --pdo-turns
+python3 test.py /tmp/atoms-php-build --pdo-cleanup
 python3 test.py /tmp/atoms-php-build --inventory /tmp/atoms-php-inventory.json
 ```
 
@@ -28,3 +30,7 @@ The control’s process-title handlers come from the CLI SAPI. The embed registe
 The turn fixture boots the owned adapter over stock emcc glue. It uses the Worker's SQL bridge and transaction machine. Each failure check inserts and reads its marker on the callback stack. Subsequent HTTP requests check the SQLite rows, DO identity, durable construction count and PHP generation. The compile fatal comes from an included file. The memory-limit fatal occurs while PHP's fread allocates a Zend-owned reply string after the Rust callback has returned. Discarding the instance closes its wakes and skips user shutdown callbacks.
 
 The growth case enlarges the actual transfer allocation for the tx.begin acknowledgement. It requires more than 64 MiB of observed growth and a detached pre-allocation heap view before PHP rewinds in the transaction. The tests also try a consumed wake and a wake belonging to a discarded PHP instance.
+
+The Rust `pdo_atoms` module registers after the upstream PDO module. Zend's driver and statement tables call an Emscripten JS import. Each Rust call that can allocate, convert a value or execute PHP goes through a JS leaf. If Zend bails out, the leaf restores the Wasm stack pointer and returns a failure to Rust. The outer import rethrows the original exception after Rust returns. Each nested callback retains its own call arguments while Asyncify parks and rewinds. Ordinary PDO exceptions and SQLSTATE diagnostics stay under PDO's control.
+
+The native turn test uses the production SqlBridge and NativePdo classes. It retains an open connection and cursor while a bound value triggers a compile fatal or a Zend allocation failure. The cleanup test uses a rejected bridge reply whose PHP destructor parks through a nested PDO transaction. To exercise the installed PDO and Yii fixtures, run `node cloudflare/worker/test/pdo-atoms/run.mjs --embed /tmp/atoms-php-build /path/to/installed-scaffold /path/to/yii2` from the repository root. The fixture stages the private build inside its temporary Worker. Its hash pair identifies the exact guest used.

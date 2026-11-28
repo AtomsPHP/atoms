@@ -1,0 +1,7 @@
+{
+    "require": {"yiisoft/yii2": "2.0.53"},
+    "repositories": [
+        {"type": "path", "url": "../yii-db"},
+        {"packagist.org": false}
+    ]
+}

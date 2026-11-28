@@ -1,6 +1,21 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+// Wrangler supplies an already-compiled module. PDO calls the typed function
+// pointers from its generated Rust bindings through the exported Wasm table.
+export function precompiledModule(wasm) {
+  let table;
+  return {
+    instantiateWasm(imports, ready) {
+      const instance = new WebAssembly.Instance(wasm, imports);
+      table = instance.exports.__indirect_function_table;
+      ready(instance, wasm);
+      return instance.exports;
+    },
+    atomsPdoFunction: index => table.get(index),
+  };
+}
+
 // Each adapter owns one embed request, including its wakes and transfer.
 // A caller can discard the entire Wasm instance while the request is parked.
 export async function bootPHP(createModule, wasm, {onSync, onPark, print, printErr}) {
@@ -9,11 +24,7 @@ export async function bootPHP(createModule, wasm, {onSync, onPark, print, printE
   let transfer = null;
   let cancel;
   const module = await createModule({
-    instantiateWasm(imports, ready) {
-      const instance = new WebAssembly.Instance(wasm, imports);
-      ready(instance, wasm);
-      return instance.exports;
-    },
+    ...precompiledModule(wasm),
     print,
     printErr,
     atomsRoundtripI64: value => value,

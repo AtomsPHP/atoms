@@ -37,6 +37,24 @@ jobs:
         run: |
           python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd"
           python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd" --turns
+          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd" --pdo-turns
+          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd" --pdo-cleanup
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: pdo_sqlite, sodium, curl
+          coverage: none
+      - name: Run native PDO through the Worker scaffold
+        run: |
+          composer install --no-interaction --no-progress
+          npm ci --prefix cloudflare/worker
+          npm run package:runtime --prefix cloudflare/worker
+          npm exec --yes --package="$(realpath cloudflare/worker/dist/*.tgz)" -- atoms-runtime-cloudflare init "$RUNNER_TEMP/worker"
+          npm ci --prefix "$RUNNER_TEMP/worker"
+          node cloudflare/worker/test/pdo-atoms/run.mjs --embed "$RUNNER_TEMP/embed" "$RUNNER_TEMP/worker"
 
   release-metadata:
     runs-on: ubuntu-latest

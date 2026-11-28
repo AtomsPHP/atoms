@@ -1,6 +1,7 @@
 #![no_std]
 
 #[allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code)]
+#[allow(unnecessary_transmutes)] // bindgen 0.72 emits these in the PDO bitfield setters.
 mod php {
     include!(env!("ATOMS_PHP_BINDINGS"));
 }
@@ -9,6 +10,7 @@ mod heap;
 mod stack;
 mod process_title;
 mod crypto;
+mod pdo;
 
 use core::mem::{size_of, zeroed};
 use core::ptr::{addr_of, addr_of_mut};
@@ -79,6 +81,7 @@ pub unsafe extern "C" fn atoms_use_php_ini(sapi: *mut php::sapi_module_struct) {
 
 #[no_mangle]
 pub unsafe extern "C" fn atoms_prepare() -> *mut php::zend_module_entry {
+    php::php_register_internal_extensions_func = Some(pdo::atoms_register_builtin_pdo);
     ARG_INFO[0].name = 1usize as *const _; // Zend encodes required_num_args here.
     ARG_INFO[1].name = c"value".as_ptr();
     FUNCTIONS[0].fname = c"atoms_roundtrip_i64".as_ptr();

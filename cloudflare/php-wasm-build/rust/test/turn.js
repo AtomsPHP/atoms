@@ -1,6 +1,7 @@
 import createModule from './php.mjs';
 import wasm from './php.wasm';
 import program from './guest.php';
+import runtimeFiles from './pdo-runtime.js';
 import {bootPHP} from './loader.js';
 import {Bridge, TransactionMachine} from './bridge.js';
 import {loadConfig} from './config.js';
@@ -77,6 +78,7 @@ export class Probe {
     })}};
     this.tx = new TransactionMachine({ctx, config: this.config, host: this});
     php.mkdir('/fixture');
+    for (const [name, source] of Object.entries(runtimeFiles)) php.writeFile('/fixture/' + name, source);
     php.writeFile('/fixture/compile.php', '<?php final class ParentType {} class ChildType extends ParentType {}');
     requireValue(php.fileExists('/fixture/compile.php'), 'Missing compile fixture');
     this.run = php.run({code: program});
