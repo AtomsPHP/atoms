@@ -1,7 +1,6 @@
 import createModule from './php.mjs';
 import wasm from './php.wasm';
 import program from './guest.php';
-import bridgeSource from './message.php';
 import {bootPHP} from './loader.js';
 import {Bridge, TransactionMachine} from './bridge.js';
 import {loadConfig} from './config.js';
@@ -49,7 +48,7 @@ export class Probe {
       return module;
     };
     const log = line => { if (line) this.trace.push(line); };
-    const php = await bootPHP(factory, wasm, bridgeSource, {
+    const php = await bootPHP(factory, wasm, {
       print: log, printErr: log,
       onSync: raw => {
         const msg = JSON.parse(raw);

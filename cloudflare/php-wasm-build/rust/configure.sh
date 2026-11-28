@@ -7,9 +7,14 @@ export php_cv_sizeof_intmax_t=8 php_cv_sizeof_ssize_t=4 php_cv_sizeof_ptrdiff_t=
 export ac_cv_func_fork=no
 export CC=emcc CXX=em++ AR=emar RANLIB=emranlib
 patch --batch --forward --fuzz=0 -p1 -i /recipe/timelib-long64.patch
+patch --batch --forward --fuzz=0 -p1 -i /recipe/opcache-file-cache.patch
 export CFLAGS="-O1 -DZEND_ENABLE_ZVAL_LONG64=1 -DTIMELIB_FORCE_LONG64=1"
 ./buildconf --force
 emconfigure ./configure --build=x86_64-pc-linux-gnu --host=wasm32-unknown-emscripten \
     --disable-all --disable-cli --disable-cgi --disable-phpdbg --disable-zend-signals \
-    --disable-fiber-asm --without-pcre-jit --without-pear --enable-embed=static
-emmake make -j"${BUILD_JOBS:-1}"
+    --disable-fiber-asm --without-pcre-jit --without-pear --enable-embed=static \
+    --enable-bcmath --enable-calendar --enable-ctype --enable-exif --enable-fileinfo \
+    --enable-filter --enable-phar --enable-session --enable-tokenizer \
+    --enable-opcache --disable-opcache-jit --disable-huge-code-pages \
+    --with-config-file-path=/internal/shared
+emmake make -f Makefile -f /recipe/opcache.mk -j"${BUILD_JOBS:-1}" libphp.la libatoms-opcache.la

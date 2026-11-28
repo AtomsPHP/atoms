@@ -16,6 +16,8 @@ Pass `--workerd /path/to/workerd` to use the binary from another installation of
 
 The embed build enables 64-bit Zend integers on wasm32. The `timelib-long64.patch` build option selects the matching timestamp width in PHP’s bundled date library. Without it, `gmmktime(3, 14, 8, 1, 19, 2038)` warns and returns false. Stack #225 returns 2147483648. The default ABI probe checks both sides of the signed 32-bit limits in 1901 and 2038.
 
+The Wasm module embeds the Worker's PHP configuration and message function in MEMFS. PHP 8.3 supplies OPcache as a Zend extension. The build archives its upstream object list and registers its extension entry during module startup. The Worker uses the file-cache settings from stack #225. On both builds PHP 8.3's OPcache reports an inactive cache under the `wasm` SAPI.
+
 The turn fixture boots the owned adapter over stock emcc glue. It uses the Worker's SQL bridge and transaction machine. Each failure check inserts and reads its marker on the callback stack. Subsequent HTTP requests check the SQLite rows, DO identity, durable construction count and PHP generation. The compile fatal comes from an included file. The memory-limit fatal occurs while PHP's fread allocates a Zend-owned reply string after the Rust callback has returned. Discarding the instance closes its wakes and skips user shutdown callbacks.
 
 The growth case enlarges the actual transfer allocation for the tx.begin acknowledgement. It requires more than 64 MiB of observed growth and a detached pre-allocation heap view before PHP rewinds in the transaction. The tests also try a consumed wake and a wake belonging to a discarded PHP instance.

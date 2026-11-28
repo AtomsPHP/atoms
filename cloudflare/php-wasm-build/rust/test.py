@@ -22,8 +22,7 @@ with tempfile.TemporaryDirectory() as temp:
     (root / 'worker.js').symlink_to(RECIPE / ('test/turn.js' if args.turns else 'test/abi.js'))
     for name in ['bridge.js', 'int64.js', 'config.js', 'errors.js']:
         (root / name).symlink_to(RECIPE.parents[1] / 'worker/src' / name)
-    for name in ['loader.js', 'message.php']:
-        (root / name).symlink_to(RECIPE / name)
+    (root / 'loader.js').symlink_to(RECIPE / 'loader.js')
     (root / 'guest.php').symlink_to(RECIPE / ('test/turn.php' if args.turns else 'abi.php'))
     (root / 'timestamps.php').symlink_to(RECIPE / 'test/timestamps.php')
     (root / 'proof.capnp').write_text((RECIPE / 'test/proof.capnp').read_text())

@@ -101,7 +101,8 @@ def build(cache, work, libclang, jobs):
     run('cargo', 'build', '--release', '--locked', '--offline', '--target', 'wasm32-unknown-emscripten',
         '--manifest-path', RECIPE / 'bridge/Cargo.toml', env=env)
     run(*container, 'bash', '/recipe/link.sh', '/build/php/libs/libphp.a',
-        '/build/target/wasm32-unknown-emscripten/release/libatoms_php_bridge.a', '/build/php.mjs')
+        '/build/target/wasm32-unknown-emscripten/release/libatoms_php_bridge.a',
+        '/build/php/.libs/libatoms-opcache.a', '/build/php.mjs')
 
 
 if __name__ == '__main__':

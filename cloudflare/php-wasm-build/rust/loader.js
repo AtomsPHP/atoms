@@ -3,7 +3,7 @@ const decoder = new TextDecoder();
 
 // Each adapter owns one embed request, including its wakes and transfer.
 // A caller can discard the entire Wasm instance while the request is parked.
-export async function bootPHP(createModule, wasm, bridgeSource, {onSync, onPark, print, printErr}) {
+export async function bootPHP(createModule, wasm, {onSync, onPark, print, printErr}) {
   let closed = false;
   let started = false;
   let transfer = null;
@@ -73,8 +73,8 @@ export async function bootPHP(createModule, wasm, bridgeSource, {onSync, onPark,
     },
   });
   fs.mkdev('/dev/atoms-reply', 0o400, device);
-  fs.mkdirTree('/atoms');
-  fs.writeFile('/atoms/message.php', bridgeSource);
+  fs.mkdirTree('/home/web_user');
+  fs.mkdirTree('/internal/shared/opcache');
   module.atomsBridge = module._atoms_prepare();
 
   return {
@@ -87,9 +87,8 @@ export async function bootPHP(createModule, wasm, bridgeSource, {onSync, onPark,
       if (started) throw Error('PHP request already started');
       started = true;
       fs.writeFile('/atoms/main.php', code);
-      fs.writeFile('/atoms/entry.php', "<?php require '/atoms/message.php'; require '/atoms/main.php';");
       if (module._php_embed_init(0, 0) !== 0) throw Error('php_embed_init failed');
-      const name = encoder.encode('/atoms/entry.php\0');
+      const name = encoder.encode('/atoms/main.php\0');
       const ptr = module._malloc(name.length);
       if (!ptr) throw Error('Cannot allocate script path');
       module.HEAPU8.set(name, ptr);
