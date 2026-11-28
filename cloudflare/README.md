@@ -13,7 +13,7 @@ Atom, the real `atoms/core` API running unmodified inside the guest.
 | [`corresponding-source/`](corresponding-source/) | The pinned upstream artifact and source provenance |
 
 The top-level `php` field in `atoms.json` selects PHP 8.3 (default), 8.4,
-or 8.5. `npm ci` installs the pinned WordPress Playground packages.
+or 8.5. `npm ci` installs the three pinned Atoms interpreter packages.
 `worker/scripts/prepare-runtime.mjs` verifies the size and SHA-256 of each
 Wasm binary and its JavaScript glue and stages them under `worker/.php-wasm/`.
 Wrangler packages only the pair selected by the build manifest.

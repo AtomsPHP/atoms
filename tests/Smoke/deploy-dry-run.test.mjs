@@ -3,6 +3,7 @@
 // Test the public CLI with a generated Worker project and pinned Wrangler without uploading.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -65,14 +66,18 @@ try {
     ];
     // Use a working directory that differs from both --root and --worker-dir.
     const output = run('php', args, temporary);
-    assert.ok(output.includes(`Worker PHP: ${baseline.version} (current build)`));
+    assert.ok(output.includes(`Worker PHP: ${baseline.php} (current build)`));
     assert.doesNotMatch(output, /Using redirected Wrangler configuration/);
     assert.match(output, /dry-run-production/);
     assert.match(output, /--dry-run: exiting now\./);
     assert.match(output, /Dry run complete\. Nothing was deployed\./);
     assert.doesNotMatch(output, /Deployed dry-run-test|Cloudflare propagates/);
     assert.ok(existsSync(join(temporary, 'review output/index.js')));
-    assert.ok(readdirSync(join(temporary, 'review output')).some((file) => file.endsWith('.wasm')));
+    const wasm = readdirSync(join(temporary, 'review output')).filter(file => file.endsWith('.wasm'));
+    assert.equal(wasm.length, 1);
+    const bytes = readFileSync(join(temporary, 'review output', wasm[0]));
+    assert.equal(bytes.length, baseline.wasm.bytes);
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), baseline.wasm.sha256);
     assert.ok(existsSync(join(app, '.atoms/build/manifest.json')));
     assert.ok(existsSync(join(runtime, 'src/bundle.generated.js')));
     assert.equal(readFileSync(join(runtime, 'wrangler.jsonc'), 'utf8'), originalConfig);
@@ -92,7 +97,7 @@ try {
     ], { cwd: temporary, env, encoding: 'utf8', timeout });
     assert.equal(staleDev.status, 1);
     assert.match(staleDev.stdout + staleDev.stderr, /ATOMS-E115/);
-    assert.ok(staleDev.stdout.includes(`It runs PHP ${baseline.version} and atoms.json selects PHP 8.5.`));
+    assert.ok(staleDev.stdout.includes(`It runs PHP ${baseline.php} and atoms.json selects PHP 8.5.`));
     assert.ok(!existsSync(join(runtime, '.dev.vars')));
     const prebuilt = run('php', [
         ...args.slice(0, -2),
@@ -100,10 +105,10 @@ try {
         '--callback-url', 'https://münchen.example/callback',
     ], temporary);
     assert.match(prebuilt, /--dry-run: exiting now\./);
-    assert.ok(prebuilt.includes(`Worker PHP: ${baseline.version} (saved bundle)`));
+    assert.ok(prebuilt.includes(`Worker PHP: ${baseline.php} (saved bundle)`));
     assert.match(prebuilt, /atoms\.json selects PHP 8\.5 for new builds/);
     const staged = readFileSync(join(runtime, 'src/bundle.generated.js'), 'utf8');
-    assert.ok(staged.includes(`import * as asyncifyLoader from "../.php-wasm/${baseline.glue}"`));
+    assert.ok(staged.includes(`import * as asyncifyLoader from "../.php-wasm/${baseline.glue.path}"`));
     assert.match(prebuilt, /Nothing was deployed/);
     assert.doesNotMatch(prebuilt, /Building bundle/);
     assert.equal(readFileSync(redirect, 'utf8'), 'invalid stale redirect');

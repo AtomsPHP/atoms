@@ -60,7 +60,7 @@ def unpack(path, dest):
     run('tar', '-xf', path, '--no-same-owner', '--strip-components=1', '-C', dest)
 
 
-def build(cache, work, libclang, jobs, minor):
+def build(cache, work, libclang, jobs, minor, stem="php"):
     source = php_input(minor)
     for item in [source, *COMMON_INPUTS]:
         verify(cache / item['file'], item['sha256'])
@@ -123,12 +123,16 @@ def build(cache, work, libclang, jobs, minor):
     expanded = subprocess.check_output(container[:2] + ['-i'] + container[2:] + command,
                                        input='ZEND_MODULE_BUILD_ID\n', text=True)
     env['ATOMS_PHP_BUILD_ID'] = ast.literal_eval(expanded.strip().splitlines()[-1])
+    (work / 'build-id.txt').write_text(env['ATOMS_PHP_BUILD_ID'] + '\n')
+    # Build directories and checkout names must never become part of the payload.
+    env['CARGO_ENCODED_RUSTFLAGS'] = '\x1f'.join([
+        f'--remap-path-prefix={work}=/build', f'--remap-path-prefix={RECIPE}=/recipe'])
     features = [] if minor == '8.3' else ['--features', 'zend-bool']
     run('cargo', 'build', '--release', '--locked', '--offline', '--target', 'wasm32-unknown-emscripten',
         *features, '--manifest-path', RECIPE / 'bridge/Cargo.toml', env=env)
     run(*container, 'bash', '/recipe/link.sh', '/build/php/libs/libphp.a',
         '/build/target/wasm32-unknown-emscripten/release/libatoms_php_bridge.a',
-        '/build/php/.libs/libatoms-opcache.a', '/build/php.mjs')
+        '/build/php/.libs/libatoms-opcache.a', f'/build/{stem}.mjs')
 
 
 if __name__ == '__main__':

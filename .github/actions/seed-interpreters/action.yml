@@ -1,0 +1,11 @@
+name: Seed qualified PHP interpreter packages
+description: Verify the current run's interpreter tarballs and add them to npm's cache.
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: interpreter-*
+        path: ${{ runner.temp }}/interpreters
+    - shell: bash
+      run: node cloudflare/php-wasm-build/artifacts.mjs seed "$RUNNER_TEMP/interpreters"

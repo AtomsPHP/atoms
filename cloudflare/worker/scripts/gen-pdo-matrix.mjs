@@ -25,7 +25,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PHP_RUNTIMES } from './lib/php-runtimes.mjs';
+import { PHP_RUNTIMES, phpRuntime } from './lib/php-runtimes.mjs';
 
 /**
  * Internal taxonomy -> published name. Renamed in exactly this
@@ -100,7 +100,7 @@ function escapePipes(s) {
  */
 export function renderMatrixDoc(report, pins) {
     const pinCases = pins.cases;
-    const guestVersions = Object.values(PHP_RUNTIMES).map(runtime => runtime.version);
+    const guestVersions = Object.keys(PHP_RUNTIMES).map(series => phpRuntime(series).php);
     if (!guestVersions.includes(report.php)) {
         throw new Error(`Unexpected guest PHP version in PDO report: ${report.php}`);
     }

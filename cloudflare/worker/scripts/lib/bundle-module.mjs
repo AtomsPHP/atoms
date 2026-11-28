@@ -221,11 +221,11 @@ export function sortedFiles(files) {
  */
 export function writeBundleModule(generatorName, manifest, files, outputFile) {
     const runtime = phpRuntime(manifest.abi.php);
-    const loader = fileURLToPath(new URL(`../../.php-wasm/${runtime.glue}`, import.meta.url));
+    const loader = fileURLToPath(new URL(`../../.php-wasm/${runtime.glue.path}`, import.meta.url));
     const relative = path.relative(path.dirname(outputFile), loader).split(path.sep).map(encodeURIComponent).join('/');
     const specifier = relative.startsWith('../') ? relative : './' + relative;
     // The CLI reads this first line to identify an existing bundle without loading it.
-    const output = `// Atoms Worker PHP ${runtime.version}
+    const output = `// Atoms Worker PHP ${runtime.php}
 /**
  * Auto-generated bundle by ${generatorName}
  * Do not edit manually.

@@ -16,10 +16,7 @@
 # Installed by `npm ci` from the committed package-lock.json.
 /node_modules/
 
-# The php-wasm runtime, fetched from npm and staged by
-# scripts/prepare-runtime.mjs during `npm ci`. It is a large upstream artifact
-# under its own licence; the lockfile pins it, and the staging step verifies
-# its size and SHA-256. Never commit it.
+# Verified Atoms interpreter packages staged from node_modules during npm ci.
 /.php-wasm/
 
 # The local-dev vehicle for ATOMS_SHARED_SECRET, written by `atoms dev` from

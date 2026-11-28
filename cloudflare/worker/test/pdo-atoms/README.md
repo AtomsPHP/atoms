@@ -4,17 +4,19 @@ Install the root Composer dependencies. Pass a scaffold created by `atoms-runtim
 
 ```sh
 composer install
-node cloudflare/worker/test/pdo-atoms/run.mjs --embed /path/to/build /path/to/atoms-worker
+node cloudflare/worker/test/pdo-atoms/run.mjs /path/to/atoms-worker
 ```
 
 To include Yii, supply its pinned checkout as a second argument. The host PHP CLI needs pdo_sqlite for the Yii control.
 
 ```sh
 git clone --depth 1 --branch 2.0.53 https://github.com/yiisoft/yii2.git "$work/yii2"
-node cloudflare/worker/test/pdo-atoms/run.mjs --embed /path/to/build /path/to/atoms-worker "$work/yii2"
+node cloudflare/worker/test/pdo-atoms/run.mjs /path/to/atoms-worker "$work/yii2"
 ```
 
-The runner stages the private PHP build in a disposable copy of the installed scaffold, runs the CLI build, and starts Wrangler with a fresh SQLite database. Each run prints the guest version, Wasm and glue hashes, SQL results and transaction trace. The [recorded control runs](results.json) are from frozen #228.
+The runner copies the installed scaffold into a temporary project, stages its interpreter with the scaffold’s own preparation script, and checks both files against the reviewed per-minor pin. It runs `atoms build`, translates the portable bundle with `bundle-from-cli.mjs`, and starts local Wrangler with a fresh SQLite database. It tests the default and each explicit `php` setting in `atoms.json` against the same installed dependencies.
+
+Each run prints the PHP version, Wasm and glue hashes, SQL results and transaction trace for that interpreter. The [recorded runs](results.json) cover all three PHP minors.
 
 Yii remains an experimental dependency of this fixture. A native SQLite control executes the same Yii case and identifies the upstream files it loaded. The runner checks the exact Yii source commit, copies those files and the license to a local Composer path package, and gives this build a private copy of the CLI package allowlist containing Yii. Composer resolves that package offline and the project builder includes it in the portable bundle.
 

@@ -1,0 +1,56 @@
+{
+  "8.3": {
+    "package": "@atomsphp/php-wasm-8-3",
+    "version": "8.3.32-atoms.8",
+    "wasm": {
+      "path": "php_8_3.wasm",
+      "bytes": 28184480,
+      "sha256": "3f7d6859dafde6f7abdb8a26784f0c1389f870b4dc918418ab9041d5dbaf3d36"
+    },
+    "glue": {
+      "path": "php_8_3.js",
+      "bytes": 234013,
+      "sha256": "769b55eb0f18c24ead85fdddd881ec914aabeb9c30dbad1c384bdf4ed1e968c3"
+    },
+    "sha256": "4ee5de147980e7552c83fcc6ce1100236836b8b6db80cc12ea22a3fa73fc1fee",
+    "integrity": "sha512-7muyTPar8qnwroAAC8q4/5Jn+/Xc7ooi0zPgefQPtFTsFkb3XfotaB+C/vii+kgZh6bujzZBbUhl6S3jaAEnBA==",
+    "packedBytes": 182123938,
+    "unpackedBytes": 201509544
+  },
+  "8.4": {
+    "package": "@atomsphp/php-wasm-8-4",
+    "version": "8.4.28-atoms.8",
+    "wasm": {
+      "path": "php_8_4.wasm",
+      "bytes": 30457958,
+      "sha256": "2683f2efd85a73559521e67209457f80d22c3017b7160e5708cd8dad9cd97a82"
+    },
+    "glue": {
+      "path": "php_8_4.js",
+      "bytes": 235056,
+      "sha256": "23ee7cb9244ba1269bfef711f765e4c5b427b31eedc4cd7caa8092950abe97bd"
+    },
+    "sha256": "3d4e4e2455c6c6823c4a3612942e795450cb2d6fce7d6e2227ef27e7a7b9f27e",
+    "integrity": "sha512-WXcVZSo+wMWGUXnzE4//kNS3UkLZojKKJXGF9W6Z0u33eaXpUSZIl3mWeVdBMondNfkr7+3zI/iqmjMT0+Z8Cw==",
+    "packedBytes": 185769711,
+    "unpackedBytes": 206676363
+  },
+  "8.5": {
+    "package": "@atomsphp/php-wasm-8-5",
+    "version": "8.5.13-atoms.8",
+    "wasm": {
+      "path": "php_8_5.wasm",
+      "bytes": 31741719,
+      "sha256": "a420da60ff4446df38c8cfd8a9ef69a4f6761d192906ed7dc95456cc06d9c498"
+    },
+    "glue": {
+      "path": "php_8_5.js",
+      "bytes": 234426,
+      "sha256": "34a37cc5897359b1a5350ce9ac3f854780f33ec1ab5ea1944ff86fad7f777ad7"
+    },
+    "sha256": "abae35641a92bf89a96891730eb37b3b7a2537aabdf001ba343901615f98ddd1",
+    "integrity": "sha512-z+c1Rut1FsO9ntaJI88Ujyeu/iBWRYtHk2qYjECms4KO49Loe3xPs7JrSqScK5koGKL4cNbB7H2BdB4ChW6rHQ==",
+    "packedBytes": 187093527,
+    "unpackedBytes": 209044380
+  }
+}

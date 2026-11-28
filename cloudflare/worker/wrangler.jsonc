@@ -12,14 +12,12 @@
 	"main": "src/index.js",
 	"compatibility_date": "2026-08-01",
 
-	// REQUIRED: the php-wasm Emscripten glue takes the ENVIRONMENT_IS_NODE
-	// branch under workerd (process.release.name === 'node') and require()s
-	// 'events'. Without nodejs_compat the module fails to load.
+	// The outbound HTTP bridge uses node:buffer for binary request and response bodies.
 	"compatibility_flags": ["nodejs_compat"],
 
 	// The pinned PHP runtime is bundled as a precompiled wasm module
 	// (workerd forbids compiling bytes at runtime) and handed to Emscripten
-	// through the instantiateWasm hook in src/php-host.js.
+	// through the instantiateWasm hook in src/embed-loader.js.
 	"rules": [
 		{ "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true },
 		{ "type": "Text", "globs": ["**/*.php"], "fallthrough": true },

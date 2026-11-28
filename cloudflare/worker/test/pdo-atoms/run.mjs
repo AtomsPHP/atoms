@@ -16,8 +16,8 @@ const worker = resolve(here, '../..');
 const repo = resolve(worker, '../..');
 const {positionals, values} = parseArgs({allowPositionals: true, options: {embed: {type: 'string'}, php: {type: 'string'}}});
 const [scaffoldArg, yiiArg] = positionals;
-if (!values.embed || !scaffoldArg || positionals.length > 2 || (values.php && (!values.embed || !['8.3', '8.4', '8.5'].includes(values.php)))) {
-    throw new Error('Usage: node run.mjs --embed build [--php 8.3|8.4|8.5] <installed-scaffold> [yii2-checkout]');
+if (!scaffoldArg || positionals.length > 2 || (values.php && (!values.embed || !['8.3', '8.4', '8.5'].includes(values.php)))) {
+    throw new Error('Usage: node run.mjs [--embed build [--php 8.3|8.4|8.5]] <installed-scaffold> [yii2-checkout]');
 }
 const embed = values.embed && resolve(values.embed);
 const scaffold = resolve(scaffoldArg);
@@ -269,7 +269,10 @@ async function runWorker(dir, version) {
 
 async function runFixture(selection, cliResource) {
     const minor = selection ?? '8.3';
-    const version = readJson(join(repo, 'cloudflare/php-wasm-build/rust/php-sources.json'))[minor].version;
+    const pin = readJson(join(repo, 'cloudflare/php-wasm-build/targets', minor, 'candidate.json'));
+    const version = pin.version.split('-')[0];
+    const scaffoldPackage = readJson(join(scaffold, 'package.json'));
+    assert.equal(scaffoldPackage.dependencies[pin.package], pin.version);
     const project = join(scratch, 'project-' + (selection ?? 'default'));
     cpSync(join(here, 'project'), project, { recursive: true });
     for (const file of ['QuoteCases.php', 'CasesWeak.php']) {
@@ -290,8 +293,13 @@ async function runFixture(selection, cliResource) {
         cpSync(join(scaffold, name), join(dir, name), { recursive: true });
     }
     symlinkSync(join(scaffold, 'node_modules'), join(dir, 'node_modules'), 'dir');
-    const {stagePdoBuild} = await import('../../../php-wasm-build/rust/test/stage-pdo.mjs');
-    const pair = stagePdoBuild(dir, minor, embed);
+    let privatePair;
+    if (embed) {
+        const {stagePdoBuild} = await import('../../../php-wasm-build/rust/test/stage-pdo.mjs');
+        privatePair = stagePdoBuild(dir, pin, embed);
+    } else {
+        run(process.execPath, [join(dir, 'scripts/prepare-runtime.mjs')], dir);
+    }
     const phpArgs = cliResource ? ['-d', 'auto_prepend_file=' + cliResource] : [];
     run('php', [...phpArgs, join(repo, 'packages/cli/bin/atoms'), 'build'], project);
     const output = join(project, '.atoms/build');
@@ -300,10 +308,19 @@ async function runFixture(selection, cliResource) {
     const archive = readdirSync(output).find(file => file.endsWith('.tar.gz'));
     run(process.execPath, [join(dir, 'scripts/bundle-from-cli.mjs'), join(output, archive), join(output, 'manifest.json')], dir);
 
-    const wasmSha256 = sha256(pair.wasm);
-    const glueSha256 = sha256(pair.glue);
-    assert.equal(wasmSha256, sha256(join(embed, 'php.wasm')));
-    assert.equal(glueSha256, sha256(join(embed, 'php.mjs')));
+    let wasmSha256, glueSha256;
+    if (privatePair) {
+        wasmSha256 = sha256(privatePair.wasm);
+        glueSha256 = sha256(privatePair.glue);
+        assert.equal(wasmSha256, sha256(join(embed, 'php.wasm')));
+        assert.equal(glueSha256, sha256(join(embed, 'php.mjs')));
+    } else {
+        const pair = join(dir, '.php-wasm', pin.wasm.sha256 + '-' + pin.glue.sha256);
+        wasmSha256 = sha256(join(pair, pin.wasm.path));
+        glueSha256 = sha256(join(pair, pin.glue.path));
+        assert.equal(wasmSha256, pin.wasm.sha256);
+        assert.equal(glueSha256, pin.glue.sha256);
+    }
     copyFileSync(join(here, 'trace.mjs'), join(dir, 'src/pdo-probe-trace.mjs'));
     appendFileSync(join(dir, 'src/bridge.js'), "\nimport { traceTransactions } from './pdo-probe-trace.mjs';\ntraceTransactions(Bridge, TransactionMachine);\n");
     const result = await runWorker(dir, version);
@@ -312,7 +329,10 @@ async function runFixture(selection, cliResource) {
 
 try {
     const cliResource = yii && prepareYii();
-    const results = [await runFixture(values.php ?? '8.3', cliResource)];
+    const results = [];
+    for (const selection of (embed ? [values.php ?? '8.3'] : [undefined, '8.3', '8.4', '8.5'])) {
+        results.push(await runFixture(selection, cliResource));
+    }
     console.log(JSON.stringify(results, null, 2));
 } finally {
     rmSync(scratch, { recursive: true, force: true });
