@@ -75,7 +75,7 @@ them.
 
 ## The Worker side
 
-`npm ci` fetches the pinned PHP interpreters from Playground. The `prepare`
+`npm ci` installs the three pinned `@atomsphp/php-wasm-*` interpreters. The `prepare`
 script verifies each Wasm binary and its JavaScript glue, then stages them in
 the gitignored `cloudflare/worker/.php-wasm/`. Each Worker bundle imports the
 pair for its selected PHP version. See `cloudflare/README.md`.

@@ -94,10 +94,10 @@ convenient it looks.
 ## Hard rules — `cloudflare/`
 
 - **The php-wasm runtime binary is never committed.** `npm ci` fetches it from
-  Playground's pinned `@php-wasm/web-8-*` packages.
+  the pinned `@atomsphp/php-wasm-8-*` packages built in `cloudflare/php-wasm-build/`.
   `scripts/prepare-runtime.mjs` stages each into the gitignored
-  `worker/.php-wasm/` after verifying the upstream size and SHA-256
-  of both the wasm and the JS glue. It is a large generated upstream artifact,
+  `worker/.php-wasm/` after verifying the pinned size and SHA-256
+  of both the wasm and the JS glue. It is a generated release artifact,
   not repository source. Never soften or skip the hash check either — a
   mismatch is a real finding, not CI noise.
 - **Licenses and provenance.** Atoms-authored source is MIT by grant file

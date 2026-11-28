@@ -69,13 +69,6 @@ This builds and stages the bundle with the selected environment's settings.
 It does not test the deployed Worker. Add `--outdir <directory>` to keep the
 packaged files.
 
-### Known PHP-Wasm bundler warnings
-
-Wrangler can report `duplicate-object-key` and `direct-eval` warnings when
-it bundles the WordPress Playground PHP-Wasm loader. The duplicate settings
-have identical values, and Atoms does not load the additional Wasm libraries
-that use the `eval` calls. Packaging can proceed with these warnings.
-
 ## Set the shared secret
 
 After the first deploy, set `ATOMS_SHARED_SECRET` on the Worker. The Worker

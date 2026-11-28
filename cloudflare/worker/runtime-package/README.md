@@ -99,12 +99,19 @@ scaffolded before that file existed cannot be upgraded in place: scaffold a
 fresh `atoms-worker/` with `init`, carry your `wrangler.jsonc` changes across,
 and commit that.
 
+Before deploying an interpreter upgrade, record the current Worker version ID
+with `atoms status --env <environment>`. Retain its scaffold, lockfile, CLI
+version and application bundle. To restore the known-good code on the same
+Durable Object database, run `atoms rollback <version-id> --env <environment>`.
+Restore the matching project pins before deploying again. Changing the
+interpreter requires no database migration.
+
 ## Licensing
 
 Atoms-authored source in this package is MIT. The upstream component inventory
-is in [`THIRD_PARTY_NOTICES.md`][notices]. This package does not contain the
-php-wasm binary. The matching upstream source identity and retrieval recipe
-are recorded in [`corresponding-source/`][source].
+is in [`THIRD_PARTY_NOTICES.md`][notices]. Each pinned interpreter package
+contains its Wasm and JavaScript glue, corresponding source archive and
+component notices. [Corresponding source][source] describes these files.
 
 Atoms is developed in the [AtomsPHP/atoms monorepo][repository]. Please file
 issues and pull requests there rather than against generated package mirrors.

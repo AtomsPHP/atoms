@@ -3194,7 +3194,7 @@ check(26, 'pdo surface tripwire', async ({ num: checkNum, name }) => {
         problems.push('members_checked is empty (the audit enumerated nothing)');
     }
 
-    const expectedPhp = phpRuntime(GUEST_PHP).version;
+    const expectedPhp = phpRuntime(GUEST_PHP).php;
     if (result.php !== expectedPhp) {
         problems.push(`php=${JSON.stringify(result.php)} (expected pinned ${expectedPhp})`);
     }

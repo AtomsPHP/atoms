@@ -19,6 +19,9 @@ function run({ mutation = '', only = '1', skip = '' } = {}) {
             join(directory, 'scripts', 'gen-pdo-matrix.mjs'));
         copyFileSync(new URL('../scripts/lib/php-runtimes.mjs', import.meta.url),
             join(directory, 'scripts', 'lib', 'php-runtimes.mjs'));
+        mkdirSync(join(directory, 'release'));
+        copyFileSync(new URL('../release/interpreters.json', import.meta.url),
+            join(directory, 'release', 'interpreters.json'));
         const runner = join(directory, 'test', 'conformance.mjs');
         // Mutate the completed registry, before its startup validation.
         writeFileSync(runner, source.replace('async function run() {', `${mutation}\nasync function run() {`));

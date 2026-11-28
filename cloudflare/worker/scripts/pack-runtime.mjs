@@ -29,7 +29,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { coreSourceEntries } from './lib/bundle-module.mjs';
-import { PHP_RUNTIMES, PLAYGROUND_VERSION, phpRuntime } from './lib/php-runtimes.mjs';
+import { updateInterpreters } from './update-interpreters.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const workerRoot = resolve(here, '..');
@@ -53,7 +53,7 @@ const UNPACKAGED_MODULES = new Set([
 
 /** Directory prefixes imported by shipped code, deliberately not shipped. */
 const UNPACKAGED_PREFIXES = [
-	// The GPL php-wasm binary and its glue: fetched from npm and staged by
+	// Owned interpreter packages are fetched from npm and staged by
 	// scripts/prepare-runtime.mjs at install time, never redistributed here.
 	'.php-wasm/',
 ];
@@ -177,16 +177,7 @@ export function stageRuntimePackage(stageRoot) {
 	if (release.runtime.package !== '@atomsphp/runtime-cloudflare') {
 		throw new Error(`unexpected runtime package in release manifest: ${release.runtime.package}`);
 	}
-	const seriesWithPins = Object.keys(PHP_RUNTIMES);
-	if (JSON.stringify(release.runtime.guest_php_tested) !== JSON.stringify(seriesWithPins)) {
-		throw new Error('release/manifest.json guest_php_tested must match the pinned Playground PHP runtimes');
-	}
-	for (const series of seriesWithPins) {
-		const { packageName } = phpRuntime(series);
-		if (developmentManifest.dependencies[packageName] !== PLAYGROUND_VERSION) {
-			throw new Error(`the ${packageName} pin moved; re-audit its interpreter before packaging`);
-		}
-	}
+	updateInterpreters(true);
 	if (developmentManifest.devDependencies.wrangler !== release.runtime.wrangler) {
 		throw new Error('Wrangler differs between cloudflare/worker and release/manifest.json');
 	}
@@ -223,12 +214,6 @@ export function stageRuntimePackage(stageRoot) {
 	for (const file of ['LICENSE', 'THIRD_PARTY_NOTICES.md']) {
 		copy(join(stageRoot, file), join(stageRoot, 'template', file));
 	}
-	const provenanceReadme = join(stageRoot, 'corresponding-source', 'README.md');
-	writeFileSync(
-		provenanceReadme,
-		readFileSync(provenanceReadme, 'utf8').replaceAll('../worker/', '../template/'),
-	);
-
 	const templateManifest = runtimeManifest(release, developmentManifest);
 	writeFileSync(join(stageRoot, 'template', 'package.json'), `${JSON.stringify(templateManifest, null, 2)}\n`);
 

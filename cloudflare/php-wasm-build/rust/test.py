@@ -47,7 +47,7 @@ with tempfile.TemporaryDirectory() as temp:
     (root / 'worker.js').symlink_to(RECIPE / f'test/{worker}.js')
     for name in ['bridge.js', 'int64.js', 'config.js', 'errors.js']:
         (root / name).symlink_to(RECIPE.parents[1] / 'worker/src' / name)
-    (root / 'loader.js').symlink_to(RECIPE / 'loader.js')
+    (root / 'loader.js').symlink_to(RECIPE.parents[1] / 'worker/src/embed-loader.js')
     (root / 'guest.php').symlink_to(guest)
     (root / 'timestamps.php').symlink_to(RECIPE / 'test/timestamps.php')
     (root / 'parity.php').symlink_to(RECIPE / 'test/parity.php')

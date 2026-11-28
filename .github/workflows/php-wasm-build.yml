@@ -1,0 +1,137 @@
+name: PHP Wasm qualification
+
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      package_revision:
+        description: Generate proposed pins for this atoms package revision
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build PHP ${{ matrix.php }} from upstream sources
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4', '8.5']
+    env:
+      SERIES: ${{ matrix.php }}
+      RECIPE: cloudflare/php-wasm-build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install the host library required by bindgen
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "$(jq -r .libclang.package "$RECIPE/rust/tools.lock.json")"
+      - name: Fetch verified inputs, compile offline and archive the corresponding source
+        run: |
+          python3 -B "$RECIPE/build.py" fetch --php "$SERIES" "$RUNNER_TEMP/inputs"
+          python3 -B "$RECIPE/build.py" build --php "$SERIES" "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/output"
+          python3 -B "$RECIPE/source-bundle.py" --php "$SERIES" "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/output"
+          python3 -B "$RECIPE/source-bundle.py" verify "$RUNNER_TEMP/output"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-build-${{ matrix.php }}
+          path: ${{ runner.temp }}/output
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  reproduce:
+    name: Rebuild and qualify PHP ${{ matrix.php }} from its packed sources
+    needs: build
+    runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4', '8.5']
+    env:
+      SERIES: ${{ matrix.php }}
+      RECIPE: cloudflare/php-wasm-build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.1'
+      - uses: actions/download-artifact@v4
+        with:
+          name: source-build-${{ matrix.php }}
+          path: ${{ runner.temp }}/first
+      - name: Audit the first archive and unpack its build tree
+        run: |
+          python3 -B "$RECIPE/source-bundle.py" --php "$SERIES" verify "$RUNNER_TEMP/first"
+          mkdir "$RUNNER_TEMP/source"
+          tar -xzf "$RUNNER_TEMP/first/corresponding-source.tar.gz" -C "$RUNNER_TEMP/source"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "$(jq -r .libclang.package "$RECIPE/rust/tools.lock.json")"
+      - name: Rebuild offline on the second runner
+        run: |
+          src="$RUNNER_TEMP/source/php-wasm-build"
+          inputs="$RUNNER_TEMP/source/inputs"
+          python3 -B "$src/build.py" fetch --php "$SERIES" "$inputs"
+          python3 -B "$src/build.py" build --php "$SERIES" "$inputs" "$RUNNER_TEMP/second"
+          python3 -B "$src/source-bundle.py" --php "$SERIES" "$inputs" "$RUNNER_TEMP/second"
+          diff -qr "$RUNNER_TEMP/first" "$RUNNER_TEMP/second"
+      - name: Compare npm archives from the two builds
+        env:
+          REVISION: ${{ inputs.package_revision || '' }}
+        run: |
+          version=$(jq -r .version "$RECIPE/targets/$SERIES/candidate.json")
+          if [[ -n "$REVISION" ]]; then
+            [[ "$REVISION" =~ ^[1-9][0-9]*$ ]]
+            version="$(jq -r .php "$RUNNER_TEMP/first/build-metadata.json")-atoms.$REVISION"
+          fi
+          node "$RECIPE/pack.mjs" "$RUNNER_TEMP/first" "$RUNNER_TEMP/second/build-metadata.json" "$version" "$RUNNER_TEMP/packed"
+          node "$RUNNER_TEMP/source/php-wasm-build/pack.mjs" "$RUNNER_TEMP/second" "$RUNNER_TEMP/first/build-metadata.json" "$version" "$RUNNER_TEMP/repacked"
+          diff -qr "$RUNNER_TEMP/packed" "$RUNNER_TEMP/repacked"
+      - name: Match the reviewed release pin
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.package_revision }}
+        run: cmp "$RECIPE/targets/$SERIES/candidate.json" "$RUNNER_TEMP/packed/interpreter.json"
+      - name: Boot the packed interpreter with artifact requests disabled
+        run: |
+          pkg="$RUNNER_TEMP/package"
+          mkdir "$pkg"
+          tar -xzf "$RUNNER_TEMP/packed/"*.tgz --strip-components=1 -C "$pkg"
+          pin="$RUNNER_TEMP/packed/interpreter.json"
+          node "$RECIPE/inspect.mjs" cloudflare/worker "$pkg/$(jq -r .glue.path "$pin")" \
+            "$(jq -r '.version | split("-")[0]' "$pin")" > "$RUNNER_TEMP/packed/guest-capabilities.json"
+          cp "$RUNNER_TEMP/first/"{components.json,THIRD_PARTY_NOTICES.txt,build-metadata.json} "$RUNNER_TEMP/packed/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pin-${{ matrix.php }}
+          path: ${{ runner.temp }}/packed/interpreter.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: interpreter-${{ matrix.php }}
+          path: ${{ runner.temp }}/packed
+          compression-level: 0
+          if-no-files-found: error
+
+  sizes:
+    name: Interpreter package sizes
+    needs: reproduce
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pin-*
+          path: pins
+      - name: Record the download and unpacked size
+        run: |
+          echo '| Package | Download (bytes) | Unpacked (bytes) |' >> "$GITHUB_STEP_SUMMARY"
+          echo '| --- | ---: | ---: |' >> "$GITHUB_STEP_SUMMARY"
+          jq -sr '
+            (.[] | "| \(.package)@\(.version) | \(.packedBytes) | \(.unpackedBytes) |"),
+            "| Total | \(map(.packedBytes) | add) | \(map(.unpackedBytes) | add) |"
+          ' pins/pin-*/interpreter.json >> "$GITHUB_STEP_SUMMARY"

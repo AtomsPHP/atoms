@@ -21,12 +21,16 @@ export function precompiledModule(wasm) {
 export async function bootPHP(createModule, wasm, {onSync, onPark, print, printErr}) {
   let closed = false;
   let started = false;
+  let lastError = '';
   let transfer = null;
   let cancel;
   const module = await createModule({
     ...precompiledModule(wasm),
     print,
-    printErr,
+    printErr(line) {
+      lastError = line;
+      printErr?.(line);
+    },
     atomsRoundtripI64: value => value,
   });
   function requireOpen() {
@@ -113,11 +117,13 @@ export async function bootPHP(createModule, wasm, {onSync, onPark, print, printE
           const discarded = new Promise(resolve => { cancel = () => resolve(false); });
           ok = await Promise.race([module.Asyncify.whenDone(), discarded]);
         }
-        if (closed || !ok) return {exitCode: 255};
+        if (closed || !ok) return {exitCode: 255, errors: lastError};
         closed = true;
         module._zend_destroy_file_handle(file);
         module._php_embed_shutdown();
-        return {exitCode: 0};
+        // Closing MEMFS flushes the last stdout/stderr line, including text without a newline.
+        fs.quit();
+        return {exitCode: 0, errors: lastError};
       } finally {
         closed = true;
         cancel = null;

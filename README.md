@@ -121,9 +121,10 @@ The full conformance suite must pass. Several checks wait out real Durable
 Object eviction, so the run takes a few minutes. **No Cloudflare account is
 needed for any of this.**
 
-The PHP interpreter is not in this repository. `npm ci` fetches it from
-WordPress Playground's own npm package and stages it into a gitignored
-`worker/.php-wasm/` after verifying its hashes.
+Atoms builds and publishes a PHP interpreter for each supported guest minor.
+`npm ci` installs the pinned packages and verifies each Wasm and JavaScript
+pair before staging it in `worker/.php-wasm/`. The Worker bundles the minor
+selected by `atoms.json`.
 
 One GitHub Actions workflow ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))
 covers both halves: the PHP suites on 8.3–8.6, static analysis,
@@ -133,9 +134,8 @@ and the Worker conformance suite on PHP 8.3, 8.4, and 8.5 under a local `wrangle
 
 Atoms-authored source is **MIT**, granted by [`LICENSE`](LICENSE) and
 [`cloudflare/LICENSE-MIT`](cloudflare/LICENSE-MIT). The PHP/WebAssembly
-interpreter is fetched from WordPress Playground's npm package rather than
-committed here. Its component licenses, exact version, hashes, and source
-provenance are recorded in
+interpreter packages include component notices, a source inventory and the
+corresponding source archive. Their provenance and verification are documented in
 [`cloudflare/THIRD_PARTY_NOTICES.md`](cloudflare/THIRD_PARTY_NOTICES.md) and
 [`cloudflare/corresponding-source/`](cloudflare/corresponding-source/).
 

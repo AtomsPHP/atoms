@@ -1,0 +1,18 @@
+{
+  "package": "@atomsphp/php-wasm-8-4",
+  "version": "8.4.28-atoms.8",
+  "wasm": {
+    "path": "php_8_4.wasm",
+    "bytes": 30457958,
+    "sha256": "2683f2efd85a73559521e67209457f80d22c3017b7160e5708cd8dad9cd97a82"
+  },
+  "glue": {
+    "path": "php_8_4.js",
+    "bytes": 235056,
+    "sha256": "23ee7cb9244ba1269bfef711f765e4c5b427b31eedc4cd7caa8092950abe97bd"
+  },
+  "sha256": "3d4e4e2455c6c6823c4a3612942e795450cb2d6fce7d6e2227ef27e7a7b9f27e",
+  "integrity": "sha512-WXcVZSo+wMWGUXnzE4//kNS3UkLZojKKJXGF9W6Z0u33eaXpUSZIl3mWeVdBMondNfkr7+3zI/iqmjMT0+Z8Cw==",
+  "packedBytes": 185769711,
+  "unpackedBytes": 206676363
+}

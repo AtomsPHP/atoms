@@ -5,6 +5,11 @@ the Cloudflare runtime, and deploy Action use one coordinated version.
 
 ## [Unreleased]
 
+- The Cloudflare Worker packages PHP 8.3, 8.4 and 8.5 from upstream PHP with
+  an Atoms Rust bridge and JavaScript loader. Each interpreter tarball includes
+  its matching sources and build record. `npm ci` verifies all three installed
+  pairs before switching the staged loaders.
+
 ## [0.11.0] - 2026-11-27
 
 - An Atom can make outbound HTTPS requests with `$this->http()->request(...)`.

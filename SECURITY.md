@@ -68,10 +68,9 @@ valuable:
 
 ## What is not in scope
 
-- The PHP interpreter itself. It is built by the WordPress Playground project
-  and fetched from npm at install time; it is not in this repository. Report
-  interpreter bugs upstream. We do want to hear about it if our *pinning* of
-  it is wrong.
+- Defects solely in upstream PHP or its libraries. Report those to the affected
+  upstream project. Reports about Atoms build inputs, patches, packaging and
+  interpreter verification belong in this repository.
 - Vulnerabilities in Cloudflare Workers, Durable Objects, or wrangler. Report
   those to Cloudflare.
 - Anything that requires the attacker to already control the deployment, the

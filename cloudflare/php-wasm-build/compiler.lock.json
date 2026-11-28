@@ -5,6 +5,11 @@
   "sourceDateEpoch": 1704067200,
   "downloads": [
     {
+      "file": "emscripten.tar.gz",
+      "source": "https://codeload.github.com/emscripten-core/emscripten/tar.gz/refs/tags/4.0.19",
+      "sha256": "b64eb9a050e4f7b3549de45714a553baf4b10c9196c9cb1cf67a22847aed39d2"
+    },
+    {
       "file": "debs/libsigsegv2_2.13-1ubuntu3_amd64.deb",
       "source": "https://archive.ubuntu.com/ubuntu/pool/main/libs/libsigsegv/libsigsegv2_2.13-1ubuntu3_amd64.deb",
       "sha256": "894fcb0804df54dca59edbd0860d6f3eeac25d1555aebd3fa99d80665969f891"
@@ -68,6 +73,21 @@
       "file": "debs/re2c_3.0-1_amd64.deb",
       "source": "https://archive.ubuntu.com/ubuntu/pool/main/r/re2c/re2c_3.0-1_amd64.deb",
       "sha256": "3e23845ba0e8ec5979dc921e9a2a034a99da8783d0fb586b4eea8fe2ce5b5d12"
+    },
+    {
+      "file": "notices/PHP-LICENSE-4.0",
+      "source": "https://www.php.net/license/4_0.txt",
+      "sha256": "e66a38e0a83f49b6ad6ec72f6c0d7600cfa35ba95ee1a67eeeae676cd4416789"
+    },
+    {
+      "file": "notices/sqlite-src-3510000.zip",
+      "source": "https://sqlite.org/2025/sqlite-src-3510000.zip",
+      "sha256": "5330719b8b80bf563991ff7a373052943f5357aae76cd1f3367eab845d3a75b7"
+    },
+    {
+      "file": "rust-src-1.92.0.tar.xz",
+      "source": "https://static.rust-lang.org/dist/2025-12-11/rust-src-1.92.0.tar.xz",
+      "sha256": "333d45eeb76f210966dc5c1440b535dea5876ed0162f9286273c85e7a1e3cb29"
     }
   ]
 }

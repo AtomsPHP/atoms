@@ -12,6 +12,22 @@ runs the same operations against Atoms and native `pdo_sqlite` and records the
 result for each method and fetch mode. Its "How to read this" table explains
 each status.
 
+## Libraries that open their own connection
+
+Inside an Atom method or `onActivation()`, give the library the DSN
+`atoms:`. The native driver connects it to that Atom's Durable Object SQLite
+database. Queries through this connection see writes made by `$this->db()`.
+
+```php
+$pdo = new \PDO('atoms:');
+$rows = $pdo->query('SELECT id FROM items ORDER BY id')->fetchAll();
+```
+
+A warm Atom can retain the connection and its prepared statements for later
+requests. Fetch rows during the current request or execute the statement
+again on the next one. The runtime closes outstanding cursors and rolls
+back unfinished transactions at the end of a request.
+
 ## Important differences
 
 - SQLite extension callbacks such as `sqliteCreateFunction()`, aggregates, and

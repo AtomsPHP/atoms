@@ -1,6 +1,6 @@
 # PDO compatibility for the Atoms Cloudflare runtime
 
-**Generated — do not edit by hand.** Produced by `cloudflare/worker/scripts/gen-pdo-matrix.mjs` from a conformance run's differential report; conformance check 30 fails if this file and a fresh run disagree. Measured on php-wasm PHP 8.3.32, 8.4.23, 8.5.8, against `ctx.storage.sql`, with a native in-guest `pdo_sqlite` connection as the comparator.
+**Generated — do not edit by hand.** Produced by `cloudflare/worker/scripts/gen-pdo-matrix.mjs` from a conformance run's differential report; conformance check 30 fails if this file and a fresh run disagree. Measured on php-wasm PHP 8.3.32, 8.4.28, 8.5.13, against `ctx.storage.sql`, with a native in-guest `pdo_sqlite` connection as the comparator.
 
 ## How to read this
 

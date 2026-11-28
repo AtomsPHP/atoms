@@ -224,15 +224,10 @@ try {
 	assert.ok(!existsSync(join(target, 'test', 'http-worker.js')));
 	assert.ok(!emittedBundle.includes('SqliteDatabase.php'), 'scaffolded bundle must omit Sqlite/SqliteDatabase.php');
 
-	// The scaffolded worker must actually build. Asserting that a list of paths
-	// exists cannot catch a module that is imported by shipped code but was
-	// never packaged — that is how a package whose every `wrangler dev` died at
-	// "Could not resolve ./derive.js" shipped green. Bundle the real scaffold
-	// with the same tool wrangler uses and fail on any unresolved import.
-	const esbuild = join(workerRoot, 'node_modules', '.bin', 'esbuild');
-	assert.ok(existsSync(esbuild), 'the resolution gate needs esbuild: run `npm ci` in cloudflare/worker');
-	// Use the dependencies already installed by CI. Run the scaffold's own staging
-	// and bundling scripts, then inspect the module graph Wrangler will receive.
+	// Run Wrangler against the installed template. Its graph includes bundled npm
+	// dependencies and its dry-run directory holds the exact Wasm it would upload.
+	const wrangler = join(workerRoot, 'node_modules', '.bin', 'wrangler');
+	const pins = JSON.parse(readFileSync(join(target, 'release/interpreters.json'), 'utf8'));
 	symlinkSync(join(workerRoot, 'node_modules'), join(target, 'node_modules'), 'dir');
 	const superseded = join(target, '.php-wasm', '8_3_31');
 	mkdirSync(superseded, { recursive: true });
@@ -244,20 +239,23 @@ try {
 		const manifest = { ...baseManifest, toolchain: { ...baseManifest.toolchain, php } };
 		writeFileSync(manifestPath, JSON.stringify(manifest));
 		run('node', [join(target, 'scripts', 'bundle-from-cli.mjs'), bundle, manifestPath, workerBundle]);
-		run(esbuild, [
-			join(target, 'src', 'index.js'),
-			'--bundle',
-			'--format=esm',
-			'--platform=neutral',
-			'--packages=external',
-			'--loader:.wasm=file',
-			`--metafile=${metafile}`,
-			`--outfile=${join(temporaryRoot, 'resolution-check.js')}`,
-		]);
-		const { inputs } = JSON.parse(readFileSync(metafile, 'utf8'));
-		const wasm = Object.keys(inputs).filter(path => path.endsWith('.wasm'));
+		const outdir = join(temporaryRoot, 'dry-run-' + php);
+		run(wrangler, ['deploy', '--dry-run', '--outdir', outdir, '--metafile', metafile], {
+			cwd: target, env: { ...process.env, CI: 'true', WRANGLER_SEND_METRICS: 'false' },
+		});
+		const { inputs, outputs } = JSON.parse(readFileSync(metafile, 'utf8'));
+		const forbidden = /@php-wasm\/|@wp-playground\/|wordpress-playground/i;
+		for (const [file, info] of Object.entries({ ...inputs, ...outputs })) {
+			assert.doesNotMatch(file, forbidden);
+			for (const dependency of info.imports) assert.doesNotMatch(dependency.path, forbidden);
+		}
+		const wasm = readdirSync(outdir).filter(name => name.endsWith('.wasm'));
 		assert.equal(wasm.length, 1, `PHP ${php} must bundle one interpreter: ${wasm.join(', ')}`);
-		assert.ok(wasm[0].endsWith(`/php_${php.replace('.', '_')}.wasm`), `PHP ${php} linked ${wasm[0]}`);
+		const refs = Object.values(outputs).flatMap(output => output.imports)
+			.filter(dependency => dependency.path.endsWith('.wasm')).map(dependency => dependency.path);
+		assert.deepEqual(refs, ['./' + wasm[0]]);
+		assert.ok(wasm[0].endsWith('-' + pins[php].wasm.path), `PHP ${php} linked ${wasm[0]}`);
+		assert.equal(createHash('sha256').update(readFileSync(join(outdir, wasm[0]))).digest('hex'), pins[php].wasm.sha256);
 	}
 
 	const workingBundle = readFileSync(workerBundle, 'utf8');

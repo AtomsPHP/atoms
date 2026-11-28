@@ -14,7 +14,7 @@ signed callback channel to the monolith; WebSockets (`onConnect`/`onMessage`/
 fixture app; a local conformance suite against `wrangler dev`; a real deploy +
 remote smoke.
 
-Out of scope: an owned php-wasm build and a native `pdo_atoms`. The `atoms`
+The native `pdo_atoms` driver and the managed PDO adapter both use the active Atom database. The `atoms`
 CLI and the deploy Action are specified in `docs/cloudflare-toolchain.md`,
 not here. `AtomsPDO`/`AtomsStatement` throw a typed `AtomsNotSupported`
 PDO-style exception for the unsupported corners of the PDO surface documented
@@ -24,22 +24,25 @@ never silent no-ops.
 
 ## Runtime artifact
 
-The Worker supports the WordPress Playground 3.1.48 Asyncify builds of
-PHP 8.3.32, 8.4.23 and 8.5.8, all with 64-bit integers. The project's
-`atoms.json` selects the PHP minor and defaults to 8.3. The bundle bridge
-uses the build manifest's `toolchain.php` to import that guest. Each deployed
-Worker contains one interpreter.
+Atoms builds PHP 8.3.32, 8.4.28 and 8.5.13 with 64-bit integers, Asyncify
+and OpenSSL 3.5.9. The top-level `php` in `atoms.json` selects the project's
+minor and defaults to 8.3. The CLI can validate and build against its measured
+guest inventories before a Worker directory exists.
 
-`npm ci` installs the pinned `@php-wasm/web-8-3`, `web-8-4` and `web-8-5`
-packages. `worker/scripts/prepare-runtime.mjs` verifies the upstream sizes
-and SHA-256 digests of each Wasm and JavaScript pair before staging it in the
-gitignored `worker/.php-wasm/` and adding `Module['Asyncify'] = Asyncify;`
-to the glue.
-JSPI is not shipped — the transaction seam
-requires synchronous guest re-entry, which only Asyncify provides. Boot uses
-`@php-wasm/universal`'s `loadPHPRuntime` with an `instantiateWasm` hook that
-(a) hands Wrangler's precompiled wasm module to Emscripten and (b) replaces the
-`env.__asyncjs__js_module_onMessage` import with the tagged dispatcher below.
+The scaffold's registry lock pins `@atomsphp/php-wasm-8-3`,
+`@atomsphp/php-wasm-8-4` and `@atomsphp/php-wasm-8-5`. Installation verifies
+the package identity and both file sizes and SHA-256 digests for every
+minor before replacing the staged loader entries. Each entry points to
+one content-addressed Wasm and glue pair. The bundle bridge reads
+`toolchain.php` and emits a static import for that minor. A deploy contains
+one Wasm module. The compiler exports Asyncify for synchronous guest re-entry
+in a Durable Object transaction.
+
+The Atoms loader passes Wrangler’s precompiled module to the Emscripten factory,
+mounts the bundle in MEMFS and starts the upstream PHP embed SAPI. The Rust
+bridge sends a tagged message through the `env.atoms_send` import. PHP reads
+the completed reply from its per-instance device. Each parked callback belongs
+to the PHP generation that created it.
 
 ## PHP↔JS protocol
 
@@ -52,7 +55,7 @@ One wasm import, dispatched on the first byte of the message string:
 - `'~'` **park**: JS receives the message plus a `reply(str)` callback that
   resumes the guest *synchronously from whatever JS stack frame calls it*.
   Used for the turn loop and transactions.
-- anything else: stock php-wasm behavior (unused by us).
+- The host rejects any other tag.
 
 Guest-side helpers (in the `Atoms\Cf\` runtime, not customer-visible):
 `\Atoms\Cf\host_sync(array $req): array` and
@@ -740,7 +743,7 @@ cloudflare/worker/
     counter/        # fixture "customer app": manifest.json + Atom classes
                     #   + migrations (Counter, Vault, Room, Scheduler,
                     #   Jobs/Notify)
-  .php-wasm/        # Playground Asyncify loaders and Wasm (staged by
+  .php-wasm/        # Atoms Asyncify loaders and Wasm (staged by
                     #   scripts/prepare-runtime.mjs, gitignored, never committed)
   scripts/          # build-bundle.mjs (assemble fixtures into the gitignored
                     #   src/bundle.generated.js), dev-with-callback.mjs
@@ -1149,6 +1152,48 @@ can interrupt in-flight events; it does not undo committed SQLite writes.
   carrier-database answer. The dummy carrier connection (`sqlite::memory:`)
   exists only to satisfy the `\PDO` constructor.
 
+### Native PDO driver
+
+Each shipping interpreter registers `atoms:` with PDO. A connection opened
+during `onActivation()` or a dispatched turn uses that Atom's existing
+`SqlBridge`. The DSN takes no target or credentials. Persistent connections
+are refused. A library may keep its PDO connection and prepared statements on
+the Atom and use them again on a later request to that same warm Atom. The
+connection belongs to that Atom for the lifetime of its interpreter. Eviction
+or destruction ends that lifetime.
+
+Every activation or turn closes its open result sets before the guest waits
+for another event. The driver discards unread rows and keeps the prepared
+statement's column descriptions available to PDO. The application must
+execute the statement again to read more rows. A `PDO::FETCH_LAZY` row is
+a view of its statement. It loses access to the old result and can show a
+new row when the application executes the statement again and fetches from it.
+
+Prepared values go through the same named-parameter rewrite and integer
+encoding as `db()->query()`. SQL uses `!sql.exec`. When SQLite rejects a
+query or write, the connection or statement that ran it records the SQLSTATE
+and driver details. In silent mode the operation returns `false`. Warning
+mode also emits a PHP warning. Exception mode throws a `PDOException`.
+Executing a statement outside its Atom turn or with missing or unused
+placeholder bindings raises an exception in every mode. The driver supports bound values.
+`PDO::quote()` returns a SQLite string literal, doubling each apostrophe and
+preserving the other bytes, including UTF-8. Its optional parameter type
+does not change the literal. A string containing NUL raises `PDOException`.
+A successful quote clears the previous connection error. Result columns
+need distinct names because the SQL bridge returns each row
+as a map keyed by column name.
+
+Transaction boundaries use `~tx.begin`, `~tx.commit` and `~tx.rollback`.
+While a transaction is open, Atom database reads observe its pending writes
+and the callback guard is active. Only the opening connection can commit or
+roll back through PDO. Destroying that connection rolls back its transaction.
+The runtime also settles an open transaction at the end of the window.
+
+The PHP 8.3, 8.4 and 8.5 packages compile this driver as a static extension.
+For the compiler inputs and the local workerd test, see the
+[build recipe](../php-wasm-build/README.md) and the
+[PDO and Yii fixture](../worker/test/pdo-atoms/README.md).
+
 ### PHP-side `app()` and `dispatch()`
 
 `CfAtomContext::app()` returns a lazily-built `CallbackAppProxy`
@@ -1515,7 +1560,7 @@ implemented in `src/timers.js`'s `TimersHost`.
 
 `scripts/build-bundle.mjs` walks a fixture app directory and emits the
 gitignored, build-generated `src/bundle.generated.js`: `export default {asyncifyLoader, manifest, files}`
-where `asyncifyLoader` is the statically imported Playground loader,
+where `asyncifyLoader` is the statically imported Atoms loader,
 `files` maps guest paths (`/app/...`, `/atoms/...`) to file contents, and
 `manifest` is `{"atoms":{"Counter":{"class":"App\\Atoms\\Counter","file":"/app/Counter.php",
 "migrations":["/app/migrations/001_init.sql", ...]}}, "abi":{"php":"8.3"}}`.

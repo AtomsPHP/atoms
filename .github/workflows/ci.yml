@@ -9,9 +9,12 @@ permissions:
   contents: read
 
 jobs:
+  interpreters:
+    uses: ./.github/workflows/php-wasm-build.yml
+
   php-embed:
-    name: PHP ${{ matrix.php }} embed in workerd
-    needs: frozen-controls
+    name: PHP ${{ matrix.php }} release package in workerd
+    needs: [interpreters, frozen-controls]
     runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
@@ -24,14 +27,20 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Fetch the locked compiler and sources
+      - uses: actions/download-artifact@v4
+        with:
+          name: interpreter-${{ matrix.php }}
+          path: ${{ runner.temp }}/packed
+      - uses: actions/download-artifact@v4
+        with:
+          name: frozen-interpreter-${{ matrix.php }}
+          path: ${{ runner.temp }}/control
+      - name: Select the Wasm and glue from the release tarball
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends "$(jq -r .libclang.package "$RECIPE/tools.lock.json")"
-          docker pull "$(jq -r .builder "$RECIPE/../compiler.lock.json")"
-          python3 "$RECIPE/build.py" fetch "$RUNNER_TEMP/inputs" --php "$SERIES"
-      - name: Build the upstream PHP embed offline
-        run: python3 "$RECIPE/build.py" build "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/embed" --php "$SERIES" --jobs "$(nproc)"
+          mkdir -p "$RUNNER_TEMP/embed/package"
+          tar -xzf "$RUNNER_TEMP/packed/"*.tgz --strip-components=1 -C "$RUNNER_TEMP/embed/package"
+          ln -s "package/$(jq -r .glue.path "$RUNNER_TEMP/packed/interpreter.json")" "$RUNNER_TEMP/embed/php.mjs"
+          ln -s "package/$(jq -r .wasm.path "$RUNNER_TEMP/packed/interpreter.json")" "$RUNNER_TEMP/embed/php.wasm"
       - name: Fetch workerd from the Worker lockfile
         working-directory: ${{ runner.temp }}
         run: |
@@ -47,28 +56,8 @@ jobs:
           python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --php "$SERIES" --workerd "$RUNNER_TEMP/package/bin/workerd" --pdo-cleanup
 
           python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --php "$SERIES" --workerd "$RUNNER_TEMP/package/bin/workerd" --inventory "$RUNNER_TEMP/embed/inventory.json"
-      - uses: actions/download-artifact@v4
-        with:
-          name: frozen-interpreter-${{ matrix.php }}
-          path: ${{ runner.temp }}/control
-      - name: Compare the guest inventory with the frozen interpreter
-        run: python3 "$RECIPE/test/compare-inventory.py" "$RUNNER_TEMP/control/guest-capabilities.json" "$RUNNER_TEMP/embed/inventory.json"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.5'
-          extensions: pdo_sqlite, sodium, curl
-          coverage: none
-      - name: Run native PDO through the Worker scaffold
-        run: |
-          composer install --no-interaction --no-progress
-          npm ci --prefix cloudflare/worker
-          npm run package:runtime --prefix cloudflare/worker
-          npm exec --yes --package="$(realpath cloudflare/worker/dist/*.tgz)" -- atoms-runtime-cloudflare init "$RUNNER_TEMP/worker"
-          npm ci --prefix "$RUNNER_TEMP/worker"
-          node cloudflare/worker/test/pdo-atoms/run.mjs --embed "$RUNNER_TEMP/embed" --php "$SERIES" "$RUNNER_TEMP/worker"
+          python3 "$RECIPE/test/compare-inventory.py" "$RUNNER_TEMP/control/guest-capabilities.json" "$RUNNER_TEMP/embed/inventory.json"
+          diff -u <(jq -S . "$RUNNER_TEMP/packed/guest-capabilities.json") <(jq -S . "$RUNNER_TEMP/embed/inventory.json")
 
   frozen-controls:
     name: Frozen PHP ${{ matrix.php }} control at 321a2906
@@ -151,6 +140,7 @@ jobs:
           ] | "worker-versions=\(tojson)"' release/manifest.json >> "$GITHUB_OUTPUT"
 
   tests:
+    needs: interpreters
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -230,6 +220,7 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: cloudflare/worker/package-lock.json
+      - uses: ./.github/actions/seed-interpreters
       - name: Install local Worker dependencies for smoke tests
         working-directory: cloudflare/worker
         run: npm ci
@@ -413,7 +404,7 @@ jobs:
   # "work"; if it stops working, something in the worker broke.
   worker:
     runs-on: ubuntu-latest
-    needs: release-metadata
+    needs: [release-metadata, interpreters, php-embed]
     strategy:
       fail-fast: false
       matrix:
@@ -422,7 +413,7 @@ jobs:
     # is minutes, not seconds, and the job restarts the Worker several times (one
     # per configuration). Twelve minutes leaves room for a slow runner while still
     # failing a wedged `wrangler dev` instead of burning an hour on it.
-    timeout-minutes: 12
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: cloudflare/worker
@@ -483,6 +474,8 @@ jobs:
           php-version: '8.3'
           coverage: none
 
+      - uses: ./.github/actions/seed-interpreters
+
       - name: Install worker dependencies
         run: npm ci
 
@@ -492,29 +485,16 @@ jobs:
       - name: Run Worker unit tests
         run: node --test test/*.test.mjs
 
-      # The PHP runtime is fetched from npm and staged into .php-wasm/ rather
-      # than committed, so a clean checkout has no interpreter until this runs.
-      # The `prepare` lifecycle hook is `--if-installed` gated (it has to be, so
-      # that `npm install --package-lock-only` does not explode), which means it
-      # can legitimately skip; invoking the ungated script here makes staging
-      # unconditional and loud.
-      #
-      # prepare-runtime.mjs also verifies the size and SHA-256 of the upstream
-      # wasm and glue against the pinned values, and locates the Asyncify patch
-      # anchor. That check is a large part of why this job exists: it is the
-      # only automatic detector for an interpreter being swapped underneath us
-      # or for the patch site moving upstream. Never pass a flag that softens
-      # or skips it — a mismatch here is a real finding, not CI noise.
-      - name: Stage the pinned php-wasm runtime
-        run: npm run prepare-runtime
-
       - name: Check CLI runtime inventory against the Worker
         run: node scripts/gen-runtime-functions.mjs --check
 
-      - name: Bundle the fixture for the selected PHP interpreter
-        run: npm run bundle -- fixtures/counter src/bundle.generated.js "$ATOMS_TEST_GUEST_PHP"
+      - name: Install the public scaffold and conformance fixture
+        run: |
+          npm run package:runtime
+          bash ../php-wasm-build/install-conformance.sh dist/*.tgz "$GITHUB_WORKSPACE/installed/worker" "$ATOMS_TEST_GUEST_PHP"
 
       - name: Exercise outbound HTTP against a loopback responder
+        working-directory: installed/worker
         run: node test/http-conformance.mjs
 
       # One root per run for the whole app <-> Worker boundary
@@ -554,6 +534,7 @@ jobs:
       # conformance-worker action.
       # No Cloudflare account, token or network involved in either path.
       - name: Start wrangler dev
+        working-directory: installed/worker
         env:
           ATOMS_SHARED_SECRET: ${{ env.RUN_SECRET }}
           ATOMS_BEARER_AUTH: disabled
@@ -573,6 +554,7 @@ jobs:
       # opens, and without it the job would sit here until the timeout instead
       # of reporting the real error.
       - name: Wait for the worker to come up
+        working-directory: installed/worker
         run: |
           for i in $(seq 1 60); do
             if curl -fsS "http://127.0.0.1:${WORKER_PORT}/healthz" > /dev/null 2>&1; then
@@ -604,7 +586,8 @@ jobs:
       # increase, so a too-short wait reads as a red build with a confusing
       # message. Pay the twelve seconds.
       - name: Run the conformance suite
-        run: npm test
+        working-directory: installed/worker
+        run: node test/conformance.mjs
         env:
           ATOMS_BASE_URL: http://127.0.0.1:${{ env.WORKER_PORT }}
           ATOMS_SHARED_SECRET: ${{ env.RUN_SECRET }}
@@ -641,6 +624,7 @@ jobs:
         uses: ./.github/actions/conformance-worker
         with:
           name: bearer-required
+          working-directory: installed/worker
           worker-port: ${{ env.WORKER_PORT }}
           vars: |
             ATOMS_SHARED_SECRET=${{ env.RUN_SECRET_NEXT }}
@@ -667,6 +651,7 @@ jobs:
         uses: ./.github/actions/conformance-worker
         with:
           name: misconfigured
+          working-directory: installed/worker
           worker-port: ${{ env.WORKER_PORT }}
           checks: '41'
           suite-env: |
@@ -686,6 +671,7 @@ jobs:
         uses: ./.github/actions/conformance-worker
         with:
           name: malformed-previous
+          working-directory: installed/worker
           worker-port: ${{ env.WORKER_PORT }}
           vars: |
             ATOMS_SHARED_SECRET=${{ env.RUN_SECRET }}
@@ -700,6 +686,7 @@ jobs:
       # on the worker's side of the connection, and the runner is gone after
       # the job ends. Each run names its own log wrangler-<name>.log.
       - name: Wrangler log
+        working-directory: installed/worker
         if: always()
         run: |
           cat wrangler.log || true
@@ -708,3 +695,84 @@ jobs:
             echo "=== $f ==="
             cat "$f"
           done
+
+      - name: Retain the measured PDO comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdo-comparison-node${{ matrix.node }}-php${{ matrix.php }}
+          path: installed/worker/test/results/pdo-matrix.json
+          if-no-files-found: error
+
+  recovery:
+    name: Customer install, upgrade and rollback
+    needs: [interpreters, frozen-controls]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: 02db603b54363e7341056cf14bef9985c5ad2e92
+          path: baseline
+      - uses: actions/checkout@v4
+        with:
+          ref: 321a2906fd7d250edd20fea26a1d14fd7ea77d74
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: frozen-interpreter-*
+          path: ${{ runner.temp }}/controls
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: pdo_sqlite, sodium, curl
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: ./.github/actions/seed-interpreters
+      - run: composer install --no-interaction --no-progress
+      - run: composer install --no-interaction --no-progress
+        working-directory: baseline
+      - run: composer install --no-interaction --no-progress
+        working-directory: control
+      - name: Seed the three verified control packages and pack the frozen scaffold
+        run: |
+          for minor in 8.3 8.4 8.5; do
+            ln -s "$RUNNER_TEMP/controls/frozen-interpreter-$minor" "$RUNNER_TEMP/controls/interpreter-$minor"
+          done
+          node control/cloudflare/php-wasm-build/artifacts.mjs seed "$RUNNER_TEMP/controls"
+          npm run package:runtime --prefix control/cloudflare/worker
+      - name: Get published 0.11.0 and pack the current scaffold
+        run: |
+          spec=$(jq -r '.runtime | "\(.package)@\(.version)"' baseline/release/manifest.json)
+          filename=$(npm pack "$spec" --pack-destination "$RUNNER_TEMP" --silent)
+          echo "BASELINE_SCAFFOLD=$RUNNER_TEMP/$filename" >> "$GITHUB_ENV"
+          npm run package:runtime --prefix cloudflare/worker
+      - name: Install and upgrade from an empty cache with a loopback registry
+        run: |
+          npm ci --prefix cloudflare/worker
+          node cloudflare/php-wasm-build/clean-install.mjs cloudflare/worker/dist/*.tgz "$(npm config get cache)"
+      - name: Rehearse the upgrade and restore the saved application
+        run: |
+          python3 -B cloudflare/php-wasm-build/recovery.py \
+            "$BASELINE_SCAFFOLD" cloudflare/worker/dist/*.tgz \
+            baseline/packages/cli/bin/atoms "$RUNNER_TEMP/recovery/published"
+          python3 -B cloudflare/php-wasm-build/recovery.py --upgrade-only \
+            control/cloudflare/worker/dist/*.tgz cloudflare/worker/dist/*.tgz \
+            control/packages/cli/bin/atoms "$RUNNER_TEMP/recovery/control"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: customer-recovery
+          path: ${{ runner.temp }}/recovery
+
+      - name: Exercise native PDO on each installed guest
+        run: |
+          npm exec --yes --package="$(realpath cloudflare/worker/dist/*.tgz)" -- atoms-runtime-cloudflare init "$RUNNER_TEMP/native-worker"
+          npm ci --prefix "$RUNNER_TEMP/native-worker"
+          node cloudflare/worker/test/pdo-atoms/run.mjs "$RUNNER_TEMP/native-worker" > "$RUNNER_TEMP/native-pdo.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-pdo
+          path: ${{ runner.temp }}/native-pdo.json
+          if-no-files-found: error

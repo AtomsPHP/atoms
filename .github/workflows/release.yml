@@ -22,11 +22,16 @@ permissions:
   actions: read
 
 jobs:
+  interpreters:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/php-wasm-build.yml
+
   preflight:
+    needs: interpreters
+    if: always() && (needs.interpreters.result == 'success' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.manifest.outputs.version }}
-      runtime-package: ${{ steps.manifest.outputs.runtime-package }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,9 +57,7 @@ jobs:
           php scripts/release/release.php check
           version="$(php scripts/release/release.php get version)"
           status="$(php scripts/release/release.php get status)"
-          runtime_package="$(php scripts/release/release.php get runtime.package)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "runtime-package=$runtime_package" >> "$GITHUB_OUTPUT"
 
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
             if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
@@ -76,7 +79,7 @@ jobs:
           fi
 
       - name: Require successful main CI for a tag
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -88,8 +91,8 @@ jobs:
             --commit "$GITHUB_SHA" \
             --status completed \
             --limit 20 \
-            --json conclusion,headSha)"
-          if ! jq -e --arg sha "$GITHUB_SHA" 'any(.[]; .headSha == $sha and .conclusion == "success")' <<< "$runs" > /dev/null; then
+            --json conclusion,headSha,event,headBranch)"
+          if ! jq -e --arg sha "$GITHUB_SHA" 'any(.[]; .headSha == $sha and .event == "push" and .headBranch == "main" and .conclusion == "success")' <<< "$runs" > /dev/null; then
             echo "::error::No successful ci.yml run exists for release commit $GITHUB_SHA."
             exit 1
           fi
@@ -98,27 +101,42 @@ jobs:
         run: php scripts/release/release.php validate-splits
 
       - name: Install PHP dependencies
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         run: composer install --no-interaction --no-progress
 
       - name: Re-run PHP release gates
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         run: |
           composer test
           composer stan
 
+      - uses: ./.github/actions/seed-interpreters
+        if: github.event_name == 'push'
+
       - name: Install Worker dependencies
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         working-directory: cloudflare/worker
         run: npm ci
 
       - name: Verify the public runtime tarball and local scaffold
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         working-directory: cloudflare/worker
-        run: npm run test:package
+        run: |
+          npm run test:package
+          node scripts/pack-runtime.mjs --pack-destination "$RUNNER_TEMP/scaffold"
+          npm exec --yes --package="$RUNNER_TEMP/scaffold/atomsphp-runtime-cloudflare-${{ steps.manifest.outputs.version }}.tgz" -- atoms-runtime-cloudflare init "$RUNNER_TEMP/preflight-worker"
+          npm ci --prefix "$RUNNER_TEMP/preflight-worker" --no-audit --no-fund
+          node ../php-wasm-build/clean-install.mjs "$RUNNER_TEMP/scaffold/"*.tgz "$(npm config get cache)"
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          name: release-scaffold
+          path: ${{ runner.temp }}/scaffold/*.tgz
+          if-no-files-found: error
 
   publish-npm:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push'
     needs: preflight
     runs-on: ubuntu-latest
     environment: release
@@ -133,71 +151,44 @@ jobs:
           node-version: '22'
           registry-url: https://registry.npmjs.org
 
-      # This job holds no npm credential: it authenticates to the registry by
-      # exchanging the job's OIDC token, against the trusted publisher
-      # configured on the package (this repository, this workflow file, the
-      # `release` environment). npm only takes that path from 11.5.1, and the
-      # npm bundled with Node 22 is older, so upgrade before publishing and
-      # assert the floor — a too-old npm would otherwise fall through to an
-      # anonymous publish and fail as a misleading registry 404.
-      - name: Upgrade npm to a version that speaks OIDC
-        shell: bash
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: interpreter-*
+          path: ${{ runner.temp }}/interpreters
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-scaffold
+          path: ${{ runner.temp }}/scaffold
+
+      # Use npm 11 for OIDC publication and the Node 22 bundled npm 10 for
+      # the registry-backed customer install.
+      - name: Install the trusted publishing client
         run: |
-          set -euo pipefail
-          npm install -g npm@latest
-          npm --version
-          node -e '
-            const [major, minor, patch] = process.argv[1].split(".").map(Number);
-            const ok = major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1)));
-            if (!ok) {
-              console.error(`::error::npm ${process.argv[1]} predates trusted publishing; 11.5.1+ is required.`);
-              process.exit(1);
-            }
-          ' "$(npm --version)"
+          [[ "$(npm --version)" == 10.* ]]
+          npm install --prefix "$RUNNER_TEMP/publisher" --no-save --ignore-scripts npm@11.19.0
+          echo "PUBLISH_NPM=$RUNNER_TEMP/publisher/node_modules/.bin/npm" >> "$GITHUB_ENV"
+          echo "SCAFFOLD=$RUNNER_TEMP/scaffold/atomsphp-runtime-cloudflare-${{ needs.preflight.outputs.version }}.tgz" >> "$GITHUB_ENV"
 
-      - id: registry
-        name: Check whether npm version is already published
+      - name: Publish and verify the three qualified interpreter tarballs
         env:
-          PACKAGE_NAME: ${{ needs.preflight.outputs.runtime-package }}
-          PACKAGE_VERSION: ${{ needs.preflight.outputs.version }}
-        shell: bash
+          npm_config_tag: runtime
+        run: node cloudflare/php-wasm-build/artifacts.mjs publish-interpreters "$RUNNER_TEMP/interpreters" "$SCAFFOLD"
+
+      - name: Install the scaffold from an empty npm cache and boot every registry-backed interpreter
+        env:
+          npm_config_cache: ${{ runner.temp }}/registry-cache
         run: |
-          set -euo pipefail
-          encoded_package="${PACKAGE_NAME/@/%40}"
-          encoded_package="${encoded_package/\//%2F}"
-          if ! status="$(curl --silent --show-error --output "$RUNNER_TEMP/npm-version.json" --write-out '%{http_code}' \
-            "https://registry.npmjs.org/${encoded_package}/${PACKAGE_VERSION}")"; then
-            echo "::error::Could not query the npm registry."
-            exit 1
-          fi
-          case "$status" in
-            200)
-              echo "publish=false" >> "$GITHUB_OUTPUT"
-              echo "$PACKAGE_NAME@$PACKAGE_VERSION is already published; skipping immutable npm version."
-              ;;
-            404)
-              echo "publish=true" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "::error::npm registry returned HTTP $status."
-              cat "$RUNNER_TEMP/npm-version.json"
-              exit 1
-              ;;
-          esac
+          npm exec --yes --package="$SCAFFOLD" -- atoms-runtime-cloudflare init "$RUNNER_TEMP/worker"
+          npm ci --prefix "$RUNNER_TEMP/worker" --no-audit --no-fund
+          for series in $(jq -r '.runtime.guest_php_tested[]' release/manifest.json); do
+            pin="cloudflare/php-wasm-build/targets/$series/candidate.json"
+            node cloudflare/php-wasm-build/inspect.mjs "$RUNNER_TEMP/worker" \
+              "$RUNNER_TEMP/worker/.php-wasm/$(jq -r .glue.path "$pin")" \
+              "$(jq -r '.version | split("-")[0]' "$pin")" > "$RUNNER_TEMP/guest-$series.json"
+          done
 
-      - name: Build the allowlisted runtime tarball
-        if: steps.registry.outputs.publish == 'true'
-        working-directory: cloudflare/worker
-        run: npm run package:runtime
-
-      # No `--provenance`: under trusted publishing npm attests by default, and
-      # no NODE_AUTH_TOKEN, because there is no longer a token to carry.
-      - name: Publish the runtime package
-        if: steps.registry.outputs.publish == 'true'
-        working-directory: cloudflare/worker
-        env:
-          PACKAGE_VERSION: ${{ needs.preflight.outputs.version }}
-        run: npm publish "./dist/atomsphp-runtime-cloudflare-${PACKAGE_VERSION}.tgz" --access public
+      - name: Publish the tested scaffold tarball
+        run: node cloudflare/php-wasm-build/artifacts.mjs publish-scaffold "$SCAFFOLD"
 
   sync-mirrors:
     if: >-
@@ -252,7 +243,7 @@ jobs:
           done
 
   github-release:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push'
     needs:
       - preflight
       - publish-npm

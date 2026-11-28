@@ -42,6 +42,17 @@ The top-level `php` field in `atoms.json` selects the interpreter for all Atoms
 in the project. Its default is `"8.3"`. Atom classes, Support
 code, bundled shared code, migrations and dependencies run on that interpreter.
 
+The scaffold installs Atoms-built interpreters for all three minors. A build
+includes the interpreter selected by the manifest. The CLI includes a measured
+extension, class and function inventory for each minor, so you can validate and
+build before installing a Worker scaffold.
+
+The interpreters use OpenSSL 3.5.9. Code using `OPENSSL_SSLV23_PADDING` raises
+an undefined-constant error. Passing its former value `2` to
+`openssl_public_encrypt()` or `openssl_private_decrypt()` returns `false`.
+Update both ends of any protocol that uses this padding and retain a compatible
+reader for existing ciphertext before upgrading.
+
 PHPStan uses its own configured PHP version for every file in an analysis.
 Run `vendor/bin/atoms validate` to check guest syntax, built-ins and extensions
 at the selected Worker version, and PHPStan to check types and boundary rules.
@@ -63,7 +74,7 @@ PHP 8.5 also includes `lexbor`, `uri`.
 Composer includes `core` and `standard` in the `php` package. To require
 `zend opcache`, use `ext-zend-opcache`.
 
-Some extensions compiled into upstream `php-wasm` are restricted by the
+Some extensions compiled into the Atoms interpreter are restricted by the
 Cloudflare Workers WebAssembly sandbox:
 
 - **SQLite (`pdo`, `pdo_sqlite`, `sqlite3`)**: For persistent SQLite data, use
