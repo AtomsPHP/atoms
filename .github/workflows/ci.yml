@@ -12,6 +12,35 @@ jobs:
   interpreters:
     uses: ./.github/workflows/php-wasm-build.yml
 
+  php-embed:
+    name: PHP 8.3 embed in workerd
+    runs-on: ubuntu-26.04
+    env:
+      RECIPE: cloudflare/php-wasm-build/rust
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fetch the locked compiler and sources
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "$(jq -r .libclang.package "$RECIPE/tools.lock.json")"
+          docker pull "$(jq -r .builder "$RECIPE/../compiler.lock.json")"
+          python3 "$RECIPE/build.py" fetch "$RUNNER_TEMP/inputs"
+      - name: Build the upstream PHP embed offline
+        run: python3 "$RECIPE/build.py" build "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/embed" --jobs "$(nproc)"
+      - name: Fetch workerd from the Worker lockfile
+        working-directory: ${{ runner.temp }}
+        run: |
+          entry=$(jq -ce '.packages["node_modules/@cloudflare/workerd-linux-64"]' "$GITHUB_WORKSPACE/cloudflare/worker/package-lock.json")
+          curl --fail --location --retry 3 "$(jq -r .resolved <<< "$entry")" --output workerd.tgz
+          test "sha512-$(openssl dgst -sha512 -binary workerd.tgz | openssl base64 -A)" = "$(jq -r .integrity <<< "$entry")"
+          tar -xzf workerd.tgz package/bin/workerd
+      - name: Exercise the ABI, extensions, transactions and fatal recovery
+        run: |
+          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd"
+          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd" --turns
+
   release-metadata:
     runs-on: ubuntu-latest
     outputs:
