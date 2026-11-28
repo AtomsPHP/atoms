@@ -1,0 +1,6 @@
+--- a/ext/opcache/config.m4
++++ b/ext/opcache/config.m4
+@@ -326 +326,2 @@
+-  if test "$have_shm_ipc" != "yes" && test "$have_shm_mmap_posix" != "yes" && test "$have_shm_mmap_anon" != "yes"; then
++  dnl The Emscripten embed uses the file cache and has no shared memory allocator.
++  if test "$host_os" != emscripten && test "$have_shm_ipc" != "yes" && test "$have_shm_mmap_posix" != "yes" && test "$have_shm_mmap_anon" != "yes"; then

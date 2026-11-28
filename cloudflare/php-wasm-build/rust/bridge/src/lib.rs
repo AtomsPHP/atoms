@@ -6,6 +6,9 @@ mod php {
 }
 
 mod heap;
+mod stack;
+mod process_title;
+mod crypto;
 
 use core::mem::{size_of, zeroed};
 use core::ptr::{addr_of, addr_of_mut};
@@ -26,6 +29,7 @@ static mut FUNCTIONS: [php::zend_function_entry; 3] = unsafe { zeroed() };
 static mut ARG_INFO: [php::zend_internal_arg_info; 2] = unsafe { zeroed() };
 
 extern "C" {
+    fn atoms_register_opcache(module_type: i32, module_number: i32) -> i32;
     fn atoms_startup(sapi: *mut php::sapi_module_struct) -> i32;
     fn atoms_roundtrip_i64(value: i64) -> i64;
     fn atoms_send(ptr: *const u8, len: usize) -> i32;
@@ -65,6 +69,15 @@ unsafe extern "C" fn exchange_length(frame: *mut php::zend_execute_data, result:
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn atoms_use_php_ini(sapi: *mut php::sapi_module_struct) {
+    // php_embed_init assigns its CLI defaults after sapi_startup. Let the
+    // packaged configuration supply the Worker settings at module startup.
+    process_title::register(sapi);
+    (*sapi).ini_entries = core::ptr::null();
+    (*sapi).php_ini_path_override = c"/internal/shared/php.ini".as_ptr().cast_mut();
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn atoms_prepare() -> *mut php::zend_module_entry {
     ARG_INFO[0].name = 1usize as *const _; // Zend encodes required_num_args here.
     ARG_INFO[1].name = c"value".as_ptr();
@@ -83,6 +96,8 @@ pub unsafe extern "C" fn atoms_prepare() -> *mut php::zend_module_entry {
     MODULE.name = c"atoms_bridge".as_ptr();
     MODULE.version = c"0.1.0".as_ptr();
     MODULE.build_id = concat!(env!("ATOMS_PHP_BUILD_ID"), "\0").as_ptr().cast();
+    MODULE.module_startup_func = Some(atoms_register_opcache);
+    MODULE.module_shutdown_func = Some(crypto::unload_provider);
     MODULE.functions = addr_of!(FUNCTIONS).cast();
 
     php::php_embed_module.name = c"wasm".as_ptr().cast_mut();
@@ -96,5 +111,14 @@ static mut SCRIPT: php::zend_file_handle = unsafe { zeroed() };
 
 #[no_mangle]
 pub extern "C" fn atoms_script_handle() -> *mut php::zend_file_handle {
-    addr_of_mut!(SCRIPT)
+    if stack::ready() {
+        addr_of_mut!(SCRIPT)
+    } else {
+        core::ptr::null_mut()
+    }
 }
+
+// libgd has no font cache in the locked build without FreeType. PHP still
+// invokes its cleanup at request shutdown through its GD extension.
+#[no_mangle]
+pub extern "C" fn atoms_gd_font_cache_shutdown() {}
