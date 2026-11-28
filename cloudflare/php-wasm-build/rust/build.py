@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch verified inputs, or cross-build the private PHP 8.3 embed probe offline."""
+"""Fetch verified inputs, or cross-build the selected PHP embed offline."""
 import argparse
 import ast
 import hashlib
@@ -15,10 +15,17 @@ RECIPE = Path(__file__).resolve().parent
 COMPILER = json.loads((RECIPE.parent / 'compiler.lock.json').read_text())
 TOOLS = json.loads((RECIPE / 'tools.lock.json').read_text())
 LIBRARIES = json.loads((RECIPE.parent / 'libraries.lock.json').read_text())
-PHP_INPUTS = [entry for entry in COMPILER['downloads']
-              if entry['file'] == 'php.tar.gz' or entry['file'].startswith('debs/')]
-LIBRARY_INPUTS = [dict(entry, file='libraries/' + entry['file']) for entry in LIBRARIES]
-INPUTS = PHP_INPUTS + TOOLS['downloads'] + LIBRARY_INPUTS
+PHP = json.loads((RECIPE / 'php-sources.json').read_text())
+COMMON_INPUTS = [item for item in COMPILER['downloads'] if item['file'].startswith('debs/')]
+COMMON_INPUTS += TOOLS['downloads']
+COMMON_INPUTS += [dict(item, file='libraries/' + item['file']) for item in LIBRARIES]
+
+
+def php_input(minor):
+    target = PHP[minor]
+    return {'file': f'php-{target["version"]}.tar.gz',
+            'source': f'https://codeload.github.com/php/php-src/tar.gz/{target["commit"]}',
+            'sha256': target['sha256']}
 
 
 def verify(path, sha):
@@ -27,8 +34,8 @@ def verify(path, sha):
             raise ValueError(f'SHA-256 mismatch for {path}')
 
 
-def fetch(cache):
-    for item in INPUTS:
+def fetch(cache, minor):
+    for item in [php_input(minor), *COMMON_INPUTS]:
         path = cache / item['file']
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
@@ -53,8 +60,9 @@ def unpack(path, dest):
     run('tar', '-xf', path, '--no-same-owner', '--strip-components=1', '-C', dest)
 
 
-def build(cache, work, libclang, jobs):
-    for item in INPUTS:
+def build(cache, work, libclang, jobs, minor):
+    source = php_input(minor)
+    for item in [source, *COMMON_INPUTS]:
         verify(cache / item['file'], item['sha256'])
     work.mkdir(parents=True, exist_ok=False)
     tools = work / 'tools'
@@ -78,7 +86,7 @@ def build(cache, work, libclang, jobs):
     (context / 'recipe').mkdir()
     for name in ['build-libraries.sh', 'libraries.py', 'libraries.lock.json']:
         shutil.copy2(RECIPE.parent / name, context / 'recipe' / name)
-    for item in INPUTS:
+    for item in COMMON_INPUTS:
         if item['file'].startswith(('debs/', 'libraries/')):
             shutil.copyfile(cache / item['file'], context / item['file'])
     image_id = work / 'image-id'
@@ -90,9 +98,13 @@ def build(cache, work, libclang, jobs):
     container = ['docker', 'run', '--rm', '--network=none', '--cap-drop=ALL',
                  '--security-opt=no-new-privileges', '--user', f'{os.getuid()}:{os.getgid()}',
                  '-v', f'{work}:/build', '-v', f'{RECIPE}:/recipe:ro', '-w', '/build/php',
-                 '-e', f'BUILD_JOBS={jobs}', image_id.read_text().strip()]
-    unpack(cache / 'php.tar.gz', work / 'php')
+                 '-e', f'BUILD_JOBS={jobs}', '-e', f'PHP_SERIES={minor}', image_id.read_text().strip()]
+    unpack(cache / source['file'], work / 'php')
     run(*container, 'bash', '/recipe/configure.sh')
+    version = PHP[minor]['version']
+    header = (work / 'php/main/php_version.h').read_text().splitlines()
+    if f'#define PHP_VERSION "{version}"' not in header:
+        raise ValueError(f'Configured headers do not match the selected PHP {version}')
     run(*container, 'bash', '-ec', 'mkdir /build/headers; '
         'cp -a /libs/include /build/headers/libs; '
         'cp -a /emsdk/upstream/emscripten/cache/sysroot/include /build/headers/sysroot; '
@@ -111,8 +123,9 @@ def build(cache, work, libclang, jobs):
     expanded = subprocess.check_output(container[:2] + ['-i'] + container[2:] + command,
                                        input='ZEND_MODULE_BUILD_ID\n', text=True)
     env['ATOMS_PHP_BUILD_ID'] = ast.literal_eval(expanded.strip().splitlines()[-1])
+    features = [] if minor == '8.3' else ['--features', 'zend-bool']
     run('cargo', 'build', '--release', '--locked', '--offline', '--target', 'wasm32-unknown-emscripten',
-        '--manifest-path', RECIPE / 'bridge/Cargo.toml', env=env)
+        *features, '--manifest-path', RECIPE / 'bridge/Cargo.toml', env=env)
     run(*container, 'bash', '/recipe/link.sh', '/build/php/libs/libphp.a',
         '/build/target/wasm32-unknown-emscripten/release/libatoms_php_bridge.a',
         '/build/php/.libs/libatoms-opcache.a', '/build/php.mjs')
@@ -121,15 +134,18 @@ def build(cache, work, libclang, jobs):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     cmds = parser.add_subparsers(dest='op', required=True)
-    cmds.add_parser('fetch').add_argument('cache', type=Path)
+    fetch_cmd = cmds.add_parser('fetch')
+    fetch_cmd.add_argument('cache', type=Path)
     compile_cmd = cmds.add_parser('build')
     compile_cmd.add_argument('cache', type=Path)
     compile_cmd.add_argument('work', type=Path, help='a new directory for this build')
     compile_cmd.add_argument('--libclang', type=lambda value: Path(value).resolve(),
                              help='use a local copy of the same verified libclang')
     compile_cmd.add_argument('--jobs', type=int, default=1)
+    for command in [fetch_cmd, compile_cmd]:
+        command.add_argument('--php', choices=PHP, default='8.3', help='guest PHP series (default: 8.3)')
     args = parser.parse_args()
     if args.op == 'fetch':
-        fetch(args.cache)
+        fetch(args.cache, args.php)
     else:
-        build(args.cache.resolve(), args.work.resolve(), args.libclang, args.jobs)
+        build(args.cache.resolve(), args.work.resolve(), args.libclang, args.jobs, args.php)

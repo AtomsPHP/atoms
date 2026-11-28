@@ -88,7 +88,8 @@ unsafe fn prepare(dbh: *mut pdo_dbh_t, stmt: *mut pdo_stmt_t, options: *mut zval
     }
     (*stmt).driver_data = engine::_ecalloc(1, size_of::<Statement>())?;
     (*stmt).methods = addr_of!(STATEMENTS);
-    (*stmt).set_supports_placeholders(php::PDO_PLACEHOLDER_POSITIONAL | php::PDO_PLACEHOLDER_NAMED);
+    let placeholders = php::PDO_PLACEHOLDER_POSITIONAL | php::PDO_PLACEHOLDER_NAMED;
+    (*stmt).set_supports_placeholders(placeholders as _);
     Ok(true)
 }
 struct Binding {
@@ -144,7 +145,7 @@ unsafe fn bind_one(stmt: *mut pdo_stmt_t, args: *mut zval, param: *mut Binding) 
         match (*param).ty {
             php::PDO_PARAM_NULL => scalar(php::IS_NULL, 0),
             php::PDO_PARAM_BOOL => scalar(
-                if engine::zend_is_true(source)? != 0 {
+                if i32::from(engine::zend_is_true(source)?) != 0 {
                     php::IS_TRUE
                 } else {
                     php::IS_FALSE

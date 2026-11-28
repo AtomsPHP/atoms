@@ -14,10 +14,10 @@ import { parseArgs } from 'node:util';
 const here = dirname(fileURLToPath(import.meta.url));
 const worker = resolve(here, '../..');
 const repo = resolve(worker, '../..');
-const {positionals, values} = parseArgs({allowPositionals: true, options: {embed: {type: 'string'}}});
+const {positionals, values} = parseArgs({allowPositionals: true, options: {embed: {type: 'string'}, php: {type: 'string'}}});
 const [scaffoldArg, yiiArg] = positionals;
-if (!values.embed || !scaffoldArg || positionals.length > 2) {
-    throw new Error('Usage: node run.mjs --embed build <installed-scaffold> [yii2-checkout]');
+if (!values.embed || !scaffoldArg || positionals.length > 2 || (values.php && (!values.embed || !['8.3', '8.4', '8.5'].includes(values.php)))) {
+    throw new Error('Usage: node run.mjs --embed build [--php 8.3|8.4|8.5] <installed-scaffold> [yii2-checkout]');
 }
 const embed = values.embed && resolve(values.embed);
 const scaffold = resolve(scaffoldArg);
@@ -269,7 +269,7 @@ async function runWorker(dir, version) {
 
 async function runFixture(selection, cliResource) {
     const minor = selection ?? '8.3';
-    const version = '8.3.32';
+    const version = readJson(join(repo, 'cloudflare/php-wasm-build/rust/php-sources.json'))[minor].version;
     const project = join(scratch, 'project-' + (selection ?? 'default'));
     cpSync(join(here, 'project'), project, { recursive: true });
     for (const file of ['QuoteCases.php', 'CasesWeak.php']) {
@@ -312,7 +312,7 @@ async function runFixture(selection, cliResource) {
 
 try {
     const cliResource = yii && prepareYii();
-    const results = [await runFixture('8.3', cliResource)];
+    const results = [await runFixture(values.php ?? '8.3', cliResource)];
     console.log(JSON.stringify(results, null, 2));
 } finally {
     rmSync(scratch, { recursive: true, force: true });

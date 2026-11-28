@@ -3,15 +3,22 @@ set -eu
 
 php_archive=$1
 bridge_archive=$2
-opcache_archive=$3
+opcache=("$3")
 output=$4
 recipe=$(cd "$(dirname "$0")" && pwd)
-emcc -O2 -g1 --no-entry "$bridge_archive" "$php_archive" "$opcache_archive" /build/php/atoms-process-title.a \
+ini="$recipe/php.ini"
+if [[ ${PHP_SERIES:-8.3} == 8.5 ]]; then
+    opcache=()
+    # The 8.5 control disables PHP's deprecated request-query argv fallback.
+    ini="$(dirname "$output")/php.ini"
+    sed 's/^register_argc_argv=On$/register_argc_argv=0/' "$recipe/php.ini" > "$ini"
+fi
+emcc -O2 -g1 --no-entry "$bridge_archive" "$php_archive" "${opcache[@]}" /build/php/atoms-process-title.a \
     -L/libs/lib -lxml2 -liconv -lssl -lcrypto -lonig -lgd -lavif -laom -ljpeg -lwebp \
     -lsharpyuv -lpng16 -lzip -lcurl -lsqlite3 -lz -lc++ \
     -Wl,--export-table -Wl,--wrap=zend_call_stack_get -Wl,--wrap=start_memory_manager -Wl,--wrap=shutdown_memory_manager \
     --js-library "$recipe/bridge-imports.js" --js-library "$recipe/pdo-imports.js" \
-    --embed-file "$recipe/php.ini@/internal/shared/php.ini" \
+    --embed-file "$ini@/internal/shared/php.ini" \
     --embed-file "$recipe/prepend.php@/internal/shared/auto_prepend_file.php" \
     --embed-file "$recipe/message.php@/atoms/message.php" \
     -sSTACK_SIZE=1MB -sWASM_BIGINT=1 -sASYNCIFY=1 '-sASYNCIFY_IMPORTS=atoms_send,atoms_pdo_*' -sALLOW_MEMORY_GROWTH=1 \

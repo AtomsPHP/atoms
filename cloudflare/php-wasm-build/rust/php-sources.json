@@ -1,0 +1,17 @@
+{
+  "8.3": {
+    "version": "8.3.32",
+    "commit": "3e35b370570577e6277f8b46a0e73cdf616921fb",
+    "sha256": "84e2e6f7ed409cd3d75c1817a63b273211d5a503fe094942d2fb7bfb0a1f97f8"
+  },
+  "8.4": {
+    "version": "8.4.28",
+    "commit": "6c4c8ecd1c66f2eaa7cadc893bb303a0cdf896c1",
+    "sha256": "15f7a2b19adc4dbac9a3036024d166c6945bf601aebd2a1d1e65caee9de41b31"
+  },
+  "8.5": {
+    "version": "8.5.13",
+    "commit": "46bcb661df53d9ded93fef239e15707bf7cea2e9",
+    "sha256": "b14c347426e94522b99adfeb2bdfe826fcc28a83dbfc568fcebaf1fc570fdb11"
+  }
+}
