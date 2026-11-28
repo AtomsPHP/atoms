@@ -1,0 +1,16 @@
+--- build-libraries.sh
++++ build-libraries.sh
+@@ -149,2 +149,9 @@
+ # unit-local iconv fallbacks to avoid colliding with the libc and GNU symbols.
++if [[ ${ATOMS_PHP_EMBED:-} == rust ]]; then
++    cat >>src/CMakeLists.txt <<'EOF'
++target_compile_definitions(${GD_LIB_STATIC} PRIVATE overflow2=gd_overflow2)
++set_property(SOURCE gdkanji.c APPEND PROPERTY COMPILE_DEFINITIONS
++    iconv_open=gdkanji_iconv_open iconv_close=gdkanji_iconv_close iconv=gdkanji_iconv)
++EOF
++else
+ for f in src/*.[ch]; do
+@@ -164,2 +171,3 @@
+ EOF
++fi
+ cmake_lib -DBUILD_STATIC_LIBS=ON -DBUILD_TEST=OFF -DBUILD_PROGRAMS=OFF \

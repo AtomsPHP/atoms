@@ -147,13 +147,6 @@ sed -i -e 's/FIND_PACKAGE(libavif 0.8.2 REQUIRED CONFIG)/FIND_PACKAGE(PkgConfig 
 # gd and PHP use the same name for two different overflow checks. Give gd's
 # implementation and callers a private name. Rename gdkanji's translation-
 # unit-local iconv fallbacks to avoid colliding with the libc and GNU symbols.
-if [[ ${ATOMS_PHP_EMBED:-} == rust ]]; then
-    cat >>src/CMakeLists.txt <<'EOF'
-target_compile_definitions(${GD_LIB_STATIC} PRIVATE overflow2=gd_overflow2)
-set_property(SOURCE gdkanji.c APPEND PROPERTY COMPILE_DEFINITIONS
-    iconv_open=gdkanji_iconv_open iconv_close=gdkanji_iconv_close iconv=gdkanji_iconv)
-EOF
-else
 for f in src/*.[ch]; do
     sed -i 's/\<overflow2\>/gd_overflow2/g' "$f"
 done
@@ -169,7 +162,6 @@ BGD_DECLARE(void) gdFontCacheShutdown(void) {}
 BGD_DECLARE(void) gdFreeFontCache(void) {}
 #endif
 EOF
-fi
 cmake_lib -DBUILD_STATIC_LIBS=ON -DBUILD_TEST=OFF -DBUILD_PROGRAMS=OFF \
     -DENABLE_CPP=OFF -DENABLE_GD_FORMATS=ON -DENABLE_PNG=ON -DENABLE_JPEG=ON \
     -DENABLE_WEBP=ON -DENABLE_AVIF=ON -DENABLE_FREETYPE=OFF -DENABLE_ICONV=OFF \

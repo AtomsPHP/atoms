@@ -78,6 +78,7 @@ def build(cache, work, libclang, jobs):
     (context / 'recipe').mkdir()
     for name in ['build-libraries.sh', 'libraries.py', 'libraries.lock.json']:
         shutil.copy2(RECIPE.parent / name, context / 'recipe' / name)
+    run('patch', '--batch', '--fuzz=0', context / 'recipe/build-libraries.sh', RECIPE / 'gd-build.patch')
     for item in INPUTS:
         if item['file'].startswith(('debs/', 'libraries/')):
             shutil.copyfile(cache / item['file'], context / item['file'])
@@ -86,7 +87,7 @@ def build(cache, work, libclang, jobs):
         '--iidfile', image_id, '--target', 'libraries', '--build-arg', 'PHP_EMBED=rust',
         '--build-arg', f'LIBRARY_JOBS={jobs}', '--build-arg', f'SDK_IMAGE={COMPILER["builder"]}',
         '--build-arg', f'SOURCE_DATE_EPOCH={COMPILER["sourceDateEpoch"]}',
-        '-f', RECIPE.parent / 'builder.Dockerfile', context)
+        '-f', RECIPE / 'builder.Dockerfile', context)
     container = ['docker', 'run', '--rm', '--network=none', '--cap-drop=ALL',
                  '--security-opt=no-new-privileges', '--user', f'{os.getuid()}:{os.getgid()}',
                  '-v', f'{work}:/build', '-v', f'{RECIPE}:/recipe:ro', '-w', '/build/php',
