@@ -12,10 +12,12 @@ COPY debs/ /tmp/debs/
 RUN dpkg -i /tmp/debs/*.deb
 
 FROM tools AS libraries
+ARG PHP_EMBED
+ARG LIBRARY_JOBS=1
 COPY recipe/build-libraries.sh recipe/libraries.py recipe/libraries.lock.json /recipe/
 RUN --mount=type=bind,source=libraries,target=/archives \
     test ! -e /em-cache && test "$(em-config CACHE)" = /em-cache && \
-    bash /recipe/build-libraries.sh /archives /work /libs
+    ATOMS_PHP_EMBED="$PHP_EMBED" BUILD_JOBS="$LIBRARY_JOBS" bash /recipe/build-libraries.sh /archives /work /libs
 
 FROM tools AS php-source
 RUN test ! -e /em-cache && ln -s /libs /root/lib && ln -s /emsdk /root/emsdk

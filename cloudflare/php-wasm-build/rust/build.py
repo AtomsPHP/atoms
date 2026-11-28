@@ -14,8 +14,11 @@ from urllib.request import urlopen
 RECIPE = Path(__file__).resolve().parent
 COMPILER = json.loads((RECIPE.parent / 'compiler.lock.json').read_text())
 TOOLS = json.loads((RECIPE / 'tools.lock.json').read_text())
-INPUTS = [entry for entry in COMPILER['downloads']
-          if entry['file'] == 'php.tar.gz' or entry['file'].startswith('debs/')] + TOOLS['downloads']
+LIBRARIES = json.loads((RECIPE.parent / 'libraries.lock.json').read_text())
+PHP_INPUTS = [entry for entry in COMPILER['downloads']
+              if entry['file'] == 'php.tar.gz' or entry['file'].startswith('debs/')]
+LIBRARY_INPUTS = [dict(entry, file='libraries/' + entry['file']) for entry in LIBRARIES]
+INPUTS = PHP_INPUTS + TOOLS['downloads'] + LIBRARY_INPUTS
 
 
 def verify(path, sha):
@@ -68,12 +71,17 @@ def build(cache, work, libclang, jobs):
 
     context = work / 'compiler-context'
     (context / 'debs').mkdir(parents=True)
+    (context / 'libraries').mkdir()
+    (context / 'recipe').mkdir()
+    for name in ['build-libraries.sh', 'libraries.py', 'libraries.lock.json']:
+        shutil.copy2(RECIPE.parent / name, context / 'recipe' / name)
     for item in INPUTS:
-        if item['file'].startswith('debs/'):
+        if item['file'].startswith(('debs/', 'libraries/')):
             shutil.copyfile(cache / item['file'], context / item['file'])
     image_id = work / 'image-id'
     run('docker', 'build', '--network=none', '--platform', COMPILER['platform'],
-        '--iidfile', image_id, '--target', 'tools', '--build-arg', f'SDK_IMAGE={COMPILER["builder"]}',
+        '--iidfile', image_id, '--target', 'libraries', '--build-arg', 'PHP_EMBED=rust',
+        '--build-arg', f'LIBRARY_JOBS={jobs}', '--build-arg', f'SDK_IMAGE={COMPILER["builder"]}',
         '--build-arg', f'SOURCE_DATE_EPOCH={COMPILER["sourceDateEpoch"]}',
         '-f', RECIPE.parent / 'builder.Dockerfile', context)
     container = ['docker', 'run', '--rm', '--network=none', '--cap-drop=ALL',
@@ -83,10 +91,12 @@ def build(cache, work, libclang, jobs):
     unpack(cache / 'php.tar.gz', work / 'php')
     run(*container, 'bash', '/recipe/configure.sh')
     run(*container, 'bash', '-ec', 'mkdir /build/headers; '
+        'cp -a /libs/include /build/headers/libs; '
         'cp -a /emsdk/upstream/emscripten/cache/sysroot/include /build/headers/sysroot; '
         'cp -a /emsdk/upstream/lib/clang/*/include /build/headers/builtin')
 
     env = dict(os.environ, LIBCLANG_PATH=str(libclang), ATOMS_PHP_BINDINGS=str(work / 'bindings.rs'),
+               ATOMS_CRYPTO_BINDINGS=str(work / 'crypto-bindings.rs'),
                CARGO_HOME=str(tools / 'cargo'), CARGO_TARGET_DIR=str(work / 'target'),
                PATH=f'{tools}/rust/bin:{tools}/bindgen/usr/bin:{os.environ["PATH"]}')
     run(RECIPE / 'bindings.sh', work / 'php', work / 'headers/builtin', work / 'headers/sysroot',

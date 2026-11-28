@@ -6,10 +6,10 @@ addToLibrary({
     _atoms_use_php_ini(sapi);
     return _php_module_startup(sapi, Module.atomsBridge);
   },
-  atoms_register_opcache__deps: ['zend_register_extension', 'zend_extension_entry'],
+  atoms_register_opcache__deps: ['zend_register_extension', 'zend_extension_entry', 'atoms_load_legacy_provider'],
   atoms_register_opcache: () => {
     _zend_register_extension(_zend_extension_entry, 0);
-    return 0;
+    return _atoms_load_legacy_provider();
   },
   atoms_roundtrip_i64: (value) => Module.atomsRoundtripI64(value),
 });
@@ -17,6 +17,9 @@ addToLibrary({
 // The OPcache preloader references initgroups in its forked-child path.
 // A Worker has no supplementary process groups.
 addToLibrary({
+  // The Worker has no subprocess executables. POSIX spawn returns the error
+  // number directly; PHP owns descriptor cleanup and its warning.
+  posix_spawnp: () => {{{ cDefs.ENOENT }}},
   initgroups__deps: ['__errno_location'],
   initgroups: () => {
     HEAP32[___errno_location() >> 2] = {{{ cDefs.ENOSYS }}};

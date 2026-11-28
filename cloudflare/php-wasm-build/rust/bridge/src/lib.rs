@@ -6,6 +6,9 @@ mod php {
 }
 
 mod heap;
+mod stack;
+mod process_title;
+mod crypto;
 
 use core::mem::{size_of, zeroed};
 use core::ptr::{addr_of, addr_of_mut};
@@ -69,6 +72,7 @@ unsafe extern "C" fn exchange_length(frame: *mut php::zend_execute_data, result:
 pub unsafe extern "C" fn atoms_use_php_ini(sapi: *mut php::sapi_module_struct) {
     // php_embed_init assigns its CLI defaults after sapi_startup. Let the
     // packaged configuration supply the Worker settings at module startup.
+    process_title::register(sapi);
     (*sapi).ini_entries = core::ptr::null();
     (*sapi).php_ini_path_override = c"/internal/shared/php.ini".as_ptr().cast_mut();
 }
@@ -93,6 +97,7 @@ pub unsafe extern "C" fn atoms_prepare() -> *mut php::zend_module_entry {
     MODULE.version = c"0.1.0".as_ptr();
     MODULE.build_id = concat!(env!("ATOMS_PHP_BUILD_ID"), "\0").as_ptr().cast();
     MODULE.module_startup_func = Some(atoms_register_opcache);
+    MODULE.module_shutdown_func = Some(crypto::unload_provider);
     MODULE.functions = addr_of!(FUNCTIONS).cast();
 
     php::php_embed_module.name = c"wasm".as_ptr().cast_mut();
@@ -106,5 +111,14 @@ static mut SCRIPT: php::zend_file_handle = unsafe { zeroed() };
 
 #[no_mangle]
 pub extern "C" fn atoms_script_handle() -> *mut php::zend_file_handle {
-    addr_of_mut!(SCRIPT)
+    if stack::ready() {
+        addr_of_mut!(SCRIPT)
+    } else {
+        core::ptr::null_mut()
+    }
 }
+
+// libgd has no font cache in the locked build without FreeType. PHP still
+// invokes its cleanup at request shutdown through its GD extension.
+#[no_mangle]
+pub extern "C" fn atoms_gd_font_cache_shutdown() {}

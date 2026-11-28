@@ -93,6 +93,7 @@ export async function bootPHP(createModule, wasm, {onSync, onPark, print, printE
       if (!ptr) throw Error('Cannot allocate script path');
       module.HEAPU8.set(name, ptr);
       const file = module._atoms_script_handle();
+      if (!file) throw Error('Zend did not initialize its Wasm stack bounds');
       module._zend_stream_init_filename(file, ptr);
       module._free(ptr);
       try {

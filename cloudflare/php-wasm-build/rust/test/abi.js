@@ -2,6 +2,8 @@ import init from './php.mjs';
 import wasm from './php.wasm';
 import script from './guest.php';
 import timestamps from './timestamps.php';
+import parity from './parity.php';
+import inspectGuest from './inspect-guest.php';
 
 export class Probe {
   constructor(ctx) {
@@ -29,6 +31,8 @@ export class Probe {
     });
     php.FS.writeFile('/guest.php', script);
     php.FS.writeFile('/timestamps.php', timestamps);
+    php.FS.writeFile('/parity.php', parity);
+    php.FS.writeFile('/inspect-guest.php', inspectGuest);
     php.atomsBridge = php._atoms_prepare();
     if (php._php_embed_init(0, 0) !== 0) throw Error('php_embed_init failed');
     const path = new TextEncoder().encode('/guest.php\0');
@@ -36,6 +40,7 @@ export class Probe {
     if (!ptr) throw Error('Could not allocate script path');
     php.HEAPU8.set(path, ptr);
     const file = php._atoms_script_handle();
+    if (!file) throw Error('Zend did not initialize its Wasm stack bounds');
     php._zend_stream_init_filename(file, ptr);
     php._free(ptr);
     const ok = php._php_execute_script(file);

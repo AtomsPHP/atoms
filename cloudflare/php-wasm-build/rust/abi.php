@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require __DIR__ . '/timestamps.php';
+require __DIR__ . '/parity.php';
 
 if (PHP_VERSION !== '8.3.32' || PHP_SAPI !== 'wasm'
     || PHP_INT_SIZE !== 8 || !extension_loaded('atoms_bridge')
