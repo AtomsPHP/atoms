@@ -60,7 +60,7 @@ def unpack(path, dest):
     run('tar', '-xf', path, '--no-same-owner', '--strip-components=1', '-C', dest)
 
 
-def build(cache, work, libclang, jobs, minor):
+def build(cache, work, libclang, jobs, minor, stem="php"):
     source = php_input(minor)
     for item in [source, *COMMON_INPUTS]:
         verify(cache / item['file'], item['sha256'])
@@ -86,16 +86,15 @@ def build(cache, work, libclang, jobs, minor):
     (context / 'recipe').mkdir()
     for name in ['build-libraries.sh', 'libraries.py', 'libraries.lock.json']:
         shutil.copy2(RECIPE.parent / name, context / 'recipe' / name)
-    run('patch', '--batch', '--fuzz=0', context / 'recipe/build-libraries.sh', RECIPE / 'gd-build.patch')
     for item in COMMON_INPUTS:
         if item['file'].startswith(('debs/', 'libraries/')):
             shutil.copyfile(cache / item['file'], context / item['file'])
     image_id = work / 'image-id'
     run('docker', 'build', '--network=none', '--platform', COMPILER['platform'],
-        '--iidfile', image_id, '--target', 'libraries', '--build-arg', 'PHP_EMBED=rust',
+        '--iidfile', image_id, '--target', 'libraries',
         '--build-arg', f'LIBRARY_JOBS={jobs}', '--build-arg', f'SDK_IMAGE={COMPILER["builder"]}',
         '--build-arg', f'SOURCE_DATE_EPOCH={COMPILER["sourceDateEpoch"]}',
-        '-f', RECIPE / 'builder.Dockerfile', context)
+        '-f', RECIPE.parent / 'builder.Dockerfile', context)
     container = ['docker', 'run', '--rm', '--network=none', '--cap-drop=ALL',
                  '--security-opt=no-new-privileges', '--user', f'{os.getuid()}:{os.getgid()}',
                  '-v', f'{work}:/build', '-v', f'{RECIPE}:/recipe:ro', '-w', '/build/php',
@@ -124,12 +123,16 @@ def build(cache, work, libclang, jobs, minor):
     expanded = subprocess.check_output(container[:2] + ['-i'] + container[2:] + command,
                                        input='ZEND_MODULE_BUILD_ID\n', text=True)
     env['ATOMS_PHP_BUILD_ID'] = ast.literal_eval(expanded.strip().splitlines()[-1])
+    (work / 'build-id.txt').write_text(env['ATOMS_PHP_BUILD_ID'] + '\n')
+    # Build directories and checkout names must never become part of the payload.
+    env['CARGO_ENCODED_RUSTFLAGS'] = '\x1f'.join([
+        f'--remap-path-prefix={work}=/build', f'--remap-path-prefix={RECIPE}=/recipe'])
     features = [] if minor == '8.3' else ['--features', 'zend-bool']
     run('cargo', 'build', '--release', '--locked', '--offline', '--target', 'wasm32-unknown-emscripten',
         *features, '--manifest-path', RECIPE / 'bridge/Cargo.toml', env=env)
     run(*container, 'bash', '/recipe/link.sh', '/build/php/libs/libphp.a',
         '/build/target/wasm32-unknown-emscripten/release/libatoms_php_bridge.a',
-        '/build/php/.libs/libatoms-opcache.a', '/build/php.mjs')
+        '/build/php/.libs/libatoms-opcache.a', f'/build/{stem}.mjs')
 
 
 if __name__ == '__main__':

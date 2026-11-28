@@ -32,10 +32,18 @@ preflight is finished (as the 0.1.0 mirrors bootstrap required — see
 `ready` with `php scripts/release/release.php status ready` once the
 preflight passes.
 
-The customer recovery job in `.github/workflows/ci.yml` checks out the known
-previous release and installs its published scaffold. Advance that baseline
-commit when a new owned-interpreter release becomes the supported upgrade
-origin. The same rehearsal covers minor changes and rollback.
+The customer recovery job rehearses upgrades from the published 0.11.0
+scaffold and the frozen interpreter stack at `321a2906`. It restores the saved
+bundle and pins after writing with each supported PHP minor, then appends
+another row in the original Durable Object.
+
+Before upgrading an environment, record its known-good Worker version ID
+with `atoms status --env <env>`. Save the matching bundle, manifest, scaffold
+revision, package lock and interpreter pins. To restore the running code,
+use `atoms rollback <version-id> --env <env>`. Restore those saved inputs in
+the application checkout and run `npm ci` before the next deploy. The
+Durable Object namespace, customer Wrangler configuration and SQLite data
+belong to the same environment throughout recovery.
 
 ## Publishing credentials
 
@@ -54,6 +62,14 @@ this repository, `.github/workflows/release.yml`, and the `release`
 environment. Change any of those three and publishing stops until the package's
 trusted-publisher entry on npmjs.com is updated to match. There is no
 `NPM_TOKEN` secret to rotate, and provenance is attested automatically.
+
+To prepare a new interpreter revision, run the **PHP Wasm qualification**
+workflow on the proposed branch with `package_revision` set to the numeric
+suffix. For example, `8` packages each pinned PHP patch as `-atoms.8`.
+Download the three `pin-*` artifacts into the corresponding target
+directories as `candidate.json`, then run the Worker’s
+`node scripts/update-interpreters.mjs`. Pull requests and tagged releases
+compare both rebuilt packages to these reviewed pins.
 
 The protected job publishes interpreter versions such as `8.3.32-atoms.5`
 with the npm dist-tag `runtime`. npm 11 requires an explicit tag for these

@@ -47,7 +47,11 @@ test('staging verifies the entire install before replacing any per-minor entry',
 	function assertStage(expected) {
 		for (const pin of Object.values(expected)) {
 			const pair = pin.wasm.sha256 + '-' + pin.glue.sha256;
-			assert.equal(readFileSync(join(out, pin.glue.path), 'utf8'), `export * from "./${pair}/${pin.glue.path}";\n`);
+			assert.equal(readFileSync(join(out, pin.glue.path), 'utf8'), [
+				`export { default as factory } from "./${pair}/${pin.glue.path}";`,
+				`export { default as wasm } from "./${pair}/${pin.wasm.path}";`,
+				'',
+			].join('\n'));
 			for (const file of [pin.wasm, pin.glue]) assert.equal(hash(readFileSync(join(out, pair, file.path))), file.sha256);
 		}
 	}

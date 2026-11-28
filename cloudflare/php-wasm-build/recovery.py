@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Install, upgrade and restore one local Worker, preserving an actual customer's Atom."""
 import argparse
+import base64
 import contextlib
 from contextlib import closing
 import hashlib
@@ -82,6 +83,44 @@ final class VersionRoom extends Atom
     }
 }
 """.replace("DECLARATION", declaration).replace("EXPRESSION", expression))
+
+
+def boot_deploy(worker, output, version, log):
+    """Exercise Wrangler's bundled modules with an empty SQLite store and no network access."""
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "files").symlink_to(output.resolve(), target_is_directory=True)
+        (root / "probe.js").symlink_to(Path(__file__).with_name("deploy-probe.js").resolve())
+        disk = root / "sqlite"
+        disk.mkdir()
+        modules = []
+        for path in sorted(output.rglob("*"), key=lambda p: (p.name != "index.js", p)):
+            kind = {".js": "esModule", ".mjs": "esModule", ".wasm": "wasm"}.get(path.suffix)
+            if kind:
+                name = path.relative_to(output).as_posix()
+                modules.append(f'(name = {json.dumps(name)}, {kind} = embed {json.dumps("files/" + name)})')
+        secret = base64.b64encode(os.urandom(32)).decode("ascii")
+        config = root / "deploy.capnp"
+        config.write_text(f'''using Workerd = import "/workerd/workerd.capnp";
+const config :Workerd.Config = (services = [
+  (name = "proof", worker = (compatibilityDate = "2026-08-01",
+    modules = [(name = "probe.js", esModule = embed "probe.js")],
+    bindings = [(name = "WORKER", service = "subject"), (name = "PHP", text = "{version}")],
+    globalOutbound = "blocked")),
+  (name = "subject", worker = (compatibilityDate = "2026-08-01", compatibilityFlags = ["nodejs_compat"],
+    modules = [{", ".join(modules)}],
+    durableObjectNamespaces = [(className = "AtomDurableObject", uniqueKey = "release-probe", enableSql = true)],
+    durableObjectStorage = (localDisk = "disk"),
+    bindings = [(name = "ATOMS", durableObjectNamespace = (className = "AtomDurableObject")),
+                (name = "ATOMS_BEARER_AUTH", text = "disabled"), (name = "ATOMS_SHARED_SECRET", text = "{secret}")],
+    globalOutbound = "blocked")),
+  (name = "blocked", network = (allow = [])),
+  (name = "disk", disk = (writable = true)),
+]);
+''')
+        with log.open("wb") as stream:
+            subprocess.run([worker / "node_modules/.bin/workerd", "test", "-d", f"disk={disk}", config],
+                           stdout=stream, stderr=subprocess.STDOUT, check=True)
 
 
 def request(port, path, args=None):
@@ -237,6 +276,8 @@ def exercise(old_package, package, old_cli, results, *, fresh):
                     file = staged / pin[part]["path"]
                     assert file.stat().st_size == pin[part]["bytes"] and digest(file) == pin[part]["sha256"]
                 assert packaged == pin["wasm"]["sha256"]
+                if fresh:
+                    boot_deploy(worker, out, pin["version"].split("-")[0], results / (phase + ".offline.log"))
             with dev(current_cli, app, env, results / (phase + ".dev.log"), rebuild=phase in ("fresh-default", "default")) as port:
                 route = "/invoke/VersionRoom/persistent/"
                 before = request(port, route + "state", [])["result"]
@@ -268,6 +309,7 @@ def exercise(old_package, package, old_cli, results, *, fresh):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--upgrade-only", action="store_true", help="run the saved-room upgrade and rollback sequence")
     parser.add_argument("baseline_scaffold", type=Path)
     parser.add_argument("scaffold", type=Path)
     parser.add_argument("baseline_cli", type=Path)
@@ -275,6 +317,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     results = args.results.resolve()
     results.mkdir(parents=True, exist_ok=False)
-    for fresh in (True, False):
+    for fresh in ((False,) if args.upgrade_only else (True, False)):
         exercise(args.baseline_scaffold.resolve(strict=True), args.scaffold.resolve(strict=True),
                  args.baseline_cli.resolve(strict=True), results, fresh=fresh)

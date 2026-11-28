@@ -13,6 +13,9 @@ export function updateInterpreters(check) {
 	const manifest = read('package.json');
 	const lock = read('package-lock.json');
 	const pins = {};
+	if (/@php-wasm\/|@wp-playground\/|wordpress-playground/i.test(JSON.stringify([manifest.dependencies, lock.packages]))) {
+		throw new Error('The Worker lock contains an external PHP runtime dependency.');
+	}
 	for (const series of release.runtime.guest_php_tested) {
 		const pin = read(`../php-wasm-build/targets/${series}/candidate.json`);
 		const suffix = series.replace('.', '-');

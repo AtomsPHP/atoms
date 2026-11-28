@@ -13,7 +13,8 @@ jobs:
     uses: ./.github/workflows/php-wasm-build.yml
 
   php-embed:
-    name: PHP ${{ matrix.php }} embed in workerd
+    name: PHP ${{ matrix.php }} release package in workerd
+    needs: [interpreters, frozen-controls]
     runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
@@ -26,14 +27,20 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Fetch the locked compiler and sources
+      - uses: actions/download-artifact@v4
+        with:
+          name: interpreter-${{ matrix.php }}
+          path: ${{ runner.temp }}/packed
+      - uses: actions/download-artifact@v4
+        with:
+          name: frozen-interpreter-${{ matrix.php }}
+          path: ${{ runner.temp }}/control
+      - name: Select the Wasm and glue from the release tarball
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends "$(jq -r .libclang.package "$RECIPE/tools.lock.json")"
-          docker pull "$(jq -r .builder "$RECIPE/../compiler.lock.json")"
-          python3 "$RECIPE/build.py" fetch "$RUNNER_TEMP/inputs" --php "$SERIES"
-      - name: Build the upstream PHP embed offline
-        run: python3 "$RECIPE/build.py" build "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/embed" --php "$SERIES" --jobs "$(nproc)"
+          mkdir -p "$RUNNER_TEMP/embed/package"
+          tar -xzf "$RUNNER_TEMP/packed/"*.tgz --strip-components=1 -C "$RUNNER_TEMP/embed/package"
+          ln -s "package/$(jq -r .glue.path "$RUNNER_TEMP/packed/interpreter.json")" "$RUNNER_TEMP/embed/php.mjs"
+          ln -s "package/$(jq -r .wasm.path "$RUNNER_TEMP/packed/interpreter.json")" "$RUNNER_TEMP/embed/php.wasm"
       - name: Fetch workerd from the Worker lockfile
         working-directory: ${{ runner.temp }}
         run: |
@@ -49,15 +56,60 @@ jobs:
           python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --php "$SERIES" --workerd "$RUNNER_TEMP/package/bin/workerd" --pdo-cleanup
 
           python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --php "$SERIES" --workerd "$RUNNER_TEMP/package/bin/workerd" --inventory "$RUNNER_TEMP/embed/inventory.json"
+          python3 "$RECIPE/test/compare-inventory.py" "$RUNNER_TEMP/control/guest-capabilities.json" "$RUNNER_TEMP/embed/inventory.json"
+          diff -u <(jq -S . "$RUNNER_TEMP/packed/guest-capabilities.json") <(jq -S . "$RUNNER_TEMP/embed/inventory.json")
+
+  frozen-controls:
+    name: Frozen PHP ${{ matrix.php }} control at 321a2906
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4', '8.5']
+    env:
+      SERIES: ${{ matrix.php }}
+      RECIPE: cloudflare/php-wasm-build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 321a2906fd7d250edd20fea26a1d14fd7ea77d74
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.1'
+      - uses: actions/cache@v4
+        id: control
+        with:
+          path: ${{ runner.temp }}/control
+          key: frozen-321a2906-v1-${{ matrix.php }}-${{ hashFiles('cloudflare/php-wasm-build/targets/*/candidate.json') }}
+      - name: Recreate the frozen comparison tarball on a cache miss
+        if: steps.control.outputs.cache-hit != 'true'
+        run: |
+          python3 -B "$RECIPE/build.py" fetch --php "$SERIES" "$RUNNER_TEMP/inputs"
+          for copy in first second; do
+            python3 -B "$RECIPE/build.py" build --php "$SERIES" "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/$copy"
+          done
+          python3 -B "$RECIPE/source-bundle.py" --php "$SERIES" "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/first"
+          version=$(jq -r .version "$RECIPE/targets/$SERIES/candidate.json")
+          node "$RECIPE/pack.mjs" "$RUNNER_TEMP/first" "$RUNNER_TEMP/second/build-metadata.json" "$version" "$RUNNER_TEMP/control"
+          mkdir -p "$RUNNER_TEMP/probe/src" "$RUNNER_TEMP/probe/package"
+          cp cloudflare/worker/src/{php-host,errors}.js "$RUNNER_TEMP/probe/src"
+          echo '{"type":"module"}' > "$RUNNER_TEMP/probe/package.json"
+          loader=$(jq -r '.dependencies["@php-wasm/universal"]' cloudflare/worker/package.json)
+          npm install --prefix "$RUNNER_TEMP/probe" --ignore-scripts --no-audit --no-fund "@php-wasm/universal@$loader"
+          tar -xzf "$RUNNER_TEMP/control/"*.tgz --strip-components=1 -C "$RUNNER_TEMP/probe/package"
+          node "$RECIPE/inspect.mjs" "$RUNNER_TEMP/probe" "$RUNNER_TEMP/probe/package/$(jq -r .glue.path "$RUNNER_TEMP/control/interpreter.json")" "${version%-atoms.*}" > "$RUNNER_TEMP/control/guest-capabilities.json"
+      - name: Verify the control against its frozen release pin
+        run: |
+          pin="$RECIPE/targets/$SERIES/candidate.json"
+          cmp "$pin" "$RUNNER_TEMP/control/interpreter.json"
+          test "$(sha256sum "$RUNNER_TEMP/control/"*.tgz | cut -d' ' -f1)" = "$(jq -r .sha256 "$pin")"
       - uses: actions/upload-artifact@v4
         with:
-          name: embed-${{ matrix.php }}
-          path: |
-            ${{ runner.temp }}/embed/php.mjs
-            ${{ runner.temp }}/embed/php.wasm
-            ${{ runner.temp }}/embed/inventory.json
+          name: frozen-interpreter-${{ matrix.php }}
+          path: ${{ runner.temp }}/control
+          compression-level: 0
           if-no-files-found: error
-          retention-days: 1
 
   release-metadata:
     runs-on: ubuntu-latest
@@ -84,8 +136,7 @@ jobs:
           jq -rc '.runtime | . as $runtime | [
             .node_tested[] as $node | .guest_php_tested[] as $php
             | select($php == $runtime.guest_php or $node == $runtime.node_tested[0])
-            | {node: $node, php: $php, guest: "installed"},
-              (select($node == $runtime.node_tested[0]) | {node: $node, php: $php, guest: "embed"})
+            | {node: $node, php: $php}
           ] | "worker-versions=\(tojson)"' release/manifest.json >> "$GITHUB_OUTPUT"
 
   tests:
@@ -442,18 +493,6 @@ jobs:
           npm run package:runtime
           bash ../php-wasm-build/install-conformance.sh dist/*.tgz "$GITHUB_WORKSPACE/installed/worker" "$ATOMS_TEST_GUEST_PHP"
 
-      - uses: actions/download-artifact@v4
-        if: matrix.guest == 'embed'
-        with:
-          name: embed-${{ matrix.php }}
-          path: ${{ runner.temp }}/embed
-      - name: Compare the two inventories and stage the selected embed for conformance
-        if: matrix.guest == 'embed'
-        run: |
-          python3 ../php-wasm-build/rust/test/compare-inventory.py \
-            "$RUNNER_TEMP/interpreters/interpreter-$ATOMS_TEST_GUEST_PHP/guest-capabilities.json" "$RUNNER_TEMP/embed/inventory.json"
-          node ../php-wasm-build/rust/test/stage-pdo.mjs "$GITHUB_WORKSPACE/installed/worker" "$RUNNER_TEMP/embed" "$ATOMS_TEST_GUEST_PHP"
-
       - name: Exercise outbound HTTP against a loopback responder
         working-directory: installed/worker
         run: node test/http-conformance.mjs
@@ -660,13 +699,13 @@ jobs:
       - name: Retain the measured PDO comparison
         uses: actions/upload-artifact@v4
         with:
-          name: pdo-comparison-${{ matrix.guest }}-node${{ matrix.node }}-php${{ matrix.php }}
+          name: pdo-comparison-node${{ matrix.node }}-php${{ matrix.php }}
           path: installed/worker/test/results/pdo-matrix.json
           if-no-files-found: error
 
   recovery:
     name: Customer install, upgrade and rollback
-    needs: interpreters
+    needs: [interpreters, frozen-controls]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -674,6 +713,14 @@ jobs:
         with:
           ref: 02db603b54363e7341056cf14bef9985c5ad2e92
           path: baseline
+      - uses: actions/checkout@v4
+        with:
+          ref: 321a2906fd7d250edd20fea26a1d14fd7ea77d74
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: frozen-interpreter-*
+          path: ${{ runner.temp }}/controls
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.5'
@@ -686,17 +733,33 @@ jobs:
       - run: composer install --no-interaction --no-progress
       - run: composer install --no-interaction --no-progress
         working-directory: baseline
+      - run: composer install --no-interaction --no-progress
+        working-directory: control
+      - name: Seed the three verified control packages and pack the frozen scaffold
+        run: |
+          for minor in 8.3 8.4 8.5; do
+            ln -s "$RUNNER_TEMP/controls/frozen-interpreter-$minor" "$RUNNER_TEMP/controls/interpreter-$minor"
+          done
+          node control/cloudflare/php-wasm-build/artifacts.mjs seed "$RUNNER_TEMP/controls"
+          npm run package:runtime --prefix control/cloudflare/worker
       - name: Get published 0.11.0 and pack the current scaffold
         run: |
           spec=$(jq -r '.runtime | "\(.package)@\(.version)"' baseline/release/manifest.json)
           filename=$(npm pack "$spec" --pack-destination "$RUNNER_TEMP" --silent)
           echo "BASELINE_SCAFFOLD=$RUNNER_TEMP/$filename" >> "$GITHUB_ENV"
           npm run package:runtime --prefix cloudflare/worker
+      - name: Install and upgrade from an empty cache with a loopback registry
+        run: |
+          npm ci --prefix cloudflare/worker
+          node cloudflare/php-wasm-build/clean-install.mjs cloudflare/worker/dist/*.tgz "$(npm config get cache)"
       - name: Rehearse the upgrade and restore the saved application
         run: |
           python3 -B cloudflare/php-wasm-build/recovery.py \
             "$BASELINE_SCAFFOLD" cloudflare/worker/dist/*.tgz \
-            baseline/packages/cli/bin/atoms "$RUNNER_TEMP/recovery"
+            baseline/packages/cli/bin/atoms "$RUNNER_TEMP/recovery/published"
+          python3 -B cloudflare/php-wasm-build/recovery.py --upgrade-only \
+            control/cloudflare/worker/dist/*.tgz cloudflare/worker/dist/*.tgz \
+            control/packages/cli/bin/atoms "$RUNNER_TEMP/recovery/control"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

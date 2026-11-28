@@ -255,6 +255,12 @@ try {
 			`--outfile=${join(temporaryRoot, 'resolution-check.js')}`,
 		]);
 		const { inputs } = JSON.parse(readFileSync(metafile, 'utf8'));
+		for (const [file, info] of Object.entries(inputs)) {
+			assert.doesNotMatch(file, /@php-wasm\/|@wp-playground\/|wordpress-playground/i);
+			for (const dependency of info.imports) {
+				assert.doesNotMatch(dependency.path, /@php-wasm\/|@wp-playground\/|wordpress-playground/i);
+			}
+		}
 		const wasm = Object.keys(inputs).filter(path => path.endsWith('.wasm'));
 		assert.equal(wasm.length, 1, `PHP ${php} must bundle one interpreter: ${wasm.join(', ')}`);
 		assert.ok(wasm[0].endsWith(`/php_${php.replace('.', '_')}.wasm`), `PHP ${php} linked ${wasm[0]}`);

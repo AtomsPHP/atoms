@@ -147,20 +147,10 @@ sed -i -e 's/FIND_PACKAGE(libavif 0.8.2 REQUIRED CONFIG)/FIND_PACKAGE(PkgConfig 
 # gd and PHP use the same name for two different overflow checks. Give gd's
 # implementation and callers a private name. Rename gdkanji's translation-
 # unit-local iconv fallbacks to avoid colliding with the libc and GNU symbols.
-for f in src/*.[ch]; do
-    sed -i 's/\<overflow2\>/gd_overflow2/g' "$f"
-done
-sed -i -e 's/\<iconv_open\>/gdkanji_iconv_open/g' -e 's/\<iconv_close\>/gdkanji_iconv_close/g' \
-    -e 's/\<iconv\> (/gdkanji_iconv (/g' src/gdkanji.c
-# The shipping guest reports FreeType support, but its drawing functions
-# return the libgd "not built with FreeType font support" warning. Retain
-# libgd's fallback and the two cache cleanup symbols used by PHP.
-cat >>src/gd.c <<'EOF'
-
-#ifndef HAVE_LIBFREETYPE
-BGD_DECLARE(void) gdFontCacheShutdown(void) {}
-BGD_DECLARE(void) gdFreeFontCache(void) {}
-#endif
+cat >>src/CMakeLists.txt <<'EOF'
+target_compile_definitions(${GD_LIB_STATIC} PRIVATE overflow2=gd_overflow2)
+set_property(SOURCE gdkanji.c APPEND PROPERTY COMPILE_DEFINITIONS
+    iconv_open=gdkanji_iconv_open iconv_close=gdkanji_iconv_close iconv=gdkanji_iconv)
 EOF
 cmake_lib -DBUILD_STATIC_LIBS=ON -DBUILD_TEST=OFF -DBUILD_PROGRAMS=OFF \
     -DENABLE_CPP=OFF -DENABLE_GD_FORMATS=ON -DENABLE_PNG=ON -DENABLE_JPEG=ON \

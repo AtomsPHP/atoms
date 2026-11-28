@@ -61,8 +61,10 @@ try {
 	const result = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts'], {
 		cwd: stage, encoding: 'utf8',
 	}))[0];
-	for (const file of files) {
-		if (!result.files.some(({ path }) => path === file)) throw new Error(`Missing from npm pack: ${file}`);
+	const expectedFiles = [...files, 'package.json'].sort();
+	const packedFiles = result.files.map(file => file.path).sort();
+	if (JSON.stringify(packedFiles) !== JSON.stringify(expectedFiles)) {
+		throw new Error('The interpreter tarball differs from the release file list.');
 	}
 	for (const { path, bytes, sha256 } of [pin.wasm, pin.glue]) {
 		const packed = execFileSync('tar', ['-xOzf', join(stage, result.filename), 'package/' + path], {

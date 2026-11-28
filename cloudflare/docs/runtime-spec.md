@@ -38,10 +38,11 @@ one content-addressed Wasm and glue pair. The bundle bridge reads
 one Wasm module. The compiler exports Asyncify for synchronous guest re-entry
 in a Durable Object transaction.
 
-Boot uses
-`@php-wasm/universal`'s `loadPHPRuntime` with an `instantiateWasm` hook that
-(a) hands Wrangler's precompiled wasm module to Emscripten and (b) replaces the
-`env.__asyncjs__js_module_onMessage` import with the tagged dispatcher below.
+The Atoms loader passes Wrangler’s precompiled module to the Emscripten factory,
+mounts the bundle in MEMFS and starts the upstream PHP embed SAPI. The Rust
+bridge sends a tagged message through the `env.atoms_send` import. PHP reads
+the completed reply from its per-instance device. Each parked callback belongs
+to the PHP generation that created it.
 
 ## PHP↔JS protocol
 
@@ -54,7 +55,7 @@ One wasm import, dispatched on the first byte of the message string:
 - `'~'` **park**: JS receives the message plus a `reply(str)` callback that
   resumes the guest *synchronously from whatever JS stack frame calls it*.
   Used for the turn loop and transactions.
-- anything else: stock php-wasm behavior (unused by us).
+- The host rejects any other tag.
 
 Guest-side helpers (in the `Atoms\Cf\` runtime, not customer-visible):
 `\Atoms\Cf\host_sync(array $req): array` and

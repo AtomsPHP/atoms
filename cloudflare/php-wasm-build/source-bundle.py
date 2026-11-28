@@ -8,7 +8,7 @@ from pathlib import Path
 import tarfile
 from tempfile import TemporaryDirectory
 
-from build import MINORS, RECIPE, locked_files, target
+from build import COMPILER, MINORS, RECIPE, RECIPE_FILES, TOOLS, locked_files, source_inputs, target
 from libraries import library_lock
 
 SOURCE_RELEASE_FILES = ("source-bundle.py", "pack.mjs", "README.md")
@@ -72,53 +72,44 @@ def add_file(archive, name, path):
 def build_record(output, requested_minor=None):
     metadata_path = output / "build-metadata.json"
     metadata = json.loads(metadata_path.read_bytes())
-    # The original qualified 8.3 receipt predates explicit target fields.
-    minor = metadata.get("target", "8.3")
-    selected = target(minor)
-    if requested_minor is not None and requested_minor != minor:
-        raise ValueError(f"Requested PHP {requested_minor}, but the build record specifies {minor}")
-    if ("target" in metadata or "php" in metadata) and metadata.get("php") != selected.lock["php"]:
-        raise ValueError("PHP patch version differs from the selected compiler lock")
-    expected_outputs = set(selected.files)
-    if (metadata.get("schema") != 1 or set(metadata.get("recipe", {})) != set(selected.recipe_files)
-            or set(metadata.get("outputs", {})) != expected_outputs):
-        raise ValueError("Incomplete compiler build-metadata.json")
-    for name in expected_outputs:
-        if digest(output / name) != metadata["outputs"][name]:
+    selected = target(metadata["target"])
+    if requested_minor is not None and requested_minor != selected.minor:
+        raise ValueError(f"Requested PHP {requested_minor}, found {selected.minor}")
+    if (metadata.get("php") != selected.version or metadata.get("schema") != 1
+            or set(metadata.get("recipe", {})) != set(RECIPE_FILES)
+            or set(metadata.get("outputs", {})) != set(selected.files)
+            or set(metadata.get("bindings", {})) != {"bindings.rs", "crypto-bindings.rs"}
+            or not metadata.get("zendBuildId")):
+        raise ValueError("Incomplete interpreter build record")
+    for name, sha in metadata["outputs"].items():
+        if digest(output / name) != sha:
             raise ValueError(f"Output differs from the compiled file: {name}")
+    for name, sha in metadata["recipe"].items():
+        if digest(RECIPE / name) != sha:
+            raise ValueError(f"Recipe changed after compilation: {name}")
     return selected, metadata
 
 
-def expected_sources(lock, libraries, metadata):
-    pins = {f"inputs/{s['file']}": s["sha256"] for s in lock["downloads"]
-            if not s["file"].startswith("debs/")}
-    pins.update({f"inputs/{name}": sha for name, sha in lock["playgroundFiles"].items()})
-    pins.update({f"inputs/libraries/{c['file']}": c["sha256"] for c in libraries})
-    pins.update({f"php-wasm-build/{name}": sha for name, sha in metadata["recipe"].items()})
+def expected_sources(selected, metadata):
+    pins = {"inputs/" + s["file"]: s["sha256"] for s in source_inputs(selected)}
+    pins.update({"php-wasm-build/" + file: sha for file, sha in metadata["recipe"].items()})
+    pins.update({"php-wasm-build/" + file: digest(RECIPE / file) for file in SOURCE_RELEASE_FILES})
+    pins["LICENSE-MIT"] = digest(RECIPE.parent / "LICENSE-MIT")
     return pins
 
 
 def verify_bundle(output, minor=None):
     selected, metadata = build_record(output, minor)
-    lock = selected.lock
-    libraries = library_lock(RECIPE / selected.libraries_lock)
     inventory = json.loads((output / "components.json").read_bytes())
-    if (inventory["php"]["version"] != lock["php"] or inventory["php"]["commit"] != lock["phpCommit"]
-            or inventory["playground"]["commit"] != lock["playgroundCommit"] or inventory["libraries"] != libraries):
-        raise ValueError("Component inventory differs from the selected target source locks")
-    if inventory["build"] != metadata:
-        raise ValueError("Component inventory differs from build-metadata.json")
-    expected = inventory["sourceFiles"].copy()
-    pins = expected_sources(lock, libraries, metadata)
+    if (inventory["php"]["version"] != selected.version or inventory["php"]["commit"] != selected.commit
+            or inventory["libraries"] != library_lock() or inventory["build"] != metadata
+            or inventory["rustTools"] != TOOLS or inventory["builder"] != COMPILER["builder"]):
+        raise ValueError("Component inventory differs from the selected compiler or source locks")
+    pins = expected_sources(selected, metadata)
     pins["build-metadata.json"] = digest(output / "build-metadata.json")
-    allowed = set(pins)
-    allowed.add("LICENSE-MIT")
-    allowed.update(f"php-wasm-build/{name}" for name in SOURCE_RELEASE_FILES)
-    if set(expected) != allowed:
-        raise ValueError("Source inventory does not match the expected release file list")
-    for name, sha in pins.items():
-        if expected.get(name) != sha:
-            raise ValueError(f"Component inventory differs from the release pins for {name}")
+    if inventory["sourceFiles"] != pins:
+        raise ValueError("Source inventory differs from the verified inputs")
+    expected = dict(pins)
     for name in ("components.json", "THIRD_PARTY_NOTICES.txt"):
         expected[name] = digest(output / name)
 
@@ -163,87 +154,52 @@ def php_components(minor):
 
 def bundle(inputs, output, minor=None):
     selected, metadata = build_record(output, minor)
-    lock = selected.lock
-    locked_files(inputs, target=selected)
-    libraries = library_lock(RECIPE / selected.libraries_lock)
+    locked_files(inputs, selected)
     metadata_path = output / "build-metadata.json"
-    files = {"build-metadata.json": metadata_path}
+    files = {"build-metadata.json": metadata_path, "LICENSE-MIT": RECIPE.parent / "LICENSE-MIT"}
     php_notices, bundled = php_components(selected.minor)
-    php_grant = ("Section 5 of PHP License 3.01 and section 4 of Zend Engine License 2.00 "
-                     "permit election of the successor terms, the consolidated Modified BSD grant.")
-    playground_package = f"packages/php-wasm/web-builds/{selected.minor.replace('.', '-')}/package.json"
-    openssl = next(c for c in libraries if c["name"] == "openssl")
+    rust_source = next(s["file"] for s in source_inputs(selected) if s["file"].startswith("rust-src-"))
     notices = [
         "Atoms PHP Worker interpreter\n\n"
-        "The combined interpreter and matching JavaScript glue are offered under GPL version 3. "
-        "The source includes the GPL-2.0-or-later Playground web SAPI, extensions and build patches. "
-        "Atoms-authored build scripts and modifications are covered by the accompanying MIT grant. "
-        "Upstream copyright notices and grants for individual parts follow. "
+        "Atoms-authored source is licensed under the MIT grant below. The upstream PHP embed SAPI, "
+        "Rust runtime, Emscripten runtime and linked libraries retain their accompanying grants. "
         "This software is based in part on the work of the Independent JPEG Group.",
-        "WordPress Playground declares GPL-2.0-or-later for its web interpreter. "
-        f"Atoms elects version 3 for the combined work. The release links OpenSSL {openssl['version']} "
-        f"from the {openssl['license']} source identified by {selected.libraries_lock}. OpenSSL records "
-        "the change in grant for 3.x, and the Apache Software Foundation documents "
-        "inclusion of Apache-2.0 code in GPLv3 projects.\n"
-        f"https://github.com/WordPress/wordpress-playground/blob/{lock['playgroundCommit']}/{playground_package}\n"
-        "https://openssl-library.org/source/license/\n"
-        "https://www.apache.org/licenses/GPL-compatibility.html",
-        php_grant + " Other file-specific grants are retained.\nhttps://www.php.net/license/\n"
-        "https://www.php.net/license/4_0.txt",
         (RECIPE.parent / "LICENSE-MIT").read_text(),
+        "PHP and Zend are distributed under the recorded successor Modified BSD terms. "
+        "The original grants and the PHP License 4.0 text follow.",
         (inputs / "notices/PHP-LICENSE-4.0").read_text(),
-        read_notices(inputs / "playground.tar", ["LICENSE"], False),
-        read_notices(inputs / "php.tar.gz", php_notices),
+        read_notices(inputs / selected.php_source["file"], php_notices),
         read_notices(inputs / "emscripten.tar.gz", ["LICENSE", "system/lib/libc/musl/COPYRIGHT",
             "system/lib/compiler-rt/LICENSE.TXT", "system/lib/libcxx/LICENSE.TXT",
             "system/lib/libcxxabi/LICENSE.TXT", "system/lib/libunwind/LICENSE.TXT"]),
+        read_notices(inputs / rust_source, ["COPYRIGHT", "LICENSE-MIT", "LICENSE-APACHE",
+            "rust-src/lib/rustlib/src/rust/library/compiler-builtins/LICENSE.txt"]),
     ]
-    for component in libraries:
-        name = "libraries/" + component["file"]
-        files["inputs/" + name] = inputs / name
-        names = component["notices"]
-        if component["name"] == "libiconv":
-            names = [*names, "COPYING"]  # Verbatim GPLv3 text for the combined artifact.
-        notices.append(read_notices(inputs / name, names))
-
-    for name in [s["file"] for s in lock["downloads"] if not s["file"].startswith("debs/")]:
-        files["inputs/" + name] = inputs / name
-    for name in lock["playgroundFiles"]:
-        files["inputs/" + name] = inputs / name
-
-    files["LICENSE-MIT"] = RECIPE.parent / "LICENSE-MIT"
-    # Only build source and maintainer instructions enter the source release.
-    for name in [*selected.recipe_files, *SOURCE_RELEASE_FILES]:
+    for component in library_lock():
+        notices.append(read_notices(inputs / "libraries" / component["file"], component["notices"]))
+    for item in source_inputs(selected):
+        files["inputs/" + item["file"]] = inputs / item["file"]
+    for name in [*RECIPE_FILES, *SOURCE_RELEASE_FILES]:
         files["php-wasm-build/" + name] = RECIPE / name
 
     inventory = {
-        "builder": lock["builder"],
-        "platform": lock["platform"],
-        "compiler": {"emscripten": lock["emscripten"], "lock": digest(RECIPE / "compiler.lock.json")},
-        "php": {"version": lock["php"], "commit": lock["phpCommit"], "license": "BSD-3-Clause",
-                "patches": ["Playground source patches in playground.tar", *selected.worker_patches,
-                            *([selected.crypto_patch] if selected.crypto_patch else [])],
-                "acceptedCompatibilityChanges": [
-                    "The interpreter follows OpenSSL 3 for the removed SSLv23 RSA padding mode. "
-                    "PHP omits OPENSSL_SSLV23_PADDING and rejects numeric mode 2. "
-                    "https://github.com/openssl/openssl/issues/14283"
-                ],
-                "bundled": bundled},
-        "playground": {"commit": lock["playgroundCommit"], "license": "GPL-2.0-or-later",
-                       "components": ["web SAPI", "PHP patches", "opcache changes", "dns_polyfill",
-                                      "post_message_to_js", "wasm_memory_storage", "JavaScript glue"]},
-        "emscriptenRuntimeInputs": ["JavaScript support", "GL/getprocaddr", "OpenAL", "HTML5",
-                                    "system stubs", "musl", "dlmalloc", "compiler-rt",
-                                    "libc++", "libc++abi", "Emscripten sockets"],
-        "libraries": libraries,
-        "build": metadata,
-        "sourceFiles": {},
+        "builder": COMPILER["builder"], "platform": COMPILER["platform"],
+        "compiler": {"emscripten": COMPILER["emscripten"], "lock": digest(RECIPE / "compiler.lock.json")},
+        "rustTools": TOOLS,
+        "php": {"version": selected.version, "commit": selected.commit, "license": "BSD-3-Clause",
+                "bundled": bundled, "sapi": "embed",
+                "patches": ["rust/timelib-long64.patch"] + {
+                    "8.3": ["rust/opcache-file-cache.patch"],
+                    "8.4": ["rust/opcache-file-cache-84.patch"], "8.5": [],
+                }[selected.minor]},
+        "emscriptenRuntimeInputs": ["Asyncify", "MEMFS", "musl", "dlmalloc", "compiler-rt", "libc++", "libc++abi"],
+        "libraries": library_lock(), "build": metadata, "sourceFiles": {},
     }
     output.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=output) as scratch:
         tmp = Path(scratch)
         (tmp / "THIRD_PARTY_NOTICES.txt").write_text("\n\n".join(notices) + "\n")
-        expected = expected_sources(lock, libraries, metadata)
+        expected = expected_sources(selected, metadata)
         expected["build-metadata.json"] = digest(metadata_path)
         source = tmp / "corresponding-source.tar.gz"
         with source.open("wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0,

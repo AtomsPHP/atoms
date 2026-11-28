@@ -1,6 +1,0 @@
---- php/Dockerfile
-+++ php/Dockerfile
-@@ -50,2 +50 @@
--		# Force OPcache to be built as a static extension. OPcache is always built as a shared extension.
--		/root/replace.sh 's/ext_shared=yes/ext_shared=no/g' /root/php-src/ext/opcache/config.m4; \
-+		# PHP 8.5 and later already build OPcache statically.

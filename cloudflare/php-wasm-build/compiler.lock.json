@@ -2,16 +2,8 @@
   "builder": "emscripten/emsdk@sha256:5e56ae2aa3f847c79f5939c13e1de21600a96e7d6934b2dc563904754cfd3ca2",
   "platform": "linux/amd64",
   "emscripten": "4.0.19",
-  "php": "8.3.32",
-  "phpCommit": "3e35b370570577e6277f8b46a0e73cdf616921fb",
-  "playgroundCommit": "53d5c3030702e1edb3f82e7dbc308fcac27c3d0a",
   "sourceDateEpoch": 1704067200,
   "downloads": [
-    {
-      "file": "php.tar.gz",
-      "source": "https://codeload.github.com/php/php-src/tar.gz/3e35b370570577e6277f8b46a0e73cdf616921fb",
-      "sha256": "84e2e6f7ed409cd3d75c1817a63b273211d5a503fe094942d2fb7bfb0a1f97f8"
-    },
     {
       "file": "emscripten.tar.gz",
       "source": "https://codeload.github.com/emscripten-core/emscripten/tar.gz/refs/tags/4.0.19",
@@ -91,11 +83,11 @@
       "file": "notices/sqlite-src-3510000.zip",
       "source": "https://sqlite.org/2025/sqlite-src-3510000.zip",
       "sha256": "5330719b8b80bf563991ff7a373052943f5357aae76cd1f3367eab845d3a75b7"
+    },
+    {
+      "file": "rust-src-1.92.0.tar.xz",
+      "source": "https://static.rust-lang.org/dist/2025-12-11/rust-src-1.92.0.tar.xz",
+      "sha256": "333d45eeb76f210966dc5c1440b535dea5876ed0162f9286273c85e7a1e3cb29"
     }
-  ],
-  "playgroundFiles": {
-    "playground.tar": "79492dff555a86464d101b9f27a87fcf473cbe3b3e62456c9a9e166a5edee127",
-    "js-exports.txt": "d7d9c6a3b7ffba3a1524bfac3d243d269c8b5461f269f196bdb1198baef3d1c6",
-    "wasm-exports.txt": "8a8df7a103018ab8617e920db08431287056c4f575be8187d13935d77473db4a"
-  }
+  ]
 }

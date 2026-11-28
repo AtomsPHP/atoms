@@ -50,7 +50,11 @@ if (process.argv.includes('--if-installed') && process.env.npm_config_package_lo
 				renameSync(join(temp, file), join(out, pair, file));
 			}
 			const loader = pin.glue.path;
-			writeFileSync(join(temp, loader), `export * from ${JSON.stringify(`./${pair}/${loader}`)};\n`);
+			const entry = [
+				`export { default as factory } from ${JSON.stringify(`./${pair}/${loader}`)};`,
+				`export { default as wasm } from ${JSON.stringify(`./${pair}/${pin.wasm.path}`)};`,
+			].join('\n') + '\n';
+			writeFileSync(join(temp, loader), entry);
 			keep.add(pair);
 			keep.add(loader);
 		}

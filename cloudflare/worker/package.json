@@ -8,8 +8,7 @@
 	"dependencies": {
 		"@atomsphp/php-wasm-8-3": "8.3.32-atoms.7",
 		"@atomsphp/php-wasm-8-4": "8.4.28-atoms.7",
-		"@atomsphp/php-wasm-8-5": "8.5.13-atoms.7",
-		"@php-wasm/universal": "3.1.48"
+		"@atomsphp/php-wasm-8-5": "8.5.13-atoms.7"
 	},
 	"devDependencies": {
 		"wrangler": "4.165.0"

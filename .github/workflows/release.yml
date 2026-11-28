@@ -126,6 +126,7 @@ jobs:
           node scripts/pack-runtime.mjs --pack-destination "$RUNNER_TEMP/scaffold"
           npm exec --yes --package="$RUNNER_TEMP/scaffold/atomsphp-runtime-cloudflare-${{ steps.manifest.outputs.version }}.tgz" -- atoms-runtime-cloudflare init "$RUNNER_TEMP/preflight-worker"
           npm ci --prefix "$RUNNER_TEMP/preflight-worker" --no-audit --no-fund
+          node ../php-wasm-build/clean-install.mjs "$RUNNER_TEMP/scaffold/"*.tgz "$(npm config get cache)"
 
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'push'
