@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require __DIR__ . '/timestamps.php';
+
 if (PHP_VERSION !== '8.3.32' || PHP_SAPI !== 'wasm'
     || PHP_INT_SIZE !== 8 || !extension_loaded('atoms_bridge')
     || atoms_roundtrip_i64(PHP_INT_MAX) !== 9223372036854775807) {

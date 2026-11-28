@@ -8,6 +8,7 @@ const config :Workerd.Config = (
         (name = "php.mjs", esModule = embed "php.mjs"),
         (name = "php.wasm", wasm = embed "php.wasm"),
         (name = "guest.php", text = embed "guest.php"),
+        (name = "timestamps.php", text = embed "timestamps.php"),
         (name = "message.php", text = embed "message.php"),
         (name = "loader.js", esModule = embed "loader.js"),
         (name = "bridge.js", esModule = embed "bridge.js"),

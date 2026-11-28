@@ -1,6 +1,7 @@
 import init from './php.mjs';
 import wasm from './php.wasm';
 import script from './guest.php';
+import timestamps from './timestamps.php';
 
 export class Probe {
   constructor(ctx) {
@@ -27,6 +28,7 @@ export class Probe {
       printErr: line => errors.push(line),
     });
     php.FS.writeFile('/guest.php', script);
+    php.FS.writeFile('/timestamps.php', timestamps);
     php.atomsBridge = php._atoms_prepare();
     if (php._php_embed_init(0, 0) !== 0) throw Error('php_embed_init failed');
     const path = new TextEncoder().encode('/guest.php\0');

@@ -14,13 +14,7 @@ python3 test.py /tmp/atoms-php-build --turns
 
 Pass `--workerd /path/to/workerd` to use the binary from another installation of the locked Worker dependencies. The test gives the Durable Object a fresh on-disk SQLite store on each run.
 
-`test.py --timestamps` also checks the two UTC seconds around the signed 32-bit boundary in January 2038. The upstream date library currently selects 32-bit integers on wasm32. The following call returns false even though PHP reports 8-byte integers. The #228 interpreter returns 2147483648.
-
-```php
-gmmktime(3, 14, 8, 1, 19, 2038)
-```
-
-The pending timelib port decision and the measured calls are in Atoms Board task #289, reply #293.
+The embed build enables 64-bit Zend integers on wasm32. The `timelib-long64.patch` build option selects the matching timestamp width in PHP’s bundled date library. Without it, `gmmktime(3, 14, 8, 1, 19, 2038)` warns and returns false. Stack #225 returns 2147483648. The default ABI probe checks both sides of the signed 32-bit limits in 1901 and 2038.
 
 The turn fixture boots the owned adapter over stock emcc glue. It uses the Worker's SQL bridge and transaction machine. Each failure check inserts and reads its marker on the callback stack. Subsequent HTTP requests check the SQLite rows, DO identity, durable construction count and PHP generation. The compile fatal comes from an included file. The memory-limit fatal occurs while PHP's fread allocates a Zend-owned reply string after the Rust callback has returned. Discarding the instance closes its wakes and skips user shutdown callbacks.
 

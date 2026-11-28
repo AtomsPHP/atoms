@@ -16,5 +16,5 @@ bindgen "$php_source/sapi/embed/php_embed.h" \
     --formatter none --output "$output" -- \
     -target wasm32-unknown-emscripten -nostdinc \
     -isystem "$builtin_headers" -isystem "$sysroot_headers" \
-    -D_GNU_SOURCE -DZEND_ENABLE_ZVAL_LONG64=1 \
+    -D_GNU_SOURCE -DZEND_ENABLE_ZVAL_LONG64=1 -DTIMELIB_FORCE_LONG64=1 \
     -I"$php_source" -I"$php_source/main" -I"$php_source/TSRM" -I"$php_source/Zend"

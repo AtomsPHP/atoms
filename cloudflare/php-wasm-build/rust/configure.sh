@@ -6,7 +6,8 @@ set -eu
 export php_cv_sizeof_intmax_t=8 php_cv_sizeof_ssize_t=4 php_cv_sizeof_ptrdiff_t=4
 export ac_cv_func_fork=no
 export CC=emcc CXX=em++ AR=emar RANLIB=emranlib
-export CFLAGS="-O1 -DZEND_ENABLE_ZVAL_LONG64=1"
+patch --batch --forward --fuzz=0 -p1 -i /recipe/timelib-long64.patch
+export CFLAGS="-O1 -DZEND_ENABLE_ZVAL_LONG64=1 -DTIMELIB_FORCE_LONG64=1"
 ./buildconf --force
 emconfigure ./configure --build=x86_64-pc-linux-gnu --host=wasm32-unknown-emscripten \
     --disable-all --disable-cli --disable-cgi --disable-phpdbg --disable-zend-signals \
