@@ -9,14 +9,17 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const worker = resolve(here, '../..');
 const repo = resolve(worker, '../..');
-const [scaffoldArg, yiiArg] = process.argv.slice(2);
-if (!scaffoldArg || process.argv.length > 4) {
-    throw new Error('Usage: node run.mjs <installed-scaffold> [yii2-checkout]');
+const {positionals, values} = parseArgs({allowPositionals: true, options: {embed: {type: 'string'}}});
+const [scaffoldArg, yiiArg] = positionals;
+if (!scaffoldArg || positionals.length > 2) {
+    throw new Error('Usage: node run.mjs [--embed build] <installed-scaffold> [yii2-checkout]');
 }
+const embed = values.embed && resolve(values.embed);
 const scaffold = resolve(scaffoldArg);
 const yii = yiiArg && resolve(yiiArg);
 const env = { ...process.env, COMPOSER_DISABLE_NETWORK: '1', WRANGLER_SEND_METRICS: 'false', NO_COLOR: '1' };
@@ -290,7 +293,13 @@ async function runFixture(selection, cliResource) {
         cpSync(join(scaffold, name), join(dir, name), { recursive: true });
     }
     symlinkSync(join(scaffold, 'node_modules'), join(dir, 'node_modules'), 'dir');
-    run(process.execPath, [join(dir, 'scripts/prepare-runtime.mjs')], dir);
+    let privatePair;
+    if (embed) {
+        const {stagePdoBuild} = await import('../../../php-wasm-build/rust/test/stage-pdo.mjs');
+        privatePair = stagePdoBuild(dir, pin, embed);
+    } else {
+        run(process.execPath, [join(dir, 'scripts/prepare-runtime.mjs')], dir);
+    }
     const phpArgs = cliResource ? ['-d', 'auto_prepend_file=' + cliResource] : [];
     run('php', [...phpArgs, join(repo, 'packages/cli/bin/atoms'), 'build'], project);
     const output = join(project, '.atoms/build');
@@ -299,11 +308,19 @@ async function runFixture(selection, cliResource) {
     const archive = readdirSync(output).find(file => file.endsWith('.tar.gz'));
     run(process.execPath, [join(dir, 'scripts/bundle-from-cli.mjs'), join(output, archive), join(output, 'manifest.json')], dir);
 
-    const pair = join(dir, '.php-wasm', pin.wasm.sha256 + '-' + pin.glue.sha256);
-    const wasmSha256 = sha256(join(pair, pin.wasm.path));
-    const glueSha256 = sha256(join(pair, pin.glue.path));
-    assert.equal(wasmSha256, pin.wasm.sha256);
-    assert.equal(glueSha256, pin.glue.sha256);
+    let wasmSha256, glueSha256;
+    if (privatePair) {
+        wasmSha256 = sha256(privatePair.wasm);
+        glueSha256 = sha256(privatePair.glue);
+        assert.equal(wasmSha256, sha256(join(embed, 'php.wasm')));
+        assert.equal(glueSha256, sha256(join(embed, 'php.mjs')));
+    } else {
+        const pair = join(dir, '.php-wasm', pin.wasm.sha256 + '-' + pin.glue.sha256);
+        wasmSha256 = sha256(join(pair, pin.wasm.path));
+        glueSha256 = sha256(join(pair, pin.glue.path));
+        assert.equal(wasmSha256, pin.wasm.sha256);
+        assert.equal(glueSha256, pin.glue.sha256);
+    }
     copyFileSync(join(here, 'trace.mjs'), join(dir, 'src/pdo-probe-trace.mjs'));
     appendFileSync(join(dir, 'src/bridge.js'), "\nimport { traceTransactions } from './pdo-probe-trace.mjs';\ntraceTransactions(Bridge, TransactionMachine);\n");
     const result = await runWorker(dir, version);
@@ -313,7 +330,7 @@ async function runFixture(selection, cliResource) {
 try {
     const cliResource = yii && prepareYii();
     const results = [];
-    for (const selection of [undefined, '8.3', '8.4', '8.5']) {
+    for (const selection of (embed ? ['8.3'] : [undefined, '8.3', '8.4', '8.5'])) {
         results.push(await runFixture(selection, cliResource));
     }
     console.log(JSON.stringify(results, null, 2));

@@ -7,6 +7,7 @@ const config :Workerd.Config = (
         (name = "worker.js", esModule = embed "worker.js"),
         (name = "php.mjs", esModule = embed "php.mjs"),
         (name = "php.wasm", wasm = embed "php.wasm"),
+        (name = "pdo-runtime.js", esModule = embed "pdo-runtime.js"),
         (name = "guest.php", text = embed "guest.php"),
         (name = "timestamps.php", text = embed "timestamps.php"),
         (name = "parity.php", text = embed "parity.php"),

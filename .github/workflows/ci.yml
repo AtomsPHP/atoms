@@ -40,6 +40,8 @@ jobs:
         run: |
           python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd"
           python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd" --turns
+          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd" --pdo-turns
+          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd" --pdo-cleanup
 
   release-metadata:
     runs-on: ubuntu-latest

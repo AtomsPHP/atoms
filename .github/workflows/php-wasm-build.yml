@@ -99,7 +99,7 @@ jobs:
         run: |
           probe="$RUNNER_TEMP/probe"
           mkdir -p "$probe/src" "$probe/package"
-          cp cloudflare/worker/src/{php-host,errors}.js "$probe/src"
+          cp cloudflare/worker/src/{php-host,guest-files,errors}.js "$probe/src"
           echo '{"type":"module"}' > "$probe/package.json"
           universal=$(jq -r '.dependencies["@php-wasm/universal"]' cloudflare/worker/package.json)
           npm install --prefix "$probe" --ignore-scripts --no-audit --no-fund "@php-wasm/universal@$universal"
