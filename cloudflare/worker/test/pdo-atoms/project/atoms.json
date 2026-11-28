@@ -1,0 +1,5 @@
+{
+    "project": "pdo-probe",
+    "paths": {"atoms": "app/Atoms", "shared": "app/Atoms/Shared"},
+    "environments": {"local": {"worker_name": "pdo-probe"}}
+}

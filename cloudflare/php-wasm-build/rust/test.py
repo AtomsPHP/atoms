@@ -13,7 +13,9 @@ parser.add_argument('build', type=Path)
 parser.add_argument('--workerd', type=Path, default=RECIPE.parents[1] / 'worker/node_modules/.bin/workerd')
 mode = parser.add_mutually_exclusive_group()
 mode.add_argument('--turns', action='store_true', help='verify inline resume, rollback and engine recovery')
-mode.add_argument('--timestamps', dest='turns', action='store_false',
+mode.add_argument('--pdo-turns', action='store_true', help='run the transaction proof through native PDO callbacks')
+mode.add_argument('--pdo-cleanup', action='store_true', help='verify nested PDO callbacks and Zend destruction')
+mode.add_argument('--abi', '--timestamps', dest='turns', action='store_false',
                   help='run the ABI, timestamp and extension checks (default)')
 parser.set_defaults(turns=False)
 mode.add_argument('--inventory', type=Path, metavar='JSON', help='write the full PHP release inventory')
@@ -22,8 +24,18 @@ with tempfile.TemporaryDirectory() as temp:
     root = Path(temp)
     for name in ['php.mjs', 'php.wasm']:
         (root / name).symlink_to((args.build / name).resolve(strict=True))
-    worker = 'turn' if args.turns else 'abi'
+    worker = 'turn' if args.turns or args.pdo_turns else 'abi'
     guest = RECIPE / ('test/turn.php' if args.turns else 'abi.php')
+    runtime_files = {}
+    if args.pdo_turns:
+        guest = RECIPE / 'test/pdo-turn.php'
+        for name in ['host', 'int64', 'BridgeSqlException', 'NamedParams', 'FetchMode', 'NativePdo', 'SqlBridge']:
+            path = RECIPE.parents[1] / 'worker/php/runtime' / (name + '.php')
+            runtime_files[path.name] = path.read_text()
+    (root / 'pdo-runtime.js').write_text('export default ' + json.dumps(runtime_files) + ';\n')
+    if args.pdo_cleanup:
+        worker = 'pdo-cleanup'
+        guest = RECIPE / 'test/pdo-cleanup.php'
     if args.inventory:
         worker = 'inventory'
         guest = RECIPE.parent / 'inspect-guest.php'

@@ -1,0 +1,1014 @@
+[
+  {
+    "selected": "default",
+    "php": "8.3.32",
+    "wasmSha256": "a0eceef76416e7211c43baf53943d8b0ad52c8ab9d2ec611cc98a331bdc1373c",
+    "glueSha256": "e34aa4f63c6729536a3e76ef9eece7651b3c7e9ec0ccaf318d948d1fa8885a39",
+    "registration": {
+      "php": "8.3.32",
+      "drivers": [
+        "atoms",
+        "sqlite"
+      ],
+      "activation": "atoms",
+      "activationCursorClosed": true,
+      "turn": "atoms",
+      "beforeActivationRejected": true,
+      "invalidRejected": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "namedArguments": [
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ]
+    ],
+    "quotedValues": {
+      "pdo.quote.plain": [
+        "'hello'",
+        "hello"
+      ],
+      "pdo.quote.apostrophe": [
+        "'O''Reilly'",
+        "O'Reilly"
+      ],
+      "pdo.quote.empty": [
+        "''",
+        ""
+      ],
+      "pdo.quote.param_int": [
+        "'42'",
+        "42"
+      ],
+      "pdo.quote.param_bool": "TypeError",
+      "pdo.quote.param_null": "TypeError",
+      "pdo.quote.param_lob": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.unknown_type": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.nul_byte": "PDOException",
+      "pdo.quote.utf8": [
+        "'héllo €'",
+        "héllo €"
+      ],
+      "pdo.quote.weak_null": [
+        "''",
+        ""
+      ],
+      "pdo.quote.weak_bool_true": [
+        "'1'",
+        "1"
+      ],
+      "pdo.quote.weak_int": [
+        "'42'",
+        "42"
+      ],
+      "nulByErrorMode": [
+        true,
+        true,
+        true
+      ],
+      "errorAfterQuote": {
+        "exec": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ],
+        "query": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ]
+      }
+    },
+    "sqlErrors": {
+      "silent": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "warning": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "exception": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      }
+    },
+    "committed": [
+      {
+        "key": "control",
+        "value": 5000000000
+      }
+    ],
+    "rollback": {
+      "beforeDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "afterDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "callbackGuard": true,
+      "otherOwns": false,
+      "ownerOwns": true,
+      "afterRollback": [],
+      "cachedReads": [
+        [
+          0,
+          "cached"
+        ],
+        [
+          1,
+          "cached"
+        ]
+      ]
+    },
+    "yii": [
+      "2.0.53",
+      "1",
+      "0",
+      [
+        {
+          "value": 42
+        }
+      ]
+    ],
+    "abandonment": "atom_exception",
+    "recoveredOwner": {
+      "ownedAtStart": false,
+      "unread": false,
+      "nonownerRollbackRejected": true,
+      "otherOwns": true,
+      "reusedOwnerWrite": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "rows": [
+        {
+          "key": "control",
+          "value": 5000000000
+        }
+      ]
+    },
+    "cursor": {
+      "unread": [
+        false,
+        false
+      ],
+      "closedColumnCount": 1,
+      "newColumnCount": 2,
+      "newColumns": {
+        "marker": "another unread row",
+        "extra": 42
+      },
+      "oldValue": [
+        null,
+        null
+      ],
+      "oldValueAfterExecute": [
+        null,
+        null
+      ],
+      "newValue": "second-turn row",
+      "savedViewAfterFetch": "second-turn row"
+    },
+    "cache": [
+      {
+        "id": "test",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": false,
+        "nativeValue": false
+      },
+      {
+        "id": "second",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      },
+      {
+        "id": "test",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 3,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      }
+    ],
+    "trace": [
+      "resume.tx.begin inside",
+      "sql.insert inside",
+      "sql.read inside",
+      "sql.read inside",
+      "resume.tx.rollback outside",
+      "sql.read outside"
+    ]
+  },
+  {
+    "selected": "8.3",
+    "php": "8.3.32",
+    "wasmSha256": "a0eceef76416e7211c43baf53943d8b0ad52c8ab9d2ec611cc98a331bdc1373c",
+    "glueSha256": "e34aa4f63c6729536a3e76ef9eece7651b3c7e9ec0ccaf318d948d1fa8885a39",
+    "registration": {
+      "php": "8.3.32",
+      "drivers": [
+        "atoms",
+        "sqlite"
+      ],
+      "activation": "atoms",
+      "activationCursorClosed": true,
+      "turn": "atoms",
+      "beforeActivationRejected": true,
+      "invalidRejected": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "namedArguments": [
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ]
+    ],
+    "quotedValues": {
+      "pdo.quote.plain": [
+        "'hello'",
+        "hello"
+      ],
+      "pdo.quote.apostrophe": [
+        "'O''Reilly'",
+        "O'Reilly"
+      ],
+      "pdo.quote.empty": [
+        "''",
+        ""
+      ],
+      "pdo.quote.param_int": [
+        "'42'",
+        "42"
+      ],
+      "pdo.quote.param_bool": "TypeError",
+      "pdo.quote.param_null": "TypeError",
+      "pdo.quote.param_lob": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.unknown_type": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.nul_byte": "PDOException",
+      "pdo.quote.utf8": [
+        "'héllo €'",
+        "héllo €"
+      ],
+      "pdo.quote.weak_null": [
+        "''",
+        ""
+      ],
+      "pdo.quote.weak_bool_true": [
+        "'1'",
+        "1"
+      ],
+      "pdo.quote.weak_int": [
+        "'42'",
+        "42"
+      ],
+      "nulByErrorMode": [
+        true,
+        true,
+        true
+      ],
+      "errorAfterQuote": {
+        "exec": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ],
+        "query": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ]
+      }
+    },
+    "sqlErrors": {
+      "silent": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "warning": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "exception": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      }
+    },
+    "committed": [
+      {
+        "key": "control",
+        "value": 5000000000
+      }
+    ],
+    "rollback": {
+      "beforeDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "afterDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "callbackGuard": true,
+      "otherOwns": false,
+      "ownerOwns": true,
+      "afterRollback": [],
+      "cachedReads": [
+        [
+          0,
+          "cached"
+        ],
+        [
+          1,
+          "cached"
+        ]
+      ]
+    },
+    "yii": [
+      "2.0.53",
+      "1",
+      "0",
+      [
+        {
+          "value": 42
+        }
+      ]
+    ],
+    "abandonment": "atom_exception",
+    "recoveredOwner": {
+      "ownedAtStart": false,
+      "unread": false,
+      "nonownerRollbackRejected": true,
+      "otherOwns": true,
+      "reusedOwnerWrite": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "rows": [
+        {
+          "key": "control",
+          "value": 5000000000
+        }
+      ]
+    },
+    "cursor": {
+      "unread": [
+        false,
+        false
+      ],
+      "closedColumnCount": 1,
+      "newColumnCount": 2,
+      "newColumns": {
+        "marker": "another unread row",
+        "extra": 42
+      },
+      "oldValue": [
+        null,
+        null
+      ],
+      "oldValueAfterExecute": [
+        null,
+        null
+      ],
+      "newValue": "second-turn row",
+      "savedViewAfterFetch": "second-turn row"
+    },
+    "cache": [
+      {
+        "id": "test",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": false,
+        "nativeValue": false
+      },
+      {
+        "id": "second",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      },
+      {
+        "id": "test",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 3,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      }
+    ],
+    "trace": [
+      "resume.tx.begin inside",
+      "sql.insert inside",
+      "sql.read inside",
+      "sql.read inside",
+      "resume.tx.rollback outside",
+      "sql.read outside"
+    ]
+  },
+  {
+    "selected": "8.4",
+    "php": "8.4.28",
+    "wasmSha256": "11a66c8fef2f2b9489ddc0e4a32b1abbe21229aa90b2c53709f46bbe9b103ba8",
+    "glueSha256": "20f3ec72b87ef9c08adac8c345b35061e54c2a8bbfcf95eb4d771dac4e4d6fb3",
+    "registration": {
+      "php": "8.4.28",
+      "drivers": [
+        "atoms",
+        "sqlite"
+      ],
+      "activation": "atoms",
+      "activationCursorClosed": true,
+      "turn": "atoms",
+      "beforeActivationRejected": true,
+      "invalidRejected": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "namedArguments": [
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ]
+    ],
+    "quotedValues": {
+      "pdo.quote.plain": [
+        "'hello'",
+        "hello"
+      ],
+      "pdo.quote.apostrophe": [
+        "'O''Reilly'",
+        "O'Reilly"
+      ],
+      "pdo.quote.empty": [
+        "''",
+        ""
+      ],
+      "pdo.quote.param_int": [
+        "'42'",
+        "42"
+      ],
+      "pdo.quote.param_bool": "TypeError",
+      "pdo.quote.param_null": "TypeError",
+      "pdo.quote.param_lob": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.unknown_type": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.nul_byte": "PDOException",
+      "pdo.quote.utf8": [
+        "'héllo €'",
+        "héllo €"
+      ],
+      "pdo.quote.weak_null": [
+        "''",
+        ""
+      ],
+      "pdo.quote.weak_bool_true": [
+        "'1'",
+        "1"
+      ],
+      "pdo.quote.weak_int": [
+        "'42'",
+        "42"
+      ],
+      "nulByErrorMode": [
+        true,
+        true,
+        true
+      ],
+      "errorAfterQuote": {
+        "exec": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ],
+        "query": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ]
+      }
+    },
+    "sqlErrors": {
+      "silent": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "warning": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "exception": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      }
+    },
+    "committed": [
+      {
+        "key": "control",
+        "value": 5000000000
+      }
+    ],
+    "rollback": {
+      "beforeDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "afterDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "callbackGuard": true,
+      "otherOwns": false,
+      "ownerOwns": true,
+      "afterRollback": [],
+      "cachedReads": [
+        [
+          0,
+          "cached"
+        ],
+        [
+          1,
+          "cached"
+        ]
+      ]
+    },
+    "yii": [
+      "2.0.53",
+      "1",
+      "0",
+      [
+        {
+          "value": 42
+        }
+      ]
+    ],
+    "abandonment": "atom_exception",
+    "recoveredOwner": {
+      "ownedAtStart": false,
+      "unread": false,
+      "nonownerRollbackRejected": true,
+      "otherOwns": true,
+      "reusedOwnerWrite": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "rows": [
+        {
+          "key": "control",
+          "value": 5000000000
+        }
+      ]
+    },
+    "cursor": {
+      "unread": [
+        false,
+        false
+      ],
+      "closedColumnCount": 1,
+      "newColumnCount": 2,
+      "newColumns": {
+        "marker": "another unread row",
+        "extra": 42
+      },
+      "oldValue": [
+        null,
+        null
+      ],
+      "oldValueAfterExecute": [
+        null,
+        null
+      ],
+      "newValue": "second-turn row",
+      "savedViewAfterFetch": "second-turn row"
+    },
+    "cache": [
+      {
+        "id": "test",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": false,
+        "nativeValue": false
+      },
+      {
+        "id": "second",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      },
+      {
+        "id": "test",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 3,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      }
+    ],
+    "trace": [
+      "resume.tx.begin inside",
+      "sql.insert inside",
+      "sql.read inside",
+      "sql.read inside",
+      "resume.tx.rollback outside",
+      "sql.read outside"
+    ]
+  },
+  {
+    "selected": "8.5",
+    "php": "8.5.13",
+    "wasmSha256": "c154db1d463155e6378dab7850f2a43a9d7d4ea1bc998cb8ab8ac29dfb0b8e20",
+    "glueSha256": "91da3a09392626e412c9565b8188b5dfd72ea34adbec22117e7dfb671a14f9c8",
+    "registration": {
+      "php": "8.5.13",
+      "drivers": [
+        "atoms",
+        "sqlite"
+      ],
+      "activation": "atoms",
+      "activationCursorClosed": true,
+      "turn": "atoms",
+      "beforeActivationRejected": true,
+      "invalidRejected": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "namedArguments": [
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ],
+      [
+        "atoms",
+        1
+      ]
+    ],
+    "quotedValues": {
+      "pdo.quote.plain": [
+        "'hello'",
+        "hello"
+      ],
+      "pdo.quote.apostrophe": [
+        "'O''Reilly'",
+        "O'Reilly"
+      ],
+      "pdo.quote.empty": [
+        "''",
+        ""
+      ],
+      "pdo.quote.param_int": [
+        "'42'",
+        "42"
+      ],
+      "pdo.quote.param_bool": "TypeError",
+      "pdo.quote.param_null": "TypeError",
+      "pdo.quote.param_lob": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.unknown_type": [
+        "'x'",
+        "x"
+      ],
+      "pdo.quote.nul_byte": "PDOException",
+      "pdo.quote.utf8": [
+        "'héllo €'",
+        "héllo €"
+      ],
+      "pdo.quote.weak_null": [
+        "''",
+        ""
+      ],
+      "pdo.quote.weak_bool_true": [
+        "'1'",
+        "1"
+      ],
+      "pdo.quote.weak_int": [
+        "'42'",
+        "42"
+      ],
+      "nulByErrorMode": [
+        true,
+        true,
+        true
+      ],
+      "errorAfterQuote": {
+        "exec": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ],
+        "query": [
+          "HY000",
+          "00000",
+          [
+            "00000",
+            null,
+            null
+          ]
+        ]
+      }
+    },
+    "sqlErrors": {
+      "silent": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "warning": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      },
+      "exception": {
+        "exec": "HY000",
+        "query": "HY000",
+        "execute": "23000"
+      }
+    },
+    "committed": [
+      {
+        "key": "control",
+        "value": 5000000000
+      }
+    ],
+    "rollback": {
+      "beforeDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "afterDrop": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "callbackGuard": true,
+      "otherOwns": false,
+      "ownerOwns": true,
+      "afterRollback": [],
+      "cachedReads": [
+        [
+          0,
+          "cached"
+        ],
+        [
+          1,
+          "cached"
+        ]
+      ]
+    },
+    "yii": [
+      "2.0.53",
+      "1",
+      "0",
+      [
+        {
+          "value": 42
+        }
+      ]
+    ],
+    "abandonment": "atom_exception",
+    "recoveredOwner": {
+      "ownedAtStart": false,
+      "unread": false,
+      "nonownerRollbackRejected": true,
+      "otherOwns": true,
+      "reusedOwnerWrite": [
+        {
+          "value": 5000000000
+        }
+      ],
+      "rows": [
+        {
+          "key": "control",
+          "value": 5000000000
+        }
+      ]
+    },
+    "cursor": {
+      "unread": [
+        false,
+        false
+      ],
+      "closedColumnCount": 1,
+      "newColumnCount": 2,
+      "newColumns": {
+        "marker": "another unread row",
+        "extra": 42
+      },
+      "oldValue": [
+        null,
+        null
+      ],
+      "oldValueAfterExecute": [
+        null,
+        null
+      ],
+      "newValue": "second-turn row",
+      "savedViewAfterFetch": "second-turn row"
+    },
+    "cache": [
+      {
+        "id": "test",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 1,
+        "samePdo": true,
+        "yiiValue": false,
+        "nativeValue": false
+      },
+      {
+        "id": "second",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      },
+      {
+        "id": "test",
+        "read": 2,
+        "samePdo": true,
+        "yiiValue": "71",
+        "nativeValue": 71
+      },
+      {
+        "id": "second",
+        "read": 3,
+        "samePdo": true,
+        "yiiValue": "82",
+        "nativeValue": 82
+      }
+    ],
+    "trace": [
+      "resume.tx.begin inside",
+      "sql.insert inside",
+      "sql.read inside",
+      "sql.read inside",
+      "resume.tx.rollback outside",
+      "sql.read outside"
+    ]
+  }
+]
