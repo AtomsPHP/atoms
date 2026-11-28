@@ -22,27 +22,46 @@ fn abort(_: &core::panic::PanicInfo<'_>) -> ! {
 // The embedding owns one non-thread-safe PHP interpreter per Wasm instance.
 // Zend mutates the module record during startup. Its tables live until teardown.
 static mut MODULE: php::zend_module_entry = unsafe { zeroed() };
-static mut FUNCTIONS: [php::zend_function_entry; 2] = unsafe { zeroed() };
+static mut FUNCTIONS: [php::zend_function_entry; 3] = unsafe { zeroed() };
 static mut ARG_INFO: [php::zend_internal_arg_info; 2] = unsafe { zeroed() };
 
 extern "C" {
     fn atoms_startup(sapi: *mut php::sapi_module_struct) -> i32;
     fn atoms_roundtrip_i64(value: i64) -> i64;
+    fn atoms_send(ptr: *const u8, len: usize) -> i32;
 }
 
-// Compute ZEND_CALL_ARG(frame, 1) using the configured target layouts.
-// No Zend calls, allocations or Rust references survive the host call.
-unsafe extern "C" fn roundtrip(frame: *mut php::zend_execute_data, result: *mut php::zval) {
-    if (*frame).This.u2.num_args == 1 {
-        let slots = size_of::<php::zend_execute_data>().div_ceil(size_of::<php::zval>());
-        let arg = frame.cast::<php::zval>().add(slots);
-        if (*arg).u1.v.type_ == php::IS_LONG as u8 {
-            (*result).value.lval = atoms_roundtrip_i64((*arg).value.lval);
-            (*result).u1.type_info = php::IS_LONG;
-            return;
-        }
+// The VM stores arguments immediately after the zval-aligned call frame.
+unsafe fn single_arg(frame: *mut php::zend_execute_data, ty: u32) -> Option<*mut php::zval> {
+    if (*frame).This.u2.num_args != 1 {
+        return None;
     }
-    (*result).u1.type_info = php::IS_NULL;
+    let slots = size_of::<php::zend_execute_data>().div_ceil(size_of::<php::zval>());
+    let arg = frame.cast::<php::zval>().add(slots);
+    ((*arg).u1.v.type_ == ty as u8).then_some(arg)
+}
+
+unsafe extern "C" fn roundtrip(frame: *mut php::zend_execute_data, result: *mut php::zval) {
+    if let Some(arg) = single_arg(frame, php::IS_LONG) {
+        (*result).value.lval = atoms_roundtrip_i64((*arg).value.lval);
+        (*result).u1.type_info = php::IS_LONG;
+    } else {
+        (*result).u1.type_info = php::IS_NULL;
+    }
+}
+
+// JS copies the input before it parks. Rust holds no borrow across the import
+// and returns an integer, so a Zend allocation failure cannot skip this frame.
+unsafe extern "C" fn exchange_length(frame: *mut php::zend_execute_data, result: *mut php::zval) {
+    let len = match single_arg(frame, php::IS_STRING) {
+        Some(arg) => {
+            let string = (*arg).value.str_;
+            atoms_send(addr_of!((*string).val).cast(), (*string).len)
+        }
+        None => -1,
+    };
+    (*result).value.lval = len.into();
+    (*result).u1.type_info = php::IS_LONG;
 }
 
 #[no_mangle]
@@ -53,6 +72,11 @@ pub unsafe extern "C" fn atoms_prepare() -> *mut php::zend_module_entry {
     FUNCTIONS[0].handler = Some(roundtrip);
     FUNCTIONS[0].arg_info = addr_of!(ARG_INFO).cast();
     FUNCTIONS[0].num_args = 1;
+
+    FUNCTIONS[1].fname = c"atoms_exchange_length".as_ptr();
+    FUNCTIONS[1].handler = Some(exchange_length);
+    FUNCTIONS[1].arg_info = addr_of!(ARG_INFO).cast();
+    FUNCTIONS[1].num_args = 1;
 
     MODULE.size = size_of::<php::zend_module_entry>() as u16;
     MODULE.zend_api = php::ZEND_MODULE_API_NO;

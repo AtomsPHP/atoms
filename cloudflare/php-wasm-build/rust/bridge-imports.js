@@ -14,3 +14,16 @@ addToLibrary({
   makecontext: () => { throw Error('PHP Fibers are unavailable in the minimal build'); },
   swapcontext: () => { throw Error('PHP Fibers are unavailable in the minimal build'); },
 });
+
+addToLibrary({
+  atoms_send__deps: ['$Asyncify'],
+  atoms_send: (ptr, len) => {
+    if (Asyncify.state === Asyncify.State.Rewinding) {
+      return Asyncify.handleSleep(() => {});
+    }
+    const message = Module.decodeMessage(ptr, len);
+    if (message.startsWith('!')) return Module.syncMessage(message.slice(1));
+    if (!message.startsWith('~')) throw Error('Unknown Atoms message tag');
+    return Asyncify.handleSleep(wake => Module.parkMessage(message.slice(1), wake));
+  },
+});
