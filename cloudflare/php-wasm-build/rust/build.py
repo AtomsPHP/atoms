@@ -56,7 +56,6 @@ def unpack(path, dest):
 def build(cache, work, libclang, jobs):
     for item in INPUTS:
         verify(cache / item['file'], item['sha256'])
-    verify(libclang, TOOLS['libclang']['sha256'])
     work.mkdir(parents=True, exist_ok=False)
     tools = work / 'tools'
     tools.mkdir()
@@ -68,6 +67,10 @@ def build(cache, work, libclang, jobs):
             src = tools / path.name.removesuffix('.tar.xz')
             unpack(path, src)
             run(src / 'install.sh', f'--prefix={tools / "rust"}', '--disable-ldconfig')
+
+    if libclang is None:
+        libclang = tools / 'bindgen/usr/lib/x86_64-linux-gnu/libclang-21.so.1'
+    verify(libclang, TOOLS['libclang']['sha256'])
 
     context = work / 'compiler-context'
     (context / 'debs').mkdir(parents=True)
@@ -122,10 +125,11 @@ if __name__ == '__main__':
     compile_cmd = cmds.add_parser('build')
     compile_cmd.add_argument('cache', type=Path)
     compile_cmd.add_argument('work', type=Path, help='a new directory for this build')
-    compile_cmd.add_argument('--libclang', type=Path, default=Path('/usr/lib/x86_64-linux-gnu/libclang-21.so.1'))
+    compile_cmd.add_argument('--libclang', type=lambda value: Path(value).resolve(),
+                             help='use a local copy of the same verified libclang')
     compile_cmd.add_argument('--jobs', type=int, default=1)
     args = parser.parse_args()
     if args.op == 'fetch':
         fetch(args.cache)
     else:
-        build(args.cache.resolve(), args.work.resolve(), args.libclang.resolve(), args.jobs)
+        build(args.cache.resolve(), args.work.resolve(), args.libclang, args.jobs)

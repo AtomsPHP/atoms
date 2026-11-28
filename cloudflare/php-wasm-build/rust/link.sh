@@ -6,7 +6,7 @@ bridge_archive=$2
 opcache_archive=$3
 output=$4
 recipe=$(cd "$(dirname "$0")" && pwd)
-emcc -O1 -g2 --no-entry "$bridge_archive" "$php_archive" "$opcache_archive" /build/php/atoms-process-title.a \
+emcc -O2 -g1 --no-entry "$bridge_archive" "$php_archive" "$opcache_archive" /build/php/atoms-process-title.a \
     -L/libs/lib -lxml2 -liconv -lssl -lcrypto -lonig -lgd -lavif -laom -ljpeg -lwebp \
     -lsharpyuv -lpng16 -lzip -lcurl -lsqlite3 -lz -lc++ \
     -Wl,--wrap=zend_call_stack_get -Wl,--wrap=start_memory_manager -Wl,--wrap=shutdown_memory_manager \
