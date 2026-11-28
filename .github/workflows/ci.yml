@@ -24,7 +24,8 @@ jobs:
       - name: Fetch the locked compiler and sources
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends "$(jq -r .libclang.package "$RECIPE/tools.lock.json")"
+          # Restore the archive bytes even when the image has this package version.
+          sudo apt-get install -y --reinstall --no-install-recommends "$(jq -r .libclang.package "$RECIPE/tools.lock.json")"
           docker pull "$(jq -r .builder "$RECIPE/../compiler.lock.json")"
           python3 "$RECIPE/build.py" fetch "$RUNNER_TEMP/inputs"
       - name: Build the upstream PHP embed offline
