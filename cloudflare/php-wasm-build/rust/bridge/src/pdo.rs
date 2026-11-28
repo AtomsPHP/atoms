@@ -221,7 +221,7 @@ unsafe fn open(dbh: *mut pdo_dbh_t) -> Result<i32> {
         error(c"Use the bare atoms: DSN without credentials.")?;
         return Ok(0);
     }
-    if (*dbh).is_persistent() != 0 {
+    if u32::from((*dbh).is_persistent()) != 0 {
         error(c"Persistent Atom database connections are unsupported.")?;
         return Ok(0);
     }
@@ -237,7 +237,7 @@ unsafe fn open(dbh: *mut pdo_dbh_t) -> Result<i32> {
     (*handle).token = result.value.lval;
     (*dbh).driver_data = handle.cast();
     (*dbh).methods = addr_of!(METHODS);
-    (*dbh).set_alloc_own_columns(1);
+    (*dbh).set_alloc_own_columns(true.into());
     Ok(1)
 }
 
@@ -361,7 +361,7 @@ unsafe fn sql_error(dbh: *mut pdo_dbh_t, stmt: *mut pdo_stmt_t) -> Result<()> {
     *state(dbh, stmt) = (*saved).state;
     (*saved).code = (*code).value.lval;
     (*saved).message = copy(text);
-    if (*dbh).error_mode != php::PDO_ERRMODE_EXCEPTION {
+    if u32::from((*dbh).error_mode) != php::PDO_ERRMODE_EXCEPTION {
         engine::zend_clear_exception()?;
     }
     Ok(())

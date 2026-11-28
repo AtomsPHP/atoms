@@ -8,7 +8,9 @@ import sys
 import tempfile
 
 RECIPE = Path(__file__).resolve().parent
+targets = json.loads((RECIPE / 'php-sources.json').read_text())
 parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--php', choices=targets, default='8.3', help='expected guest PHP series')
 parser.add_argument('build', type=Path)
 parser.add_argument('--workerd', type=Path, default=RECIPE.parents[1] / 'worker/node_modules/.bin/workerd')
 mode = parser.add_mutually_exclusive_group()
@@ -24,6 +26,9 @@ with tempfile.TemporaryDirectory() as temp:
     root = Path(temp)
     for name in ['php.mjs', 'php.wasm']:
         (root / name).symlink_to((args.build / name).resolve(strict=True))
+    version = targets[args.php]['version']
+    (root / 'expected-version.txt').write_text(version)
+    (root / 'syntax.php').symlink_to(RECIPE / 'test/syntax' / f'{args.php}.php')
     worker = 'turn' if args.turns or args.pdo_turns else 'abi'
     guest = RECIPE / ('test/turn.php' if args.turns else 'abi.php')
     runtime_files = {}
@@ -61,6 +66,8 @@ with tempfile.TemporaryDirectory() as temp:
         result.check_returncode()
         if len(reports) != 1:
             raise ValueError('Expected one guest inventory')
+        if reports[0]['behavior']['php'] != version:
+            raise ValueError(f'Expected PHP {version} in the guest inventory')
         args.inventory.write_text(json.dumps(reports[0], indent=2, ensure_ascii=False) + '\n')
     else:
         subprocess.run(command, check=True)

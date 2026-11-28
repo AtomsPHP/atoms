@@ -4,7 +4,7 @@ declare(strict_types=1);
 require __DIR__ . '/timestamps.php';
 require __DIR__ . '/parity.php';
 
-if (PHP_VERSION !== '8.3.32' || PHP_SAPI !== 'wasm'
+if ((require __DIR__ . '/syntax.php') !== 'ATOMS' || PHP_SAPI !== 'wasm'
     || PHP_INT_SIZE !== 8 || !extension_loaded('atoms_bridge')
     || atoms_roundtrip_i64(PHP_INT_MAX) !== 9223372036854775807) {
     throw new RuntimeException('PHP, SAPI or Rust bridge ABI mismatch');

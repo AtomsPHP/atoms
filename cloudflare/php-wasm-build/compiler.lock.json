@@ -5,11 +5,6 @@
   "sourceDateEpoch": 1704067200,
   "downloads": [
     {
-      "file": "php.tar.gz",
-      "source": "https://codeload.github.com/php/php-src/tar.gz/3e35b370570577e6277f8b46a0e73cdf616921fb",
-      "sha256": "84e2e6f7ed409cd3d75c1817a63b273211d5a503fe094942d2fb7bfb0a1f97f8"
-    },
-    {
       "file": "debs/libsigsegv2_2.13-1ubuntu3_amd64.deb",
       "source": "https://archive.ubuntu.com/ubuntu/pool/main/libs/libsigsegv/libsigsegv2_2.13-1ubuntu3_amd64.deb",
       "sha256": "894fcb0804df54dca59edbd0860d6f3eeac25d1555aebd3fa99d80665969f891"

@@ -1,0 +1,5 @@
+--- a/ext/opcache/config.m4
++++ b/ext/opcache/config.m4
+@@ -349 +349 @@
+-  if test "$php_cv_shm_ipc" != "yes" && test "$php_cv_shm_mmap_posix" != "yes" && test "$php_cv_shm_mmap_anon" != "yes"; then
++  if test "$host_os" != emscripten && test "$php_cv_shm_ipc" != "yes" && test "$php_cv_shm_mmap_posix" != "yes" && test "$php_cv_shm_mmap_anon" != "yes"; then

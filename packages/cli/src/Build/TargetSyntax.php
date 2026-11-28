@@ -68,9 +68,33 @@ final class TargetSyntax
         ]);
     }
 
+    private static function hasDefault(Node\Stmt\Property $property): bool
+    {
+        foreach ($property->props as $item) {
+            if ($item->default !== null) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @param list<Token> $tokens */
     private static function minimumVersion(Node $node, array $tokens): string
     {
+        if ($node instanceof Node\ArgPlaceholder) {
+            return '8.6';
+        }
+        if ($node instanceof Node\Stmt\Property && $node->isReadonly() && self::hasDefault($node)) {
+            return '8.6';
+        }
+        if ($node instanceof Node\Stmt\Class_ && $node->isReadonly()) {
+            foreach ($node->getProperties() as $property) {
+                if (self::hasDefault($property)) {
+                    return '8.6';
+                }
+            }
+        }
         if ($node instanceof Node\Expr\BinaryOp\Pipe || $node instanceof Node\Expr\Cast\Void_
             || ($node instanceof Node\Stmt\Const_ && $node->attrGroups !== [])
             || ($node instanceof Node\Stmt\Property && $node->isStatic() && ($node->flags & Modifiers::VISIBILITY_SET_MASK))
