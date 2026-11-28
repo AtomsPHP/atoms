@@ -9,14 +9,20 @@ RECIPE = Path(__file__).resolve().parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('build', type=Path)
 parser.add_argument('--workerd', type=Path, default=RECIPE.parents[1] / 'worker/node_modules/.bin/workerd')
-parser.add_argument('--timestamps', action='store_true', help='also require the post-2038 integer ABI')
+mode = parser.add_mutually_exclusive_group()
+mode.add_argument('--turns', action='store_true', help='verify inline resume, rollback and engine recovery')
+mode.add_argument('--timestamps', action='store_true', help='also require the post-2038 integer ABI')
 args = parser.parse_args()
 with tempfile.TemporaryDirectory() as temp:
     root = Path(temp)
     for name in ['php.mjs', 'php.wasm']:
         (root / name).symlink_to((args.build / name).resolve(strict=True))
-    (root / 'worker.js').symlink_to(RECIPE / 'test/abi.js')
-    script = (RECIPE / 'abi.php').read_text()
+    (root / 'worker.js').symlink_to(RECIPE / ('test/turn.js' if args.turns else 'test/abi.js'))
+    for name in ['bridge.js', 'int64.js', 'config.js', 'errors.js']:
+        (root / name).symlink_to(RECIPE.parents[1] / 'worker/src' / name)
+    for name in ['loader.js', 'message.php']:
+        (root / name).symlink_to(RECIPE / name)
+    script = (RECIPE / ('test/turn.php' if args.turns else 'abi.php')).read_text()
     if args.timestamps:
         timestamps = (RECIPE / 'test/timestamps.php').read_text().removeprefix('<?php\n')
         script = script.replace('declare(strict_types=1);', timestamps, 1)
