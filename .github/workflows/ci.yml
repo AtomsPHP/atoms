@@ -33,7 +33,7 @@ jobs:
           curl --fail --location --retry 3 "$(jq -r .resolved <<< "$entry")" --output workerd.tgz
           test "sha512-$(openssl dgst -sha512 -binary workerd.tgz | openssl base64 -A)" = "$(jq -r .integrity <<< "$entry")"
           tar -xzf workerd.tgz package/bin/workerd
-      - name: Exercise the PHP ABI and transaction recovery
+      - name: Exercise the ABI, extensions, transactions and fatal recovery
         run: |
           python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd"
           python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd" --turns
