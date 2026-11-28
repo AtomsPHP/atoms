@@ -108,7 +108,10 @@ leaf!(fn zend_hash_update(table: *mut HashTable, key: *mut zend_string, value: *
 leaf!(fn zend_read_property(class: *mut zend_class_entry, object: *mut zend_object, name: *const c_char, len: usize, silent: bool, result: *mut zval) -> *mut zval);
 leaf!(fn add_next_index_long(array: *mut zval, value: zend_long) -> zend_result);
 leaf!(fn add_next_index_str(array: *mut zval, value: *mut zend_string) -> zend_result);
+#[cfg(not(feature = "zend-bool"))]
 leaf!(fn zend_is_true(value: *const zval) -> i32);
+#[cfg(feature = "zend-bool")]
+leaf!(fn zend_is_true(value: *const zval) -> bool);
 leaf!(fn zval_get_long_func(value: *const zval, strict: bool) -> zend_long);
 leaf!(fn zval_try_get_string_func(value: *mut zval) -> *mut zend_string);
 leaf!(fn php_pdo_stmt_set_column_count(stmt: *mut pdo_stmt_t, count: i32) -> ());

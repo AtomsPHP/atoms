@@ -13,10 +13,15 @@ jobs:
     uses: ./.github/workflows/php-wasm-build.yml
 
   php-embed:
-    name: PHP 8.3 embed in workerd
+    name: PHP ${{ matrix.php }} embed in workerd
     runs-on: ubuntu-26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4', '8.5']
     env:
       RECIPE: cloudflare/php-wasm-build/rust
+      SERIES: ${{ matrix.php }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,9 +31,9 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends "$(jq -r .libclang.package "$RECIPE/tools.lock.json")"
           docker pull "$(jq -r .builder "$RECIPE/../compiler.lock.json")"
-          python3 "$RECIPE/build.py" fetch "$RUNNER_TEMP/inputs"
+          python3 "$RECIPE/build.py" fetch "$RUNNER_TEMP/inputs" --php "$SERIES"
       - name: Build the upstream PHP embed offline
-        run: python3 "$RECIPE/build.py" build "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/embed" --jobs "$(nproc)"
+        run: python3 "$RECIPE/build.py" build "$RUNNER_TEMP/inputs" "$RUNNER_TEMP/embed" --php "$SERIES" --jobs "$(nproc)"
       - name: Fetch workerd from the Worker lockfile
         working-directory: ${{ runner.temp }}
         run: |
@@ -38,10 +43,21 @@ jobs:
           tar -xzf workerd.tgz package/bin/workerd
       - name: Exercise the ABI, extensions, transactions and fatal recovery
         run: |
-          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd"
-          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd" --turns
-          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd" --pdo-turns
-          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --workerd "$RUNNER_TEMP/package/bin/workerd" --pdo-cleanup
+          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --php "$SERIES" --workerd "$RUNNER_TEMP/package/bin/workerd"
+          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --php "$SERIES" --workerd "$RUNNER_TEMP/package/bin/workerd" --turns
+          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --php "$SERIES" --workerd "$RUNNER_TEMP/package/bin/workerd" --pdo-turns
+          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --php "$SERIES" --workerd "$RUNNER_TEMP/package/bin/workerd" --pdo-cleanup
+
+          python3 "$RECIPE/test.py" "$RUNNER_TEMP/embed" --php "$SERIES" --workerd "$RUNNER_TEMP/package/bin/workerd" --inventory "$RUNNER_TEMP/embed/inventory.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: embed-${{ matrix.php }}
+          path: |
+            ${{ runner.temp }}/embed/php.mjs
+            ${{ runner.temp }}/embed/php.wasm
+            ${{ runner.temp }}/embed/inventory.json
+          if-no-files-found: error
+          retention-days: 1
 
   release-metadata:
     runs-on: ubuntu-latest
@@ -68,7 +84,8 @@ jobs:
           jq -rc '.runtime | . as $runtime | [
             .node_tested[] as $node | .guest_php_tested[] as $php
             | select($php == $runtime.guest_php or $node == $runtime.node_tested[0])
-            | {node: $node, php: $php}
+            | {node: $node, php: $php, guest: "installed"},
+              (select($node == $runtime.node_tested[0]) | {node: $node, php: $php, guest: "embed"})
           ] | "worker-versions=\(tojson)"' release/manifest.json >> "$GITHUB_OUTPUT"
 
   tests:
@@ -336,7 +353,7 @@ jobs:
   # "work"; if it stops working, something in the worker broke.
   worker:
     runs-on: ubuntu-latest
-    needs: [release-metadata, interpreters]
+    needs: [release-metadata, interpreters, php-embed]
     strategy:
       fail-fast: false
       matrix:
@@ -424,6 +441,18 @@ jobs:
         run: |
           npm run package:runtime
           bash ../php-wasm-build/install-conformance.sh dist/*.tgz "$GITHUB_WORKSPACE/installed/worker" "$ATOMS_TEST_GUEST_PHP"
+
+      - uses: actions/download-artifact@v4
+        if: matrix.guest == 'embed'
+        with:
+          name: embed-${{ matrix.php }}
+          path: ${{ runner.temp }}/embed
+      - name: Compare the two inventories and stage the selected embed for conformance
+        if: matrix.guest == 'embed'
+        run: |
+          python3 ../php-wasm-build/rust/test/compare-inventory.py \
+            "$RUNNER_TEMP/interpreters/interpreter-$ATOMS_TEST_GUEST_PHP/guest-capabilities.json" "$RUNNER_TEMP/embed/inventory.json"
+          node ../php-wasm-build/rust/test/stage-pdo.mjs "$GITHUB_WORKSPACE/installed/worker" "$RUNNER_TEMP/embed" "$ATOMS_TEST_GUEST_PHP"
 
       - name: Exercise outbound HTTP against a loopback responder
         working-directory: installed/worker
@@ -631,7 +660,7 @@ jobs:
       - name: Retain the measured PDO comparison
         uses: actions/upload-artifact@v4
         with:
-          name: pdo-comparison-node${{ matrix.node }}-php${{ matrix.php }}
+          name: pdo-comparison-${{ matrix.guest }}-node${{ matrix.node }}-php${{ matrix.php }}
           path: installed/worker/test/results/pdo-matrix.json
           if-no-files-found: error
 

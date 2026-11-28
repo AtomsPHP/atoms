@@ -99,8 +99,11 @@ pub unsafe extern "C" fn atoms_prepare() -> *mut php::zend_module_entry {
     MODULE.name = c"atoms_bridge".as_ptr();
     MODULE.version = c"0.1.0".as_ptr();
     MODULE.build_id = concat!(env!("ATOMS_PHP_BUILD_ID"), "\0").as_ptr().cast();
-    MODULE.module_startup_func = Some(atoms_register_opcache);
-    MODULE.module_shutdown_func = Some(crypto::unload_provider);
+    // On 8.5 PHP owns both OPcache registration and the OpenSSL providers.
+    if php::PHP_VERSION_ID < 80500 {
+        MODULE.module_startup_func = Some(atoms_register_opcache);
+        MODULE.module_shutdown_func = Some(crypto::unload_provider);
+    }
     MODULE.functions = addr_of!(FUNCTIONS).cast();
 
     php::php_embed_module.name = c"wasm".as_ptr().cast_mut();

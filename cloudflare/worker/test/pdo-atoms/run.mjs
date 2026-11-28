@@ -14,10 +14,10 @@ import { parseArgs } from 'node:util';
 const here = dirname(fileURLToPath(import.meta.url));
 const worker = resolve(here, '../..');
 const repo = resolve(worker, '../..');
-const {positionals, values} = parseArgs({allowPositionals: true, options: {embed: {type: 'string'}}});
+const {positionals, values} = parseArgs({allowPositionals: true, options: {embed: {type: 'string'}, php: {type: 'string'}}});
 const [scaffoldArg, yiiArg] = positionals;
-if (!scaffoldArg || positionals.length > 2) {
-    throw new Error('Usage: node run.mjs [--embed build] <installed-scaffold> [yii2-checkout]');
+if (!scaffoldArg || positionals.length > 2 || (values.php && (!values.embed || !['8.3', '8.4', '8.5'].includes(values.php)))) {
+    throw new Error('Usage: node run.mjs [--embed build [--php 8.3|8.4|8.5]] <installed-scaffold> [yii2-checkout]');
 }
 const embed = values.embed && resolve(values.embed);
 const scaffold = resolve(scaffoldArg);
@@ -330,7 +330,7 @@ async function runFixture(selection, cliResource) {
 try {
     const cliResource = yii && prepareYii();
     const results = [];
-    for (const selection of (embed ? ['8.3'] : [undefined, '8.3', '8.4', '8.5'])) {
+    for (const selection of (embed ? [values.php ?? '8.3'] : [undefined, '8.3', '8.4', '8.5'])) {
         results.push(await runFixture(selection, cliResource));
     }
     console.log(JSON.stringify(results, null, 2));

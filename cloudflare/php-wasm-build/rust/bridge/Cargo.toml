@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+# zend_is_true returns bool starting with PHP 8.4.
+zend-bool = []
+
 [lib]
 crate-type = ["staticlib"]
 

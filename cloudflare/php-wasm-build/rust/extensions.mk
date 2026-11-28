@@ -3,7 +3,9 @@ libatoms-opcache.la: $(shared_objects_opcache)
 	$(LIBTOOL) --tag=CC --mode=link $(CC) -static -o $@ $(shared_objects_opcache)
 
 # Keep OpenSSL's SHAKE defaults at the PHP call sites that supply the buffers.
-ext/openssl/openssl.lo: EXTRA_CFLAGS += -DEVP_MD_get_size=atoms_php_digest_size -DEVP_DigestFinal=atoms_php_digest_final -DX509_digest=atoms_php_x509_digest
+ext/openssl/openssl.lo: EXTRA_CFLAGS += -DEVP_MD_get_size=atoms_php_digest_size -DEVP_DigestFinal=atoms_php_digest_final
+# PHP 8.5 moved the fixed-size X.509 output buffer into its common backend.
+ext/openssl/openssl.lo ext/openssl/openssl_backend_common.lo: EXTRA_CFLAGS += -DX509_digest=atoms_php_x509_digest
 
 # PHP probes external GD formats by running target binaries during configure.
 # These formats come from the locked GD build and are exercised in the guest.

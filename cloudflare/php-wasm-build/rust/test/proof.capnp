@@ -8,6 +8,8 @@ const config :Workerd.Config = (
         (name = "php.mjs", esModule = embed "php.mjs"),
         (name = "php.wasm", wasm = embed "php.wasm"),
         (name = "pdo-runtime.js", esModule = embed "pdo-runtime.js"),
+        (name = "expected-version.txt", text = embed "expected-version.txt"),
+        (name = "syntax.php", text = embed "syntax.php"),
         (name = "guest.php", text = embed "guest.php"),
         (name = "timestamps.php", text = embed "timestamps.php"),
         (name = "parity.php", text = embed "parity.php"),
