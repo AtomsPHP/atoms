@@ -95,23 +95,13 @@ compile -C src install
 compile install-pkgconfigDATA
 
 unpack curl
-(
-    curl_flags=(--with-ssl="$prefix")
-    if grep -q '^#define LIBCURL_VERSION_MAJOR 8$' include/curl/curlver.h; then
-        # Follow Playground's PHP 8.6 protocol set and yielding select() shim.
-        export ac_cv_func_poll=no
-        curl_flags=(--with-openssl="$prefix" --without-libpsl --enable-ntlm
-            --disable-ipfs --disable-mqtt --disable-websockets)
-    else
-        # curl 7.69 predates the Emscripten host tuple in GNU config.sub.
-        cp /usr/share/misc/config.sub ./config.sub
-    fi
-    configure "${curl_flags[@]}" --with-zlib="$prefix" --without-libidn2 \
-        --without-brotli --without-libssh2 --without-nghttp2 --disable-ldap --disable-ldaps \
-        --disable-pop3 --disable-imap --disable-smb --disable-smtp --disable-telnet \
-        --disable-gopher --disable-ftp --disable-rtsp --disable-tftp \
-        --disable-pthreads --disable-threaded-resolver
-)
+# curl 7.69 predates the Emscripten host tuple in GNU config.sub.
+cp /usr/share/misc/config.sub ./config.sub
+configure --with-ssl="$prefix" --with-zlib="$prefix" --without-libidn2 \
+    --without-brotli --without-libssh2 --without-nghttp2 --disable-ldap --disable-ldaps \
+    --disable-pop3 --disable-imap --disable-smb --disable-smtp --disable-telnet \
+    --disable-gopher --disable-ftp --disable-rtsp --disable-tftp \
+    --disable-pthreads --disable-threaded-resolver
 compile -C lib
 compile -C lib install
 compile -C include install
